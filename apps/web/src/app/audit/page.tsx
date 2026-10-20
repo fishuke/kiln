@@ -29,9 +29,9 @@ export default async function Audit({ searchParams }: { searchParams: Promise<{ 
             <Link
               key={a ?? "all"}
               href={`/audit${a || sp.q ? `?${new URLSearchParams({ ...(a ? { area: a } : {}), ...(sp.q ? { q: sp.q } : {}) })}` : ""}`}
-              className={cn("rounded-full border px-2.5 py-0.5 capitalize text-muted-foreground hover:text-foreground", sp.area === a && "border-foreground bg-muted font-medium text-foreground")}
+              className={cn("rounded-full border px-2.5 py-0.5 text-muted-foreground hover:text-foreground", sp.area === a && "border-foreground bg-muted font-medium text-foreground")}
             >
-              {a ?? "All"}
+              {a ? (a === "mcp" ? "MCP" : a[0]!.toUpperCase() + a.slice(1)) : "All"}
             </Link>
           ))}
         </nav>

@@ -27,6 +27,7 @@ When both scopes have a secret with the same name, a run you triggered gets your
 | `aws_ecr` | `{ roleArn, region }` (team scope only) | Nothing in the environment. It is an image credential. See [Private images](#private-images). |
 | `anthropic_api_key` | a string | `ANTHROPIC_API_KEY` |
 | `claude_oauth_token` | a string from `claude setup-token` | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `chatgpt_auth` | Codex's `auth.json` from a ChatGPT sign-in (use **Sign in with ChatGPT** under Team settings → Model keys) | Nothing in the environment. Codex runs get it as their `auth.json`. See [ChatGPT logins](../infrastructure/harnesses.md#chatgpt-logins). |
 | `anthropic_bedrock_api_key` | a string, or `{ apiKey, region }` | `AWS_BEARER_TOKEN_BEDROCK`, `AWS_REGION`, `CLAUDE_CODE_USE_BEDROCK=1` |
 | `anthropic_bedrock_access_key` | `{ accessKeyId, secretAccessKey, sessionToken?, region }` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`, `CLAUDE_CODE_USE_BEDROCK=1` |
 | `openai_api_key` | a string | `OPENAI_API_KEY` |

@@ -3,6 +3,7 @@ import { ApiDown, PageHeader } from "@/components/kiln/ui";
 import { ActionRow, SettingsColumn, SettingsSection } from "@/components/kiln/settings-blocks";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, safe } from "@/lib/kiln";
+import { ChatgptLogins } from "./chatgpt-logins";
 import { DataStorage, HostAndRoles, LeaveTeam, ListSetting, ModelKeys, SpendLimit } from "./config";
 import { NewTeamButton } from "./new-team";
 import { FactoryMembers, GeneralForm, Invites, MembersTable } from "./people";
@@ -45,13 +46,14 @@ export default async function TeamSettingsPage() {
   }
   const id = current.id;
   const canEdit = me.role === "owner" || me.role === "admin";
-  const [detail, members, invites, settings, modelKeys, pool] = await Promise.all([
+  const [detail, members, invites, settings, modelKeys, pool, chatgptLogins] = await Promise.all([
     safe(() => api.team(id), null),
     safe(() => api.teamMembers(id), []),
     canEdit ? safe(() => api.invites(id), []) : Promise.resolve([]),
     safe(() => api.teamSettings(id), null),
     canEdit ? safe(() => api.modelKeys(id) as Promise<Partial<Awaited<ReturnType<typeof api.modelKeys>>>>, {}) : Promise.resolve({}),
     canEdit ? safe(() => api.claudeTokens(id), []) : Promise.resolve([]),
+    safe(() => api.chatgptLogins(id), []),
   ]);
   if (!detail || !settings) return <ApiDown />;
   const factoryRows = await Promise.all(detail.factories.map(async (f) => ({ f, rows: await safe(() => api.factoryMembers(f.id), []) })));
@@ -106,9 +108,12 @@ export default async function TeamSettingsPage() {
 
         <SettingsSection id="model-keys" title="Model keys">
           {canEdit ? (
-            <ModelKeys team={id} keys={modelKeys} pool={pool} canEdit={canEdit} />
+            <ModelKeys team={id} keys={modelKeys} pool={pool} canEdit={canEdit} chatgpt={<ChatgptLogins team={id} logins={chatgptLogins} isAdmin />} />
           ) : (
-            <p className="text-sm text-muted-foreground">Team owners and admins manage the team&apos;s model keys. You can add your own keys as personal secrets.</p>
+            <>
+              <ChatgptLogins team={id} logins={chatgptLogins} isAdmin={false} />
+              <p className="text-sm text-muted-foreground">Team owners and admins manage the team&apos;s model keys. You can add your own keys as personal secrets.</p>
+            </>
           )}
         </SettingsSection>
 

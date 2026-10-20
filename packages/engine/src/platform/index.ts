@@ -4,6 +4,7 @@ export * from "./teams";
 export * from "./accounts";
 export * from "./vault";
 export * from "./credential-pool";
+export * from "./chatgpt";
 export * from "./mcp";
 export * from "./environments";
 export * from "./usage";

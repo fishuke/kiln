@@ -28,7 +28,7 @@ import { ImprovementService, RuleImprover, type Improver } from "./improvement";
 import { InboxService } from "./inbox";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
-import { AccountService, CredentialPool, EnvironmentService, McpRegistry, NotificationService, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
+import { AccountService, ChatgptSignIn, CredentialPool, EnvironmentService, McpRegistry, NotificationService, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
 import { PlanningService, type Planner } from "./planning";
 import { RunQuery } from "./run-query";
 import { RunService } from "./runs";
@@ -161,6 +161,7 @@ export class Kiln {
   readonly accounts: AccountService;
   readonly vault: SecretVault;
   readonly credentialPool: CredentialPool;
+  readonly chatgptSignIn: ChatgptSignIn;
   readonly githubApp: GitHubAppService;
   readonly oauth: OAuthService;
   readonly mcp: McpRegistry;
@@ -216,6 +217,7 @@ export class Kiln {
     this.accounts = new AccountService(this);
     this.vault = new SecretVault(this);
     this.credentialPool = new CredentialPool(this);
+    this.chatgptSignIn = new ChatgptSignIn(this);
     this.githubApp = new GitHubAppService(this);
     this.oauth = new OAuthService(this);
     this.mcp = new McpRegistry(this);

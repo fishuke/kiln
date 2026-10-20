@@ -87,7 +87,7 @@ async function guarded(spec: SandboxSpec, command: string): Promise<void> {
   throw new CommandBlocked(command, verdict);
 }
 
-function shellQuote(s: string): string {
+export function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 

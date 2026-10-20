@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { FactoryRole, ModelKeyProvider, TeamRole, TeamSettings } from "@kiln/sdk-ts";
+import type { ChatgptSignIn, FactoryRole, ModelKeyProvider, TeamRole, TeamSettings } from "@kiln/sdk-ts";
 import { attempt, type ActionResult } from "@/lib/action-result";
 import { api } from "@/lib/kiln";
 import { setTeam } from "@/lib/web-session";
@@ -138,4 +138,36 @@ export async function removeFactoryMember(factory: string, userId: string): Prom
   const r = await attempt(() => api.removeFactoryMember(factory, userId), "Factory role removed");
   if (r.ok) refresh();
   return plain(r);
+}
+
+/** Starts "Sign in with ChatGPT": a link and a one-time code to approve on auth.openai.com. */
+export async function startChatgptSignIn(team: string, name: string, scope: "team" | "personal"): Promise<ActionResult<ChatgptSignIn>> {
+  return attempt(() => api.startChatgptSignIn(team, { name: name.trim(), scope }));
+}
+
+/** Where a ChatGPT sign-in is: still waiting for approval, stored, failed or cancelled. */
+export async function chatgptSignInStatus(team: string, id: string): Promise<ActionResult<ChatgptSignIn>> {
+  const r = await attempt(() => api.chatgptSignIn(team, id));
+  if (r.ok && r.data?.status === "succeeded") refresh();
+  return r;
+}
+
+export async function cancelChatgptSignIn(team: string, id: string): Promise<ActionResult> {
+  return plain(await attempt(() => api.cancelChatgptSignIn(team, id)));
+}
+
+export async function deleteChatgptLogin(scope: "team" | "personal", name: string): Promise<ActionResult> {
+  const r = await attempt(() => api.deleteManagedSecret(scope, name), "Login removed");
+  if (r.ok) refresh();
+  return plain(r);
+}
+
+/** One minimal Codex run with the login: whether it still works. */
+export async function checkChatgptLogin(team: string, name: string): Promise<ActionResult> {
+  const r = await attempt(() => api.checkChatgptLogin(team, name));
+  if (r.ok) refresh();
+  if (!r.ok) return r;
+  const e = r.data!;
+  if (e.status === "invalid") return { ok: false, error: `${name} was signed out: ${e.error ?? "rejected"}. Sign in again.` };
+  return e.status === "limited" ? { ok: true, message: `${name} works but has hit its plan's limit` } : { ok: true, message: `${name} works` };
 }

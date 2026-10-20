@@ -71,6 +71,11 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | DELETE | `/api/v1/teams/{team}/model-keys/{provider}` | — | Remove a team-managed model key |
 | GET | `/api/v1/teams/{team}/claude-tokens` | — | The team's Claude subscription tokens with status and 5-hour and 7-day usage |
 | POST | `/api/v1/teams/{team}/claude-tokens/{name}/check` | — | Check a Claude token with one minimal run (uses a little of its quota) |
+| GET | `/api/v1/teams/{team}/chatgpt-logins` | — | The team's ChatGPT logins (and yours) with status and usage |
+| POST | `/api/v1/teams/{team}/chatgpt-logins/sign-in` | — | Sign in with ChatGPT: returns a link and a one-time code to approve |
+| GET | `/api/v1/teams/{team}/chatgpt-logins/sign-in/{id}` | — | A ChatGPT sign-in: pending, succeeded, failed or cancelled |
+| DELETE | `/api/v1/teams/{team}/chatgpt-logins/sign-in/{id}` | — | Cancel a pending ChatGPT sign-in |
+| POST | `/api/v1/teams/{team}/chatgpt-logins/{name}/check` | — | Check a ChatGPT login with one minimal Codex run (uses a little of its quota) |
 
 ## Integrations
 

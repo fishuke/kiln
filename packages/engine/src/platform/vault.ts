@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { Kiln } from "../kiln";
+import { canonicalChatgptAuth } from "./chatgpt";
 import { P, PlatformError, type ManagedSecret, type SecretMeta, type SecretType } from "./types";
 
 export const MAX_SECRET_BYTES = 128 * 1024;
@@ -15,6 +16,10 @@ export const SECRET_VALUE: Record<SecretType, z.ZodType> = {
   aws_ecr: z.object({ roleArn: z.string().regex(/^arn:aws[\w-]*:iam::\d{12}:role\/.+$/, "expected an IAM role ARN"), region: str }).strict(),
   anthropic_api_key: str,
   claude_oauth_token: str,
+  // Codex's auth.json from "Sign in with ChatGPT"; written to the sandbox as a file, not an env var.
+  chatgpt_auth: str
+    .transform((v) => canonicalChatgptAuth(v) ?? "")
+    .refine((v) => v !== "", "expected Codex's auth.json from a ChatGPT sign-in (with a refresh token)"),
   anthropic_bedrock_api_key: z.union([str, z.object({ apiKey: str, region: str.optional() }).strict()]),
   anthropic_bedrock_access_key: z.object({ accessKeyId: str, secretAccessKey: str, sessionToken: str.optional(), region: str }).strict(),
   openai_api_key: str,
@@ -162,6 +167,12 @@ export class SecretVault {
     if (!owner) return undefined;
     const s = this.k.store.get<ManagedSecret>(P.secrets, this.id(scope, owner, name));
     return s ? { type: s.type, value: this.unseal(s.value) } : undefined;
+  }
+
+  /** A secret's value by its exact scope and owner, only when it has this type (never through name resolution). */
+  typedValue(scope: "team" | "personal", owner: string, name: string, type: SecretType): unknown {
+    const v = this.value(scope, owner, name);
+    return v?.type === type ? v.value : undefined;
   }
 
   /** Registry credentials for a runner image (docker_registry or aws_ecr), team scope. */

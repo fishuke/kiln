@@ -4,7 +4,7 @@ export type HarnessId = "claude-code" | "codex" | "opencode" | "gemini" | "pi";
 
 export const HARNESSES: { id: HarnessId; label: string; authHint: string }[] = [
   { id: "claude-code", label: "Claude Code", authHint: "An Anthropic API key or a Claude subscription token (CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`)." },
-  { id: "codex", label: "Codex", authHint: "An OpenAI API key (OPENAI_API_KEY)." },
+  { id: "codex", label: "Codex", authHint: "A ChatGPT login (Sign in with ChatGPT under Team settings) or an OpenAI API key (OPENAI_API_KEY)." },
   { id: "opencode", label: "OpenCode", authHint: "The provider key OpenCode should use, e.g. ANTHROPIC_API_KEY or OPENROUTER_API_KEY." },
   { id: "gemini", label: "Gemini CLI", authHint: "A Gemini API key (GEMINI_API_KEY)." },
   { id: "pi", label: "Pi", authHint: "The provider key Pi should use." },

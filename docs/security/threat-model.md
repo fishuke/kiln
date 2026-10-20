@@ -31,6 +31,7 @@ Kiln runs coding agents on untrusted input (issues, Slack threads, PR comments, 
 
 ## Known gaps
 - Codex and OpenCode tool calls are not individually guarded (see ADR-004).
+- A ChatGPT login is a whole ChatGPT session, not an inference-only key: the agent in a Codex run can read its `auth.json` and, with `chatgpt.com` allowed, reach that account's ChatGPT data. Kiln keeps a refreshed `auth.json` only when it is the same account with a newer refresh, but cannot stop an agent from copying the tokens out. Egress allowlists are global, so allowing `chatgpt.com` and `auth.openai.com` for ChatGPT logins allows them for every sandbox. Use dedicated ChatGPT accounts for team logins.
 - The local sandbox provider runs on the host and cannot enforce egress or limits; use Docker or Kubernetes in production.
 - OIDC sign-in is not built; the web app uses a server-side token. Put it behind your SSO proxy.
 - Secrets are stored in the data directory unencrypted; mount it on an encrypted volume or use a secrets manager.

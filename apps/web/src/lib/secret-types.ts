@@ -6,6 +6,7 @@ export type SecretTypeId =
   | "aws_ecr"
   | "anthropic_api_key"
   | "claude_oauth_token"
+  | "chatgpt_auth"
   | "anthropic_bedrock_api_key"
   | "anthropic_bedrock_access_key"
   | "openai_api_key"
@@ -52,6 +53,13 @@ export const SECRET_TYPES: SecretTypeMeta[] = [
   },
   { id: "anthropic_api_key", label: "Anthropic API key", group: "Harness credentials", placeholder: "sk-ant-api03-…", gives: () => "ANTHROPIC_API_KEY" },
   { id: "claude_oauth_token", label: "Claude subscription token", group: "Harness credentials", placeholder: "Paste the token from `claude setup-token`", gives: () => "CLAUDE_CODE_OAUTH_TOKEN" },
+  {
+    id: "chatgpt_auth",
+    label: "ChatGPT login (Codex)",
+    group: "Harness credentials",
+    placeholder: "Paste ~/.codex/auth.json, or use Sign in with ChatGPT under Team settings",
+    gives: () => "Nothing in the environment. Codex runs get it as their auth.json.",
+  },
   {
     id: "anthropic_bedrock_api_key",
     label: "Anthropic on Bedrock: API key",

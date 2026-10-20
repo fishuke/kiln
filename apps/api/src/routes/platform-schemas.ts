@@ -38,6 +38,7 @@ export const MemberRole = z.object({ role: z.enum(TEAM_ROLES) }).strict();
 export const CreateInvite = z.object({ email, role: z.enum(TEAM_ROLES).default("member") }).strict();
 export const AcceptInvite = z.object({ token: z.string().min(1) }).strict();
 export const TeamSettingsPatch = TeamSettings.partial();
+export const ChatgptSignIn = z.object({ name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/, "use letters, digits and underscores"), scope: z.enum(["team", "personal"]).default("team") }).strict();
 export const ModelKey = z.object({ value: z.union([z.string().min(1), z.record(z.string(), z.string())]) }).strict();
 
 export const FactoryMemberInput = z

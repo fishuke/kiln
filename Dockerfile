@@ -18,4 +18,4 @@ EXPOSE 4000
 COPY deploy/docker-entrypoint.sh /usr/local/bin/kiln-entrypoint
 # Starts as root only to join the Docker socket's group, then runs as node.
 ENTRYPOINT ["kiln-entrypoint"]
-CMD ["node", "--import", "tsx", "apps/api/src/main.ts"]
+CMD ["node", "--import", "tsx", "--import", "./apps/api/src/instrumentation.ts", "apps/api/src/main.ts"]

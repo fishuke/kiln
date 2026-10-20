@@ -68,6 +68,8 @@ const executionShape = {
   workerHost: WorkerHost.or(z.literal("")).nullable().optional(),
   /** Model for computer use (screenshots, recordings). Omit for automatic selection. */
   computerUseModel: z.string().nullable().optional(),
+  /** Turn computer use (screenshots, recordings of the running app) on or off. */
+  computerUse: z.boolean().nullable().optional(),
 };
 
 export const Repository = z
@@ -111,6 +113,10 @@ export const Factory = z
     integrations: z.array(z.enum(["github", "gitlab", "slack", "linear", "jira"])).default([]),
     credentialStrategy: CredentialStrategy.optional(),
     networkPolicy: NetworkPolicy.optional(),
+    /** Avatar image: a URL or an uploaded file key. */
+    avatar: z.string().optional(),
+    /** Cloud identities agents may assume (e.g. aws.roleArn, gcp workload identity). */
+    cloudProviders: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
     agentDefaults: z.object(executionShape).strict(),
     /** Runner, secrets and MCP servers for scorer judge runs. */
     scorerDefaults: z.object({ runner: z.string().optional(), secrets: z.array(z.string()).optional(), mcpServers: z.array(z.string()).optional() }).strict().optional(),
@@ -126,6 +132,8 @@ export const Factory = z
         maxAgeDays: z.number().int().min(1).max(90).default(7),
         /** Model for the self-improvement analysis run. */
         model: z.string().optional(),
+        /** Scorers whose failures feed self-improvement (slugs, or slug → on/off). */
+        scorers: z.union([z.array(z.string()), z.record(z.string(), z.boolean())]).optional(),
         reviewers: z
           .object({
             type: z.enum(["admins", "team", "custom", "none"]).default("admins"),
@@ -287,6 +295,8 @@ const RunnerInput = z
     /** v1alpha1 name for `shape`. */
     instanceShape: Shape.optional(),
     platform: RunnerPlatform.optional(),
+    /** Secret holding registry credentials for a private image. */
+    registryCredentialSecretName: z.string().optional(),
     setupCommands: z.array(z.string()).default([]),
     egress: z.array(z.string()).default([]),
     /** Keep a failed run's sandbox this many minutes so it can be inspected. */

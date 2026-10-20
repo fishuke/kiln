@@ -460,7 +460,14 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   app.get("/api/v1/inbox", (c) => {
     const assignee = c.req.query("all") ? undefined : (c.req.query("assignee") ?? (options.devAuth ? undefined : who(c)));
     const gates = kiln.gates.inbox(assignee).filter((g) => visible(c, g.factory));
-    return c.json(gates.map((g) => ({ ...g, workItem: summarizeItem(kiln, g.workItemId) })));
+    const user = who(c);
+    return c.json(
+      gates.map((g) => {
+        const q = g.questions?.[0];
+        const s = kiln.inbox.gateState(user, g.id);
+        return { ...g, ...(q ? { options: q.options, multiSelect: q.type === "multi_select", recommendedOptionIndex: q.recommendedOptionIndex } : {}), read: s.read, resolved: s.resolved, workItem: summarizeItem(kiln, g.workItemId) };
+      }),
+    );
   });
   app.get("/api/v1/gates/:id", (c) => {
     const g = kiln.gates.get(c.req.param("id"));

@@ -6,8 +6,8 @@ import type { Route } from "../openapi";
 import { restOf } from "./util";
 
 export const routes: Route[] = [
-  { method: "post", path: "/api/v1/uploads", summary: "Upload files (multipart, up to 25 files of 25 MB) to attach to tasks, messages and follow-ups", scope: "send", tag: "Files" },
-  { method: "get", path: "/api/v1/files/{key}", summary: "Download a stored file (uploads, run artifacts, evidence) with its content type", scope: "read", tag: "Files" },
+  { method: "post", path: "/api/v1/uploads", summary: "Upload files (multipart, up to 25 files of 25 MB): {key, name, contentType, size} of the first plus `attachments`", scope: "send", tag: "Files" },
+  { method: "get", path: "/api/v1/files/{key}", summary: "Download a stored file (uploads, run artifacts, evidence) with its content type; supports Range", scope: "read", tag: "Files" },
 ];
 
 /** Uploads and file downloads. */
@@ -27,7 +27,8 @@ export function register({ app, kiln, need, who }: RouteContext) {
     for (const f of files) if (f.size > UPLOAD_LIMITS.maxFileBytes) throw new HttpError(400, `${f.name} is larger than 25 MB`);
     const attachments = [];
     for (const f of files) attachments.push(await kiln.files.upload({ name: f.name, contentType: f.type, bytes: new Uint8Array(await f.arrayBuffer()), uploader: who(c), factory }));
-    return c.json({ attachments }, 201);
+    // One file: the attachment itself ({key, name, contentType, size}); always also the list.
+    return c.json({ ...attachments[0]!, attachments }, 201);
   });
 
   app.get("/api/v1/files/*", async (c) => {
@@ -41,10 +42,26 @@ export function register({ app, kiln, need, who }: RouteContext) {
     if (!allowed) throw new HttpError(403, "you cannot read this file");
     const file = await kiln.files.read(key);
     if (!file) throw new HttpError(404, "unknown file");
-    return new Response(file.bytes, {
+    const total = file.bytes.byteLength;
+    // Range requests let browsers seek in recordings.
+    const range = /^bytes=(\d*)-(\d*)$/.exec(c.req.header("range") ?? "");
+    let body = file.bytes;
+    let status = 200;
+    const extra: Record<string, string> = { "accept-ranges": "bytes" };
+    if (range && (range[1] || range[2])) {
+      const start = range[1] ? Number(range[1]) : Math.max(0, total - Number(range[2]));
+      const end = range[1] && range[2] ? Math.min(Number(range[2]), total - 1) : total - 1;
+      if (start >= total || start > end) return new Response(null, { status: 416, headers: { "content-range": `bytes */${total}` } });
+      body = file.bytes.subarray(start, end + 1);
+      status = 206;
+      extra["content-range"] = `bytes ${start}-${end}/${total}`;
+    }
+    return new Response(body, {
+      status,
       headers: {
+        ...extra,
         "content-type": file.contentType,
-        "content-length": String(file.bytes.byteLength),
+        "content-length": String(body.byteLength),
         "content-disposition": `${/^(image|video)\//.test(file.contentType) ? "inline" : "attachment"}; filename="${file.name.replace(/"/g, "")}"`,
         "cache-control": "private, max-age=300",
         "x-content-type-options": "nosniff",

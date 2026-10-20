@@ -181,10 +181,18 @@ export class InboxService {
     return { items, pageInfo, unread: mine ? rows.filter((i) => !i.isRead).length : undefined };
   }
 
+  /** Read and resolved flags of a gate for one person (the web inbox lists gates). */
+  gateState(user: string, gateId: string): { read: boolean; resolved: boolean } {
+    const s = this.k.store.get<InboxState>(C.inboxState, `${user}|gate:${gateId}`);
+    return { read: s?.read ?? false, resolved: Boolean(s?.resolvedAt) };
+  }
+
   private setState(user: string, ids: string[], patch: Partial<Pick<InboxState, "read" | "resolvedAt">> & { clearResolved?: boolean }) {
     const known = new Set(this.all().map((i) => i.id));
-    return ids.map((itemId) => {
-      if (!known.has(itemId)) return { id: itemId, ok: false };
+    return ids.map((given) => {
+      // Bare gate ids (as the web inbox sends them) mean the gate's item.
+      const itemId = known.has(given) || !known.has(`gate:${given}`) ? given : `gate:${given}`;
+      if (!known.has(itemId)) return { id: given, ok: false };
       const id = `${user}|${itemId}`;
       const prev = this.k.store.get<InboxState>(C.inboxState, id);
       const next: InboxState = { id, user, itemId, read: prev?.read ?? false, ...(prev?.resolvedAt ? { resolvedAt: prev.resolvedAt } : {}), updatedAt: this.k.clock.now().toISOString() };
@@ -192,7 +200,7 @@ export class InboxService {
       if (patch.resolvedAt) next.resolvedAt = patch.resolvedAt;
       if (patch.clearResolved) delete next.resolvedAt;
       this.k.store.put(C.inboxState, next);
-      return { id: itemId, ok: true };
+      return { id: given, ok: true };
     });
   }
 

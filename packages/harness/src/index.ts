@@ -3,6 +3,8 @@ import type { Proc, Sandbox } from "@kiln/sandbox";
 
 export type HarnessEvent =
   | { type: "message"; text: string }
+  /** The model's thinking, when the harness exposes it; `durationMs` is how long it thought. */
+  | { type: "reasoning"; text: string; durationMs?: number }
   | { type: "tool_call"; name: string; input?: unknown }
   | { type: "tool_result"; name?: string; output?: string; isError?: boolean }
   | { type: "steer"; text: string }
@@ -133,7 +135,11 @@ abstract class CliSession implements HarnessSession {
     this.result = new Promise((r) => (this.resolve = r));
   }
 
+  /** When the last event arrived, to time the model's thinking. */
+  protected lastEventAt = Date.now();
+
   protected emit(e: HarnessEvent) {
+    this.lastEventAt = Date.now();
     this.events.push(e);
   }
 
@@ -232,7 +238,10 @@ class ClaudeSession extends CliSession {
     if (!msg) return;
     if (msg.type === "assistant") {
       this.turns++;
+      const now = Date.now();
       for (const c of msg.message?.content ?? []) {
+        // Thinking time: from the previous event to this message.
+        if (c.type === "thinking" && c.thinking) this.emit({ type: "reasoning", text: c.thinking, durationMs: this.lastEventAt ? now - this.lastEventAt : undefined });
         if (c.type === "text") this.emit({ type: "message", text: c.text });
         if (c.type === "tool_use") this.emit({ type: "tool_call", name: c.name, input: c.input });
       }

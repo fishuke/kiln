@@ -281,6 +281,7 @@ export class KilnClient {
   runTranscript = (id: string) => this.text(`/api/v1/runs/${id}/transcript`);
   runScores = (id: string) => this.request<{ scores: (Record<string, unknown> & { scorer: string; classification: string; score: number; outcome: "pass" | "fail" })[] }>("GET", `/api/v1/runs/${id}/scores`);
   followup = (id: string, message: string, opts: { attachments?: (string | Attachment)[]; mode?: RunMode } = {}) => this.request<{ delivered: "steered" | "continued"; run: RunView }>("POST", `/api/v1/runs/${id}/followups`, { message, ...opts });
+  scoreRunNow = (id: string, scorers?: string[]) => this.request<{ results: { runId: string; scorer: string; status: string }[]; scores: Record<string, unknown>[] }>("POST", `/api/v1/runs/${id}/score`, scorers ? { scorers } : {});
   interrupt = (id: string) => this.request<{ ok: true }>("POST", `/api/v1/runs/${id}/interrupt`);
   spawn = (id: string, input: SpawnInput) => this.request<RunView>("POST", `/api/v1/runs/${id}/spawn`, input);
   runAgents = (id: string, runs: Omit<SpawnInput, "wait">[], wait?: boolean) => this.request<{ runs: RunView[] }>("POST", `/api/v1/runs/${id}/run-agents`, { runs, wait });
@@ -294,7 +295,7 @@ export class KilnClient {
     const form = new FormData();
     for (const f of files) form.append("files", f.bytes instanceof Blob ? f.bytes : new Blob([f.bytes as never], { type: f.contentType ?? "application/octet-stream" }), f.name);
     if (factory) form.append("factory", factory);
-    return this.request<{ attachments: Attachment[] }>("POST", "/api/v1/uploads", form);
+    return this.request<Attachment & { attachments: Attachment[] }>("POST", "/api/v1/uploads", form);
   };
   file = async (key: string) => {
     const res = await (this.options.fetch ?? fetch)(`${this.options.baseUrl.replace(/\/$/, "")}/api/v1/files/${key.split("/").map(encodeURIComponent).join("/")}`, { headers: this.options.token ? { authorization: `Bearer ${this.options.token}` } : {} } as RequestInit);

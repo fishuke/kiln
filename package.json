@@ -1,6 +1,7 @@
 {
   "name": "kiln",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@10.25.0",
   "engines": {
     "node": ">=22"
@@ -19,7 +20,8 @@
     "dev:web": "pnpm --filter @kiln/web dev",
     "dev:up": "docker compose up -d --build",
     "health": "node scripts/health.mjs",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "smoke:claude": "tsx scripts/smoke-claude.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

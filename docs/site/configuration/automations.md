@@ -161,6 +161,10 @@ The older `filter: { webhook: sentry }` is still accepted. Authentication, deliv
 
 Kiln keeps a log of recent provider deliveries (`GET /api/v1/deliveries`, admins) and of custom webhook deliveries. `POST /api/v1/factories/<id>/automations/<name>/test-filter` with `{ "deliveryId": "<id>" }` evaluates the automation's triggers against one of them and returns `wouldTrigger` with every check's outcome.
 
+## Run now
+
+`POST /api/v1/factories/<id>/automations/<name>/run` (the **Run now** button) starts an enabled automation by hand, with its prompt and execution overrides, as the person who asked. It needs `send` on the factory, answers `{ "workItemId": "…" }`, and refuses a disabled automation with 409.
+
 ## Dedupe and follow-ups
 
 Providers retry deliveries. Kiln remembers each delivery ID (GitHub's `X-GitHub-Delivery`, Slack's `event_id`, Linear's `Linear-Delivery`, Jira's `X-Atlassian-Webhook-Identifier`, GitLab's `X-Gitlab-Event-UUID`, and so on) for 7 days and ignores repeats, across restarts.

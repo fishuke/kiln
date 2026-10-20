@@ -152,10 +152,12 @@ describe("inbox, scorers, metrics and definitions API", () => {
     expect(kiln.defs.current("webapp").agents.docs).toBeDefined();
     const bad = await admin.request("POST", "/api/v1/factories/webapp/files:batch", { message: "Break it", changes: [{ path: "agents/docs/agent.md", content: "---\nagentType: NOPE\n---\n" }] }).catch((e: { status: number }) => e.status);
     expect(bad).toBe(400);
-    await admin.putAgent("webapp", "docs", { prompt: "Write better docs.", workerHost: "farm" });
+    await admin.putAgent("webapp", "docs", { prompt: "Write better docs.", workerHost: "farm", computerUse: false });
     expect(kiln.defs.current("webapp").agents.docs!.workerHost).toBe("farm");
+    expect((await admin.readFile("webapp", "agents/docs/agent.md")).content).toContain("computerUse: false");
     expect((await admin.readFile("webapp", "agents/docs/agent.md")).content).toContain("Write better docs.");
-    await admin.updateSettings("webapp", { description: "The storefront", benchmarkingModel: "claude-fable-5-1" });
+    await admin.updateSettings("webapp", { description: "The storefront", benchmarkingModel: "claude-fable-5-1", avatar: "uploads/logo.png", cloudProviders: { aws: { roleArn: "arn:aws:iam::123456789012:role/kiln" } } });
+    expect(kiln.defs.current("webapp").factory).toMatchObject({ avatar: "uploads/logo.png", cloudProviders: { aws: { roleArn: "arn:aws:iam::123456789012:role/kiln" } } });
     expect(await admin.settings("webapp")).toMatchObject({ benchmarkingModel: "claude-fable-5-1" });
   });
 

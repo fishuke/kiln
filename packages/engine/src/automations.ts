@@ -1,6 +1,7 @@
 import { webhookIdOf, type ResolvedAutomation, type ResolvedFactory } from "@kiln/definitions";
 import type { IncomingEvent } from "@kiln/integrations";
 import { ALIAS_KEYS, parseCron, type IntegrationSettings, type Trigger } from "@kiln/schema";
+import { KilnError } from "./errors";
 import type { Kiln } from "./kiln";
 import { evaluateTrigger, STAGE_OF_STATE, type AliasMap, type CheckOutcome } from "./matchers";
 import { C, newId, type Attachment, type ExecutionOverrides, type WorkItem } from "./types";
@@ -400,6 +401,20 @@ export class AutomationService {
   // Schedules
 
   /** Fire due schedule triggers. Each schedule keeps its last fire time in the store. */
+  /** "Run now": start an automation by hand, as the person who asked, with its prompt and overrides. */
+  async runNow(factory: string, name: string, by: string): Promise<WorkItem & { deduplicated?: { into: string; reason: string; score: number } }> {
+    const f = this.k.defs.require(factory);
+    if (!f.appliedSha) throw new KilnError("resource_not_found", `factory ${factory} has no applied definition`);
+    const resolved = this.k.defs.resolved(f.appliedSha);
+    const a = resolved.automations[name];
+    if (!a) throw new KilnError("resource_not_found", `unknown automation ${name} in ${factory}`);
+    if (!a.enabled) throw new KilnError("conflict", `automation ${name} is disabled; enable it before running it`);
+    const at = this.k.clock.now().toISOString();
+    const ev: IncomingEvent = { provider: "factory", event: "manual_run", deliveryId: `manual:${factory}/${name}@${at}`, data: { title: `${name} (run now)`, author: by, authorIsSelf: false } };
+    this.k.audit(by, "automation.run", `${factory}/${name}`);
+    return this.start(factory, resolved, a, ev);
+  }
+
   async tick() {
     const now = this.k.clock.now();
     for (const f of this.k.defs.list()) {

@@ -664,6 +664,8 @@ export class KilnClient {
   addAutomationFromTemplate = (factory: string, template: string, name?: string) => this.request<{ applied: boolean; files: Record<string, string>; reason?: string }>("POST", `/api/v1/factories/${encodeURIComponent(factory)}/automations/from-template`, { template, name });
   automationCatalog = () => this.request<{ providers: Record<string, Record<string, Record<string, string>>>; defaults: Record<string, unknown> }>("GET", "/api/v1/automation-catalog");
   deliveries = (opts: { provider?: string; limit?: number } = {}) => this.request<EventDelivery[]>("GET", `/api/v1/deliveries${this.q(opts)}`);
+  runAutomation = (factory: string, automation: string) =>
+    this.request<{ workItemId: string; deduplicated?: { into: string; reason: string; score: number } }>("POST", `/api/v1/factories/${encodeURIComponent(factory)}/automations/${encodeURIComponent(automation)}/run`);
   testFilter = (factory: string, automation: string, deliveryId: string) => this.request<TestFilterResult>("POST", `/api/v1/factories/${encodeURIComponent(factory)}/automations/${encodeURIComponent(automation)}/test-filter`, { deliveryId });
 
   // Custom webhooks

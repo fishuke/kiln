@@ -50,6 +50,7 @@ export type AgentSpec = {
   spawnableBy?: string[] | null;
   idleTimeoutMinutes?: number | null;
   computerUseModel?: string | null;
+  computerUse?: boolean | null;
   credentialStrategy?: "EXECUTOR" | "CREATOR" | null;
   networkPolicy?: { allowedHosts?: string[]; deniedHosts?: string[] } | null;
   required_repos?: { owner: string; name: string }[] | null;
@@ -73,6 +74,7 @@ export type SettingsPatch = {
   name?: string;
   alias?: string;
   description?: string | null;
+  avatar?: string | null;
   repositories?: { owner: string; name: string; forge?: "github" | "gitlab"; deferred?: boolean }[];
   addRepositories?: { owner: string; name: string; forge?: "github" | "gitlab"; deferred?: boolean }[];
   removeRepositories?: { owner: string; name: string }[];
@@ -80,6 +82,7 @@ export type SettingsPatch = {
   credentialStrategy?: "EXECUTOR" | "CREATOR" | null;
   agentDefaults?: Front;
   scorerDefaults?: Front | null;
+  cloudProviders?: Front | null;
   selfImprovement?: Front | null;
   benchmarkingModel?: string | null;
   networkPolicy?: Front | null;
@@ -262,6 +265,8 @@ export class DefinitionEditor {
     };
     set("integrations", patch.integrations);
     set("credentialStrategy", patch.credentialStrategy);
+    set("avatar", patch.avatar);
+    set("cloudProviders", patch.cloudProviders);
     if (patch.agentDefaults) f.agentDefaults = mergeKeys((f.agentDefaults as Front) ?? {}, patch.agentDefaults);
     set("scorerDefaults", patch.scorerDefaults === null ? null : patch.scorerDefaults && mergeKeys((f.scorerDefaults as Front) ?? {}, patch.scorerDefaults));
     set("selfImprovement", patch.selfImprovement === null ? null : patch.selfImprovement && mergeKeys((f.selfImprovement as Front) ?? {}, patch.selfImprovement));

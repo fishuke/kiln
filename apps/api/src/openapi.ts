@@ -147,6 +147,7 @@ const CORE: Route[] = [
   { method: "post", path: "/api/v1/factories/{id}/automations/from-template", summary: "Add a template to a Kiln-managed factory", scope: "definitions:write", body: I.FromTemplate, tag: "Automations" },
   { method: "get", path: "/api/v1/automation-catalog", summary: "Every trigger provider, event and filter key", tag: "Automations" },
   { method: "get", path: "/api/v1/deliveries", summary: "Recent provider deliveries", scope: "admin", tag: "Automations" },
+  { method: "post", path: "/api/v1/factories/{id}/automations/{name}/run", summary: "Run an automation now, as the caller", scope: "send", tag: "Automations" },
   { method: "post", path: "/api/v1/factories/{id}/automations/{name}/test-filter", summary: "Test an automation's triggers against a stored delivery", scope: "read", body: I.TestFilter, tag: "Automations" },
   { method: "get", path: "/api/v1/factories/{id}/webhooks", summary: "A factory's custom webhooks (managed and file)", scope: "read", tag: "Custom webhooks" },
   { method: "post", path: "/api/v1/factories/{id}/webhooks", summary: "Create a webhook; the secret is shown once", scope: "definitions:write", body: I.WebhookCreate, tag: "Custom webhooks" },

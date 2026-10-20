@@ -21,6 +21,16 @@ export type Scope = (typeof SCOPES)[number];
 
 export type Grant = { scope: Scope; factory: string };
 
+/**
+ * - scoped: explicit grants (bootstrap admin, CI tokens)
+ * - session: a login; acts as the user, grants come from their memberships
+ * - personal: an API key that acts as the user
+ * - agent: a team service account; read and send on the team's factories, team usage
+ * - worker: a self-hosted worker; no API scopes
+ */
+export const TOKEN_TYPES = ["scoped", "session", "personal", "agent", "worker"] as const;
+export type TokenType = (typeof TOKEN_TYPES)[number];
+
 export type ApiToken = {
   id: string;
   name: string;
@@ -30,6 +40,13 @@ export type ApiToken = {
   createdAt: string;
   expiresAt?: string;
   revoked?: boolean;
+  type?: TokenType;
+  /** Set for session and personal tokens: grants are computed from the user's memberships. */
+  userId?: string;
+  /** The team an agent or worker key belongs to. */
+  teamId?: string;
+  createdBy?: string;
+  lastUsedAt?: string;
 };
 
 const COLLECTION = "api_tokens";
@@ -40,7 +57,7 @@ function hash(raw: string): string {
 
 export function issueToken(
   store: Store,
-  input: { name: string; subject: string; grants: Grant[]; ttlHours?: number; now?: Date },
+  input: { name: string; subject: string; grants: Grant[]; ttlHours?: number; now?: Date; type?: TokenType; userId?: string; teamId?: string; createdBy?: string },
 ): { token: string; record: ApiToken } {
   const id = `tok_${randomBytes(6).toString("hex")}`;
   const secret = randomBytes(24).toString("base64url");
@@ -54,6 +71,10 @@ export function issueToken(
     grants: input.grants,
     createdAt: now.toISOString(),
     expiresAt: input.ttlHours ? new Date(now.getTime() + input.ttlHours * 3600_000).toISOString() : undefined,
+    type: input.type ?? "scoped",
+    userId: input.userId,
+    teamId: input.teamId,
+    createdBy: input.createdBy,
   };
   store.put(COLLECTION, record);
   return { token, record };
@@ -68,7 +89,27 @@ export function verifyToken(store: Store, raw: string | undefined, now = new Dat
   if (record.expiresAt && new Date(record.expiresAt) <= now) return undefined;
   const a = Buffer.from(record.hash, "hex");
   const b = Buffer.from(hash(raw), "hex");
-  return a.length === b.length && timingSafeEqual(a, b) ? record : undefined;
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return undefined;
+  // Last used, at most once a minute so reads stay cheap.
+  if (!record.lastUsedAt || now.getTime() - new Date(record.lastUsedAt).getTime() > 60_000) {
+    record.lastUsedAt = now.toISOString();
+    store.put(COLLECTION, record);
+  }
+  return record;
+}
+
+export function getToken(store: Store, id: string): ApiToken | undefined {
+  return store.get<ApiToken>(COLLECTION, id);
+}
+
+export function listTokens(store: Store, filter?: (t: ApiToken) => boolean): ApiToken[] {
+  return store.list<ApiToken>(COLLECTION, filter).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** A token without its hash, safe to return from the API. */
+export function publicToken(t: ApiToken): Omit<ApiToken, "hash"> {
+  const { hash: _h, ...rest } = t;
+  return rest;
 }
 
 export function revokeToken(store: Store, id: string): void {
@@ -90,6 +131,10 @@ export function readableFactories(token: Pick<ApiToken, "grants">): string[] | "
   if (token.grants.some((g) => g.factory === "*")) return "*";
   return [...new Set(token.grants.map((g) => g.factory))];
 }
+
+export * from "./passwords";
+export * from "./roles";
+export * from "./github";
 
 export function parseGrants(spec: string): Grant[] {
   // "read:*,send:webapp,decide:preview:webapp"

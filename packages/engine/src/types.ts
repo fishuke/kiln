@@ -184,6 +184,12 @@ export type Run = {
   eventCount: number;
   steering: string[];
   snapshotKey?: string;
+  /** The team whose usage this run counts toward. */
+  team?: string;
+  /** The user who triggered the run, when there is one (their personal secrets apply). */
+  userId?: string;
+  /** The environment template the run started from. */
+  environmentId?: string;
   startedAt: string;
   finishedAt?: string;
 };
@@ -255,6 +261,8 @@ export type FactoryBinding = {
   previousSha?: string;
   canary?: { sha: string; percent: number; since: string };
   status: "active" | "invalid" | "paused";
+  /** The owning team. Factories created before teams existed move to the default team. */
+  team?: string;
   lastError?: string;
   projectId?: string;
   /** Uploaded avatar, served from /api/v1/files/<key>. */

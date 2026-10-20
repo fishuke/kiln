@@ -39,6 +39,39 @@ import type {
   WorkItem,
   WriteResult,
 } from "@kiln/engine";
+import type {
+  ApiKeyRow,
+  Appearance,
+  BuiltinMcpRow,
+  EnvironmentInput,
+  EnvironmentTemplate,
+  FactoryMember,
+  FactoryMemberRow,
+  FactoryRole,
+  InviteRow,
+  IssuedInvite,
+  LinkedAccount,
+  LinkProvider,
+  McpServer,
+  McpServerInput,
+  Me,
+  Membership,
+  ModelKeyProvider,
+  NotificationPrefs,
+  PublicUser,
+  SecretMeta,
+  SecretType,
+  Session,
+  TeamDetail,
+  TeamMemberRow,
+  TeamRole,
+  TeamSettings,
+  TeamSummary,
+  UsageEntry,
+  UsageSummary,
+} from "./platform";
+
+export type * from "./platform";
 
 export type {
   ApplyResult,
@@ -196,8 +229,18 @@ export type CatalogRow = { name: string; description: string; owner: string; ver
 
 export class KilnClient {
   constructor(
-    private readonly options: { baseUrl: string; token?: string; fetch?: typeof fetch; headers?: Record<string, string> },
+    private readonly options: { baseUrl: string; token?: string; fetch?: typeof fetch; headers?: Record<string, string>; /** Team id or slug sent as X-Kiln-Team. */ team?: string },
   ) {}
+
+  /** The same client acting in another team (X-Kiln-Team). */
+  withTeam(team: string): KilnClient {
+    return new KilnClient({ ...this.options, team });
+  }
+
+  /** The same client with another token, e.g. after login. */
+  withToken(token: string): KilnClient {
+    return new KilnClient({ ...this.options, token });
+  }
 
   async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const form = typeof FormData !== "undefined" && body instanceof FormData;
@@ -207,6 +250,7 @@ export class KilnClient {
         accept: "application/json",
         ...(body !== undefined && !form ? { "content-type": "application/json" } : {}),
         ...(this.options.token ? { authorization: `Bearer ${this.options.token}` } : {}),
+        ...(this.options.team ? { "x-kiln-team": this.options.team } : {}),
         ...this.options.headers,
       },
       body: body === undefined ? undefined : form ? (body as FormData) : JSON.stringify(body),
@@ -243,7 +287,7 @@ export class KilnClient {
   private range = (o: RangeOpts = {}) => ({ start_date: o.startDate, end_date: o.endDate, group_by_period: o.groupByPeriod });
 
   health = () => this.request<{ ok: boolean; factories: number }>("GET", "/api/v1/health");
-  me = () => this.request<{ subject: string; grants: { scope: string; factory: string }[] }>("GET", "/api/v1/me");
+  me = () => this.request<Me>("GET", "/api/v1/me");
 
   factories = () => this.request<FactorySummary[]>("GET", "/api/v1/factories");
   factory = (id: string) => this.request<FactoryDetail>("GET", `/api/v1/factories/${encodeURIComponent(id)}`);
@@ -265,7 +309,9 @@ export class KilnClient {
   pull = (id: string) => this.request<{ workItem: WorkItem; branch: string; cloneUrl: string; repo: string; brief: string }>("POST", `/api/v1/work-items/${id}/pull`);
   handback = (id: string, text: string) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/handback`, { text });
 
-  runs = (filter: RunFilterOpts = {}) => {
+  /** Runs matching the filter (one page; use runsPage for cursors). */
+  runs = async (filter: RunFilterOpts = {}) => (await this.runsPage(filter)).runs;
+  runsPage = (filter: RunFilterOpts = {}) => {
     const { factoryUid, taskStatus, ancestorRunId, artifactType, createdAfter, createdBefore, updatedAfter, sortBy, sortOrder, metadata, mine, ...rest } = filter;
     const meta = Object.fromEntries(Object.entries(metadata ?? {}).map(([k, v]) => [`metadata[${k}]`, v]));
     return this.request<RunPage>(
@@ -291,7 +337,7 @@ export class KilnClient {
   errors = () => this.request<{ code: string; http: number; retryable: boolean | "automatic"; taskState: "FAILED" | "ERROR"; title: string }[]>("GET", "/api/v1/errors");
 
   // files
-  upload = async (files: { name: string; bytes: Uint8Array | Blob; contentType?: string }[], factory?: string) => {
+  uploadFiles = async (files: { name: string; bytes: Uint8Array | Blob; contentType?: string }[], factory?: string) => {
     const form = new FormData();
     for (const f of files) form.append("files", f.bytes instanceof Blob ? f.bytes : new Blob([f.bytes as never], { type: f.contentType ?? "application/octet-stream" }), f.name);
     if (factory) form.append("factory", factory);
@@ -363,7 +409,7 @@ export class KilnClient {
   scores = (factory: string, filter: { agent?: string; run?: string } = {}) => this.request<Score[]>("GET", `/api/v1/scores${this.q({ factory, ...filter })}`);
   selfImprovement = (factory: string) => this.request<{ proposals: Proposal[]; failures: Score[] }>("GET", `/api/v1/factories/${encodeURIComponent(factory)}/self-improvement`);
   runSelfImprovement = (factory: string) => this.request<Proposal[]>("POST", `/api/v1/factories/${encodeURIComponent(factory)}/self-improvement/run`);
-  approveProposal = (id: string) => this.request<Proposal>("POST", `/api/v1/proposals/${id}/approve`, {});
+  approveProposal = (id: string, opts: { force?: boolean } = {}) => this.request<Proposal>("POST", `/api/v1/proposals/${id}/approve`, opts);
   rejectProposal = (id: string, reason?: string) => this.request<Proposal>("POST", `/api/v1/proposals/${id}/reject`, { reason });
   benchmarks = (factory: string) => this.request<{ suites: string[]; results: BenchmarkResult[]; summary: Record<string, ConfigSummary[]> }>("GET", `/api/v1/factories/${encodeURIComponent(factory)}/benchmarks`);
   runBenchmark = (factory: string, suite: string) => this.request<{ results: BenchmarkResult[]; summary: ConfigSummary[] }>("POST", `/api/v1/factories/${encodeURIComponent(factory)}/benchmarks/${encodeURIComponent(suite)}/run`);
@@ -480,4 +526,87 @@ export class KilnClient {
   integrations = () => this.request<{ forge: string; tracker: string; chat: string; preview: string; decisions: { primary: string; fallback: string }; judge: string; sandboxes: string[]; defaultBackend: string; agents: string; publicUrl?: string }>("GET", "/api/v1/integrations");
   secrets = () => this.request<string[]>("GET", "/api/v1/secrets");
   setSecret = (name: string, value: string) => this.request<{ ok: true }>("PUT", `/api/v1/secrets/${encodeURIComponent(name)}`, { value });
+
+  // ---- auth ----
+  authProviders = () => this.request<{ password: boolean; github: boolean; openSignup: boolean; needsOwner: boolean }>("GET", "/api/v1/auth/providers");
+  signup = (input: { name?: string; email: string; password: string; invite?: string }) => this.request<Session>("POST", "/api/v1/auth/signup", input);
+  login = (email: string, password: string) => this.request<Session>("POST", "/api/v1/auth/login", { email, password });
+  logout = () => this.request<{ ok: true }>("POST", "/api/v1/auth/logout");
+  githubLoginUrl = (opts: { redirect?: string; invite?: string } = {}) => this.request<{ url: string; state: string }>("GET", `/api/v1/auth/github/start${this.q({ ...opts, json: 1 })}`);
+  githubCallback = (code: string, state: string) => this.request<Session & { created: boolean }>("GET", `/api/v1/auth/github/callback${this.q({ code, state })}`);
+  invite = (token: string) => this.request<{ team: { id: string; name: string; slug: string; avatar?: string }; email: string; role: TeamRole; expiresAt: string }>("GET", `/api/v1/invites/${encodeURIComponent(token)}`);
+  acceptInvite = (token: string) => this.request<{ team: { id: string; name: string; slug: string }; role: TeamRole }>("POST", "/api/v1/invites/accept", { token });
+
+  // ---- user settings ----
+  updateMe = (patch: { name?: string; email?: string; avatar?: string | null; appearance?: Appearance; notifications?: Partial<NotificationPrefs> }) => this.request<PublicUser>("PATCH", "/api/v1/me", patch);
+  changePassword = (next: string, current?: string) => this.request<{ ok: true }>("PUT", "/api/v1/me/password", { next, current });
+  uploadAvatar = (bytes: Uint8Array | ArrayBuffer | Blob, contentType: string) => this.upload<PublicUser>("PUT", "/api/v1/me/avatar", bytes, contentType);
+  linkedAccounts = () => this.request<LinkedAccount[]>("GET", "/api/v1/me/linked-accounts");
+  linkAccount = (provider: LinkProvider, externalId: string, handle?: string) => this.request<LinkedAccount[]>("POST", "/api/v1/me/linked-accounts", { provider, externalId, handle });
+  unlinkAccount = (provider: LinkProvider) => this.request<LinkedAccount[]>("DELETE", `/api/v1/me/linked-accounts/${provider}`);
+  apiKeys = () => this.request<ApiKeyRow[]>("GET", "/api/v1/api-keys");
+  createApiKey = (input: { name: string; type?: "personal" | "agent" | "worker"; expiresIn?: "1d" | "30d" | "90d" | "never" }) => this.request<{ token: string; record: ApiKeyRow }>("POST", "/api/v1/api-keys", input);
+  revokeApiKey = (id: string) => this.request<{ ok: true }>("DELETE", `/api/v1/api-keys/${encodeURIComponent(id)}`);
+
+  // ---- teams ----
+  teams = () => this.request<TeamSummary[]>("GET", "/api/v1/teams");
+  createTeam = (input: { name: string; slug?: string }) => this.request<TeamSummary>("POST", "/api/v1/teams", input);
+  team = (team: string) => this.request<TeamDetail>("GET", `/api/v1/teams/${encodeURIComponent(team)}`);
+  updateTeam = (team: string, patch: { name?: string; slug?: string; avatar?: string | null }) => this.request<TeamSummary>("PATCH", `/api/v1/teams/${encodeURIComponent(team)}`, patch);
+  uploadTeamAvatar = (team: string, bytes: Uint8Array | ArrayBuffer | Blob, contentType: string) => this.upload<TeamSummary>("PUT", `/api/v1/teams/${encodeURIComponent(team)}/avatar`, bytes, contentType);
+  teamMembers = (team: string) => this.request<TeamMemberRow[]>("GET", `/api/v1/teams/${encodeURIComponent(team)}/members`);
+  setTeamRole = (team: string, userId: string, role: TeamRole) => this.request<Membership>("PATCH", `/api/v1/teams/${encodeURIComponent(team)}/members/${encodeURIComponent(userId)}`, { role });
+  removeTeamMember = (team: string, userId: string) => this.request<{ ok: true }>("DELETE", `/api/v1/teams/${encodeURIComponent(team)}/members/${encodeURIComponent(userId)}`);
+  invites = (team: string) => this.request<InviteRow[]>("GET", `/api/v1/teams/${encodeURIComponent(team)}/invites`);
+  inviteMember = (team: string, email: string, role: TeamRole = "member") => this.request<IssuedInvite>("POST", `/api/v1/teams/${encodeURIComponent(team)}/invites`, { email, role });
+  resendInvite = (team: string, inviteId: string) => this.request<IssuedInvite>("POST", `/api/v1/teams/${encodeURIComponent(team)}/invites/${encodeURIComponent(inviteId)}/resend`);
+  revokeInvite = (team: string, inviteId: string) => this.request<{ ok: true }>("DELETE", `/api/v1/teams/${encodeURIComponent(team)}/invites/${encodeURIComponent(inviteId)}`);
+  teamSettings = (team: string) => this.request<TeamSettings>("GET", `/api/v1/teams/${encodeURIComponent(team)}/settings`);
+  updateTeamSettings = (team: string, patch: Partial<TeamSettings>) => this.request<TeamSettings>("PATCH", `/api/v1/teams/${encodeURIComponent(team)}/settings`, patch);
+  modelKeys = (team: string) => this.request<Record<ModelKeyProvider, { set: boolean; updatedAt?: string; updatedBy?: string }>>("GET", `/api/v1/teams/${encodeURIComponent(team)}/model-keys`);
+  setModelKey = (team: string, provider: ModelKeyProvider, value: string | Record<string, string>) => this.request<SecretMeta>("PUT", `/api/v1/teams/${encodeURIComponent(team)}/model-keys/${provider}`, { value });
+  deleteModelKey = (team: string, provider: ModelKeyProvider) => this.request<{ ok: true }>("DELETE", `/api/v1/teams/${encodeURIComponent(team)}/model-keys/${provider}`);
+
+  // ---- factory roles ----
+  factoryMembers = (factory: string) => this.request<FactoryMemberRow[]>("GET", `/api/v1/factories/${encodeURIComponent(factory)}/members`);
+  addFactoryMember = (factory: string, input: { userId?: string; email?: string; role: FactoryRole }) => this.request<FactoryMember>("POST", `/api/v1/factories/${encodeURIComponent(factory)}/members`, input);
+  setFactoryRole = (factory: string, userId: string, role: FactoryRole) => this.request<FactoryMember>("PATCH", `/api/v1/factories/${encodeURIComponent(factory)}/members/${encodeURIComponent(userId)}`, { role });
+  removeFactoryMember = (factory: string, userId: string) => this.request<{ ok: true }>("DELETE", `/api/v1/factories/${encodeURIComponent(factory)}/members/${encodeURIComponent(userId)}`);
+
+  // ---- secrets, MCP servers, environments, usage (current team) ----
+  managedSecrets = () => this.request<SecretMeta[]>("GET", "/api/v1/managed-secrets");
+  createManagedSecret = (input: { scope?: "team" | "personal"; name: string; type?: SecretType; value: unknown; description?: string }) => this.request<SecretMeta>("POST", "/api/v1/managed-secrets", input);
+  updateManagedSecret = (scope: "team" | "personal", name: string, patch: { value?: unknown; description?: string }) => this.request<SecretMeta>("PATCH", `/api/v1/managed-secrets/${scope}/${encodeURIComponent(name)}`, patch);
+  deleteManagedSecret = (scope: "team" | "personal", name: string) => this.request<{ ok: true }>("DELETE", `/api/v1/managed-secrets/${scope}/${encodeURIComponent(name)}`);
+  mcpServers = () => this.request<{ servers: McpServer[]; builtins: BuiltinMcpRow[] }>("GET", "/api/v1/mcp-servers");
+  mcpServer = (id: string) => this.request<McpServer>("GET", `/api/v1/mcp-servers/${encodeURIComponent(id)}`);
+  createMcpServer = (input: McpServerInput) => this.request<McpServer>("POST", "/api/v1/mcp-servers", input);
+  updateMcpServer = (id: string, patch: Partial<McpServerInput>) => this.request<McpServer>("PATCH", `/api/v1/mcp-servers/${encodeURIComponent(id)}`, patch);
+  deleteMcpServer = (id: string) => this.request<{ ok: true }>("DELETE", `/api/v1/mcp-servers/${encodeURIComponent(id)}`);
+  environments = () => this.request<EnvironmentTemplate[]>("GET", "/api/v1/environments");
+  environment = (id: string) => this.request<EnvironmentTemplate>("GET", `/api/v1/environments/${encodeURIComponent(id)}`);
+  createEnvironment = (input: EnvironmentInput) => this.request<EnvironmentTemplate>("POST", "/api/v1/environments", input);
+  updateEnvironment = (id: string, patch: Partial<EnvironmentInput>) => this.request<EnvironmentTemplate>("PATCH", `/api/v1/environments/${encodeURIComponent(id)}`, patch);
+  deleteEnvironment = (id: string) => this.request<{ ok: true }>("DELETE", `/api/v1/environments/${encodeURIComponent(id)}`);
+  usage = (filter: { since?: string; until?: string; factory?: string; user?: string; entries?: boolean } = {}) =>
+    this.request<UsageSummary & { entries?: UsageEntry[] }>("GET", `/api/v1/usage${this.q({ ...filter, entries: filter.entries ? 1 : undefined })}`);
+
+  /** Raw-body uploads (avatars). */
+  async upload<T>(method: string, path: string, body: Uint8Array | ArrayBuffer | Blob, contentType: string): Promise<T> {
+    const res = await (this.options.fetch ?? fetch)(`${this.options.baseUrl.replace(/\/$/, "")}${path}`, {
+      method,
+      headers: {
+        accept: "application/json",
+        "content-type": contentType,
+        ...(this.options.token ? { authorization: `Bearer ${this.options.token}` } : {}),
+        ...(this.options.team ? { "x-kiln-team": this.options.team } : {}),
+        ...this.options.headers,
+      },
+      body: body as unknown as RequestInit["body"],
+    } as RequestInit);
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : undefined;
+    if (!res.ok) throw new KilnApiError(res.status, (data as { error?: string })?.error ?? `${method} ${path} returned ${res.status}`, data);
+    return data as T;
+  }
 }

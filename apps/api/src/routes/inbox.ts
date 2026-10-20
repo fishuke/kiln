@@ -1,4 +1,4 @@
-import { INBOX_KINDS } from "@kiln/engine";
+import { INBOX_ITEM_KINDS } from "@kiln/engine";
 import { z } from "zod";
 import type { RouteContext } from "../app";
 import { HttpError } from "../app";
@@ -9,7 +9,7 @@ export const InboxQuery = z
   .object({
     scope: z.enum(["mine", "team"]).optional(),
     factory: z.string().optional(),
-    kind: listOf(z.enum(INBOX_KINDS)),
+    kind: listOf(z.enum(INBOX_ITEM_KINDS)),
     read: z.enum(["true", "false"]).optional(),
     q: z.string().optional(),
     include_resolved: flag,

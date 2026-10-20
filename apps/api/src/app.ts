@@ -1,6 +1,6 @@
-import { can, issueToken, SCOPES, verifyToken, type ApiToken, type Scope } from "@kiln/auth";
+import { can, issueToken, SCOPES, teamRoleAllows, verifyToken, type ApiToken, type GitHubOAuth, type Scope } from "@kiln/auth";
 import { guardCommand } from "@kiln/decide";
-import { KilnError, slug, type Gate, type Kiln, type Run } from "@kiln/engine";
+import { BudgetExceededError, KilnError, PlatformError, resolveAccess, slug, type Access, type Gate, type Kiln, type Run, type Team, type User } from "@kiln/engine";
 import {
   normalizeGitHub,
   normalizeJira,
@@ -21,25 +21,30 @@ import { agentMayCall, inOwnTree, isPublicPath, runTokenAuth, type RunPrincipal 
 import { registerModules } from "./routes";
 import * as S from "./schemas";
 
-export type Env = { Variables: { token: ApiToken; run?: RunPrincipal } };
+export type Env = { Variables: { token: ApiToken; access: Access; run?: RunPrincipal } };
 
 export class HttpError extends Error {
   constructor(
-    readonly status: 400 | 401 | 403 | 404 | 409,
+    readonly status: 400 | 401 | 402 | 403 | 404 | 409 | 410 | 413,
     message: string,
   ) {
     super(message);
   }
 }
 
-const DEV_TOKEN: ApiToken = { id: "tok_dev", name: "dev", subject: "dev@kiln.local", hash: "", grants: [{ scope: "admin", factory: "*" }], createdAt: new Date(0).toISOString() };
-
 export type AppOptions = {
-  /** Every request acts as an admin. Only for local development. */
+  /** Every request acts as the seeded owner dev@kiln.local with admin on everything. Only for local development. */
   devAuth?: boolean;
   /** Mounted at /mcp when given. */
   mcp?: (req: Request) => Promise<Response>;
+  /** GitHub login, when GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are set. */
+  github?: GitHubOAuth;
+  /** Anyone may sign up and join the default team (KILN_OPEN_SIGNUP=1). Otherwise signup needs an invite. */
+  openSignup?: boolean;
 };
+
+/** Routes reachable without a token: signup, login, GitHub login, invite previews. */
+const PUBLIC_ROUTES = [/^\/api\/v1\/auth\/(signup|login|providers|github\/start|github\/callback)$/, /^\/api\/v1\/invites\/kinv_[\w-]+$/];
 
 const GATE_SCOPE: Record<Gate["kind"], Scope> = { spec: "decide:spec", preview: "decide:preview", question: "decide:question", merge: "decide:merge", custom: "decide:merge" };
 
@@ -51,14 +56,29 @@ export type RouteContext = {
   need: (c: Context<Env>, scope: Scope, factory: string | "*") => void;
   who: (c: Context<Env>) => string;
   visible: (c: Context<Env>, factory: string) => boolean;
+  /** The caller, team and grants of this request. */
+  access: (c: Context<Env>) => Access;
+  /** The calling user; 403 for tokens that do not act as a user. */
+  user: (c: Context<Env>) => User;
+  /** The current team (X-Kiln-Team, else the default); 400 when there is none. */
+  team: (c: Context<Env>) => Team;
   /** Read access to a run: the factory, the agent's own tree, or the run's share link. */
   canReadRun: (c: Context<Env>, run: Run) => boolean;
   /** Send access to a run (steer, follow up): the factory, the agent's own tree, or an EDITOR share link. */
   canSendRun: (c: Context<Env>, run: Run) => boolean;
+  /** Give factories created by this request (not in `before`) to the caller's team. */
+  adopt: (c: Context<Env>, before: Set<string>) => void;
+  /** 403 when a repo is outside the team's enabled GitHub orgs. */
+  checkOrgs: (c: Context<Env>, repos: { owner: string; forge?: string }[]) => void;
 };
 
 export function createApp(kiln: Kiln, options: AppOptions = {}) {
   const app = new Hono<Env>();
+  // Factories created before teams existed move into the default team.
+  kiln.teams.ensureDefaultTeam();
+  const devToken: ApiToken | undefined = options.devAuth
+    ? { id: "tok_dev", name: "dev", subject: "dev@kiln.local", hash: "", grants: [{ scope: "admin", factory: "*" }], createdAt: new Date(0).toISOString(), type: "session", userId: kiln.users.ensureDevUser().id }
+    : undefined;
 
   app.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status);
@@ -67,6 +87,8 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
       const status = s.http;
       return c.json({ error: err.message, code: err.code, title: s.title, status, retryable: s.retryable !== false, ...err.details }, status);
     }
+    if (err instanceof PlatformError) return c.json({ error: err.message }, err.status);
+    if (err instanceof BudgetExceededError) return c.json({ error: err.code, message: err.message, limitUsd: err.limitUsd, spentUsd: err.spentUsd }, 402);
     if (err instanceof z.ZodError) return c.json({ error: "invalid request", issues: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`) }, 400);
     const message = err instanceof Error ? err.message : String(err);
     if (/^unknown |not found|has no /.test(message)) return c.json({ error: message }, 404);
@@ -163,44 +185,82 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
 
   // ---- authenticated API ----
   app.use("/api/v1/*", async (c, next) => {
-    if (isPublicPath(c.req.path)) {
-      c.set("token", { id: "anonymous", name: "anonymous", subject: "anonymous", hash: "", grants: [], createdAt: new Date(0).toISOString() });
-      return next();
-    }
     const raw = c.req.header("authorization")?.replace(/^Bearer\s+/i, "");
     // Agents call with their run token: limited to their own factory, task and run tree.
     const agent = runTokenAuth(kiln, raw);
     if (agent) {
       const denied = agentMayCall(kiln, agent.principal, c.req.method, c.req.path);
       if (denied) throw new HttpError(403, denied);
+      const a = resolveAccess(kiln, { ...agent.token, teamId: kiln.teams.factoryTeam(agent.principal.factory) });
+      c.set("access", { ...a, token: agent.token, teamScoped: false });
       c.set("token", agent.token);
       c.set("run", agent.principal);
       return next();
     }
-    if (options.devAuth) {
-      c.set("token", DEV_TOKEN);
-      return next();
+    const verified = raw ? verifyToken(kiln.store, raw, kiln.clock.now()) : undefined;
+    const token = verified ?? devToken;
+    if (!token) {
+      if (PUBLIC_ROUTES.some((r) => r.test(c.req.path)) || isPublicPath(c.req.path)) return next();
+      throw new HttpError(401, "missing or invalid token");
     }
-    const token = verifyToken(kiln.store, raw, kiln.clock.now());
-    if (!token) throw new HttpError(401, "missing or invalid token");
-    c.set("token", token);
+    const access = resolveAccess(kiln, token, c.req.header("x-kiln-team") || undefined);
+    c.set("access", access);
+    c.set("token", access.token);
     return next();
   });
 
-  const need = (c: Context<Env>, scope: Scope, factory: string | "*") => {
-    if (!can(c.get("token"), scope, factory)) throw new HttpError(403, `token lacks ${scope} on ${factory}`);
+  const access = (c: Context<Env>) => {
+    const a = c.get("access");
+    if (!a) throw new HttpError(401, "missing or invalid token");
+    return a;
   };
-  const who = (c: Context<Env>) => c.get("token").subject;
-  const visible = (c: Context<Env>, factory: string) => can(c.get("token"), "read", factory) || can(c.get("token"), "send", factory);
+  const need = (c: Context<Env>, scope: Scope, factory: string | "*") => {
+    const a = access(c);
+    if (can(a.token, scope, factory)) return;
+    // Team-wide actions, or a factory that does not exist yet: the team role decides.
+    const teamWide = factory === "*" || !kiln.defs.get(factory);
+    if (teamWide && a.user && teamRoleAllows(a.teamRole, scope)) return;
+    throw new HttpError(403, `token lacks ${scope} on ${factory}`);
+  };
+  const who = (c: Context<Env>) => access(c).token.subject;
+  const visible = (c: Context<Env>, factory: string) => {
+    const a = access(c);
+    if (!can(a.token, "read", factory) && !can(a.token, "send", factory)) return false;
+    return !a.teamScoped || !a.team || kiln.teams.factoryTeam(factory) === a.team.id;
+  };
+  const user = (c: Context<Env>) => {
+    const u = access(c).user;
+    if (!u) throw new HttpError(403, "this needs a user token (log in, or use a personal API key)");
+    return u;
+  };
+  const team = (c: Context<Env>) => {
+    const t = access(c).team;
+    if (!t) throw new HttpError(400, "you are not in a team yet; accept an invite or create a team");
+    return t;
+  };
+  /** A factory created by this request belongs to the caller's current team. */
+  const adopt = (c: Context<Env>, before: Set<string>) => {
+    const t = access(c).team;
+    if (!t) return;
+    for (const f of kiln.defs.list()) if (!before.has(f.id) && f.team !== t.id) kiln.teams.assignFactory(f.id, t.id, who(c));
+  };
+  const known = () => new Set(kiln.defs.list().map((f) => f.id));
+  /** Enabled GitHub orgs: when a team lists any, its factories may only use repos in them. */
+  const checkOrgs = (c: Context<Env>, repos: { owner: string; forge?: string }[]) => {
+    const t = access(c).team;
+    const orgs = t ? kiln.teams.settings(t.id).githubOrgs.map((o) => o.toLowerCase()) : [];
+    const outside = orgs.length ? repos.filter((r) => (r.forge ?? "github") === "github" && !orgs.includes(r.owner.toLowerCase())) : [];
+    if (outside.length) throw new HttpError(403, `GitHub org ${outside[0]!.owner} is not enabled for team ${t!.slug}`);
+  };
   const canReadRun = (c: Context<Env>, run: Run) => {
     const p = c.get("run");
     if (p) return inOwnTree(kiln, p, run);
-    return can(c.get("token"), "read", run.factory) || Boolean(run.sharing?.publicAccess);
+    return can(access(c).token, "read", run.factory) || Boolean(run.sharing?.publicAccess);
   };
   const canSendRun = (c: Context<Env>, run: Run) => {
     const p = c.get("run");
     if (p) return inOwnTree(kiln, p, run);
-    return can(c.get("token"), "send", run.factory) || run.sharing?.publicAccess === "EDITOR";
+    return can(access(c).token, "send", run.factory) || run.sharing?.publicAccess === "EDITOR";
   };
   const mustReadRun = (c: Context<Env>, id: string) => {
     const run = kiln.runs.get(id);
@@ -214,12 +274,6 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     if (!canSendRun(c, run)) throw new HttpError(403, `token lacks send on ${run.factory}`);
     return run;
   };
-
-  app.get("/api/v1/me", (c) => {
-    const t = c.get("token");
-    const run = c.get("run");
-    return c.json({ subject: t.subject, name: t.name, grants: t.grants, ...(run ? { run } : {}) });
-  });
 
   // factories and definitions
   app.get("/api/v1/factories", (c) =>
@@ -279,13 +333,19 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const named = v.ok ? kiln.defs.resolveTree(body.tree).factory : undefined;
     const target = body.factory ?? (named ? slug(named.alias ?? named.name) : undefined) ?? "*";
     need(c, "definitions:write", target);
+    if (v.ok) checkOrgs(c, kiln.defs.resolveTree(body.tree).factory.repositories);
+    const before = known();
     const r = kiln.defs.applyAny(body.tree, { author: who(c), factory: body.factory, canaryPercent: body.canaryPercent, dryRun: body.dryRun });
+    adopt(c, before);
     return c.json(r, r.ok ? 200 : 400);
   });
   app.post("/api/v1/factories/connect", async (c) => {
     const body = S.Connect.parse(await c.req.json());
     need(c, "definitions:write", "*");
+    checkOrgs(c, [{ owner: body.owner, forge: "github" }]);
+    const before = known();
     const r = await kiln.defs.connectRepo(body, who(c));
+    adopt(c, before);
     return c.json(r, r.ok ? 200 : 400);
   });
   app.post("/api/v1/factories/:id/sync", async (c) => {
@@ -311,6 +371,7 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   app.post("/api/v1/work-items", async (c) => {
     const { attachments: keys, mode, ...body } = S.CreateWorkItem.parse(await c.req.json());
     need(c, "send", body.factory);
+    kiln.usage.assertWithinBudget(kiln.teams.factoryTeam(body.factory));
     const attachments = keys?.length ? kiln.files.resolveAttachments(keys, who(c), body.factory) : undefined;
     const wi = await kiln.workflow.create({ ...body, attachments, mode, source: { provider: body.via ?? "api" }, requester: who(c) });
     void kiln.workflow.advance(wi.id);
@@ -539,8 +600,10 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const p = kiln.improvement.get(c.req.param("id"));
     if (!p) throw new HttpError(404, "unknown proposal");
     need(c, "definitions:write", p.factory);
-    const body = await c.req.json().catch(() => ({}));
-    return c.json(c.req.param("action") === "approve" ? kiln.improvement.approve(p.id, who(c)) : kiln.improvement.reject(p.id, who(c), (body as { reason?: string }).reason));
+    const body = (await c.req.json().catch(() => ({}))) as { reason?: string; force?: boolean };
+    // Factory Admins may force a change that waits for a second approval.
+    if (body.force) need(c, "admin", p.factory);
+    return c.json(c.req.param("action") === "approve" ? kiln.improvement.approve(p.id, who(c), { force: body.force }) : kiln.improvement.reject(p.id, who(c), body.reason));
   });
   app.get("/api/v1/factories/:id/benchmarks", (c) => {
     const id = c.req.param("id");
@@ -640,7 +703,7 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     return c.json({ ok: true });
   });
 
-  registerModules({ app, kiln, options, need, who, visible, canReadRun, canSendRun });
+  registerModules({ app, kiln, options, need, who, visible, access, user, team, canReadRun, canSendRun, adopt, checkOrgs });
   return app;
 }
 

@@ -261,7 +261,7 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
           } else throw new Error(`unknown runs command ${sub}`);
           return 0;
         }
-        const page = await c.runs({ factory: str("factory"), workItem: str("work-item"), state: str("state")?.split(",") as never, source: str("source")?.split(","), mine: Boolean(values.mine), limit: 50 });
+        const page = await c.runsPage({ factory: str("factory"), workItem: str("work-item"), state: str("state")?.split(",") as never, source: str("source")?.split(","), mine: Boolean(values.mine), limit: 50 });
         if (values.json) io.out(JSON.stringify(page, null, 2));
         else io.out(table([["RUN", "AGENT", "STATE", "SOURCE", "COST", "STARTED"], ...page.runs.map((r) => [r.id, r.agent, r.state, r.source, `$${r.costUsd.toFixed(2)}`, r.startedAt.slice(0, 19)])]));
         return 0;
@@ -295,7 +295,7 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
       case "upload": {
         if (!positionals.length) throw new Error("usage: kiln upload <file...> [--factory <id>]");
         const files = positionals.map((p) => ({ name: p.split("/").pop()!, bytes: new Uint8Array(readFileSync(path(p))) }));
-        const r = await client(io).upload(files, str("factory"));
+        const r = await client(io).uploadFiles(files, str("factory"));
         io.out(r.attachments.map((a) => `${a.key}  (${a.contentType}, ${a.size} bytes)`).join("\n"));
         return 0;
       }

@@ -309,7 +309,24 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
       inputSchema: { factory: z.string(), kind: z.enum(["runs", "scores", "work_items"]).optional(), since: z.string().optional(), state: z.array(z.string()).optional(), source: z.array(z.string()).optional(), agent: z.string().optional(), q: z.string().optional() },
     },
     async ({ factory, kind, since, state, source, agent, q }) =>
-      json(kind ? await client.rawMetrics(factory, kind, since) : await client.runs({ factory, state: state as never, source, agent, q, createdAfter: since, limit: 100 })),
+      json(kind ? await client.rawMetrics(factory, kind, since) : await client.runsPage({ factory, state: state as never, source, agent, q, createdAfter: since, limit: 100 })),
+  );
+
+  server.registerTool("list_teams", { description: "List the teams you belong to, with your role in each. Pass a team's slug as X-Kiln-Team to act in it." }, async () => json(await client.teams()));
+
+  server.registerTool(
+    "create_team",
+    { description: "Create a team. You become its owner. Needs a user token (session or personal API key).", inputSchema: { name: z.string(), slug: z.string().optional() } },
+    async ({ name, slug }) => json(await client.createTeam({ name, slug })),
+  );
+
+  server.registerTool(
+    "join_team",
+    { description: "Join a team by accepting an invite. Takes the invite token or the whole invite link.", inputSchema: { invite: z.string() } },
+    async ({ invite }) => {
+      const token = /kinv_[\w-]+/.exec(invite)?.[0] ?? invite;
+      return json(await client.acceptInvite(token));
+    },
   );
 
   return server;
@@ -320,7 +337,8 @@ export function createMcpHandler(apiBaseUrl: string, fetchImpl?: typeof fetch) {
   return async (req: Request): Promise<Response> => {
     const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
     if (!token) return new Response(JSON.stringify({ error: "a bearer token is required" }), { status: 401, headers: { "content-type": "application/json" } });
-    const server = createKilnMcpServer(new KilnClient({ baseUrl: apiBaseUrl, token, fetch: fetchImpl }));
+    // X-Kiln-Team on the MCP connection picks the team the tools act in.
+    const server = createKilnMcpServer(new KilnClient({ baseUrl: apiBaseUrl, token, fetch: fetchImpl, team: req.headers.get("x-kiln-team") ?? undefined }));
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
     return transport.handleRequest(req);

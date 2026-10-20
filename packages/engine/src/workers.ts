@@ -1,4 +1,4 @@
-import { EventStream } from "@kiln/harness";
+import { EventStream, type StartOptions } from "@kiln/harness";
 import type { HarnessType, Runner } from "@kiln/schema";
 import { KilnError } from "./errors";
 import type { Kiln } from "./kiln";
@@ -28,7 +28,7 @@ export type WorkerJob = {
   push: boolean;
   /** The run token: agents use it for the guard and the Kiln MCP server. */
   token: string;
-  mcpServers: { name: string; url: string; headers?: Record<string, string> }[];
+  mcpServers: NonNullable<StartOptions["mcpServers"]>;
   guardUrl?: string;
   idleTimeoutMinutes: number;
 };

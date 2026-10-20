@@ -120,7 +120,38 @@ describe("Kiln MCP with scoped tokens ", () => {
     const client = await mcpClient(inProcess, token("read:*"));
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual(
-      ["complete_task", "create_team", "decide_gate", "get_conversation", "get_factory_file_schema", "get_metrics", "get_task", "join_team", "list_factories", "list_inbox", "list_teams", "message_foreman", "plan_project", "query_runs", "send_task", "steer_run", "validate_factory_files"].sort(),
+      [
+        "ask_user",
+        "complete_task",
+        "create_factory",
+        "create_team",
+        "join_team",
+        "list_teams",
+        "decide_gate",
+        "follow_up_run",
+        "get_conversation",
+        "get_factory_file_schema",
+        "get_gate",
+        "get_metrics",
+        "get_run",
+        "get_task",
+        "list_factories",
+        "list_forge_repositories",
+        "list_inbox",
+        "list_notification_routes",
+        "list_tasks",
+        "list_tracker_scopes",
+        "message_foreman",
+        "plan_project",
+        "propose_definition_change",
+        "query_runs",
+        "run_agents",
+        "search_task",
+        "send_task",
+        "spawn_agent",
+        "steer_run",
+        "validate_factory_files",
+      ].sort(),
     );
   });
 
@@ -158,6 +189,8 @@ describe("Kiln MCP with scoped tokens ", () => {
     const sent = JSON.parse(((await client.callTool({ name: "send_task", arguments: { factory: "webapp", title: "Fix typo in nav" } })).content as { text: string }[])[0]!.text);
     const wi = await waitFor(kiln, sent.id, ["handed_off"]);
     const got = JSON.parse(((await client.callTool({ name: "get_task", arguments: { reference: wi.pr!.url, start_working: true } })).content as { text: string }[])[0]!.text);
-    expect(got).toMatchObject({ branch: wi.branch, repo: "acme/web" });
+    expect(got.startWorking).toMatchObject({ branch: wi.branch, repo: "acme/web" });
+    expect(got.startWorking.commands.join("\n")).toContain("git worktree add");
+    expect(got.task).toMatchObject({ id: wi.id, stage: "REVIEW" });
   });
 });

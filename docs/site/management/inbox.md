@@ -64,6 +64,22 @@ A command approval waits up to 30 minutes, then expires and the command is block
 
 The digest groups open gates by person, oldest first, with each one's age in hours and a link to it in the inbox.
 
+## Inbox items API
+
+`GET /api/v1/inbox/items` lists your inbox across factories as items of six kinds:
+
+| Kind | When |
+| --- | --- |
+| `question` | An agent or the foreman asked you something. Questions can be single or multi select, with a recommended option. |
+| `answer_question` | A question on your task was answered (for your information, for a week). |
+| `spec_review` | A spec or plan waits for approval; also definition changes proposed by agents and self-improvement proposals, with their diff. |
+| `pr_review` | A pull request or preview waits on you. |
+| `blocked`, `failed` | A task of yours is stuck, when nothing else on it needs you. |
+
+Filter with `scope=mine|team`, `factory`, `kind`, `read=true|false` and `q`. `POST /api/v1/inbox/read`, `/unread`, `/resolve` and `/unresolve` take `{ids}` (item ids, or plain gate ids). Items clear themselves when they stop being relevant: the question was answered, the spec approved, the PR merged.
+
+Definition changes have their own actions: `POST /definition-changes/{id}/approve` (Approve & merge: applied at once for Kiln-managed factories, a pull request on the config repo otherwise), `/request-changes` (the comments go back to the agent that proposed it), `/comments` and `/reject`. Agents can never approve.
+
 ## Related pages
 
 - [Approving specs and previews](../product-owners/approving-specs-and-previews.md)

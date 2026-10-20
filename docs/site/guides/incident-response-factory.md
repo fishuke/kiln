@@ -198,6 +198,10 @@ Treat this as an incident report.
 
 Store `ALERTS_WEBHOOK_SECRET` in Kiln and point your alerting tool at `POST /webhooks/oncall/alerts`. The alert's `title` or `summary` field becomes the work item's title. See [Automations](../configuration/automations.md#webhooks).
 
+## One task per incident
+
+An alarm usually arrives from more than one place: the alert webhook fires, then someone posts in Slack. Kiln keeps one task for the incident. Alerts that carry the same `fingerprint`, `dedup_key` or `incident_id` join the open task, and a Slack report that names the same service and error code joins it by content. Both threads then get the updates. Set `deduplication: { windowHours: 6 }` in `factory.yaml` to compare only recent tasks, or `enabled: false` to turn it off. See [Tasks and runs](../developer-tools/tasks-and-runs.md#dispatching-work).
+
 ## 8. Validate and apply
 
 ```bash

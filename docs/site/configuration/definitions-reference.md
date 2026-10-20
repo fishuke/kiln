@@ -16,7 +16,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | --- | --- | --- | --- |
 | `schemaVersion` | `"kiln/v1"` | yes |  |
 | `name` | string | yes |  |
-| `alias` | string |  | pattern `^[a-z0-9-]{1,60}$` |
+| `alias` | string |  | pattern `^[A-Za-z0-9][A-Za-z0-9 ._-]{0,59}$` |
 | `description` | string |  |  |
 | `project` | string |  |  |
 | `repositories` | list of object | yes |  |
@@ -45,23 +45,48 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `providers.gcp.workloadIdentityFederationPoolId` | string | yes |  |
 | `providers.gcp.workloadIdentityFederationProviderId` | string | yes |  |
 | `providers.gcp.serviceAccountEmail` | string |  | pattern `^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$` |
+| `credentialStrategy` | `EXECUTOR` \| `CREATOR` |  |  |
+| `networkPolicy` | object |  |  |
+| `networkPolicy.allowedHosts` | list of string |  |  |
+| `networkPolicy.deniedHosts` | list of string |  |  |
+| `networkPolicy.extends` | string \| list of string |  |  |
+| `avatar` | string |  |  |
 | `agentDefaults` | object | yes |  |
 | `agentDefaults.harness` | object \| null |  |  |
-| `agentDefaults.harness.type` | `claude-code` \| `codex` \| `opencode` | yes |  |
+| `agentDefaults.harness.type` | `claude-code` \| `codex` \| `opencode` \| `gemini` \| `pi` | yes |  |
 | `agentDefaults.harness.model` | string |  |  |
-| `agentDefaults.harness.reasoningLevel` | `low` \| `medium` \| `high` |  |  |
-| `agentDefaults.harness.auth` | object \| object |  |  |
-| `agentDefaults.harness.auth.source` | `"secret"` | yes |  |
-| `agentDefaults.harness.auth.secretName` | string | yes |  |
-| `agentDefaults.harness.auth.env` | string |  |  |
+| `agentDefaults.harness.reasoningLevel` | `low` \| `medium` \| `high` \| `xhigh` \| `max` |  |  |
+| `agentDefaults.harness.auth` | object \| object \| object \| object \| null |  |  |
 | `agentDefaults.model` | string \| null |  |  |
 | `agentDefaults.runner` | string \| null |  |  |
 | `agentDefaults.secrets` | list of string \| null |  |  |
 | `agentDefaults.mcpServers` | list of string \| null |  |  |
+| `agentDefaults.workerHost` | string \| `""` \| null |  |  |
+| `agentDefaults.computerUseModel` | string \| null |  |  |
+| `agentDefaults.computerUse` | boolean \| null |  |  |
 | `agentDefaults.environmentId` | string \| null |  |  |
+| `scorerDefaults` | object |  |  |
+| `scorerDefaults.runner` | string |  |  |
+| `scorerDefaults.secrets` | list of string |  |  |
+| `scorerDefaults.mcpServers` | list of string |  |  |
+| `scoring` | object |  |  |
+| `scoring.defaultModel` | string |  |  |
+| `blueprint` | object |  |  |
+| `blueprint.entry` | string | yes |  |
+| `blueprint.stages` | object | yes |  |
+| `blueprint.edges` | object |  | default `{}` |
+| `blueprint.staffing` | object | yes |  |
+| `deduplication` | object |  |  |
+| `deduplication.enabled` | boolean |  | default `true` |
+| `deduplication.windowHours` | integer |  | default `24`, min 1, max 720 |
+| `deduplication.threshold` | number |  | default `0.5`, min 0.2, max 1 |
+| `experimental` | object |  |  |
 | `selfImprovement` | object |  |  |
+| `selfImprovement.enabled` | boolean |  | default `true` |
 | `selfImprovement.failedRunThreshold` | integer |  | default `25`, min 1, max 50 |
 | `selfImprovement.maxAgeDays` | integer |  | default `7`, min 1, max 90 |
+| `selfImprovement.model` | string |  |  |
+| `selfImprovement.scorers` | list of string \| object |  |  |
 | `selfImprovement.reviewers` | object |  | default `{"type":"admins"}` |
 | `selfImprovement.reviewers.type` | `admins` \| `team` \| `custom` \| `none` |  | default `"admins"` |
 | `selfImprovement.reviewers.emails` | list of string |  |  |
@@ -79,19 +104,25 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `description` | string |  |  |
 | `agentType` | `FOREMAN` \| `TRIAGE` \| `SPEC` \| `IMPLEMENT` \| `REVIEW` \| `VERIFY` \| `PLAN` \| `PO_ASSISTANT` \| `CUSTOM` |  | default `"CUSTOM"` |
 | `spawnableBy` | list of string |  |  |
-| `idleTimeoutMinutes` | integer |  | min 1, max 60 |
+| `idleTimeoutMinutes` | integer \| null |  |  |
+| `credentialStrategy` | `EXECUTOR` \| `CREATOR` \| null |  |  |
+| `networkPolicy` | object \| null |  |  |
+| `networkPolicy.allowedHosts` | list of string |  |  |
+| `networkPolicy.deniedHosts` | list of string |  |  |
+| `networkPolicy.extends` | string \| list of string |  |  |
+| `required_repos` | list of string \| object |  |  |
 | `harness` | object \| null |  |  |
-| `harness.type` | `claude-code` \| `codex` \| `opencode` | yes |  |
+| `harness.type` | `claude-code` \| `codex` \| `opencode` \| `gemini` \| `pi` | yes |  |
 | `harness.model` | string |  |  |
-| `harness.reasoningLevel` | `low` \| `medium` \| `high` |  |  |
-| `harness.auth` | object \| object |  |  |
-| `harness.auth.source` | `"secret"` | yes |  |
-| `harness.auth.secretName` | string | yes |  |
-| `harness.auth.env` | string |  |  |
+| `harness.reasoningLevel` | `low` \| `medium` \| `high` \| `xhigh` \| `max` |  |  |
+| `harness.auth` | object \| object \| object \| object \| null |  |  |
 | `model` | string \| null |  |  |
 | `runner` | string \| null |  |  |
 | `secrets` | list of string \| null |  |  |
 | `mcpServers` | list of string \| null |  |  |
+| `workerHost` | string \| `""` \| null |  |  |
+| `computerUseModel` | string \| null |  |  |
+| `computerUse` | boolean \| null |  |  |
 | `environmentId` | string \| null |  |  |
 
 ## automation
@@ -111,22 +142,20 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `triggers[].schedule.cron` | string | yes |  |
 | `triggers[].schedule.name` | string |  |  |
 | `harness` | object \| null |  |  |
-| `harness.type` | `claude-code` \| `codex` \| `opencode` | yes |  |
+| `harness.type` | `claude-code` \| `codex` \| `opencode` \| `gemini` \| `pi` | yes |  |
 | `harness.model` | string |  |  |
-| `harness.reasoningLevel` | `low` \| `medium` \| `high` |  |  |
-| `harness.auth` | object \| object |  |  |
-| `harness.auth.source` | `"secret"` | yes |  |
-| `harness.auth.secretName` | string | yes |  |
-| `harness.auth.env` | string |  |  |
+| `harness.reasoningLevel` | `low` \| `medium` \| `high` \| `xhigh` \| `max` |  |  |
+| `harness.auth` | object \| object \| object \| object \| null |  |  |
 | `model` | string \| null |  |  |
 | `runner` | string \| null |  |  |
 | `secrets` | list of string \| null |  |  |
 | `mcpServers` | list of string \| null |  |  |
-| `environmentId` | string \| null |  |  |
 | `workerHost` | string \| null |  |  |
 | `computerUseModel` | string \| null |  |  |
+| `computerUse` | boolean \| null |  |  |
+| `environmentId` | string \| null |  |  |
 | `idleTimeoutMinutes` | integer |  | min 1, max 60 |
-| `required_repos` | list of string |  |  |
+| `required_repos` | list of string \| object |  |  |
 
 ## pipeline
 
@@ -182,16 +211,26 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | Key | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `description` | string |  |  |
-| `image` | string | yes |  |
+| `image` | string |  |  |
 | `backend` | `docker` \| `kubernetes` \| `local` |  | default `"docker"` |
 | `shape` | object |  |  |
 | `shape.vcpus` | integer | yes | max 9007199254740991 |
 | `shape.memoryGb` | number | yes |  |
+| `instanceShape` | object |  |  |
+| `instanceShape.vcpus` | integer | yes | max 9007199254740991 |
+| `instanceShape.memoryGb` | number | yes |  |
+| `platform` | object |  |  |
+| `platform.os` | `linux` \| `macos` \| `windows` |  | default `"linux"` |
+| `platform.arch` | `x86_64` \| `aarch64` |  |  |
+| `platform.linux` | object |  |  |
+| `platform.linux.dockerImage` | string |  |  |
+| `platform.linux.registryCredentialSecretName` | string |  |  |
+| `platform.mac` | object |  |  |
+| `platform.mac.version` | `14` \| `15` \| `26` \| `27` |  | default `"26"` |
+| `registryCredentialSecretName` | string |  |  |
 | `setupCommands` | list of string |  | default `[]` |
 | `egress` | list of string |  | default `[]` |
-| `platform` | object |  |  |
-| `platform.linux` | object |  |  |
-| `platform.linux.registryCredentialSecretName` | string |  |  |
+| `failureSessionRetentionMinutes` | integer |  | min 1, max 60 |
 
 ## router
 
@@ -215,7 +254,9 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | --- | --- | --- | --- |
 | `name` | string | yes |  |
 | `description` | string |  |  |
-| `agents` | list of string | yes |  |
+| `output` | `"classification"` |  |  |
+| `kind` | `user` \| `benchmark_task_correctness` |  | default `"user"` |
+| `agents` | list of string \| object | yes |  |
 | `labels` | list of object | yes |  |
 | `labels[].value` | string | yes |  |
 | `labels[].score` | number | yes | min 0, max 1 |
@@ -224,6 +265,9 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `samplingRate` | number |  | default `25`, min 0, max 100 |
 | `model` | string | yes |  |
 | `selfImprovement` | boolean |  | default `false` |
+| `runner` | string |  |  |
+| `secrets` | list of string |  |  |
+| `mcpServers` | list of string |  |  |
 
 ## benchmark-suite
 
@@ -240,13 +284,10 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `configurations[].agents[].agent` | string | yes |  |
 | `configurations[].agents[].model` | string |  |  |
 | `configurations[].agents[].harness` | object |  |  |
-| `configurations[].agents[].harness.type` | `claude-code` \| `codex` \| `opencode` | yes |  |
+| `configurations[].agents[].harness.type` | `claude-code` \| `codex` \| `opencode` \| `gemini` \| `pi` | yes |  |
 | `configurations[].agents[].harness.model` | string |  |  |
-| `configurations[].agents[].harness.reasoningLevel` | `low` \| `medium` \| `high` |  |  |
-| `configurations[].agents[].harness.auth` | object \| object |  |  |
-| `configurations[].agents[].harness.auth.source` | `"secret"` | yes |  |
-| `configurations[].agents[].harness.auth.secretName` | string | yes |  |
-| `configurations[].agents[].harness.auth.env` | string |  |  |
+| `configurations[].agents[].harness.reasoningLevel` | `low` \| `medium` \| `high` \| `xhigh` \| `max` |  |  |
+| `configurations[].agents[].harness.auth` | object \| object \| object \| object \| null |  |  |
 | `tasks` | list of string | yes |  |
 
 ## benchmark-task
@@ -261,6 +302,8 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `startingRepoRefs` | list of string | yes |  |
 | `sourceRunId` | string |  |  |
 | `tags` | list of string |  |  |
+| `labels` | list of string |  |  |
+| `referencePr` | string |  |  |
 
 ## skill
 

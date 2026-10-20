@@ -1,5 +1,6 @@
 import type {
   ApplyResult,
+  Attachment,
   ApprovalLink,
   AutomationTemplate,
   CheckOutcome,
@@ -9,20 +10,42 @@ import type {
   WebhookDelivery,
   WebhookSource,
   BenchmarkResult,
+  BenchmarkRun,
+  BenchmarkTrial,
   ConfigSummary,
+  ConversationMessage,
+  DefinitionChange,
   DefinitionRecord,
+  DeferredResolution,
+  Diagnostic,
   FactoryBinding,
   FactoryMetrics,
   Gate,
+  GateQuestion,
+  InboxItem,
   Memory,
+  PrRecord,
   Project,
   Proposal,
   Roadmap,
   Run,
   RunEvent,
+  RunMode,
+  RunState,
+  RunView,
   Score,
   SkillListing,
+  TaskOutput,
+  TaskStage,
+  TaskView,
+  TimelineEntry,
+  WorkerControl,
+  WorkerEvent,
+  WorkerJob,
+  WorkerRecord,
+  WorkerResult,
   WorkItem,
+  WriteResult,
 } from "@kiln/engine";
 import type {
   ApiKeyRow,
@@ -61,6 +84,7 @@ export type * from "./platform";
 
 export type {
   ApplyResult,
+  Attachment,
   ApprovalLink,
   AutomationTemplate,
   CheckOutcome,
@@ -70,21 +94,117 @@ export type {
   WebhookDelivery,
   WebhookSource,
   BenchmarkResult,
+  BenchmarkRun,
+  BenchmarkTrial,
   ConfigSummary,
+  ConversationMessage,
+  DefinitionChange,
   DefinitionRecord,
+  DeferredResolution,
+  Diagnostic,
   FactoryBinding,
   FactoryMetrics,
   Gate,
+  GateQuestion,
+  InboxItem,
   Memory,
+  PrRecord,
   Project,
   Proposal,
   Roadmap,
   Run,
   RunEvent,
+  RunMode,
+  RunState,
+  RunView,
   Score,
   SkillListing,
+  TaskOutput,
+  TaskStage,
+  TaskView,
+  TimelineEntry,
+  WorkerControl,
+  WorkerEvent,
+  WorkerJob,
+  WorkerRecord,
+  WorkerResult,
   WorkItem,
+  WriteResult,
 };
+
+export type PageInfo = { hasNextPage: boolean; nextCursor?: string };
+export type RunPage = { runs: RunView[]; pageInfo: PageInfo };
+export type TaskPage = { tasks: TaskView[]; pageInfo: PageInfo };
+export type RangeOpts = { startDate?: string; endDate?: string; groupByPeriod?: "day" | "week" | "month" };
+export type RunFilterOpts = {
+  factory?: string;
+  workItem?: string;
+  agent?: string;
+  kind?: string;
+  limit?: number;
+  cursor?: string;
+  state?: RunState[];
+  taskStatus?: ("running" | "failed" | "blocked" | "cancelled" | "complete")[];
+  source?: string[];
+  factoryUid?: string[];
+  ancestorRunId?: string;
+  artifactType?: string;
+  q?: string;
+  creator?: string;
+  mine?: boolean;
+  createdAfter?: string;
+  createdBefore?: string;
+  updatedAfter?: string;
+  metadata?: Record<string, string>;
+  sortBy?: "created_at" | "updated_at" | "title" | "agent";
+  sortOrder?: "asc" | "desc";
+};
+export type TaskFilterOpts = {
+  stage?: TaskStage[];
+  createdBy?: string[];
+  q?: string;
+  createdAfter?: string;
+  createdBefore?: string;
+  updatedAfter?: string;
+  updatedBefore?: string;
+  sortBy?: "created_at" | "updated_at";
+  sortOrder?: "asc" | "desc";
+  limit?: number;
+  cursor?: string;
+  includeCurrentRun?: boolean;
+};
+export type CreateFactoryInput = {
+  name: string;
+  alias?: string;
+  description?: string;
+  avatar?: string;
+  repos: { owner: string; name: string; forge?: "github" | "gitlab"; deferred?: boolean }[];
+  agents?: { triage?: boolean; spec?: boolean; implement?: boolean; review?: boolean };
+  communications?: { slack?: boolean };
+  tracker?: { type: "linear" | "jira"; scopes?: string[] };
+  costPreset?: "quality" | "efficient";
+  harness?: "claude-code" | "codex" | "opencode" | "gemini" | "pi";
+  selfImprovement?: boolean;
+  automationTemplates?: string[];
+  runner?: { image?: string; setupCommands?: string[] };
+  workerHost?: string;
+  dryRun?: boolean;
+};
+export type ScorerInput = {
+  name: string;
+  slug?: string;
+  description?: string;
+  scoringPrompt: string;
+  classifications: { value: string; score: number; description?: string }[];
+  threshold: number;
+  scopeMode: "all_agents" | "selected_agents";
+  agents?: (string | { name: string; includeDescendants?: boolean })[];
+  samplingRate?: number;
+  model: string;
+  selfImprovementEnabled?: boolean;
+};
+export type ValidateFilesResult = { ok: boolean; schemaVersion: string; diagnostics: Diagnostic[]; deferredResolutions: DeferredResolution[] };
+export type SpawnInput = { agent: string; prompt: string; title?: string; mode?: RunMode; attachments?: (string | Attachment)[]; metadata?: Record<string, string>; wait?: boolean };
 
 export class KilnApiError extends Error {
   constructor(
@@ -116,7 +236,8 @@ export type FactoryDetail = {
 };
 export type WorkItemListRow = Omit<WorkItem, "conversation"> & { messages: number };
 export type WorkItemDetail = WorkItem & { runs: Run[]; gates: Gate[]; decisions: { decision: string; action: string; provider: string; at: string }[] };
-export type InboxItem = Gate & { workItem?: Pick<WorkItem, "id" | "title" | "state" | "factory" | "pr" | "previewUrl" | "spec"> };
+/** A row of GET /api/v1/inbox: an open gate and its work item. */
+export type GateInboxItem = Gate & { workItem?: Pick<WorkItem, "id" | "title" | "state" | "factory" | "pr" | "previewUrl" | "spec"> };
 export type Portfolio = {
   projects: { project: Project; factories: FactoryMetrics[]; totals: { prsOpened: number; prsMerged: number; costUsd: number; activeWorkItems: number; pendingDecisions: number } }[];
   totals: { factories: number; prsMerged: number; costUsd: number; activeWorkItems: number };
@@ -139,31 +260,48 @@ export class KilnClient {
   }
 
   async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const form = typeof FormData !== "undefined" && body instanceof FormData;
     const res = await (this.options.fetch ?? fetch)(`${this.options.baseUrl.replace(/\/$/, "")}${path}`, {
       method,
       headers: {
         accept: "application/json",
-        ...(body !== undefined ? { "content-type": "application/json" } : {}),
+        ...(body !== undefined && !form ? { "content-type": "application/json" } : {}),
         ...(this.options.token ? { authorization: `Bearer ${this.options.token}` } : {}),
         ...(this.options.team ? { "x-kiln-team": this.options.team } : {}),
         ...this.options.headers,
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : form ? (body as FormData) : JSON.stringify(body),
       cache: "no-store",
     } as RequestInit);
     const text = await res.text();
-    const data = text ? JSON.parse(text) : undefined;
+    let data: unknown;
+    try {
+      data = text ? JSON.parse(text) : undefined;
+    } catch {
+      data = text;
+    }
     if (!res.ok) throw new KilnApiError(res.status, (data as { error?: string })?.error ?? `${method} ${path} returned ${res.status}`, data);
     return data as T;
   }
 
-  private q(params: Record<string, string | number | undefined>) {
+  /** Raw text responses (transcripts, Prometheus metrics). */
+  async text(path: string): Promise<string> {
+    const res = await (this.options.fetch ?? fetch)(`${this.options.baseUrl.replace(/\/$/, "")}${path}`, { headers: { ...(this.options.token ? { authorization: `Bearer ${this.options.token}` } : {}), ...this.options.headers }, cache: "no-store" } as RequestInit);
+    const body = await res.text();
+    if (!res.ok) throw new KilnApiError(res.status, body || `GET ${path} returned ${res.status}`);
+    return body;
+  }
+
+  private q(params: Record<string, string | number | boolean | string[] | undefined>) {
     const s = Object.entries(params)
-      .filter(([, v]) => v !== undefined && v !== "")
-      .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
+      .filter(([, v]) => v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0))
+      .map(([k, v]) => `${k}=${encodeURIComponent(Array.isArray(v) ? v.join(",") : String(v))}`)
       .join("&");
     return s ? `?${s}` : "";
   }
+
+  private f = (id: string) => `/api/v1/factories/${encodeURIComponent(id)}`;
+  private range = (o: RangeOpts = {}) => ({ start_date: o.startDate, end_date: o.endDate, group_by_period: o.groupByPeriod });
 
   health = () => this.request<{ ok: boolean; factories: number }>("GET", "/api/v1/health");
   me = () => this.request<Me>("GET", "/api/v1/me");
@@ -180,15 +318,73 @@ export class KilnClient {
 
   workItems = (filter: { factory?: string; state?: string; project?: string } = {}) => this.request<WorkItemListRow[]>("GET", `/api/v1/work-items${this.q(filter)}`);
   workItem = (id: string) => this.request<WorkItemDetail>("GET", `/api/v1/work-items/${id}`);
-  send = (input: { factory: string; title: string; body?: string; projectId?: string; pipeline?: string; budgetUsd?: number; via?: "api" | "kiln" | "mcp" }) => this.request<WorkItem>("POST", "/api/v1/work-items", input);
-  message = (id: string, text: string) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/messages`, { text });
+  send = (input: { factory: string; title: string; body?: string; projectId?: string; pipeline?: string; budgetUsd?: number; via?: "api" | "kiln" | "mcp" | "cli"; attachments?: (string | Attachment)[]; mode?: RunMode; correlationKey?: string; dedupe?: boolean }) =>
+    this.request<WorkItem>("POST", "/api/v1/work-items", input);
+  message = (id: string, text: string, attachments?: (string | Attachment)[]) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/messages`, { text, ...(attachments?.length ? { attachments } : {}) });
   cancel = (id: string) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/cancel`);
   complete = (id: string) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/complete`);
   pull = (id: string) => this.request<{ workItem: WorkItem; branch: string; cloneUrl: string; repo: string; brief: string }>("POST", `/api/v1/work-items/${id}/pull`);
   handback = (id: string, text: string) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/handback`, { text });
 
-  runs = (filter: { factory?: string; workItem?: string; agent?: string; kind?: string; limit?: number } = {}) => this.request<Run[]>("GET", `/api/v1/runs${this.q(filter)}`);
-  run = (id: string) => this.request<Run & { live: boolean; scores: Score[] }>("GET", `/api/v1/runs/${id}`);
+  /** Runs matching the filter (one page; use runsPage for cursors). */
+  runs = async (filter: RunFilterOpts = {}) => (await this.runsPage(filter)).runs;
+  runsPage = (filter: RunFilterOpts = {}) => {
+    const { factoryUid, taskStatus, ancestorRunId, artifactType, createdAfter, createdBefore, updatedAfter, sortBy, sortOrder, metadata, mine, ...rest } = filter;
+    const meta = Object.fromEntries(Object.entries(metadata ?? {}).map(([k, v]) => [`metadata[${k}]`, v]));
+    return this.request<RunPage>(
+      "GET",
+      `/api/v1/runs${this.q({ ...rest, factory_uid: factoryUid, task_status: taskStatus, ancestor_run_id: ancestorRunId, artifact_type: artifactType, created_after: createdAfter, created_before: createdBefore, updated_after: updatedAfter, sort_by: sortBy, sort_order: sortOrder, mine: mine ? "true" : undefined, ...meta })}`,
+    );
+  };
+  run = (id: string) => this.request<RunView & { live: boolean; scores: Score[] }>("GET", `/api/v1/runs/${id}`);
+  startRun = (input: { factory: string; prompt: string; agent?: string; title?: string; mode?: RunMode; attachments?: (string | Attachment)[]; metadata?: Record<string, string>; model?: string; workerHost?: string | null; idleTimeoutMinutes?: number; branch?: string; source?: "API" | "CLI" | "WEB_APP" | "MCP" }) =>
+    this.request<RunView>("POST", "/api/v1/agent-runs", input);
+  runTimeline = (id: string) => this.request<{ entries: TimelineEntry[] }>("GET", `/api/v1/runs/${id}/timeline`);
+  runConversation = (id: string) => this.request<{ runId: string; messages: ConversationMessage[] }>("GET", `/api/v1/runs/${id}/conversation`);
+  runTranscript = (id: string) => this.text(`/api/v1/runs/${id}/transcript`);
+  runScores = (id: string) => this.request<{ scores: (Record<string, unknown> & { scorer: string; classification: string; score: number; outcome: "pass" | "fail" })[] }>("GET", `/api/v1/runs/${id}/scores`);
+  followup = (id: string, message: string, opts: { attachments?: (string | Attachment)[]; mode?: RunMode } = {}) => this.request<{ delivered: "steered" | "continued"; run: RunView }>("POST", `/api/v1/runs/${id}/followups`, { message, ...opts });
+  scoreRunNow = (id: string, scorers?: string[]) => this.request<{ results: { runId: string; scorer: string; status: string }[]; scores: Record<string, unknown>[] }>("POST", `/api/v1/runs/${id}/score`, scorers ? { scorers } : {});
+  interrupt = (id: string) => this.request<{ ok: true }>("POST", `/api/v1/runs/${id}/interrupt`);
+  spawn = (id: string, input: SpawnInput) => this.request<RunView>("POST", `/api/v1/runs/${id}/spawn`, input);
+  runAgents = (id: string, runs: Omit<SpawnInput, "wait">[], wait?: boolean) => this.request<{ runs: RunView[] }>("POST", `/api/v1/runs/${id}/run-agents`, { runs, wait });
+  ask = (id: string, input: { title: string; question?: string; questions?: GateQuestion[] }) => this.request<Gate>("POST", `/api/v1/runs/${id}/questions`, input);
+  shareRun = (id: string, publicAccess: "VIEWER" | "EDITOR" | null) => this.request<RunView>("PUT", `/api/v1/runs/${id}/sharing`, { publicAccess });
+  runByExternalReference = (url: string) => this.request<RunView>("GET", `/api/v1/run-by-external-reference${this.q({ url })}`);
+  errors = () => this.request<{ code: string; http: number; retryable: boolean | "automatic"; taskState: "FAILED" | "ERROR"; title: string }[]>("GET", "/api/v1/errors");
+
+  // files
+  uploadFiles = async (files: { name: string; bytes: Uint8Array | Blob; contentType?: string }[], factory?: string) => {
+    const form = new FormData();
+    for (const f of files) form.append("files", f.bytes instanceof Blob ? f.bytes : new Blob([f.bytes as never], { type: f.contentType ?? "application/octet-stream" }), f.name);
+    if (factory) form.append("factory", factory);
+    return this.request<Attachment & { attachments: Attachment[] }>("POST", "/api/v1/uploads", form);
+  };
+  file = async (key: string) => {
+    const res = await (this.options.fetch ?? fetch)(`${this.options.baseUrl.replace(/\/$/, "")}/api/v1/files/${key.split("/").map(encodeURIComponent).join("/")}`, { headers: this.options.token ? { authorization: `Bearer ${this.options.token}` } : {} } as RequestInit);
+    if (!res.ok) throw new KilnApiError(res.status, `GET file ${key} returned ${res.status}`);
+    return { contentType: res.headers.get("content-type") ?? "application/octet-stream", bytes: new Uint8Array(await res.arrayBuffer()) };
+  };
+
+  // tasks
+  dispatch = (factory: string, input: { prompt: string; title?: string; ticket_ref?: string; ticket_url?: string; branch?: string; mode?: RunMode; attachments?: (string | Attachment)[]; correlation_key?: string; dedupe?: boolean }) =>
+    this.request<{ taskId: string; runId?: string; runUrl: string; state: RunState; factory: string; foremanAgent?: string; ticketRef?: string; configSource: { sha: string }; deduplicated?: { into: string; reason: string; score: number } }>("POST", `${this.f(factory)}/runs`, input);
+  private taskQ = (o: TaskFilterOpts) =>
+    this.q({ stage: o.stage, created_by: o.createdBy, q: o.q, created_after: o.createdAfter, created_before: o.createdBefore, updated_after: o.updatedAfter, updated_before: o.updatedBefore, sort_by: o.sortBy, sort_order: o.sortOrder, limit: o.limit, cursor: o.cursor, include_current_run: o.includeCurrentRun ? "true" : undefined });
+  tasks = (factory: string, filter: TaskFilterOpts = {}) => this.request<TaskPage>("GET", `${this.f(factory)}/tasks${this.taskQ(filter)}`);
+  allTasks = (filter: TaskFilterOpts & { factory?: string } = {}) => this.request<TaskPage>("GET", `/api/v1/tasks${this.taskQ(filter)}${filter.factory ? `${this.taskQ(filter) ? "&" : "?"}factory=${encodeURIComponent(filter.factory)}` : ""}`);
+  task = (factory: string, id: string) => this.request<TaskView>("GET", `${this.f(factory)}/tasks/${id}`);
+  createTask = (factory: string, input: { title: string; conversationId: string; description?: string; stage?: TaskStage }) => this.request<TaskView>("POST", `${this.f(factory)}/tasks`, input);
+  updateTask = (factory: string, id: string, patch: { title?: string; description?: string; stage?: TaskStage }) => this.request<TaskView>("PATCH", `${this.f(factory)}/tasks/${id}`, patch);
+  deleteTask = (factory: string, id: string) => this.request<{ ok: true }>("DELETE", `${this.f(factory)}/tasks/${id}`);
+  cancelTask = (factory: string, id: string) => this.request<TaskView>("POST", `${this.f(factory)}/tasks/${id}/cancel`);
+  completeTask = (factory: string, id: string) => this.request<{ completed: boolean; reason?: string; task: TaskView }>("POST", `${this.f(factory)}/tasks/${id}/complete`);
+  taskOutputs = (factory: string, id: string) => this.request<{ outputs: TaskOutput[] }>("GET", `${this.f(factory)}/tasks/${id}/outputs`);
+  taskByRun = (factory: string, runId: string) => this.request<TaskView>("GET", `${this.f(factory)}/task-by-run${this.q({ run_id: runId })}`);
+  taskByConversation = (factory: string, conversationId: string) => this.request<TaskView>("GET", `${this.f(factory)}/task-by-conversation${this.q({ conversation_id: conversationId })}`);
+  findTask = (reference: string, startWorking = false) =>
+    this.request<{ task: TaskView; startWorking?: { repo: string; cloneUrl: string; branch: string; brief: string; commands: string[] } }>("GET", `/api/v1/tasks/lookup${this.q({ reference, start_working: startWorking ? "true" : undefined })}`);
+  handbackTask = (id: string, input: { note: string; branch?: string; prUrl?: string }) => this.request<TaskView>("POST", `/api/v1/tasks/${id}/handback`, input);
   runEvents = (id: string, after = 0) => this.request<RunEvent[]>("GET", `/api/v1/runs/${id}/events?after=${after}`);
   steer = (id: string, text: string) => this.request<{ ok: true }>("POST", `/api/v1/runs/${id}/steer`, { text });
   replay = (id: string, sha?: string) => this.request<Run>("POST", `/api/v1/runs/${id}/replay`, { sha });
@@ -197,7 +393,23 @@ export class KilnClient {
   cancelRun = (id: string) => this.request<{ ok: true }>("POST", `/api/v1/runs/${id}/cancel`);
   saveBenchmark = (id: string, input: { suite: string; slug: string; title?: string; successCriteria?: string[]; tags?: string[] }) => this.request<{ files: Record<string, string> }>("POST", `/api/v1/runs/${id}/save-benchmark`, input);
 
-  inbox = (opts: { assignee?: string; all?: boolean } = {}) => this.request<InboxItem[]>("GET", `/api/v1/inbox${this.q({ assignee: opts.assignee, all: opts.all ? 1 : undefined })}`);
+  inbox = (opts: { assignee?: string; all?: boolean } = {}) => this.request<GateInboxItem[]>("GET", `/api/v1/inbox${this.q({ assignee: opts.assignee, all: opts.all ? 1 : undefined })}`);
+  inboxItems = (opts: { scope?: "mine" | "team"; factory?: string; kind?: InboxItem["kind"][]; read?: boolean; q?: string; includeResolved?: boolean; limit?: number; cursor?: string } = {}) =>
+    this.request<{ items: InboxItem[]; pageInfo: PageInfo; unread?: number }>(
+      "GET",
+      `/api/v1/inbox/items${this.q({ scope: opts.scope, factory: opts.factory, kind: opts.kind, read: opts.read === undefined ? undefined : String(opts.read), q: opts.q, include_resolved: opts.includeResolved ? "true" : undefined, limit: opts.limit, cursor: opts.cursor })}`,
+    );
+  markRead = (ids: string[]) => this.request<{ results: { id: string; ok: boolean }[] }>("POST", "/api/v1/inbox/read", { ids });
+  markUnread = (ids: string[]) => this.request<{ results: { id: string; ok: boolean }[] }>("POST", "/api/v1/inbox/unread", { ids });
+  resolveInbox = (ids: string[]) => this.request<{ results: { id: string; ok: boolean }[] }>("POST", "/api/v1/inbox/resolve", { ids });
+  unresolveInbox = (ids: string[]) => this.request<{ results: { id: string; ok: boolean }[] }>("POST", "/api/v1/inbox/unresolve", { ids });
+  definitionChanges = (factory: string, state?: DefinitionChange["state"]) => this.request<{ changes: DefinitionChange[] }>("GET", `${this.f(factory)}/definition-changes${this.q({ state })}`);
+  proposeDefinitionChange = (factory: string, input: { title: string; message?: string; files: Record<string, string | null> }) => this.request<DefinitionChange>("POST", `${this.f(factory)}/definition-changes`, input);
+  definitionChange = (id: string) => this.request<DefinitionChange>("GET", `/api/v1/definition-changes/${id}`);
+  approveDefinitionChange = (id: string) => this.request<DefinitionChange>("POST", `/api/v1/definition-changes/${id}/approve`);
+  requestDefinitionChanges = (id: string, text: string) => this.request<DefinitionChange>("POST", `/api/v1/definition-changes/${id}/request-changes`, { text });
+  commentDefinitionChange = (id: string, input: { text: string; path?: string; line?: number }) => this.request<DefinitionChange>("POST", `/api/v1/definition-changes/${id}/comments`, input);
+  rejectDefinitionChange = (id: string) => this.request<DefinitionChange>("POST", `/api/v1/definition-changes/${id}/reject`);
   gate = (id: string) => this.request<Gate & { workItem?: WorkItem }>("GET", `/api/v1/gates/${id}`);
   decide = (id: string, decision: "approve" | "reject" | "answer", answer?: string, via?: string) => this.request<Gate>("POST", `/api/v1/gates/${id}/decide`, { decision, answer, via });
 
@@ -227,6 +439,101 @@ export class KilnClient {
   skills = () => this.request<{ catalog: CatalogRow[]; listings: SkillListing[] }>("GET", "/api/v1/skills");
   publishSkill = (factory: string, name: string) => this.request<SkillListing>("POST", "/api/v1/skills/publish", { factory, name });
   installSkill = (id: string, factory: string) => this.request<{ prUrl?: string; sha?: string }>("POST", `/api/v1/skills/${id}/install`, { factory });
+
+  // factory metrics, costs and pull requests
+  factoryMetrics = (factory: string, o: RangeOpts = {}) => this.request<Record<string, any>>("GET", `${this.f(factory)}/metrics${this.q(this.range(o))}`);
+  costPerPr = (factory: string, o: RangeOpts = {}) => this.request<Record<string, any>>("GET", `${this.f(factory)}/costs/per-pr${this.q(this.range(o))}`);
+  costBreakdown = (factory: string, groupBy: "source" | "user" | "agent" | "model", o: RangeOpts = {}) => this.request<Record<string, any>>("GET", `${this.f(factory)}/costs/breakdown${this.q({ ...this.range(o), group_by: groupBy })}`);
+  topPrCosts = (factory: string, o: RangeOpts & { limit?: number } = {}) => this.request<Record<string, any>>("GET", `${this.f(factory)}/costs/per-pr/top${this.q({ ...this.range(o), limit: o.limit })}`);
+  costBySize = (factory: string, o: RangeOpts = {}) => this.request<Record<string, any>>("GET", `${this.f(factory)}/costs/per-pr/by-size${this.q(this.range(o))}`);
+  runBreakdown = (factory: string, groupBy: "agent_type" | "status" | "source" | "root_vs_subrun" | "model" | "harness", o: RangeOpts = {}) =>
+    this.request<Record<string, any>>("GET", `${this.f(factory)}/metrics/run-breakdown${this.q({ ...this.range(o), group_by: groupBy })}`);
+  pullRequests = (factory: string, o: { limit?: number; cursor?: string; repo?: string; state?: ("open" | "draft" | "merged" | "closed")[]; openedAfter?: string; openedBefore?: string; mergedAfter?: string; mergedBefore?: string; updatedAfter?: string } = {}) =>
+    this.request<{ pullRequests: PrRecord[]; pageInfo: PageInfo }>(
+      "GET",
+      `${this.f(factory)}/pull-requests${this.q({ limit: o.limit, cursor: o.cursor, repo: o.repo, state: o.state, opened_after: o.openedAfter, opened_before: o.openedBefore, merged_after: o.mergedAfter, merged_before: o.mergedBefore, updated_after: o.updatedAfter })}`,
+    );
+
+  // scorers
+  scorersOf = (factory: string) => this.request<{ scorers: Record<string, any>[] }>("GET", `${this.f(factory)}/scorers`);
+  scorer = (factory: string, slug: string) => this.request<Record<string, any>>("GET", `${this.f(factory)}/scorers/${slug}`);
+  createScorer = (factory: string, input: ScorerInput) => this.request<{ slug: string; result: WriteResult; scorer?: Record<string, any> }>("POST", `${this.f(factory)}/scorers`, input);
+  updateScorer = (factory: string, slug: string, patch: Partial<Omit<ScorerInput, "slug">>) => this.request<{ slug: string; result: WriteResult; scorer?: Record<string, any> }>("PATCH", `${this.f(factory)}/scorers/${slug}`, patch);
+  deleteScorer = (factory: string, slug: string) => this.request<{ slug: string; deletedScores: number }>("DELETE", `${this.f(factory)}/scorers/${slug}`);
+  scorerResults = (factory: string, slug: string, o: { limit?: number; cursor?: string; includeReasons?: boolean; runIds?: string[] } = {}) =>
+    this.request<{ results: Record<string, any>[]; pageInfo: PageInfo }>("GET", `${this.f(factory)}/scorers/${slug}/results${this.q({ limit: o.limit, cursor: o.cursor, include_reasons: o.includeReasons ? "true" : undefined, run_id: o.runIds })}`);
+  scorerMetrics = (factory: string, slug: string, o: RangeOpts & { includeCost?: boolean } = {}) =>
+    this.request<Record<string, any>>("GET", `${this.f(factory)}/scorers/${slug}/metrics${this.q({ ...this.range(o), include_cost: o.includeCost ? "true" : undefined })}`);
+  scoreRuns = (factory: string, slug: string, runIds: string[]) => this.request<{ results: { runId: string; scorer: string; status: string; scoreId?: string }[] }>("POST", `${this.f(factory)}/scorers/${slug}/dispatch`, { runIds });
+  scoreRun = (factory: string, runId: string, scorers: string[]) => this.request<{ results: { runId: string; scorer: string; status: string; scoreId?: string }[] }>("POST", `${this.f(factory)}/runs/${runId}/scorer-dispatch`, { scorers });
+
+  // benchmarks
+  benchmarkSuites = (factory: string) => this.request<{ suites: Record<string, any>[] }>("GET", `${this.f(factory)}/benchmark-suites`);
+  benchmarkSuite = (factory: string, suite: string) => this.request<Record<string, any>>("GET", `${this.f(factory)}/benchmark-suites/${suite}`);
+  createBenchmarkSuite = (factory: string, input: Record<string, unknown>) => this.request<{ slug: string; result: WriteResult }>("POST", `${this.f(factory)}/benchmark-suites`, input);
+  updateBenchmarkSuite = (factory: string, suite: string, patch: Record<string, unknown>) => this.request<{ slug: string; result: WriteResult }>("PATCH", `${this.f(factory)}/benchmark-suites/${suite}`, patch);
+  deleteBenchmarkSuite = (factory: string, suite: string) => this.request<{ slug: string; result: WriteResult }>("DELETE", `${this.f(factory)}/benchmark-suites/${suite}`);
+  createBenchmarkTask = (factory: string, suite: string, input: Record<string, unknown>) => this.request<{ slug: string; created: boolean }>("POST", `${this.f(factory)}/benchmark-suites/${suite}/tasks`, input);
+  deleteBenchmarkTask = (factory: string, suite: string, task: string) => this.request<{ slug: string }>("DELETE", `${this.f(factory)}/benchmark-suites/${suite}/tasks/${task}`);
+  startBenchmark = (factory: string, suite: string, input: { configurations?: { name: string; agents: { agent: string; harness?: string; model?: string; runner?: string }[] }[]; repetitions?: number; scorers?: string[]; tasks?: string[] } = {}) =>
+    this.request<BenchmarkRun>("POST", `${this.f(factory)}/benchmark-suites/${suite}/runs`, input);
+  benchmarkRuns = (factory: string, suite: string) => this.request<{ runs: BenchmarkRun[] }>("GET", `${this.f(factory)}/benchmark-suites/${suite}/runs`);
+  benchmarkRun = (id: string) => this.request<BenchmarkRun>("GET", `/api/v1/benchmark-runs/${id}`);
+  cancelBenchmarkRun = (id: string) => this.request<BenchmarkRun>("POST", `/api/v1/benchmark-runs/${id}/cancel`);
+  benchmarkResults = (id: string) => this.request<Record<string, any>>("GET", `/api/v1/benchmark-runs/${id}/results`);
+  benchmarkTrials = (id: string, f: { task?: string; configuration?: string; agentRunId?: string } = {}) =>
+    this.request<{ trials: BenchmarkTrial[]; matchedAttemptNumber?: number }>("GET", `/api/v1/benchmark-runs/${id}/trials${this.q({ task: f.task, configuration: f.configuration, agent_run_id: f.agentRunId })}`);
+  runToBenchmarkTask = (runId: string, input: { suite: string; slug?: string; title?: string; successCriteria?: string[]; tags?: string[] }) => this.request<{ slug: string; created: boolean }>("POST", `/api/v1/runs/${runId}/benchmark-task`, input);
+
+  // self-improvement
+  selfImprovementSettings = (factory: string) => this.request<Record<string, any>>("GET", `${this.f(factory)}/self-improvement/settings`);
+  updateSelfImprovementSettings = (factory: string, patch: { enabled?: boolean; failedRunThreshold?: number; maxAgeDays?: number; reviewers?: { type: "admins" | "team" | "custom" | "none"; emails?: string[] }; model?: string | null; scorers?: Record<string, boolean> }) =>
+    this.request<WriteResult>("PUT", `${this.f(factory)}/self-improvement/settings`, patch);
+
+  // definition editing
+  files = (factory: string) => this.request<{ sha: string; managed: boolean; files: { path: string; size: number }[] }>("GET", `${this.f(factory)}/files`);
+  readFile = (factory: string, path: string) => this.request<{ path: string; content: string }>("GET", `${this.f(factory)}/files/${path.split("/").map(encodeURIComponent).join("/")}`);
+  writeFile = (factory: string, path: string, content: string, message?: string) => this.request<WriteResult>("PUT", `${this.f(factory)}/files/${path.split("/").map(encodeURIComponent).join("/")}`, { content, message });
+  deleteFile = (factory: string, path: string) => this.request<WriteResult>("DELETE", `${this.f(factory)}/files/${path.split("/").map(encodeURIComponent).join("/")}`);
+  commitFiles = (factory: string, files: Record<string, string | null>, message: string, dryRun?: boolean) => this.request<WriteResult>("POST", `${this.f(factory)}/files/commit`, { files, message, dryRun });
+  agents = (factory: string) => this.request<{ agents: Record<string, any>[] }>("GET", `${this.f(factory)}/agents`);
+  putAgent = (factory: string, name: string, spec: Record<string, unknown>) => this.request<WriteResult>("PUT", `${this.f(factory)}/agents/${encodeURIComponent(name)}`, spec);
+  deleteAgent = (factory: string, name: string) => this.request<WriteResult>("DELETE", `${this.f(factory)}/agents/${encodeURIComponent(name)}`);
+  putAutomation = (factory: string, name: string, spec: Record<string, unknown>) => this.request<WriteResult>("PUT", `${this.f(factory)}/automations/${name}`, spec);
+  deleteAutomation = (factory: string, name: string) => this.request<WriteResult>("DELETE", `${this.f(factory)}/automations/${name}`);
+  putRunner = (factory: string, name: string, spec: Record<string, unknown>) => this.request<WriteResult>("PUT", `${this.f(factory)}/runners/${name}`, spec);
+  deleteRunner = (factory: string, name: string) => this.request<WriteResult>("DELETE", `${this.f(factory)}/runners/${name}`);
+  putRouter = (factory: string, name: string, spec: Record<string, unknown>) => this.request<WriteResult>("PUT", `${this.f(factory)}/routers/${name}`, spec);
+  deleteRouter = (factory: string, name: string) => this.request<WriteResult>("DELETE", `${this.f(factory)}/routers/${name}`);
+  putSkill = (factory: string, name: string, spec: { description: string; body: string; owner?: string; version?: string; agent?: string }) => this.request<WriteResult>("PUT", `${this.f(factory)}/skills/${name}`, spec);
+  deleteSkill = (factory: string, name: string, agent?: string) => this.request<WriteResult>("DELETE", `${this.f(factory)}/skills/${name}${this.q({ agent })}`);
+  settings = (factory: string) => this.request<Record<string, any>>("GET", `${this.f(factory)}/settings`);
+  updateSettings = (factory: string, patch: Record<string, unknown>) => this.request<WriteResult>("PATCH", `${this.f(factory)}/settings`, patch);
+  setAvatar = (factory: string, fileKey: string) => this.request<{ avatarUrl: string }>("POST", `${this.f(factory)}/avatar`, { file: fileKey });
+  migrateFactory = (factory: string, repo: { owner: string; name: string; ref?: string; dir?: string }) => this.request<{ prUrl: string; branch: string }>("POST", `${this.f(factory)}/migrate`, repo);
+  completeMigration = (factory: string) => this.request<{ switched: boolean; factory: FactoryBinding }>("POST", `${this.f(factory)}/migrate/complete`);
+
+  // factory creation and onboarding
+  createFactory = (input: CreateFactoryInput) => this.request<{ factory?: FactoryBinding; sha: string; files: string[]; dryRun: boolean; tree?: Record<string, string> }>("POST", "/api/v1/factories", input);
+  enableLearning = (factory: string) => this.request<RunView>("POST", `${this.f(factory)}/learning`);
+  forgeRepositories = () => this.request<{ forge: string; repositories: { owner: string; name: string; forge: string }[] }>("GET", "/api/v1/forge/repositories");
+  trackerScopes = () => this.request<{ tracker: string; scopes: { id: string; name: string }[] }>("GET", "/api/v1/tracker/scopes");
+
+  // definition schemas (no token needed)
+  schemaVersions = () => this.request<{ currentVersion: string; versions: { schemaVersion: string; schemaUrl: string }[] }>("GET", "/api/v1/factory-files/schemas");
+  schemaBundle = (version = "v1") => this.request<{ schemaVersion: string; documents: Record<string, Record<string, unknown>> }>("GET", `/api/v1/factory-files/schemas/${version}`);
+  schemaDocument = (document: string, version = "v1") => this.request<Record<string, unknown>>("GET", `/api/v1/factory-files/schemas/${version}/${document}`);
+  validateFiles = (files: { path: string; content: string }[]) => this.request<ValidateFilesResult>("POST", "/api/v1/factory-files/validate", { files });
+
+  // self-hosted workers
+  workers = () => this.request<{ workers: (WorkerRecord & { stale: boolean })[]; queue: { runId: string; workerHost: string; queuedAt: string }[] }>("GET", "/api/v1/workers");
+  workerConnect = (input: { workerId: string; backend: "docker" | "kubernetes" | "direct"; version?: string; maxConcurrent?: number; instance?: string }) => this.request<WorkerRecord>("POST", "/api/v1/workers/connect", input);
+  workerHeartbeat = (instance: string) => this.request<WorkerControl>("POST", `/api/v1/workers/${instance}/heartbeat`);
+  workerClaim = (instance: string, waitSeconds = 25) => this.request<{ job?: WorkerJob; control: WorkerControl }>("POST", `/api/v1/workers/${instance}/claim${this.q({ wait: waitSeconds })}`);
+  workerEvents = (instance: string, runId: string, events: WorkerEvent[]) => this.request<WorkerControl>("POST", `/api/v1/workers/${instance}/runs/${runId}/events`, { events });
+  workerComplete = (instance: string, runId: string, result: WorkerResult) => this.request<{ ok: true }>("POST", `/api/v1/workers/${instance}/runs/${runId}/complete`, result);
+  workerDisconnect = (instance: string) => this.request<{ ok: true }>("DELETE", `/api/v1/workers/${instance}`);
+  metricsText = () => this.text("/metrics");
 
   audit = (limit = 200) => this.request<{ id: string; at: string; actor: string; action: string; target: string; details?: unknown }[]>("GET", `/api/v1/audit?limit=${limit}`);
   decisions = (workItem?: string) => this.request<{ id: string; decision: string; action: string; provider: string; workItemId?: string; runId?: string; at: string }[]>("GET", `/api/v1/decisions${this.q({ workItem })}`);

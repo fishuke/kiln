@@ -18,11 +18,11 @@ export const LINK_PROVIDERS = ["github", "slack", "discord", "linear", "jira", "
 export type LinkProvider = (typeof LINK_PROVIDERS)[number];
 
 /** What people are notified about: the gate kinds (merge is the PR review), plus work that is blocked or failed. */
-export const INBOX_KINDS = ["spec", "preview", "question", "merge", "custom", "blocked", "failed"] as const;
-export type InboxKind = (typeof INBOX_KINDS)[number];
+export const NOTIFY_KINDS = ["spec", "preview", "question", "merge", "custom", "blocked", "failed"] as const;
+export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 export const NOTIFY_CHANNELS = ["email", "slack", "discord"] as const;
 export type NotifyChannel = (typeof NOTIFY_CHANNELS)[number];
-export type NotificationPrefs = Record<InboxKind, Record<NotifyChannel, boolean>>;
+export type NotificationPrefs = Record<NotifyKind, Record<NotifyChannel, boolean>>;
 
 /** A daily summary of open decisions. With `only`, nothing is sent right away. */
 export const DigestPrefs = z

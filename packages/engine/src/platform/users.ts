@@ -1,12 +1,12 @@
 import { hashPassword, verifyPassword } from "@kiln/auth";
 import type { Kiln } from "../kiln";
 import { newId } from "../types";
-import { avatarKey, DEFAULT_DIGEST, INBOX_KINDS, P, type DigestPrefs, PlatformError, type Appearance, type LinkProvider, type NotificationPrefs, type PublicUser, type User } from "./types";
+import { avatarKey, DEFAULT_DIGEST, NOTIFY_KINDS, P, type DigestPrefs, PlatformError, type Appearance, type LinkProvider, type NotificationPrefs, type PublicUser, type User } from "./types";
 
 export const DEV_USER_EMAIL = "dev@kiln.local";
 
 export function defaultNotifications(): NotificationPrefs {
-  return Object.fromEntries(INBOX_KINDS.map((k) => [k, { email: true, slack: true, discord: true }])) as NotificationPrefs;
+  return Object.fromEntries(NOTIFY_KINDS.map((k) => [k, { email: true, slack: true, discord: true }])) as NotificationPrefs;
 }
 
 export function publicUser(u: User): PublicUser {

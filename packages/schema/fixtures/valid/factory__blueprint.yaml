@@ -1,0 +1,31 @@
+schemaVersion: kiln/v1
+name: Docs Factory
+alias: Docs Factory
+credentialStrategy: EXECUTOR
+repositories:
+  - { owner: acme, name: docs, deferred: true }
+agentDefaults:
+  model: claude-sonnet-5-5
+  workerHost: docs-workers
+scorerDefaults: { runner: linux-node }
+scoring: { defaultModel: claude-haiku-5-5 }
+selfImprovement:
+  enabled: false
+  failedRunThreshold: 10
+  model: claude-opus-5-5
+  reviewers: { type: none }
+networkPolicy:
+  allowedHosts: [docs.acme.test]
+experimental:
+  fastPreview: true
+blueprint:
+  entry: draft
+  stages:
+    draft: { prompt: Write the page., outputs: The page path. }
+    check: { prompt: Check every link on the page. }
+  edges:
+    draft-to-check: { from: draft, to: check, when: a page was written }
+  staffing:
+    foreman: foreman
+    draft: writer
+    check: checker

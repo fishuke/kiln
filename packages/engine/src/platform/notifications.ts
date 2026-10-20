@@ -2,13 +2,13 @@ import type { Chat, Mailer } from "@kiln/integrations";
 import type { Kiln } from "../kiln";
 import type { Gate, WorkItem } from "../types";
 import { defaultNotifications } from "./users";
-import { DEFAULT_DIGEST, type InboxKind, type NotifyChannel, type User } from "./types";
+import { DEFAULT_DIGEST, type NotifyKind, type NotifyChannel, type User } from "./types";
 
 /** One delivery attempt, kept for dedupe and for "why didn't I get a message?". */
 export type NotificationRecord = {
   id: string;
   userId: string;
-  kind: InboxKind | "digest";
+  kind: NotifyKind | "digest";
   ref: string;
   channel: NotifyChannel;
   status: "sent" | "failed" | "skipped";
@@ -18,9 +18,9 @@ export type NotificationRecord = {
 
 const COLLECTION = "notifications";
 
-type Notice = { kind: InboxKind; ref: string; subject: string; text: string };
+type Notice = { kind: NotifyKind; ref: string; subject: string; text: string };
 
-const KIND_LABEL: Record<InboxKind, string> = {
+const KIND_LABEL: Record<NotifyKind, string> = {
   spec: "Spec to approve",
   preview: "Preview to accept",
   question: "Question for you",
@@ -62,7 +62,7 @@ export class NotificationService {
   }
 
   async onGate(gate: Gate) {
-    const kind = (["spec", "preview", "question", "merge", "custom"] as const).includes(gate.kind as never) ? (gate.kind as InboxKind) : "custom";
+    const kind = (["spec", "preview", "question", "merge", "custom"] as const).includes(gate.kind as never) ? (gate.kind as NotifyKind) : "custom";
     const wi = this.k.workflow.get(gate.workItemId);
     const link = this.k.link(`/inbox/${gate.id}`);
     const lines = [gate.question ?? gate.title, wi ? `Work item: ${wi.title} (${gate.factory})` : "", ...gate.evidence.map((e) => `${e.label}: ${e.url}`), "", `Decide: ${link}`].filter((l, i) => l || i > 1);

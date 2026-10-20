@@ -13,6 +13,7 @@ export function meRoutes(ctx: RouteContext) {
     const t = a.token;
     const user = a.user;
     return c.json({
+      ...(c.get("run") ? { run: c.get("run") } : {}),
       subject: t.subject,
       name: user?.name ?? t.name,
       grants: t.grants,

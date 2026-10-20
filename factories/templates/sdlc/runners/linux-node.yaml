@@ -1,5 +1,4 @@
 description: Linux sandbox with Node 22 and pnpm
-image: node:22-bookworm
 backend: docker
 shape: { vcpus: 4, memoryGb: 8 }
 setupCommands:

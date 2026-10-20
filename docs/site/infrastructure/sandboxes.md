@@ -12,7 +12,6 @@ Every agent run gets a fresh sandbox built from its runner file, and Kiln destro
 ```yaml
 # runners/linux-node.yaml
 description: Node 22 with pnpm
-image: node:22-bookworm
 backend: docker
 shape: { vcpus: 4, memoryGb: 8 }
 setupCommands:
@@ -25,7 +24,7 @@ egress:
 
 | Key | Default | Notes |
 | --- | --- | --- |
-| `image` | required | The container image. Docker pulls it if it is not cached. |
+| `image` | Kiln's runner image | The container image. Docker pulls it if it is not cached. Without one, runs use the server's runner image (`KILN_RUNNER_IMAGE`), which has the agent CLIs. An image you name must have the harness CLI (`claude`, `codex` or `opencode`) on its `PATH`. |
 | `backend` | `docker` | `docker`, `kubernetes` or `local`. |
 | `shape` | none | `vcpus` and `memoryGb`. Sets CPU and memory limits. |
 | `setupCommands` | `[]` | Run in order after the repositories are cloned. A failing command fails the run. |
@@ -33,7 +32,7 @@ egress:
 | `platform.linux.registryCredentialSecretName` | none | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images). |
 | `description` | none | |
 
-An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses `node:22-bookworm` on the server's default backend, which is `local` unless the server sets another.
+An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses the server's runner image on the server's default backend, which is `local` unless the server sets another. A run's image is the runner's own, else its [environment](../management/secrets-mcps-environments.md)'s, else `KILN_RUNNER_IMAGE`, else `node:22-bookworm`.
 
 ## Backends
 

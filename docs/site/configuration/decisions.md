@@ -11,7 +11,15 @@ A typed decision sends a few fields of program state and a set of typed question
 
 A factory makes many small yes/no and pick-one choices per work item: is this command destructive, does this request need a spec, is this pull request risky. Kiln sends these to a decision model instead of a coding agent. The thresholds live in Kiln, so changing a policy means editing a number, not a prompt.
 
-The primary provider is Jev from TypeSafe AI. When Jev fails or is slow, Kiln falls back to structured output from your LLM gateway. Offline and in tests, a built-in rule set answers instead.
+The primary provider is Jev from TypeSafe AI. When Jev fails or is slow, Kiln falls back to an LLM with structured output. Offline and in tests, a built-in rule set answers instead.
+
+| Provider | Server settings |
+| --- | --- |
+| Jev | `JEV_API_KEY`. `JEV_API_URL` defaults to `https://api.typesafe.ai` (Kiln calls `/v1/systemone`). |
+| LLM fallback | `LLM_GATEWAY_URL` and `LLM_GATEWAY_KEY` for an OpenAI-compatible gateway; without one, Claude through `ANTHROPIC_API_KEY`. `KILN_DECISION_MODEL` defaults to `claude-haiku-5-5`. |
+| Built-in rules | Used when neither is set. Simple patterns: for example the command guard asks about every `rm -`. |
+
+Without Jev, the LLM fallback is the primary provider.
 
 ## A decision file
 

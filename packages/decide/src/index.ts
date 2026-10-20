@@ -1,4 +1,7 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { evaluate, parseExpr, type Decision, type DecisionQuestion } from "@kiln/schema";
+import * as z from "zod/v4";
 
 /** Choice questions answer with a probability per option; probability and score questions with one number. */
 export type Answer = number | Record<string, number>;
@@ -46,40 +49,109 @@ function normalize(questions: Record<string, DecisionQuestion>, raw: Record<stri
       const probs = (typeof v === "object" && v ? ((v.probabilities as Record<string, number>) ?? v) : {}) as Record<string, number>;
       out[name] = Object.fromEntries(q.options.map((o) => [o, Number(probs[o] ?? 0)]));
     } else {
-      const n = typeof v === "number" ? v : Number((v as Record<string, unknown> | undefined)?.probability ?? (v as Record<string, unknown> | undefined)?.score ?? 0);
+      const o = v as Record<string, unknown> | undefined;
+      const n = typeof v === "number" ? v : Number(o?.probability ?? o?.noul ?? o?.score ?? 0);
       out[name] = Number.isFinite(n) ? n : 0;
     }
   }
   return out;
 }
 
+const JEV_URL = "https://api.typesafe.ai";
+/** Levels Kiln's numeric score questions are asked on; Jev answers with the expected level index. */
+const SCORE_LEVELS = ["very low", "low", "medium", "high", "very high"];
+const words = (s: string) => s.replace(/[-_]+/g, " ").trim();
+
+/** One Kiln question as a Jev question: choice → choice, probability → noul, score → score on SCORE_LEVELS. */
+function jevQuestion(decision: string, name: string, q: DecisionQuestion) {
+  const instructions = `${words(decision)}: ${words(name)}`;
+  if (q.type === "choice") return { type: "choice", instructions, criteria: Object.fromEntries(q.options.map((o) => [o, words(o)])) };
+  if (q.type === "probability") return { type: "noul", instructions };
+  return { type: "score", instructions, criteria: SCORE_LEVELS };
+}
+
 /**
- * TypeSafe AI's Jev: typed questions over program state, answered in one parallel call.
- * The wire format follows the early-access API; keep this adapter as the only place that knows it.
+ * TypeSafe AI's Jev (POST https://api.typesafe.ai/v1/systemone): typed questions over program
+ * state, answered in one parallel call. This adapter is the only place that knows the wire format.
  */
 export class JevProvider implements DecisionProvider {
   readonly name = "jev";
 
   constructor(
-    private readonly options: { baseUrl: string; apiKey: string; fetch?: typeof fetch; redact?: (s: Record<string, unknown>) => Record<string, unknown> },
+    private readonly options: { apiKey: string; baseUrl?: string; model?: string; fetch?: typeof fetch; redact?: (s: Record<string, unknown>) => Record<string, unknown> },
   ) {}
+
+  /** The base URL or the full endpoint both work. */
+  private endpoint() {
+    const base = (this.options.baseUrl || JEV_URL).replace(/\/+$/, "");
+    return base.endsWith("/v1/systemone") ? base : `${base}/v1/systemone`;
+  }
 
   async ask(request: DecisionRequest): Promise<Answers> {
     const doFetch = this.options.fetch ?? fetch;
     const state = this.options.redact ? this.options.redact(request.state) : request.state;
     return withTimeout(this.name, request.timeoutMs, async (signal) => {
-      const res = await doFetch(`${this.options.baseUrl.replace(/\/$/, "")}/v1/decide`, {
+      const res = await doFetch(this.endpoint(), {
         method: "POST",
         signal,
         headers: { "content-type": "application/json", authorization: `Bearer ${this.options.apiKey}` },
         body: JSON.stringify({
+          model: this.options.model ?? "jev-latest",
           state,
-          questions: Object.entries(request.questions).map(([name, q]) => ({ name, ...q })),
+          questions: Object.fromEntries(Object.entries(request.questions).map(([name, q]) => [name, jevQuestion(request.decision, name, q)])),
         }),
       });
       if (!res.ok) throw new Error(`jev returned ${res.status}`);
-      const body = (await res.json()) as { answers?: Record<string, unknown> };
-      return normalize(request.questions, body.answers ?? {});
+      const body = (await res.json()) as { answers?: Record<string, Record<string, unknown>> };
+      const answers: Record<string, unknown> = { ...body.answers };
+      for (const [name, q] of Object.entries(request.questions)) {
+        const score = Number(body.answers?.[name]?.score);
+        if (q.type === "score" && Number.isFinite(score)) answers[name] = q.min + (score / (SCORE_LEVELS.length - 1)) * (q.max - q.min);
+      }
+      return normalize(request.questions, answers);
+    });
+  }
+}
+
+/** The answer schema Claude fills in for one decision: probabilities per choice option, numbers otherwise. */
+function answerSchema(questions: Record<string, DecisionQuestion>) {
+  return z.object(
+    Object.fromEntries(Object.entries(questions).map(([name, q]) => [name, q.type === "choice" ? z.object(Object.fromEntries(q.options.map((o) => [o, z.number()]))) : z.number()])),
+  );
+}
+
+/**
+ * Claude (Haiku by default) answering decisions with structured output: what Kiln uses without Jev
+ * or a gateway, from the ANTHROPIC_API_KEY agents already have.
+ */
+export class AnthropicProvider implements DecisionProvider {
+  readonly name = "anthropic";
+  private readonly client: Anthropic;
+
+  constructor(private readonly options: { apiKey: string; model?: string; fetch?: typeof fetch }) {
+    this.client = new Anthropic({ apiKey: options.apiKey, maxRetries: 1, ...(options.fetch ? { fetch: options.fetch } : {}) });
+  }
+
+  async ask(request: DecisionRequest): Promise<Answers> {
+    const prompt = [
+      `Answer each typed question about the state below for the "${request.decision}" decision.`,
+      "For choice questions give a probability per option that sums to 1; for probability questions a number from 0 to 1; for score questions a number in the stated range.",
+      `Questions: ${JSON.stringify(request.questions)}`,
+      `State: ${JSON.stringify(request.state)}`,
+    ].join("\n");
+    return withTimeout(this.name, Math.max(request.timeoutMs, 15_000), async (signal) => {
+      const res = await this.client.messages.parse(
+        {
+          model: this.options.model ?? "claude-haiku-5-5",
+          max_tokens: 4096,
+          output_config: { effort: "low", format: zodOutputFormat(answerSchema(request.questions)) },
+          messages: [{ role: "user", content: prompt }],
+        },
+        { signal },
+      );
+      if (res.stop_reason === "refusal") throw new Error(`${this.options.model ?? "claude-haiku-5-5"} refused to answer`);
+      if (!res.parsed_output) throw new Error(`no structured answer (stop reason ${res.stop_reason})`);
+      return normalize(request.questions, res.parsed_output as Record<string, unknown>);
     });
   }
 }

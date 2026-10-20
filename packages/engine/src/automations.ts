@@ -157,7 +157,7 @@ export class AutomationService {
         thread: d.thread,
         automation,
       },
-      requester: String(d.author ?? event.provider),
+      requester: d.author ? this.k.users.resolveIdentity(event.provider, String(d.author)) : event.provider,
       trackerKey: event.provider === "linear" || event.provider === "jira" ? d.issueId : undefined,
       directAgent: viaForeman ? undefined : agent,
       prompt,
@@ -205,7 +205,7 @@ export class AutomationService {
     const text = String(d.text ?? "").replace(/<@[^>]+>\s*/g, "").trim();
     if (!text) return [match.id];
     const raw = String(d.author ?? event.provider);
-    const author = this.k.options.identities?.[`${event.provider}:${raw}`] ?? raw;
+    const author = this.k.users.resolveIdentity(event.provider, raw);
     const open = this.k.gates.list({ workItemId: match.id, state: "open" });
     // Text in a thread or comment is content, not authority: only a gate's assignees decide it.
     const mayDecide = (g: { assignees: string[] }) => g.assignees.length === 0 || g.assignees.includes(author);

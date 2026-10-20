@@ -11,6 +11,9 @@ export type HarnessEvent =
 
 export type HarnessResult = { outcome: "succeeded" | "failed" | "cancelled"; summary: string; costUsd: number; turns: number };
 
+/** An MCP server for the agent: streamable HTTP (url) or a stdio command. */
+export type McpServerConfig = { name: string; url: string; headers?: Record<string, string> } | { name: string; command: string; args?: string[]; env?: Record<string, string> };
+
 export type StartOptions = {
   sandbox: Sandbox;
   /** Working directory inside the sandbox, usually the repo folder. */
@@ -19,7 +22,7 @@ export type StartOptions = {
   prompt: string;
   model?: string;
   skills?: { name: string; body: string; description?: string }[];
-  mcpServers?: { name: string; url: string; headers?: Record<string, string> }[];
+  mcpServers?: McpServerConfig[];
   env?: Record<string, string>;
   /** When set, the harness's own shell tool calls are checked against this URL before running. */
   guardUrl?: string;
@@ -180,7 +183,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     const prefix = opts.cwd ? `${opts.cwd}/` : "";
     await writeSkills(opts, ".claude/skills");
     if (opts.mcpServers?.length) {
-      const mcpServers = Object.fromEntries(opts.mcpServers.map((s) => [s.name, { type: "http", url: s.url, headers: s.headers }]));
+      const mcpServers = Object.fromEntries(opts.mcpServers.map((s) => [s.name, "url" in s ? { type: "http", url: s.url, headers: s.headers } : { type: "stdio", command: s.command, args: s.args ?? [], env: s.env ?? {} }]));
       await opts.sandbox.writeFile(`${prefix}.mcp.json`, JSON.stringify({ mcpServers }, null, 2));
     }
     if (opts.guardUrl) {

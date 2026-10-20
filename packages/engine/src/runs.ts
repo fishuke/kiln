@@ -58,7 +58,16 @@ export type ExecuteInput = {
   /** Set when this run is a subagent of another run. */
   parentRunId?: string;
   backend?: "local" | "docker" | "kubernetes";
+  /** The user who triggered the run (defaults to the work item's requester when they have an account). */
+  triggeredBy?: string;
 };
+
+/** Replace known secret values in run output. */
+export function redact(text: string, values: string[]): string {
+  let out = text;
+  for (const v of values) if (v && out.includes(v)) out = out.split(v).join("[redacted]");
+  return out;
+}
 
 const RESULT_PROTOCOL: Record<string, string> = {
   TRIAGE: '{"kind": "feature|bug|chore|incident|question", "size": "xs|s|m|l|xl", "summary": "...", "duplicateOf": "optional issue key"}',
@@ -91,6 +100,8 @@ export class RunService {
   private readonly specs = new Map<string, Runner>();
   /** The in-memory record of each live run, so steering and cost updates land on the copy that is saved last. */
   private readonly live = new Map<string, Run>();
+  /** Secret values each live run was given; redacted from its events and summary. */
+  private readonly redactions = new Map<string, string[]>();
 
   constructor(private readonly k: Kiln) {}
 
@@ -113,6 +124,11 @@ export class RunService {
   }
 
   private record(run: Run, type: string, text?: string, data?: unknown) {
+    const secrets = this.redactions.get(run.id);
+    if (secrets?.length) {
+      if (text) text = redact(text, secrets);
+      if (data !== undefined) data = JSON.parse(redact(JSON.stringify(data), secrets.map((s) => JSON.stringify(s).slice(1, -1))));
+    }
     run.eventCount += 1;
     const ev: RunEvent = { id: `${run.id}:${run.eventCount}`, runId: run.id, seq: run.eventCount, at: this.k.clock.now().toISOString(), type, text, data };
     this.k.store.put(C.runEvents, ev);
@@ -152,8 +168,26 @@ export class RunService {
     if (!agent) throw new Error(`factory ${input.factory} has no agent ${input.agent}`);
     const harnessType = (input.overrides?.harness ?? agent.harness.type) as HarnessType;
     const model = await this.resolveModel(resolved, input.overrides?.model ?? agent.harness.model, input.prompt);
-    const runner: Runner = (agent.runner && resolved.parsed.runners[agent.runner]) || { image: "node:22-bookworm", backend: this.k.options.defaultBackend ?? "local", setupCommands: [], egress: [] };
-    const repos = input.repos ?? resolved.factory.repositories.filter((r) => !r.deferred);
+    const team = this.k.teams.factoryTeam(input.factory);
+    this.k.usage.assertWithinBudget(team);
+    const user = input.triggeredBy ? this.k.users.get(input.triggeredBy) : this.k.users.forRequester(input.workItem?.requester);
+    const automationEnv = input.workItem?.source.automation ? resolved.automations[input.workItem.source.automation]?.environmentId : undefined;
+    const envRef = automationEnv ?? agent.environmentId;
+    const environment = envRef ? this.k.environments.get(team, envRef) : undefined;
+    if (envRef && !environment) throw new Error(`environment ${envRef} is not defined for this team`);
+    const declared: Runner | undefined = agent.runner ? resolved.parsed.runners[agent.runner] : undefined;
+    const teamSettings = team ? this.k.teams.settings(team) : undefined;
+    const host = teamSettings?.defaultSandboxHost;
+    const teamBackend = host === "local" || host === "docker" || host === "kubernetes" ? host : undefined;
+    const base: Runner = declared ?? { image: environment?.image ?? "node:22-bookworm", backend: teamBackend ?? this.k.options.defaultBackend ?? "local", setupCommands: [], egress: [] };
+    // Environment setup commands run after the runner's own; the team's egress allowlist adds to the runner's.
+    const runner: Runner = {
+      ...base,
+      setupCommands: [...(base.setupCommands ?? []), ...(environment?.setupCommands ?? [])],
+      egress: [...new Set([...(base.egress ?? []), ...(teamSettings?.egressAllowlist ?? [])])],
+    };
+    const factoryRepos = input.repos ?? resolved.factory.repositories.filter((r) => !r.deferred);
+    const repos = [...factoryRepos, ...(input.repos ? [] : (environment?.repos ?? []).filter((e) => !factoryRepos.some((r) => r.owner === e.owner && r.name === e.name)))];
     const now = this.k.clock.now().toISOString();
     const run: Run = {
       id: newId("run"),
@@ -175,6 +209,9 @@ export class RunService {
       costUsd: 0,
       eventCount: 0,
       steering: [],
+      team,
+      userId: user?.id,
+      environmentId: environment?.id,
       startedAt: now,
     };
     this.save(run);
@@ -238,7 +275,13 @@ export class RunService {
       this.k.bus.publish("run.started", { runId: run.id, workItemId: run.workItemId, agent: run.agent, harness: harnessType });
       this.record(run, "started", `${agent.name} (${harnessType}${model ? `, ${model}` : ""})`);
       const adapter = this.k.harnessFor(harnessType, agent.agentType);
-      const credentials = this.credentials(harnessType, agent);
+      const scope = { teamId: team, userId: user?.id };
+      const resolver = this.k.vault.resolver(scope);
+      const credentials = this.credentials(harnessType, { ...agent, secrets: [...agent.secrets, ...(environment?.secrets ?? [])] }, scope);
+      const mcp = this.k.mcp.resolve(team, agent.mcpServers, resolver);
+      for (const s of mcp.skipped) this.record(run, "mcp_skipped", s);
+      this.redactions.set(run.id, [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope)].filter((v) => v.length >= 6))]);
+      const kilnMcp = this.k.options.publicUrl ? [{ name: "kiln", url: `${this.k.options.publicUrl}/mcp`, headers: { authorization: `Bearer ${token}` } }] : [];
       const session = await adapter.start({
         sandbox,
         cwd,
@@ -246,9 +289,10 @@ export class RunService {
         prompt: input.prompt,
         model,
         skills,
-        mcpServers: this.k.options.publicUrl ? [{ name: "kiln", url: `${this.k.options.publicUrl}/mcp`, headers: { authorization: `Bearer ${token}` } }] : [],
+        mcpServers: [...kilnMcp, ...mcp.servers],
         guardUrl: this.k.options.publicUrl ? `${this.k.options.publicUrl}/api/v1/guard` : undefined,
         env: {
+          ...mcp.env,
           ...credentials,
           KILN_RUN_ID: run.id,
           KILN_RUN_TOKEN: token,
@@ -268,7 +312,7 @@ export class RunService {
       }
       const result = await session.result;
       run.costUsd = result.costUsd;
-      run.summary = result.summary;
+      run.summary = redact(result.summary, this.redactions.get(run.id) ?? []);
       const raw = cwd ? await sandbox.readFile(`${cwd}/.kiln/result.json`) : await sandbox.readFile(".kiln/result.json");
       if (raw) {
         try {
@@ -289,7 +333,7 @@ export class RunService {
       }
     } catch (err) {
       run.status = "failed";
-      run.summary = err instanceof Error ? err.message : String(err);
+      run.summary = redact(err instanceof Error ? err.message : String(err), this.redactions.get(run.id) ?? []);
       this.record(run, "error", run.summary);
     } finally {
       this.sessions.delete(run.id);
@@ -302,6 +346,7 @@ export class RunService {
       this.k.stopping.delete(run.id);
       this.save(run);
       this.record(run, "finished", run.status, { costUsd: run.costUsd });
+      this.redactions.delete(run.id);
       this.k.bus.publish("run.finished", { runId: run.id, outcome: run.status === "succeeded" ? "succeeded" : run.status === "failed" ? "failed" : "cancelled", costUsd: run.costUsd });
     }
     return run;
@@ -312,31 +357,34 @@ export class RunService {
    * secrets and passed only to this run's sandbox. Claude Code prefers a subscription token from
    * `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN) and falls back to ANTHROPIC_API_KEY.
    */
-  credentials(type: HarnessType, agent: ResolvedAgent): Record<string, string> {
+  credentials(type: HarnessType, agent: Pick<ResolvedAgent, "secrets" | "harness">, scope: { teamId?: string; userId?: string } = {}): Record<string, string> {
     const env: Record<string, string> = {};
-    const get = (name: string) => this.k.secrets.getSecret(name);
-    for (const name of agent.secrets) {
-      const v = get(name);
-      if (v) env[name] = v;
-    }
+    const secrets = this.k.vault.resolver(scope);
+    const get = (name: string) => secrets.get(name);
+    for (const name of agent.secrets) Object.assign(env, secrets.envFor(name) ?? {});
     const auth = agent.harness.auth;
     if (auth?.source === "worker") return env;
     if (auth?.source === "secret") {
+      const typed = secrets.envFor(auth.secretName);
       const v = get(auth.secretName);
-      if (!v) throw new Error(`secret ${auth.secretName} for the ${type} harness is not set`);
+      if (!v || !typed) throw new Error(`secret ${auth.secretName} for the ${type} harness is not set`);
+      if (!auth.env && !(auth.secretName in typed)) {
+        Object.assign(env, typed);
+        return env;
+      }
       const target = auth.env ?? (type === "claude-code" ? (v.startsWith("sk-ant-oat") ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY") : type === "codex" ? "OPENAI_API_KEY" : auth.secretName);
       env[target] = v;
       return env;
     }
     const defaults: Record<HarnessType, string[]> = {
-      "claude-code": ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
+      "claude-code": ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"],
       codex: ["OPENAI_API_KEY", "CODEX_API_KEY"],
       opencode: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"],
     };
     for (const name of defaults[type]) {
-      const v = get(name);
-      if (v) {
-        env[name] = v;
+      const provided = secrets.provide(name);
+      if (provided) {
+        Object.assign(env, provided);
         if (type !== "opencode") break;
       }
     }

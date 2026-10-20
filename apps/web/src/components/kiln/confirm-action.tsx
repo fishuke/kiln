@@ -27,8 +27,10 @@ export function ConfirmAction({
   action,
   success,
   onDone,
+  open: controlledOpen,
+  onOpenChange,
 }: {
-  trigger: (open: () => void) => React.ReactNode;
+  trigger?: (open: () => void) => React.ReactNode;
   title: string;
   description?: React.ReactNode;
   confirmLabel?: string;
@@ -36,12 +38,20 @@ export function ConfirmAction({
   action: () => Promise<Result>;
   success?: string;
   onDone?: () => void;
+  /** Controlled mode, e.g. opened from a dropdown menu item. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [innerOpen, setInnerOpen] = useState(false);
+  const open = controlledOpen ?? innerOpen;
+  const setOpen = (o: boolean) => {
+    setInnerOpen(o);
+    onOpenChange?.(o);
+  };
   const [pending, run] = useAction();
   return (
     <>
-      {trigger(() => setOpen(true))}
+      {trigger?.(() => setOpen(true))}
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

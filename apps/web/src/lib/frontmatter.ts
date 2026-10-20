@@ -1,4 +1,4 @@
-import { isMap, parseDocument, stringify, type Document } from "yaml";
+import { Document, isMap, parseDocument, stringify } from "yaml";
 
 /** Frontmatter at the top of a Markdown definition file (agent.md, scorer.md, automation.md). */
 const FENCE = /^---\r?\n([\s\S]*?)\r?\n?---\r?\n?/;
@@ -37,8 +37,8 @@ export function setPath(doc: Document, path: (string | number)[], value: unknown
 
 /** Applies a flat patch (keys may be dotted paths like `harness.model`) to a YAML string. */
 export function patchYaml(source: string, patch: Patch): string {
-  const doc = parseDocument(source || "{}");
-  if (!isMap(doc.contents)) doc.contents = doc.createNode({}) as typeof doc.contents;
+  let doc: Document = parseDocument(source);
+  if (!isMap(doc.contents)) doc = new Document({});
   for (const [key, value] of Object.entries(patch)) setPath(doc, key.split("."), value);
   const out = doc.toString({ lineWidth: 0 });
   return out.trim() === "{}" ? "" : out;

@@ -31,7 +31,9 @@ export async function fakeAgentScript(ctx: FakeScriptContext): Promise<{ summary
   const prompt = opts.prompt;
   const wi = opts.env?.KILN_WORK_ITEM || "adhoc";
   ctx.emit({ type: "message", text: `${type.toLowerCase()} agent picked up: ${title}` });
-  const cost = COST[type] ?? 0.1;
+  const model = opts.model ?? "";
+  const cost = Math.round((COST[type] ?? 0.1) * (/haiku/.test(model) ? 0.2 : /opus/.test(model) ? 3 : 1) * 1000) / 1000;
+  if (/\[hard\]/.test(prompt) && /haiku/.test(model)) throw new Error("this task is too hard for the small model");
 
   switch (type) {
     case "TRIAGE": {

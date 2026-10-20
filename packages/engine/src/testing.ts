@@ -38,7 +38,7 @@ budgets: { perWorkItemUsd: 40 }
 
 export type TestKiln = { kiln: Kiln; forge: FakeForge; tracker: FakeTracker; chat: FakeChat; preview: FakePreview };
 
-export function createTestKiln(opts: Partial<KilnOptions> & { tree?: DefinitionTree; preview?: boolean | FakePreview; repo?: string } = {}): TestKiln {
+export function createTestKiln(opts: Omit<Partial<KilnOptions>, "preview"> & { tree?: DefinitionTree; preview?: boolean | FakePreview; repo?: string } = {}): TestKiln {
   const forge = (opts.forge as FakeForge | undefined) ?? new FakeForge();
   const [owner, name] = (opts.repo ?? "acme/web").split("/");
   forge.createRepo({ owner: owner!, name: name! }, { "README.md": "# web\n", "package.json": '{ "name": "web" }\n' });

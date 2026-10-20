@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { stringify } from "yaml";
 import { patchYaml } from "@/lib/frontmatter";
-import { deleteFactory, migrateFactoryToGithub, sendJson } from "@/lib/api/factory-admin";
+import { deleteFactory, listConnectionOptions, migrateFactoryToGithub, sendJson } from "@/lib/api/factory-admin";
 import { readDefinitionFile, saveFiles, type FileChange, type SaveResult } from "@/lib/definition-write";
 import { api } from "@/lib/kiln";
 
@@ -93,6 +93,27 @@ export async function createMcpServers(configs: Record<string, Record<string, un
   }
   revalidatePath("/mcps");
   return { ok: true, names };
+}
+
+/** Channels, teams, projects, repositories or orgs a workspace connection exposes (`GET /api/v1/connections/:id/<kind>`, coming). */
+export async function loadConnectionOptions(id: string, kind: "channels" | "teams" | "projects" | "repositories" | "orgs"): Promise<{ id: string; name: string }[]> {
+  return listConnectionOptions(id, kind);
+}
+
+/** Uploads a file (`POST /api/v1/uploads`, multipart) and returns its key, served at /files/<key>. */
+export async function uploadFile(form: FormData): Promise<{ ok: true; key: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${(process.env.KILN_API_URL ?? "http://localhost:4000").replace(/\/$/, "")}/api/v1/uploads`, {
+      method: "POST",
+      headers: process.env.KILN_TOKEN ? { authorization: `Bearer ${process.env.KILN_TOKEN}` } : {},
+      body: form,
+    });
+    if (!res.ok) return { ok: false, error: res.status === 404 ? "Uploads are not available on this Kiln server yet." : `Upload failed (${res.status})` };
+    const data = (await res.json()) as { key: string };
+    return { ok: true, key: data.key };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 export async function migrateToGithub(factory: string, owner: string, name: string): Promise<{ ok: boolean; error?: string; url?: string }> {

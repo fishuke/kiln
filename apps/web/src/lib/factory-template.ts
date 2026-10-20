@@ -38,8 +38,8 @@ export const AUTOMATION_TEMPLATES: (AutomationTemplate & { triggers: Record<stri
 ];
 
 export const MODEL_PRESETS: Record<WizardInput["preset"], Record<string, string>> = {
-  quality: { foreman: "claude-opus-5-5", triage: "claude-sonnet-5-5", spec: "claude-opus-5-5", implement: "claude-opus-5-5", review: "gpt-6" },
-  cost: { foreman: "claude-sonnet-5-5", triage: "claude-haiku-5-5", spec: "claude-sonnet-5-5", implement: "claude-sonnet-5-5", review: "gpt-6-mini" },
+  quality: { foreman: "claude-opus-5-5", triage: "claude-sonnet-5-5", spec: "claude-opus-5-5", implement: "claude-opus-5-5", review: "claude-opus-5-5" },
+  cost: { foreman: "claude-sonnet-5-5", triage: "claude-haiku-5-5", spec: "claude-sonnet-5-5", implement: "claude-sonnet-5-5", review: "claude-sonnet-5-5" },
 };
 
 /**

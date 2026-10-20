@@ -359,10 +359,19 @@ export class GitHubForge implements Forge {
     return token ? `https://x-access-token:${token}@github.com/${repoKey(repo)}.git` : `https://github.com/${repoKey(repo)}.git`;
   }
 
+  private readonly defaultBranches = new Map<string, string>();
+
+  /** The repository's default branch (main, master, prod …), looked up once. */
+  async defaultBranch(repo: RepoRef): Promise<string> {
+    const key = repoKey(repo);
+    if (!this.defaultBranches.has(key)) this.defaultBranches.set(key, (await this.api<{ default_branch?: string } | undefined>("GET", `/repos/${key}`))?.default_branch ?? "main");
+    return this.defaultBranches.get(key)!;
+  }
+
   async openPullRequest(input: Parameters<Forge["openPullRequest"]>[0]) {
     const p = await this.api<Record<string, any>>("POST", `/repos/${repoKey(input.repo)}/pulls`, {
       head: input.head,
-      base: input.base ?? "main",
+      base: input.base ?? (await this.defaultBranch(input.repo)),
       title: input.title,
       body: input.body,
       draft: input.draft ?? false,

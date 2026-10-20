@@ -24,6 +24,7 @@ import {
 } from "@kiln/integrations";
 import { importV1alpha1 } from "@kiln/definitions";
 import type { Kiln } from "./kiln";
+import { LinearActivityStream } from "./linear-activity";
 import { STAGE_OF_STATE } from "./matchers";
 import type { FactoryBinding, WorkItem } from "./types";
 
@@ -365,6 +366,33 @@ export class IntegrationHub {
     if (!api || !wi.source.sessionId) return;
     const stage = HOME_STAGE[STAGE_OF_STATE[to] ?? ""] ?? to;
     await api.activity(wi.source.sessionId, { type: "thought", body: `${stage}: ${wi.title}` }).catch(() => {});
+  }
+
+  /** Each run's work, streamed into the Linear session its work item came from. */
+  private readonly runActivity = new LinearActivityStream(async (runId, activity) => {
+    const sessionId = this.sessionOfRun(runId);
+    if (sessionId) await this.linearAgent?.activity(sessionId, activity);
+  });
+  /** Posts per session, chained so Linear shows them in the order the run produced them. */
+  private readonly sessionQueues = new Map<string, Promise<void>>();
+
+  /** A recorded run event; runs outside a Linear session post nothing, and a Linear failure never fails the run. */
+  onRunEvent(e: { runId: string; type: string; text?: string; data?: unknown }): Promise<void> {
+    const sessionId = this.sessionOfRun(e.runId);
+    if (!sessionId || !this.linearAgent) return Promise.resolve();
+    const failure = e.type === "finished" ? this.k.runs.get(e.runId)?.error?.message : undefined;
+    const next = (this.sessionQueues.get(sessionId) ?? Promise.resolve()).then(() => this.runActivity.push(e.runId, e, failure)).catch(() => {});
+    this.sessionQueues.set(sessionId, next);
+    void next.then(() => {
+      if (this.sessionQueues.get(sessionId) === next) this.sessionQueues.delete(sessionId);
+    });
+    return next;
+  }
+
+  private sessionOfRun(runId: string): string | undefined {
+    const workItemId = this.k.runs.get(runId)?.workItemId;
+    const wi = workItemId ? this.k.workflow.get(workItemId) : undefined;
+    return wi?.source.provider === "linear" ? wi.source.sessionId : undefined;
   }
 
   async onPullRequestOpened(e: { workItemId?: string; repo: string; number: number; url: string }) {

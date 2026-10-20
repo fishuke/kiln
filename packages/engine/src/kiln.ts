@@ -237,6 +237,7 @@ export class Kiln {
       const wi = this.workflow.get(e.payload.workItemId);
       if (wi) await this.integrations.onStageChanged(wi, e.payload.to);
     });
+    this.bus.subscribe("run.event", async (e) => this.integrations.onRunEvent(e.payload));
     this.notifications = new NotificationService(this);
     this.notifications.subscribe();
 

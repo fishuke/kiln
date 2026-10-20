@@ -20,6 +20,10 @@ harness: { type: claude-code, model: claude-sonnet-5-5 }
 | `claude-code` | `claude` | The default when nothing sets a harness. |
 | `codex` | `codex` | |
 | `opencode` | `opencode` | The `oz` harness type becomes `opencode` on import. |
+| `gemini` | `gemini` | Gemini CLI in headless mode (`--output-format stream-json`). Reads `GEMINI_API_KEY` or `GOOGLE_API_KEY`. |
+| `pi` | `pi` | The Pi coding agent in JSON mode. Reads Anthropic, OpenAI, OpenRouter or Gemini keys. |
+
+`reasoningLevel` takes `low`, `medium`, `high`, `xhigh` or `max` where the harness supports it. `auth` also accepts the v1alpha1 spellings `managedSecret` (same as `secret`) and `workerEnvironment` (same as `worker`). Claude Code thinking is recorded as `reasoning` run events with how long the model thought.
 
 The harness program must be installed in the runner's image. Pin its version in the image, because flags and output formats change between releases.
 

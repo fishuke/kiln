@@ -67,6 +67,19 @@ Use scores in:
 - [Self-improvement](self-improvement.md): unreviewed failures trigger a proposal,
 - [Replay and canary](replay-and-canary.md): pass rates before and after a change.
 
+## Default scorers
+
+A factory made with the setup wizard starts with five scorers, each with a written rubric you can edit: **Verbosity**, **Task Compliance**, **Procedure Compliance**, **Efficiency** and **Code Quality** (implement agent only). Task Compliance, Procedure Compliance and Code Quality feed self-improvement. A sixth, **Task Correctness** (`kind: benchmark_task_correctness`), grades benchmark trials against their success criteria and never scores everyday runs.
+
+Two more scorer keys: `agents` entries may be `{ name, includeDescendants: true }` to include a run's subagents as evidence, and `runner`, `secrets` and `mcpServers` set up the judge.
+
+## Scorers API
+
+- `GET|POST /factories/{id}/scorers`, `GET|PATCH|DELETE /factories/{id}/scorers/{slug}`: the UI's scorer editor. Writes go into `scorers/<slug>/scorer.md` (a pull request for config-repo factories). Each update bumps the scorer's `version`; deleting removes its scores too. Creating a scorer does not score past runs.
+- `GET …/scorers/{slug}/results` (with `include_reasons=true`, `run_id=`) and `GET …/scorers/{slug}/metrics` (pass rate and series; `include_cost=true` adds judge cost).
+- Manual scoring, which ignores sampling and replaces earlier scores: `POST …/scorers/{slug}/dispatch {runIds}`, `POST /factories/{id}/runs/{runId}/scorer-dispatch {scorers}`, or `POST /runs/{id}/score` for every scorer that covers the run's agent.
+- `GET /runs/{id}/scores` lists a run's scores with `triggerSource` (`automatic` or `manual`).
+
 ## Related pages
 
 - [Self-improvement](self-improvement.md)

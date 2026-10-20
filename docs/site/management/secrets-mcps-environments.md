@@ -84,6 +84,7 @@ These servers can be referenced by id without registering them. They are listed 
 | `jira` | `mcp-atlassian` | `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` |
 | `github` | GitHub's hosted MCP | `GITHUB_MCP_TOKEN` (use a read-mostly token; agents never get merge rights) |
 | `discord` | `mcp-discord` | `DISCORD_BOT_TOKEN` |
+| `signoz` | `signoz-mcp-server` (in the sandbox image) | `SIGNOZ_URL`, `SIGNOZ_API_KEY` (a SigNoz service-account key; the sandbox must be allowed to reach the SigNoz host) |
 
 Every run also gets the Kiln MCP server with its own run token.
 

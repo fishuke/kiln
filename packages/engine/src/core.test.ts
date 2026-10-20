@@ -379,3 +379,22 @@ describe("computer use", () => {
     expect(pr.body).toMatch(/\[checkout\.png\]\(http.*\/files\/.*checkout\.png\)/);
   });
 });
+
+describe("forge credentials for sandboxes", () => {
+  it("clones with the forge's repo-scoped token, and keeps it out of the run's output", async () => {
+    const harness = new FakeHarness(async (ctx) => {
+      ctx.emit({ type: "message", text: "cloned with ghs_scoped_secret_token" });
+      return { summary: "done ghs_scoped_secret_token" };
+    });
+    const { kiln, forge } = createTestKiln({ harness: () => harness });
+    const seen: (string | undefined)[] = [];
+    const f = forge as unknown as { cloneUrl: (repo: unknown, token?: string) => string; sandboxToken?: (repo: unknown) => Promise<string> };
+    const clone = f.cloneUrl.bind(forge);
+    f.cloneUrl = (repo, token) => (seen.push(token), clone(repo, token));
+    f.sandboxToken = async () => "ghs_scoped_secret_token";
+    const run = await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "implement", prompt: "build", push: false });
+    expect(seen).toContain("ghs_scoped_secret_token");
+    expect(run.summary).not.toContain("ghs_scoped_secret_token");
+    expect(JSON.stringify(kiln.runs.events(run.id))).not.toContain("ghs_scoped_secret_token");
+  });
+});

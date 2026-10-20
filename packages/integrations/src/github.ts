@@ -203,6 +203,7 @@ export class FakeGitHubAppAuth implements GitHubAppAuth {
 
 export class HttpGitHubAppAuth implements GitHubAppAuth {
   private readonly cache = new Map<string, { token: string; expiresAt: number }>();
+  private readonly owners = new Map<string, string | undefined>();
 
   constructor(private readonly options: { appId: string; privateKey: string; installationId?: string; baseUrl?: string; fetch?: Fetch; now?: () => number }) {}
 
@@ -210,10 +211,16 @@ export class HttpGitHubAppAuth implements GitHubAppAuth {
     return this.options.now?.() ?? Date.now();
   }
 
-  private async app<T>(method: string, path: string): Promise<T> {
+  private async app<T>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await (this.options.fetch ?? fetch)(`${this.options.baseUrl ?? "https://api.github.com"}${path}`, {
       method,
-      headers: { authorization: `Bearer ${githubAppJwt(this.options.appId, this.options.privateKey, this.now())}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" },
+      headers: {
+        authorization: `Bearer ${githubAppJwt(this.options.appId, this.options.privateKey, this.now())}`,
+        accept: "application/vnd.github+json",
+        "x-github-api-version": "2022-11-28",
+        ...(body ? { "content-type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) throw new Error(`GitHub App ${method} ${path} returned ${res.status}: ${await res.text()}`);
     return (await res.json()) as T;
@@ -221,15 +228,33 @@ export class HttpGitHubAppAuth implements GitHubAppAuth {
 
   async installationFor(owner: string) {
     const list = await this.app<{ id: number; account: { login: string } }[]>("GET", "/app/installations?per_page=100");
+    for (const i of list) this.owners.set(i.account.login.toLowerCase(), i.id.toString());
     return list.find((i) => i.account.login.toLowerCase() === owner.toLowerCase())?.id.toString();
   }
 
-  async installationToken(installationId = this.options.installationId) {
+  /** The installation on an account or organization (cached), else the configured one. */
+  async installationForOwner(owner: string) {
+    const key = owner.toLowerCase();
+    if (!this.owners.has(key)) this.owners.set(key, await this.installationFor(owner));
+    return this.owners.get(key) ?? this.options.installationId;
+  }
+
+  async tokenForOwner(owner: string) {
+    return this.installationToken(await this.installationForOwner(owner));
+  }
+
+  /** A token for one repository with contents write and metadata read only: what a sandbox needs to clone and push. */
+  async repoToken(owner: string, repo: string) {
+    return this.installationToken(await this.installationForOwner(owner), { repositories: [repo], permissions: { contents: "write", metadata: "read" } });
+  }
+
+  async installationToken(installationId = this.options.installationId, scope?: { repositories: string[]; permissions: Record<string, string> }) {
     if (!installationId) throw new Error("no GitHub App installation id: set GITHUB_APP_INSTALLATION_ID or connect GitHub");
-    const hit = this.cache.get(installationId);
+    const key = scope ? `${installationId}:${scope.repositories.join(",")}` : installationId;
+    const hit = this.cache.get(key);
     if (hit && hit.expiresAt - this.now() > 5 * 60_000) return hit.token;
-    const r = await this.app<{ token: string; expires_at: string }>("POST", `/app/installations/${installationId}/access_tokens`);
-    this.cache.set(installationId, { token: r.token, expiresAt: Date.parse(r.expires_at) });
+    const r = await this.app<{ token: string; expires_at: string }>("POST", `/app/installations/${installationId}/access_tokens`, scope);
+    this.cache.set(key, { token: r.token, expiresAt: Date.parse(r.expires_at) });
     return r.token;
   }
 }

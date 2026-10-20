@@ -96,6 +96,38 @@ describe("github", () => {
     expect(await auth.installationToken()).toBe("ghs_1");
     expect(seen).toHaveLength(1);
   });
+
+  it("picks the installation of each owner and mints repo-scoped tokens for sandboxes", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const pem = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+    const seen: Seen[] = [];
+    const exp = new Date(now + 3600_000).toISOString();
+    const auth = new HttpGitHubAppAuth({
+      appId: "123",
+      privateKey: pem,
+      installationId: "77",
+      now: () => now,
+      fetch: fakeFetch(
+        {
+          "GET /app/installations": [
+            { id: 77, account: { login: "fishuke" } },
+            { id: 88, account: { login: "inofy" } },
+          ],
+          "POST /app/installations/88/access_tokens": { token: "ghs_inofy", expires_at: exp },
+          "POST /app/installations/77/access_tokens": { token: "ghs_fishuke", expires_at: exp },
+        },
+        seen,
+      ),
+    });
+    expect(await auth.tokenForOwner("inofy")).toBe("ghs_inofy");
+    expect(await auth.tokenForOwner("Inofy")).toBe("ghs_inofy");
+    expect(seen.filter((x) => x.url.endsWith("/app/installations?per_page=100"))).toHaveLength(1);
+    // Unknown owners fall back to the configured installation.
+    expect(await auth.tokenForOwner("someone-else")).toBe("ghs_fishuke");
+    await auth.repoToken("inofy", "poe-bot");
+    const scoped = seen.filter((x) => x.method === "POST" && x.url.endsWith("/app/installations/88/access_tokens")).at(-1)!;
+    expect(scoped.body).toEqual({ repositories: ["poe-bot"], permissions: { contents: "write", metadata: "read" } });
+  });
 });
 
 describe("gitlab", () => {

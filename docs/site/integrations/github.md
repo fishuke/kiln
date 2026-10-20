@@ -37,6 +37,8 @@ A plain `GITHUB_TOKEN` still works instead of an app. You can also connect GitHu
 
 Kiln verifies `X-Hub-Signature-256` on every call and ignores repeated `X-GitHub-Delivery` IDs.
 
+One app can be installed on several accounts and organizations: Kiln uses the installation of each repository's owner. A sandbox never gets the app's own credentials: it clones and pushes with an installation token limited to that one repository (contents write, metadata read) that expires within the hour. Protect your default branch, because contents write can push to any branch that is not protected.
+
 ## Mention the factory
 
 Mention `@kiln-factory` in a new issue, pull request, comment or review. Edits and mentions inside code blocks are ignored.

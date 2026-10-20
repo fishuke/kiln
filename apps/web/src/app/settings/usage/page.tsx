@@ -4,7 +4,7 @@ import { ApiDown } from "@/components/kiln/ui";
 import { SettingsColumn } from "@/components/kiln/settings-blocks";
 import { api, safe } from "@/lib/kiln";
 import type { PoolEntry } from "@kiln/sdk-ts";
-import { byHeadroom, resetsIn, tokenStatus } from "@/lib/claude-tokens";
+import { byHeadroom, resetsIn, tokenStatus, windowTitle } from "@/lib/claude-tokens";
 import { barPercent, fillDays, formatUsd, monthLabel, usageTone, usedFraction, withShares, type BreakdownRow } from "@/lib/usage";
 import { cn } from "@/lib/utils";
 
@@ -190,7 +190,10 @@ function ClaudePlanUsage({ pool, admin }: { pool: PoolEntry[]; admin: boolean })
                   <span className={cn("rounded-full border px-2 py-0.5 text-xs", s.tone === "green" && "border-green-600/25 text-green-700 dark:text-green-400", s.tone === "amber" && "border-amber-600/25 text-amber-700 dark:text-amber-400", s.tone === "red" && "border-red-600/25 text-red-700 dark:text-red-400", s.tone === "grey" && "text-muted-foreground")}>{s.label}</span>
                 </div>
                 <LimitBar label="Current session" hint="5-hour window" window={t.fiveHour} />
-                <LimitBar label="Current week" hint="7-day window" window={t.sevenDay} />
+                <LimitBar label="Current week" hint="all models" window={t.sevenDay} />
+                {Object.entries(t.others ?? {}).map(([k, w]) => (
+                  <LimitBar key={k} label={windowTitle(k).long} hint="" window={w} />
+                ))}
                 {!t.fiveHour && !t.sevenDay && <p className="text-xs text-muted-foreground">Limits appear after the token&apos;s first run or a Check now.</p>}
                 {t.status === "invalid" && t.error && <p className="mt-1 text-xs text-red-700 dark:text-red-400">{t.error}</p>}
               </div>

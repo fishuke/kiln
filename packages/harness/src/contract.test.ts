@@ -16,7 +16,7 @@ const emulators: Record<string, Emulator> = {
       return io.end(0);
     }
     // The shape Claude Code streams for subscription tokens.
-    io.out({ type: "rate_limit_event", rate_limit_info: { status: "allowed", resetsAt: 1792530600, rateLimitType: "five_hour", unifiedWindows: { five_hour: { utilization: 0.02, resetsAt: 1792530600 }, seven_day: { utilization: 0.19, resetsAt: 1792987200 } } } });
+    io.out({ type: "rate_limit_event", rate_limit_info: { status: "allowed", resetsAt: 1792530600, rateLimitType: "five_hour", unifiedWindows: { five_hour: { utilization: 0.02, resetsAt: 1792530600 }, seven_day: { utilization: 0.19, resetsAt: 1792987200 }, seven_day_fable: { utilization: 0.03, resetsAt: 1792987200 } } } });
     io.out({ type: "assistant", message: { content: [{ type: "text", text: `working on ${first.message.content[0].text}` }, { type: "tool_use", name: "Bash", input: { command: "pnpm test" } }] } });
     io.out({ type: "user", message: { content: [{ type: "tool_result", content: [{ type: "text", text: "ok" }] }] } });
     const next = await Promise.race([it.next(), sleep(50).then(() => undefined)]);
@@ -152,6 +152,7 @@ describe("claude code specifics", () => {
       status: "allowed",
       fiveHour: { utilization: 0.02, resetsAt: "2026-10-20T21:10:00.000Z" },
       sevenDay: { utilization: 0.19, resetsAt: "2026-10-26T04:00:00.000Z" },
+      others: { seven_day_fable: { utilization: 0.03, resetsAt: "2026-10-26T04:00:00.000Z" } },
     });
   });
 

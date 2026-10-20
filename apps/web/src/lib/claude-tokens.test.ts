@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byHeadroom, resetsIn, tokenStatus, usageLine } from "./claude-tokens";
+import { byHeadroom, resetsIn, tokenStatus, usageLine, windowTitle } from "./claude-tokens";
 
 const now = new Date("2026-10-20T12:00:00Z");
 
@@ -16,6 +16,13 @@ describe("Claude token pool display", () => {
     expect(resetsIn("2026-10-20T11:00:00Z", now)).toBe("now");
     expect(usageLine({ utilization: 0.421, resetsAt: "2026-10-20T12:30:00Z" }, now)).toBe("42% used · resets in 30m");
     expect(usageLine(undefined)).toBeUndefined();
+  });
+
+  it("names extra windows like claude /usage", () => {
+    expect(windowTitle("seven_day_fable")).toEqual({ long: "Current week (Fable)", short: "7d Fable" });
+    expect(windowTitle("seven_day_opus")).toEqual({ long: "Current week (Opus)", short: "7d Opus" });
+    expect(windowTitle("five_hour")).toEqual({ long: "Current session", short: "5h" });
+    expect(windowTitle("something_new").long).toBe("Something New");
   });
 
   it("orders the pool the way runs pick tokens", () => {

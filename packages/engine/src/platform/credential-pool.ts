@@ -16,6 +16,8 @@ type Health = {
   secretUpdatedAt: string;
   fiveHour?: UsageWindow;
   sevenDay?: UsageWindow;
+  /** Other windows by name, e.g. a model's own weekly limit (`seven_day_fable`). */
+  others?: Record<string, UsageWindow>;
   /** When a limited token can be used again. */
   resetsAt?: string;
   error?: string;
@@ -86,7 +88,7 @@ export class CredentialPool {
   }
 
   /** A run's usage report for the token it used. */
-  recordUsage(scope: SecretScope, name: string, report: { status: string; fiveHour?: UsageWindow; sevenDay?: UsageWindow }) {
+  recordUsage(scope: SecretScope, name: string, report: { status: string; fiveHour?: UsageWindow; sevenDay?: UsageWindow; others?: Record<string, UsageWindow> }) {
     const m = this.meta(scope, name);
     if (!m) return;
     const limited = report.status !== "allowed" && report.status !== "allowed_warning";
@@ -97,6 +99,7 @@ export class CredentialPool {
       status: limited ? "limited" : "ok",
       fiveHour: report.fiveHour,
       sevenDay: report.sevenDay,
+      others: report.others,
       resetsAt,
       error: undefined,
       checkedAt: this.now(),
@@ -121,7 +124,10 @@ export class CredentialPool {
     const m = this.meta(scope, name);
     if (!m) throw new KilnError("resource_not_found", `no Claude token ${name} in this scope`);
     const env = this.k.vault.resolver(scope).envFor(name) ?? {};
-    const sandbox = await this.k.sandboxes.local!.create({ runner: { image: "local", backend: "local", setupCommands: [], egress: [] }, repos: [] });
+    // The same backend and image as real runs: the Claude Code CLI lives in the sandbox image, not the server.
+    const backend = this.k.options.defaultBackend ?? "local";
+    const provider = this.k.sandboxes[backend] ?? this.k.sandboxes.local!;
+    const sandbox = await provider.create({ runner: { image: this.k.options.defaultImage ?? "node:22-bookworm", backend, setupCommands: [], egress: ["api.anthropic.com", "claude.ai"] }, repos: [] });
     try {
       const session = await this.k.harnessFor("claude-code", "CUSTOM").start({ sandbox, instructions: "", prompt: "Reply with exactly: ok", model: "claude-haiku-5-5", env });
       for await (const e of session.events) if (e.type === "rate_limit") this.recordUsage(scope, name, e);

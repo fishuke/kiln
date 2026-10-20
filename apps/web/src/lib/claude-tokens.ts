@@ -41,3 +41,13 @@ export function byHeadroom(entries: PoolEntry[]): PoolEntry[] {
   const load = (e: PoolEntry) => Math.max(e.fiveHour?.utilization ?? 0, e.sevenDay?.utilization ?? 0);
   return [...entries].sort((a, b) => rank(a) - rank(b) || load(a) - load(b) || a.name.localeCompare(b.name));
 }
+
+/** A usage window's name as `claude /usage` shows it: "seven_day_fable" → "Current week (Fable)". */
+export function windowTitle(key: string): { long: string; short: string } {
+  const [, span, model] = /^(five_hour|seven_day)(?:_(.+))?$/.exec(key) ?? [];
+  const name = (model ?? key).split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  if (!span) return { long: name, short: name };
+  const long = span === "five_hour" ? "Current session" : "Current week";
+  const short = span === "five_hour" ? "5h" : "7d";
+  return model ? { long: `${long} (${name})`, short: `${short} ${name}` } : { long, short };
+}

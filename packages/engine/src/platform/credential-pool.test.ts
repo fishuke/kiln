@@ -19,6 +19,7 @@ function setup() {
       status: limited ? "rejected" : "allowed",
       fiveHour: { utilization: limited ? 1 : (behaviour.usage[token] ?? 0.1), resetsAt: "2026-10-20T14:00:00.000Z" },
       sevenDay: { utilization: 0.2 },
+      others: { seven_day_fable: { utilization: 0.05 } },
     });
     if (limited) throw new Error("Claude AI usage limit reached");
     return { summary: "ok" };
@@ -57,6 +58,7 @@ describe("Claude token pool", () => {
       status: "ok",
       fiveHour: { utilization: 0.9 },
       sevenDay: { utilization: 0.2 },
+      others: { seven_day_fable: { utilization: 0.05 } },
     });
     await run();
     await run();

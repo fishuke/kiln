@@ -8,7 +8,12 @@ import { describe, expect, it } from "vitest";
 import { FakeForge, GitHubForge } from "./forge";
 import { KubernetesPreview, SlackChat } from "./chat";
 import { JiraTracker, LinearTracker } from "./tracker";
-import { DeliveryDedupe, normalizeGitHub, normalizeJira, normalizeLinear, normalizeSlack, verifyGitHub, verifySlack, verifyStandardWebhook } from "./webhooks";
+import { DeliveryDedupe } from "./events";
+import { normalizeGitHub } from "./github";
+import { normalizeJira } from "./jira";
+import { normalizeLinear } from "./linear";
+import { normalizeSlack } from "./slack";
+import { verifyGitHub, verifySlack, verifyStandardWebhook } from "./webhooks";
 
 const repo = { owner: "acme", name: "web" };
 

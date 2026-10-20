@@ -31,6 +31,12 @@ services:
       LINEAR_API_KEY: ${LINEAR_API_KEY:-}
       LINEAR_WEBHOOK_SECRET: ${LINEAR_WEBHOOK_SECRET:-}
       KILN_SMTP_URL: ${KILN_SMTP_URL:-}
+      # OpenTelemetry (traces, metrics, logs over OTLP/HTTP); empty endpoint means off.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-kiln-api}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-deployment.environment.name=prod}
+      SOURCE_COMMIT: ${SOURCE_COMMIT:-}
     volumes:
       - kiln-data:/data
       # Sandboxes are sibling containers. Access to this socket is root on the host: run Kiln on a host you trust it with.

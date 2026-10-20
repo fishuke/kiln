@@ -201,6 +201,10 @@ Kiln runs a timer pass that:
 | Webhooks return 401                                     | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set.                          |
 | An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory).      |
 
+## OpenTelemetry
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` (OTLP over HTTP, for example `https://otel.example.com`) and the API sends traces, metrics and logs there: HTTP requests, outgoing calls to GitHub, model providers and webhooks, host metrics, and every console line as a log record linked to its trace. `OTEL_EXPORTER_OTLP_HEADERS` carries the collector's auth, `OTEL_SERVICE_NAME` defaults to `kiln-api`. Works with SigNoz, Grafana, Honeycomb and any OTLP collector; nothing is sent when the endpoint is unset.
+
 ## Workers and monitoring
 
 Agents can also run on machines you choose, such as a build server or a host in a private network: start `kiln worker` there and set `workerHost` on the agent. See [Self-hosted workers](self-hosted-workers.md). The API serves Prometheus metrics at `/metrics` (runs by state, tasks, open gates, workers and the worker queue); set `KILN_METRICS_TOKEN` to require a bearer token.

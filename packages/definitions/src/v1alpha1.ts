@@ -25,7 +25,7 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
   };
   const harnessMap: Record<string, string> = { oz: "opencode", claude: "claude-code", "claude-code": "claude-code", codex: "codex" };
   const execution = (file: string, obj: Record<string, unknown>) => {
-    drop(file, obj, ["environmentId", "workerHost", "computerUseModel", "credentialStrategy", "required_repos"]);
+    drop(file, obj, ["workerHost", "computerUseModel", "credentialStrategy", "required_repos"]);
     if (obj.harness && typeof obj.harness === "object") {
       const h = obj.harness as Record<string, unknown>;
       h.type = harnessMap[String(h.type)] ?? "claude-code";

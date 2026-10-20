@@ -34,6 +34,8 @@ const executionShape = {
   runner: z.string().nullable().optional(),
   secrets: z.array(z.string()).nullable().optional(),
   mcpServers: z.array(z.string()).nullable().optional(),
+  /** A team environment template (id or name): image, repos, setup commands and secrets. */
+  environmentId: z.string().nullable().optional(),
 };
 
 export const Repository = z

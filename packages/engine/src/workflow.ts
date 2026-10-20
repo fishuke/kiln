@@ -830,7 +830,7 @@ export class Workflow {
     const msg = [`Ready to merge: ${wi.pr.url}`, wi.previewUrl ? `Preview: ${wi.previewUrl}` : "", wi.review?.verdict === "needs_human" ? "Some review findings need your judgment; they are on the PR." : ""].filter(Boolean).join("\n");
     await this.k.notify(wi, msg);
     await this.k.gates.open({ workItem: wi, kind: "merge", name: "merge", title: `Merge "${wi.title}"`, question: `Review and merge ${wi.pr.url}. Approve here only to confirm completion without a merge.`, evidence: [{ label: "Pull request", url: wi.pr.url }], assignees: wi.review?.reviewers });
-    if (wi.trackerKey && this.k.tracker) await this.k.tracker.setState(wi.trackerKey, "in_progress").catch(() => {});
+    await this.moveTrackerIssue(wi, "handoff");
     return "done";
   }
 
@@ -880,9 +880,21 @@ export class Workflow {
     for (const g of this.k.gates.list({ workItemId: id, state: "open" })) {
       this.k.store.put(C.gates, { ...g, state: "approved", decidedBy: completion.by === "merge" ? "forge:merge" : g.decidedBy, decidedAt: this.k.clock.now().toISOString() });
     }
-    if (next.trackerKey && this.k.tracker) await this.k.tracker.setState(next.trackerKey, "done").catch(() => {});
+    await this.moveTrackerIssue(next, "done");
     await this.k.notify(next, `Done: ${next.pr?.url ?? next.title} is ${completion.by === "merge" ? "merged" : "confirmed complete"}.`);
     return next;
+  }
+
+  /** Move the tracker issue at hand-off and when done: to the factory's named Linear state, else the first started or completed one. */
+  private async moveTrackerIssue(wi: Item, step: "handoff" | "done") {
+    if (!wi.trackerKey) return;
+    const named = this.resolved(wi).factory.integrations.find((i) => i.type === "linear")?.linear?.states?.[step];
+    const linear = this.k.integrations.linearAgent;
+    if (named && wi.source.provider === "linear" && linear) {
+      await linear.updateState(wi.trackerKey, { name: named }).catch((err) => this.k.notify(wi, `Could not move the Linear issue to "${named}": ${err instanceof Error ? err.message : String(err)}`));
+      return;
+    }
+    if (this.k.tracker) await this.k.tracker.setState(wi.trackerKey, step === "handoff" ? "in_progress" : "done").catch(() => {});
   }
 
   async onPullRequestMerged(repo: string, number: number, by?: string) {

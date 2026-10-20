@@ -140,7 +140,15 @@ export const FactoryIntegration = z.union([
         .strict()
         .optional(),
       discord: z.object({ ...ChatSettings, guildIds: z.array(z.string()).optional(), channelIds: z.array(z.string()).optional() }).strict().optional(),
-      linear: z.object({ teams: z.array(z.string()).optional(), teamIds: z.array(z.string()).optional() }).strict().optional(),
+      linear: z
+        .object({
+          teams: z.array(z.string()).optional(),
+          teamIds: z.array(z.string()).optional(),
+          /** Workflow states, by name, to move issues to at hand-off and when the work is done (instead of the first started and completed ones). */
+          states: z.object({ handoff: z.string().min(1).optional(), done: z.string().min(1).optional() }).strict().optional(),
+        })
+        .strict()
+        .optional(),
       jira: z.object({ projects: z.array(z.string()).optional(), projectKeys: z.array(z.string()).optional() }).strict().optional(),
     })
     .strict()
@@ -159,7 +167,7 @@ export type IntegrationSettings = {
   slack?: { autoRespondToThreadReplies?: boolean; channels?: string[] };
   "microsoft-teams"?: { autoRespondToThreadReplies?: boolean; teams?: { teamId: string; channelIds: string[] }[] };
   discord?: { autoRespondToThreadReplies?: boolean; guildIds?: string[]; channelIds?: string[] };
-  linear?: { teams?: string[]; teamIds?: string[] };
+  linear?: { teams?: string[]; teamIds?: string[]; states?: { handoff?: string; done?: string } };
   jira?: { projects?: string[]; projectKeys?: string[] };
 };
 

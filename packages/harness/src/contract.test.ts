@@ -21,8 +21,26 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Emulates each CLI's wire format closely enough to exercise the adapters' parsing and steering. */
 const emulators: Record<string, Emulator> = {
   claude: async (_args, io) => {
-    const it = io.stdin[Symbol.asyncIterator]();
-    const first = JSON.parse((await it.next()).value);
+    // The Agent SDK talks to the CLI over stdin/stdout: control requests (initialize first) get control responses.
+    const lines = io.stdin[Symbol.asyncIterator]();
+    const it = {
+      async next(): Promise<IteratorResult<string>> {
+        for (;;) {
+          const r = await lines.next();
+          if (r.done) return r;
+          const msg = JSON.parse(r.value);
+          if (msg.type !== "control_request") return r;
+          const response =
+            msg.request.subtype === "initialize"
+              ? { commands: [], agents: [], output_style: "default", available_output_styles: [], models: [], account: {} }
+              : {};
+          io.out({ type: "control_response", response: { subtype: "success", request_id: msg.request_id, response } });
+        }
+      },
+    };
+    const prompt = await it.next();
+    if (prompt.done) return io.end(0);
+    const first = JSON.parse(prompt.value);
     if (io.fail) {
       io.out({ type: "result", subtype: "error_during_execution", is_error: true, result: "boom", total_cost_usd: 0.01 });
       return io.end(0);
@@ -94,6 +112,8 @@ const emulators: Record<string, Emulator> = {
 function scriptedSandbox(fail = false) {
   const files: Record<string, string> = {};
   const spawned: string[][] = [];
+  const envs: Record<string, string>[] = [];
+  const written: string[] = [];
   const sandbox: Sandbox = {
     id: "sbx_test",
     provider: "scripted",
@@ -106,8 +126,9 @@ function scriptedSandbox(fail = false) {
     readBytes: async (p) => (files[p] === undefined ? undefined : new TextEncoder().encode(files[p])),
     snapshot: async () => ({}) as SnapshotRef,
     destroy: async () => {},
-    spawn: (cmd, args): Proc => {
+    spawn: (cmd, args, opts): Proc => {
       spawned.push([cmd, ...args]);
+      envs.push(opts?.env ?? {});
       const lines = new EventStream<string>();
       const stdin = new EventStream<string>();
       let resolveExit!: (r: ExecResult) => void;
@@ -121,10 +142,18 @@ function scriptedSandbox(fail = false) {
         stdin,
         fail,
       });
-      return { lines, write: (l) => stdin.push(l), closeStdin: () => stdin.close(), kill: () => {}, exit };
+      const kill = () => {
+        lines.close();
+        resolveExit({ code: 143, stdout: "", stderr: "" });
+      };
+      const write = (l: string) => {
+        written.push(l);
+        stdin.push(l);
+      };
+      return { lines, write, closeStdin: () => stdin.close(), kill, exit };
     },
   };
-  return { sandbox, files, spawned };
+  return { sandbox, files, spawned, envs, written };
 }
 
 async function collect(events: AsyncIterable<HarnessEvent>) {
@@ -234,6 +263,34 @@ describe("claude code specifics", () => {
     const error = events.find((e) => e.type === "error");
     expect(error?.type === "error" && error.text).toContain(oci);
     expect(error?.type === "error" && error.text).not.toContain("docker/config.json");
+  });
+});
+
+describe("claude code through the agent sdk", () => {
+  it("runs the CLI in the sandbox with the run's environment, never the host's", async () => {
+    process.env.KILN_TEST_HOST_ONLY = "host-secret";
+    try {
+      const { sandbox, spawned, envs, written } = scriptedSandbox();
+      const session = await new ClaudeCodeAdapter().start({ ...base, sandbox, env: { CLAUDE_CODE_OAUTH_TOKEN: "run-token" } });
+      await session.result;
+      expect(spawned[0]![0]).toBe("claude");
+      expect(spawned[0]).toEqual(expect.arrayContaining(["--permission-mode", "bypassPermissions"]));
+      // The SDK sends the instructions with its initialize request.
+      expect(JSON.parse(written[0]!).request).toMatchObject({ subtype: "initialize", appendSystemPrompt: "You implement." });
+      expect(envs[0]!.CLAUDE_CODE_OAUTH_TOKEN).toBe("run-token");
+      expect(envs[0]!.KILN_TEST_HOST_ONLY).toBeUndefined();
+      expect(Object.values(envs[0]!)).not.toContain("host-secret");
+    } finally {
+      delete process.env.KILN_TEST_HOST_ONLY;
+    }
+  });
+
+  it("stops the run", async () => {
+    const { sandbox } = scriptedSandbox();
+    const session = await new ClaudeCodeAdapter().start({ ...base, sandbox });
+    await session.stop();
+    await collect(session.events);
+    expect((await session.result).outcome).toBe("cancelled");
   });
 });
 

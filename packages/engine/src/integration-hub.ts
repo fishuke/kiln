@@ -255,6 +255,7 @@ export class IntegrationHub {
       }
       const labeled = (ev.data.labels ?? []).filter((l) => l.toLowerCase().startsWith(FACTORY_LABEL_PREFIX)).map((l) => l.slice(FACTORY_LABEL_PREFIX.length).toLowerCase());
       const factories = this.k.defs.list().filter((f) => f.status === "active" && f.appliedSha);
+      await this.onboardingNotice(ev, factories);
       if (labeled.length) {
         out.push({ ...ev, data: { ...ev.data, routeTo: factories.filter((f) => labeled.includes(f.alias.toLowerCase())).map((f) => f.id) } });
         continue;
@@ -276,6 +277,22 @@ export class IntegrationHub {
       }
     }
     return out;
+  }
+
+  /**
+   * Once per GitHub user: when the workspace links GitHub accounts and this person hasn't, say how
+   * (work still starts). Factories turn it off with `automations.githubOnboardingNotices: false`.
+   */
+  private async onboardingNotice(ev: IncomingEvent, factories: FactoryBinding[]) {
+    const author = ev.data.author;
+    if (!author || !ev.data.repo || !ev.data.number) return;
+    if (!this.k.identities.list().some((l) => l.provider === "github")) return;
+    if (this.k.identities.lookup("github", author) || this.k.store.get("onboarding_notices", `github:${author}`)) return;
+    const relevant = factories.filter((f) => this.githubRepos(f).some((r) => repoKey(r) === ev.data.repo));
+    if (!relevant.length || relevant.every((f) => this.k.defs.resolved(f.appliedSha!).factory.automations?.githubOnboardingNotices === false)) return;
+    this.k.store.put("onboarding_notices", { id: `github:${author}`, at: this.k.clock.now().toISOString() });
+    const [owner, name] = String(ev.data.repo).split("/") as [string, string];
+    await this.forgeFor({ owner, name }).comment({ owner, name }, ev.data.number, `@${author} link your GitHub account to Kiln so requests and approvals are recorded under your name: ${this.k.link("/integrations")}`).catch(() => {});
   }
 
   /** Comment on a factory PR saying which factory opened it and for whom. */

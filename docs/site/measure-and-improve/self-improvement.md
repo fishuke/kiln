@@ -57,6 +57,18 @@ Nothing is adopted without a person's review.
 
 The same loop runs on the factory that builds Kiln. See [Kiln builds Kiln](../guides/kiln-builds-kiln.md).
 
+## Settings
+
+| Key (`selfImprovement` in factory.yaml) | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `true` | Scheduled checks run. "Run now" works either way. |
+| `failedRunThreshold` | `25` | Distinct unreviewed failures (1–50) of one agent that start a proposal. |
+| `maxAgeDays` | `7` | Or when the oldest unreviewed failure is this old. |
+| `reviewers` | `admins` | Pool for the one reviewer each proposal asks: `admins`, `team`, `custom` (with `emails`) or `none`. |
+| `model` | the improver agent's | Model for the analysis run. |
+
+Which scorers feed it is each scorer's `selfImprovement` toggle. `GET|PUT /factories/{id}/self-improvement/settings` reads and changes all of these in one change. Proposals show up in the inbox as spec reviews, and every proposal's description has a **Regressions addressed** section linking the failing runs and scores.
+
 ## Related pages
 
 - [Scorers](scorers.md)

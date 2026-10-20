@@ -32,23 +32,36 @@ List my factories, then help me send a task to the right one and follow it throu
 
 | Tool | What it does |
 | --- | --- |
-| `complete_task` | Hand a locally worked task back, or confirm a handed-off task landed (needs decide:merge). |
+| `ask_user` | Ask the requester a question and get a gate id; read the answer with get_gate. Questions can be single or multi select with a recommended option. |
+| `complete_task` | Close a task. Safe to call more than once. A factory agent may close it only after its pull request merged; a person (decide:merge) confirms completion. Pass task_id, or run_id to find the task. |
+| `create_factory` | Create a factory: repos, agents to enable (the foreman is always there), Slack, tracker, cost preset, self-improvement and starter automations. Use dry_run first to show the files. |
 | `create_team` | Create a team. You become its owner. Needs a user token (session or personal API key). |
 | `decide_gate` | Approve, reject or answer a gate. Needs the decide scope for the gate's kind. |
-| `get_conversation` | The task's conversation: requests, foreman messages, agent summaries and decisions. |
-| `get_factory_file_schema` | JSON Schema for a definition file kind. |
-| `get_metrics` | Factory metrics: PRs opened/merged, autonomy, cycle time, cost, cost per merged PR by agent, scores. `since` is an ISO date. |
-| `get_task` | Get a task by id or by its PR/issue URL. With start_working=true, returns the branch and clone URL to continue locally. |
+| `follow_up_run` | Send a follow-up to a run: steers it while it runs, continues it when it finished. |
+| `get_conversation` | A task's conversation (requests, foreman messages, agent summaries, decisions), or a run's normalized conversation. |
+| `get_factory_file_schema` | The definition schema catalog, or one document (e.g. agent.schema.json, factory.schema.json). |
+| `get_gate` | A gate (decision) and its answer. |
+| `get_metrics` | Factory metrics: PRs opened and merged, autonomy, cycle time, cost and cost per merged PR by agent (`since`), plus the autonomy funnel, PR latency medians, human interactions and period-over-period deltas (`start_date`, `end_date`, `group_by_period`). Dates are ISO. |
+| `get_run` | A run's state, summary, result, artifacts and children. With conversation=true, its messages too. |
+| `get_task` | Get a task by id or reference (task or run URL, PR URL, issue URL or key, branch). With start_working=true, also returns git commands to continue it in a local worktree. |
 | `join_team` | Join a team by accepting an invite. Takes the invite token or the whole invite link. |
 | `list_factories` | List the factories this token can see. |
-| `list_inbox` | Open decisions waiting on people: spec approvals, questions, previews, merges. |
+| `list_forge_repositories` | Repositories the code forge can reach, for picking a new factory's repos. |
+| `list_inbox` | Your inbox: questions, spec and PR reviews, blocked and failed tasks, definition changes. all=true lists the team's. |
+| `list_notification_routes` | Where updates about a task go: the originating thread, issue or PR. |
+| `list_tasks` | List tasks, newest first. Filter by factory, stage, creator (email) and dates (ISO). |
 | `list_teams` | List the teams you belong to, with your role in each. Pass a team's slug as X-Kiln-Team to act in it. |
+| `list_tracker_scopes` | Teams (Linear) or projects (Jira) of the connected tracker. |
 | `message_foreman` | Message the foreman of a task. Answers its open question if there is one. |
 | `plan_project` | Turn a goal or PRD into a roadmap and tracker issues for a project. |
-| `query_runs` | Raw rows (runs, scores or work_items) for your own analysis. |
-| `send_task` | Send work to a factory's foreman. Returns the new task (work item). |
+| `propose_definition_change` | Propose a change to a factory definition (prompts, skills, settings). People review it in the inbox and approve & merge it. Set a file to null to delete it. |
+| `query_runs` | Runs with filters: factory, state (QUEUED…CANCELLED), source, agent, q, created_after. Or raw rows (runs, scores, work_items) with kind. |
+| `run_agents` | Start several subagents at once (fan out). Returns their runs. |
+| `search_task` | Search task titles and descriptions across factories. |
+| `send_task` | Send new work to a factory's foreman (factory, title, note), or hand a task you worked on locally back (task_id, branch or pr_url, note). |
+| `spawn_agent` | Start a subagent of your factory for part of the work. Returns at once with the child run; follow it with get_run. Only agents whose spawnableBy allows you can be started. |
 | `steer_run` | Send a steering message to a running agent. |
-| `validate_factory_files` | Validate a definition tree (path → content). With apply=true, applies it (needs definitions:write). |
+| `validate_factory_files` | Validate a whole definition tree without saving it: diagnostics with file and line, plus what is resolved only when applied. With apply=true and a factory, applies it (definitions:write). |
 
 ## Related pages
 

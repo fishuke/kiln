@@ -27,7 +27,15 @@ Factory (needs KILN_URL and KILN_TOKEN)
   kiln send "<task>" --factory <id> [--body <text>]                   Create a work item
   kiln pull <task>                                                    Take a task to a local worktree
   kiln handback <task> [message]                                      Return it to the factory
-  kiln runs [--factory <id>] [--work-item <id>]                       List runs
+  kiln dispatch "<prompt>" --factory <id> [--ticket linear:ENG-1] [--mode plan|orchestrate]   Send a prompt to the foreman
+  kiln tasks --factory <id> [--stage IMPLEMENT] [--q <text>]          List tasks
+  kiln tasks get|cancel|outputs <task> --factory <id>                 One task: details, cancel it, its outputs
+  kiln runs [--factory <id>] [--state FAILED] [--source SLACK] [--mine]   List runs
+  kiln runs get|timeline|transcript <run>                             One run
+  kiln runs followup <run> <message> | interrupt <run> | cancel <run>   Talk to or stop a run
+  kiln upload <file...> [--factory <id>]                              Upload attachments; prints their keys
+  kiln create-factory --name <n> --repo owner/name [--repo …] [--slack] [--tracker linear|jira] [--preset quality|efficient] [--dry-run]
+  kiln files validate [path]                                          Validate a tree with the server's parser (no token needed)
   kiln inbox [--all]                                                  Decisions waiting on you
   kiln decide <gate> approve|reject|answer [text]                     Decide a gate
   kiln replay <run> [--with <sha>]                                    Replay a run, optionally under another definition
@@ -35,6 +43,12 @@ Factory (needs KILN_URL and KILN_TOKEN)
   kiln bench run <suite> --factory <id>                               Run a benchmark suite
   kiln metrics --factory <id> [--since <iso>]                         Factory metrics
   kiln token create --name <n> --subject <email> --grants read:*,send:webapp
+
+Self-hosted worker (connects out to KILN_URL with a token that has the worker scope)
+  kiln worker --worker-id <id> [--api-key <key>] [--backend docker|kubernetes|direct]
+              [--max-concurrent-tasks N] [--one-shot] [--idle-on-complete 45m]
+              [-v HOST:CONTAINER[:ro]]… [-e KEY[=VALUE]]… [--config-file worker.yaml]
+              [--no-cleanup] [--metrics-port 9464] [--log-level info]
 ```
 
 ## Exit codes

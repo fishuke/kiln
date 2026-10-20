@@ -37,7 +37,12 @@ export type Source = {
   automation?: string;
 };
 
-export type ConversationEntry = { at: string; from: string; role: "human" | "foreman" | "agent" | "system"; text: string };
+export type Attachment = { key: string; name: string; contentType: string; size: number };
+
+/** Something a run produced that people look at: screenshots, recordings, reports, the PR, the preview. */
+export type Artifact = { kind: "image" | "video" | "file" | "report" | "pr" | "preview"; name: string; url: string; key?: string; contentType?: string; size?: number };
+
+export type ConversationEntry = { at: string; from: string; role: "human" | "foreman" | "agent" | "system"; text: string; attachments?: Attachment[] };
 
 export type WorkItem = {
   id: string;
@@ -60,6 +65,7 @@ export type WorkItem = {
   review?: { verdict: string; findings: string[]; reviewers: string[] };
   loops: Record<string, number>;
   conversation: ConversationEntry[];
+  attachments: Attachment[];
   humanTouches: number;
   costUsd: number;
   budgetUsd?: number;
@@ -93,6 +99,9 @@ export type Run = {
     workspaceSha?: string;
   };
   replayOf?: string;
+  /** Set when another agent spawned this run as a subagent. */
+  parentRunId?: string;
+  artifacts: Artifact[];
   traceId: string;
   status: "running" | "succeeded" | "failed" | "cancelled" | "paused";
   summary?: string;

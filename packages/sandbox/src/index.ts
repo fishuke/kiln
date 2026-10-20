@@ -43,6 +43,8 @@ export interface Sandbox {
   readFile(path: string): Promise<string | undefined>;
   /** Binary read, for videos and other artifacts. */
   readBytes(path: string): Promise<Uint8Array | undefined>;
+  /** Binary write, for attachments such as images. */
+  writeBytes(path: string, bytes: Uint8Array): Promise<void>;
   snapshot(store: ObjectStore): Promise<SnapshotRef>;
   destroy(): Promise<void>;
 }
@@ -186,6 +188,12 @@ class LocalSandbox implements Sandbox {
   async readBytes(path: string) {
     const full = this.resolvePath(path);
     return existsSync(full) ? new Uint8Array(readFileSync(full)) : undefined;
+  }
+
+  async writeBytes(path: string, bytes: Uint8Array) {
+    const full = this.resolvePath(path);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, bytes);
   }
 
   async snapshot(store: ObjectStore): Promise<SnapshotRef> {
@@ -350,6 +358,16 @@ class DockerSandbox implements Sandbox {
     const bytes = r.code === 0 && existsSync(target) ? new Uint8Array(readFileSync(target)) : undefined;
     rmSync(host, { recursive: true, force: true });
     return bytes;
+  }
+
+  async writeBytes(path: string, bytes: Uint8Array) {
+    const full = path.startsWith("/") ? path : `/workspace/${path}`;
+    const host = mkdtempSync(join(this.options.hostTmp ?? tmpdir(), "kiln-cp-"));
+    writeFileSync(join(host, "file"), bytes);
+    await this.runner.run("docker", ["exec", this.container, "mkdir", "-p", dirname(full)]);
+    const r = await this.runner.run("docker", ["cp", join(host, "file"), `${this.container}:${full}`]);
+    rmSync(host, { recursive: true, force: true });
+    if (r.code !== 0) throw new Error(`writing ${path} failed: ${r.stderr}`);
   }
 
   async snapshot(store: ObjectStore): Promise<SnapshotRef> {
@@ -539,6 +557,15 @@ class KubernetesSandbox implements Sandbox {
     const bytes = r.code === 0 && existsSync(target) ? new Uint8Array(readFileSync(target)) : undefined;
     rmSync(host, { recursive: true, force: true });
     return bytes;
+  }
+
+  async writeBytes(path: string, bytes: Uint8Array) {
+    const full = path.startsWith("/") ? path : `/workspace/${path}`;
+    const host = mkdtempSync(join(tmpdir(), "kiln-cp-"));
+    writeFileSync(join(host, "file"), bytes);
+    await this.runner.run("kubectl", [...this.base(), "mkdir", "-p", dirname(full)]);
+    await this.runner.run("kubectl", ["-n", this.namespace, "cp", join(host, "file"), `${this.pod}:${full}`]);
+    rmSync(host, { recursive: true, force: true });
   }
 
   async snapshot(store: ObjectStore): Promise<SnapshotRef> {

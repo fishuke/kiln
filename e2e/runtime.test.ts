@@ -313,3 +313,47 @@ describe("secrets from the environment", () => {
     }
   });
 });
+
+describe("attachments, artifacts and subagents", () => {
+  it("puts attachments in the workspace and uploads what the agent saves in .kiln/artifacts", async () => {
+    const seen: string[] = [];
+    const harness = new FakeHarness(async (ctx) => {
+      const p = (x: string) => (ctx.opts.cwd ? `${ctx.opts.cwd}/${x}` : x);
+      seen.push((await ctx.opts.sandbox.readFile(p(".kiln/attachments/brief.txt"))) ?? "");
+      seen.push(ctx.opts.prompt);
+      await ctx.opts.sandbox.writeFile(p(".kiln/artifacts/after.png"), "png-bytes");
+      return { summary: "done" };
+    });
+    const { kiln } = createTestKiln({ harness: () => harness });
+    await kiln.objects.put("uploads/u1/brief.txt", "make it blue", "text/plain");
+    const attachments = [{ key: "uploads/u1/brief.txt", name: "brief.txt", contentType: "text/plain", size: 12 }];
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Blue", body: "", source: { provider: "api" }, requester: "alice", attachments });
+    const run = await kiln.runs.execute({ factory: "webapp", sha: wi.definitionSha, agent: "implement", prompt: "go", workItem: wi, push: false });
+    expect(seen[0]).toBe("make it blue");
+    expect(seen[1]).toContain(".kiln/attachments/brief.txt");
+    expect(run.artifacts).toEqual([expect.objectContaining({ kind: "image", name: "after.png", url: `/files/runs/${run.id}/after.png` })]);
+    expect(new TextDecoder().decode(await kiln.objects.get(`runs/${run.id}/after.png`))).toBe("png-bytes");
+  });
+
+  it("lets an agent spawn a subagent its definition allows, and refuses others", async () => {
+    const tree = sampleTree({ "agents/helper/agent.md": "---\nagentType: CUSTOM\nspawnableBy: [implement]\n---\nHelp.\n" });
+    const children: string[] = [];
+    let kiln!: Kiln;
+    const harness = new FakeHarness(async (ctx) => {
+      const runId = ctx.opts.env?.KILN_RUN_ID;
+      if (ctx.opts.env?.KILN_AGENT_TYPE === "IMPLEMENT" && runId) {
+        const child = await kiln.runs.spawn(runId, { agent: "helper", prompt: "write the tests" });
+        children.push(child.id);
+        await expect(kiln.runs.spawn(runId, { agent: "review", prompt: "x" })).rejects.toThrow(/may not spawn review/);
+      }
+      return { summary: "ok" };
+    });
+    ({ kiln } = createTestKiln({ harness: () => harness, tree }));
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    const parent = await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "build", push: false });
+    expect(children).toHaveLength(1);
+    const child = kiln.runs.get(children[0]!)!;
+    expect(child.parentRunId).toBe(parent.id);
+    expect(child.agent).toBe("helper");
+  });
+});

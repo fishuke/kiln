@@ -5,7 +5,8 @@ import { evalBool, type PipelineStage } from "@kiln/schema";
 import { BUILTIN_GATES } from "./gates";
 import type { Kiln } from "./kiln";
 import { isActive, transition } from "./state";
-import { C, newId, type Gate, type Run, type Source, type WorkItem, type WorkItemState } from "./types";
+import { fileUrl } from "./runs";
+import { C, newId, type Attachment, type Gate, type Run, type Source, type WorkItem, type WorkItemState } from "./types";
 
 export type StageKind = "triage" | "spec" | "build" | "verify" | "review" | "preview" | "handoff" | "custom";
 export type PlanStage = PipelineStage & { kind: StageKind };
@@ -72,6 +73,7 @@ export class Workflow {
     trackerKey?: string;
     directAgent?: string;
     prompt?: string;
+    attachments?: Attachment[];
   }): Promise<WorkItem> {
     const id = newId("wi");
     const sha = this.k.defs.shaFor(input.factory, id);
@@ -87,7 +89,8 @@ export class Workflow {
       state: "received",
       definitionSha: sha,
       loops: {},
-      conversation: [{ at: now, from: input.requester, role: "human" as const, text: `${input.title}\n\n${input.body}`.trim() }],
+      conversation: [{ at: now, from: input.requester, role: "human" as const, text: `${input.title}\n\n${input.body}`.trim(), attachments: input.attachments }],
+      attachments: input.attachments ?? [],
       humanTouches: 1,
       costUsd: 0,
       budgetUsd: input.budgetUsd ?? resolved.factory.budgets?.perWorkItemUsd,
@@ -118,10 +121,11 @@ export class Workflow {
     this.save(wi);
   }
 
-  addMessage(id: string, from: string, text: string) {
+  addMessage(id: string, from: string, text: string, attachments: Attachment[] = []) {
     const wi = this.get(id);
     if (!wi) return;
-    wi.conversation.push({ at: this.k.clock.now().toISOString(), from, role: "human", text });
+    wi.conversation.push({ at: this.k.clock.now().toISOString(), from, role: "human", text, attachments: attachments.length ? attachments : undefined });
+    wi.attachments = [...(wi.attachments ?? []), ...attachments];
     wi.humanTouches += 1;
     this.save(wi);
   }
@@ -405,6 +409,7 @@ export class Workflow {
     wi.spec = { path: res.specPath ?? `docs/specs/${wi.id}.md`, criteria: res.criteria ?? [], stories: res.stories ?? [], openQuestions: res.openQuestions ?? [] };
     const stillFailing = await this.checkCriteria(wi, wi.spec.criteria);
     const pr = await this.ensurePullRequest(wi, true);
+    if (pr) this.k.runs.addArtifact(run.id, { kind: "pr", name: `${pr.repo}#${pr.number} (draft)`, url: pr.url });
     this.save(wi);
     if (!stage.gate) return this.nextStage(wi);
     this.move(wi, "awaiting_spec", "spec ready for approval");
@@ -472,9 +477,11 @@ export class Workflow {
     if (wi.state !== "building") wi = this.move(wi, "building", `${stage.id} started`);
     const units = stage.fan_out === "per_user_story" && wi.spec?.stories.length ? wi.spec.stories : [undefined];
     let failed: Run | undefined;
+    let last: Run | undefined;
     for (const story of units) {
       const run = await this.agentRun(wi, stage.agent!, stage.id, this.briefing(wi, story ? ["", `Implement this user story now: ${story}`] : ["", "Implement the change and its tests."]));
       if (run.status !== "succeeded") failed = run;
+      last = run;
     }
     if (failed) {
       wi.loops[`${stage.id}-errors`] = (wi.loops[`${stage.id}-errors`] ?? 0) + 1;
@@ -486,7 +493,9 @@ export class Workflow {
       }
       return "continue";
     }
-    await this.ensurePullRequest(wi, false);
+    const hadPr = Boolean(wi.pr);
+    const pr = await this.ensurePullRequest(wi, false);
+    if (pr && last) this.k.runs.addArtifact(last.id, { kind: "pr", name: `${pr.repo}#${pr.number}${hadPr ? " (updated)" : ""}`, url: pr.url });
     wi.review = undefined;
     return this.nextStage(wi);
   }
@@ -498,8 +507,11 @@ export class Workflow {
     if (stage.agent) {
       const run = await this.agentRun(wi, stage.agent, stage.id, this.briefing(wi, ["", "Verify the change against every acceptance criterion. Record a Playwright video per criterion (title tests AC1, AC2, …)."]), {
         push: false,
-        collect: async (sandbox, cwd) => {
+        collect: async (sandbox, cwd, run) => {
           wi.evidence = await collectPlaywrightEvidence({ sandbox, store: this.k.objects, workItemId: wi.id, cwd, run: false });
+          for (const a of wi.evidence.artifacts.filter((x) => x.kind === "video")) {
+            run.artifacts.push({ kind: "video", name: a.key.split("/").pop()!, key: a.key, url: fileUrl(a.key), contentType: "video/webm" });
+          }
         },
       });
       const fresh = this.get(wi.id)!;

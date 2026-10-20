@@ -116,11 +116,15 @@ export class IntegrationHub {
     return undefined;
   }
 
-  /** How the factory appears in chat (Slack chat:write.customize). */
+  /**
+   * How the factory appears in chat (Slack chat:write.customize): its name, and an avatar when
+   * KILN_FACTORY_AVATAR_URL is set (a URL template with {alias}).
+   */
   identityFor(factory: string): ChatIdentity | undefined {
     const b = this.k.defs.get(factory);
     if (!b) return undefined;
-    return { name: b.name, iconUrl: this.k.options.publicUrl ? `${this.k.options.publicUrl.replace(/\/$/, "")}/api/v1/factories/${encodeURIComponent(factory)}/avatar.png` : undefined };
+    const template = process.env.KILN_FACTORY_AVATAR_URL;
+    return { name: b.name, iconUrl: template ? template.replaceAll("{alias}", encodeURIComponent(b.alias)) : undefined };
   }
 
   /** Post back where the work started. Returns false when there is nowhere to post. */

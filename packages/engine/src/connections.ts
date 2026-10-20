@@ -134,7 +134,8 @@ export class ConnectionService {
         if (link) this.k.store.put(C.approvalLinks, { ...link, state: "used" });
       }
       this.k.audit(by, "connection.connected", p.id, { account: r.account.name, viaApproval: Boolean(approval) });
-      return conn;
+      await this.refreshDirectory(p.id);
+      return this.get(p.id) ?? conn;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const prev = this.get(p.id);
@@ -155,7 +156,18 @@ export class ConnectionService {
       result = { ok: false, message: err instanceof Error ? err.message : String(err) };
     }
     this.k.store.put(C.connections, { ...c, status: result.ok ? "connected" : "error", error: result.ok ? undefined : result.message, lastTest: { ...result, at: this.now().toISOString() } });
+    if (result.ok) await this.refreshDirectory(id);
     return result;
+  }
+
+  /** Reload names → ids (Linear teams, projects, states, users; Jira projects) for alias filters. Best effort. */
+  async refreshDirectory(id: string) {
+    try {
+      if (id === "linear" && this.k.integrations.linearAgent) this.setDirectory("linear", await this.k.integrations.linearAgent.directory());
+      if (id === "jira" && this.k.integrations.jira) this.setDirectory("jira", { projects: await this.k.integrations.jira.projects() });
+    } catch (err) {
+      this.k.audit("kiln", "connection.directory_failed", id, { error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   disconnect(id: string, by: string): boolean {
@@ -280,6 +292,21 @@ export class IdentityService {
     for (const l of all) this.k.store.delete(C.identityLinks, l.id);
     this.k.audit(target.subject, "identity.unlinked", `${provider}:${externalId}`, { count: all.length });
     return all.length;
+  }
+
+  /** A state for an OAuth account-linking flow (GitHub user OAuth) on behalf of a signed-in person. */
+  startOAuthLink(provider: string, subject: string): string {
+    const t: LinkToken = { id: `oauth_${randomBytes(18).toString("base64url")}`, provider, externalId: `pending:${subject}`, createdAt: this.k.clock.now().toISOString() };
+    this.k.store.put(C.linkTokens, t);
+    return t.id;
+  }
+
+  /** Finish an OAuth account link: the provider told us who the person is there. */
+  completeOAuthLink(state: string, provider: string, externalId: string, displayName?: string): IdentityLink {
+    const t = this.k.store.get<LinkToken>(C.linkTokens, state);
+    if (!t || t.provider !== provider || !t.externalId.startsWith("pending:") || this.k.clock.now().getTime() - Date.parse(t.createdAt) > 3600_000) throw new ConnectionError("the link request expired; start again");
+    this.k.store.delete(C.linkTokens, state);
+    return this.link(provider, externalId, t.externalId.slice("pending:".length), { displayName });
   }
 
   /** The provider id linked to a person (for DMs). */

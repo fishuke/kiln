@@ -204,6 +204,7 @@ export class KilnClient {
   resendApprovalLink = (id: string) => this.request<ApprovalLink & { token: string; url: string }>("POST", `/api/v1/approval-links/${encodeURIComponent(id)}/resend`);
   revokeApprovalLink = (id: string) => this.request<{ ok: true }>("DELETE", `/api/v1/approval-links/${encodeURIComponent(id)}`);
   identityLinks = (all = false) => this.request<IdentityLink[]>("GET", `/api/v1/identity-links${all ? "?all=1" : ""}`);
+  linkGitHubAccount = () => this.request<{ url: string }>("POST", "/api/v1/identity-links/github/start");
   claimIdentityLink = (token: string) => this.request<IdentityLink>("POST", "/api/v1/identity-links/claim", { token });
   unlinkIdentity = (id: string) => this.request<{ ok: true }>("DELETE", `/api/v1/identity-links/${encodeURIComponent(id)}`);
   factoryIntegrations = (factory: string) => this.request<FactoryIntegrations>("GET", `/api/v1/factories/${encodeURIComponent(factory)}/integrations`);

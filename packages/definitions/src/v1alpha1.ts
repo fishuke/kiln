@@ -23,9 +23,9 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       }
     }
   };
-  const harnessMap: Record<string, string> = { oz: "opencode", claude: "claude-code", "claude-code": "claude-code", codex: "codex" };
+  const harnessMap: Record<string, string> = { oz: "opencode", claude: "claude-code", "claude-code": "claude-code", codex: "codex", gemini: "gemini", pi: "pi" };
   const execution = (file: string, obj: Record<string, unknown>) => {
-    drop(file, obj, ["environmentId", "workerHost", "computerUseModel", "credentialStrategy", "required_repos"]);
+    drop(file, obj, ["environmentId"]);
     if (obj.harness && typeof obj.harness === "object") {
       const h = obj.harness as Record<string, unknown>;
       h.type = harnessMap[String(h.type)] ?? "claude-code";
@@ -53,7 +53,13 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       const f = parse(src) as Record<string, unknown>;
       f.schemaVersion = "kiln/v1";
       f.name = String(f.name ?? "factory");
-      f.alias = slug(String(f.alias ?? f.name)).slice(0, 60);
+      // Aliases keep their case and spaces; characters Kiln does not allow become dashes.
+      f.alias = String(f.alias ?? f.name).replace(/[^A-Za-z0-9 ._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").slice(0, 60) || slug(String(f.name));
+      if (f.scorerDefaults && typeof f.scorerDefaults === "object") {
+        const sd = f.scorerDefaults as Record<string, unknown>;
+        if (sd.mcpServers && !Array.isArray(sd.mcpServers)) sd.mcpServers = Object.keys(sd.mcpServers);
+        drop(file, sd, ["environmentId"]);
+      }
       f.repositories = ((f.repositories as Record<string, unknown>[]) ?? []).map((r) => ({
         forge: String(r.codeForge ?? "GITHUB").toLowerCase() === "gitlab" ? "gitlab" : "github",
         owner: r.owner,
@@ -74,16 +80,7 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       execution(file, defaults);
       f.agentDefaults = defaults;
       usesAuto ||= defaults.model === "router:auto";
-      drop(file, f, [
-        "codeForges",
-        "credentialStrategy",
-        "automations",
-        "benchmarkRepoSubstitutions",
-        "secrets",
-        "mcpServers",
-        "cloudProviders",
-        "scorerDefaults",
-      ]);
+      drop(file, f, ["codeForges", "automations", "benchmarkRepoSubstitutions", "secrets", "mcpServers", "cloudProviders", "providers", "github"]);
       out[file] = stringify(f);
     } else if (/^agents\/[^/]+\/agent\.md$/.test(file)) {
       out[file] = frontmatter(file, src, (fm) => {
@@ -105,12 +102,15 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       const r = parse(src) as Record<string, unknown>;
       const platform = (r.platform ?? {}) as Record<string, Record<string, unknown> | string>;
       const image = (platform.linux as Record<string, unknown> | undefined)?.dockerImage;
-      if (platform.os && platform.os !== "linux") warnings.push(`${file}: ${platform.os} runners are not supported; using linux`);
+      const linux = !platform.os || platform.os === "linux";
+      if (!linux) warnings.push(`${file}: ${platform.os} runners are not supported; using linux`);
       out[file] = stringify({
         ...(r.description ? { description: r.description } : {}),
         image: image ?? "ubuntu:24.04",
+        ...(linux && r.platform ? { platform: r.platform } : {}),
         ...(r.instanceShape ? { shape: r.instanceShape } : {}),
-        setupCommands: r.setupCommands ?? [],
+        setupCommands: ((r.setupCommands as unknown[]) ?? []).filter((c) => typeof c === "string"),
+        ...(r.failureSessionRetentionMinutes ? { failureSessionRetentionMinutes: r.failureSessionRetentionMinutes } : {}),
       });
     } else if (/^scorers\/[^/]+\/scorer\.md$/.test(file)) {
       out[file] = frontmatter(file, src, (fm) => {

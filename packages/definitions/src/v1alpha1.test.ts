@@ -19,7 +19,7 @@ describe("kiln import (v1alpha1 → kiln/v1)", () => {
     const result = validateTree(tree);
     if (!result.ok) throw new Error(formatErrors(result.errors));
     const r = result.resolved;
-    expect(r.factory).toMatchObject({ name: "Web Platform", alias: "web-platform", integrations: ["slack", "linear"] });
+    expect(r.factory).toMatchObject({ name: "Web Platform", alias: "Web Platform", credentialStrategy: "EXECUTOR", integrations: ["slack", "linear"] });
     expect(r.factory.selfImprovement?.reviewers).toEqual({ type: "custom", emails: ["lead@acme.test"] });
     expect(r.agents["Web Implement"]!.harness).toEqual({ type: "claude-code", model: "frontier-high", auth: { source: "secret", secretName: "TEAM_ANTHROPIC" } });
     expect(r.agents["Local Builder"]!.harness.type).toBe("opencode");
@@ -29,7 +29,7 @@ describe("kiln import (v1alpha1 → kiln/v1)", () => {
     expect(r.parsed.benchmarks.core!.tasks["fix-typo"]!.successCriteria).toEqual(["README has no typo"]);
     expect(warnings).toEqual(
       expect.arrayContaining([
-        "factory.yaml: dropped credentialStrategy (not supported by kiln/v1)",
+        "factory.yaml: dropped cloudProviders (not supported by kiln/v1)",
         "runners/mac.yaml: macos runners are not supported; using linux",
         "routers/auto.yaml: added a complexity router to stand in for the auto model",
       ]),

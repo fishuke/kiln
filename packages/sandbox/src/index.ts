@@ -19,6 +19,8 @@ export type SandboxSpec = {
   /** Called for "ask_human" verdicts; resolve true to run the command. */
   askHuman?: (command: string) => Promise<boolean>;
   labels?: Record<string, string>;
+  /** Hosts the egress proxy always blocks (an agent's networkPolicy.deniedHosts). */
+  deniedHosts?: string[];
 };
 
 export type SnapshotRef = {
@@ -229,7 +231,8 @@ export function egressAllowlist(spec: SandboxSpec): string[] {
       }
     })
     .filter((h): h is string => Boolean(h));
-  return [...new Set([...spec.runner.egress, ...hosts])];
+  const denied = new Set(spec.deniedHosts ?? []);
+  return [...new Set([...spec.runner.egress, ...hosts])].filter((h) => !denied.has(h));
 }
 
 /** Docker CLI arguments for a runner: resources, egress and labels. Exported for tests and docs. */
@@ -245,6 +248,7 @@ export function dockerRunArgs(name: string, spec: SandboxSpec): string[] {
     args.push("--network", "kiln-egress");
     args.push("-e", "HTTPS_PROXY=http://kiln-egress-proxy:3128", "-e", "HTTP_PROXY=http://kiln-egress-proxy:3128");
     args.push("-e", `KILN_EGRESS_ALLOW=${allow.join(",")}`);
+    if (spec.deniedHosts?.length) args.push("-e", `KILN_EGRESS_DENY=${spec.deniedHosts.join(",")}`);
   }
   args.push("--security-opt", "no-new-privileges", "--cap-drop", "ALL");
   for (const [k, v] of Object.entries(spec.env ?? {})) args.push("-e", `${k}=${v}`);
@@ -258,7 +262,7 @@ export class DockerSandboxProvider implements SandboxProvider {
 
   constructor(
     private readonly runner: CommandRunner = new NodeCommandRunner(),
-    private readonly options: { checkpoint?: boolean; hostTmp?: string } = {},
+    private readonly options: { checkpoint?: boolean; hostTmp?: string; volumes?: string[]; pullPolicy?: "Always" | "IfNotPresent" | "Never" } = {},
   ) {}
 
   private async must(args: string[], stdin?: string): Promise<ExecResult> {
@@ -271,9 +275,13 @@ export class DockerSandboxProvider implements SandboxProvider {
     const started = Date.now();
     const id = newId();
     const name = `kiln-${id}`;
-    const cached = await this.runner.run("docker", ["image", "inspect", spec.runner.image]);
-    if (cached.code !== 0) await this.must(["pull", spec.runner.image]);
-    await this.must(dockerRunArgs(name, spec));
+    const policy = this.options.pullPolicy ?? "IfNotPresent";
+    const cached = policy === "Always" ? { code: 1 } : await this.runner.run("docker", ["image", "inspect", spec.runner.image]);
+    if (cached.code !== 0 && policy !== "Never") await this.must(["pull", spec.runner.image]);
+    const args = dockerRunArgs(name, spec);
+    // Host volumes from the worker's configuration (`kiln worker --volumes HOST:CONTAINER[:ro]`).
+    for (const v of this.options.volumes ?? []) args.splice(args.indexOf(spec.runner.image), 0, "-v", v);
+    await this.must(args);
     const sandbox = new DockerSandbox(id, name, spec, this.runner, this.options);
     for (const repo of spec.repos) {
       await this.must(["exec", name, "git", "clone", "--quiet", repo.url, `/workspace/${repo.name}`]);

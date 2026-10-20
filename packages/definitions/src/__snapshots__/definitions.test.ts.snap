@@ -5,6 +5,7 @@ exports[`resolver > matches the resolved snapshot 1`] = `
   "agents": {
     "foreman": {
       "agentType": "FOREMAN",
+      "credentialStrategy": "EXECUTOR",
       "description": undefined,
       "harness": {
         "model": "claude-sonnet-5-5",
@@ -14,6 +15,7 @@ exports[`resolver > matches the resolved snapshot 1`] = `
       "instructions": "Route work.",
       "mcpServers": [],
       "name": "foreman",
+      "requiredRepos": [],
       "runner": "linux-node",
       "secrets": [
         "NPM_TOKEN",
@@ -27,6 +29,7 @@ exports[`resolver > matches the resolved snapshot 1`] = `
     },
     "implement": {
       "agentType": "IMPLEMENT",
+      "credentialStrategy": "EXECUTOR",
       "description": undefined,
       "harness": {
         "type": "codex",
@@ -35,6 +38,7 @@ exports[`resolver > matches the resolved snapshot 1`] = `
       "instructions": "Build.",
       "mcpServers": [],
       "name": "implement",
+      "requiredRepos": [],
       "runner": "linux-node",
       "secrets": [],
       "skills": [
@@ -47,6 +51,7 @@ exports[`resolver > matches the resolved snapshot 1`] = `
     },
     "triage": {
       "agentType": "TRIAGE",
+      "credentialStrategy": "EXECUTOR",
       "description": undefined,
       "harness": {
         "model": "claude-haiku-5-5",
@@ -56,6 +61,7 @@ exports[`resolver > matches the resolved snapshot 1`] = `
       "instructions": "Triage.",
       "mcpServers": [],
       "name": "triage",
+      "requiredRepos": [],
       "runner": "linux-node",
       "secrets": [
         "NPM_TOKEN",
@@ -78,6 +84,7 @@ exports[`resolver > matches the resolved snapshot 1`] = `
       "mcpServers": [],
       "name": "labeled",
       "prompt": "Build it.",
+      "requiredRepos": [],
       "runner": undefined,
       "secrets": [],
       "triggers": [
@@ -97,6 +104,7 @@ exports[`resolver > matches the resolved snapshot 1`] = `
       "mcpServers": [],
       "name": "to-foreman",
       "prompt": "",
+      "requiredRepos": [],
       "runner": "linux-node",
       "secrets": [
         "NPM_TOKEN",

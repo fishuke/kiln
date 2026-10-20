@@ -84,10 +84,37 @@ export function validateTree(tree: DefinitionTree): ValidationResult {
     }
   }
 
+  const attached = new Set((f?.repositories ?? []).map((r) => `${r.owner}/${r.name}`.toLowerCase()));
+  const checkRequiredRepos = (key: string, refs: { owner: string; name: string }[] | undefined) => {
+    for (const [i, r] of (refs ?? []).entries()) {
+      if (f && !attached.has(`${r.owner}/${r.name}`.toLowerCase())) err(key, ["required_repos", i], "ref", `required repo ${r.owner}/${r.name} is not in factory.yaml repositories`);
+    }
+  };
+  for (const [name, agent] of Object.entries(parsed.agents)) checkRequiredRepos(`agent/${name}`, agent.frontmatter.required_repos);
+  for (const [name, au] of Object.entries(parsed.automations)) checkRequiredRepos(`automation/${name}`, au.frontmatter.required_repos);
+
+  if (f?.blueprint) {
+    const bp = f.blueprint;
+    const stages = new Set(Object.keys(bp.stages));
+    if (!stages.has(bp.entry)) err("factory/", ["blueprint", "entry"], "ref", `blueprint entry ${bp.entry} is not a stage`);
+    for (const [edge, e] of Object.entries(bp.edges)) {
+      if (!stages.has(e.from)) err("factory/", ["blueprint", "edges", edge, "from"], "ref", `edge ${edge} leaves unknown stage ${e.from}`);
+      if (!stages.has(e.to)) err("factory/", ["blueprint", "edges", edge, "to"], "ref", `edge ${edge} enters unknown stage ${e.to}`);
+    }
+    for (const [role, agent] of Object.entries(bp.staffing)) {
+      if (!agentNames.has(agent)) err("factory/", ["blueprint", "staffing", role], "ref", `staffing ${role} names unknown agent ${agent}`);
+      else if (role === "foreman" && parsed.agents[agent]?.frontmatter.agentType !== "FOREMAN") err("factory/", ["blueprint", "staffing", role], "ref", `staffing foreman must name the FOREMAN agent`);
+      else if (role !== "foreman" && !stages.has(role)) err("factory/", ["blueprint", "staffing", role], "ref", `staffing ${role} is not a stage`);
+    }
+    for (const stage of stages) if (!bp.staffing[stage]) err("factory/", ["blueprint", "staffing"], "required", `stage ${stage} has no staffed agent`);
+  }
+
   for (const [name, s] of Object.entries(parsed.scorers)) {
-    for (const [i, agent] of s.frontmatter.agents.entries()) {
+    for (const [i, ref] of s.frontmatter.agents.entries()) {
+      const agent = typeof ref === "string" ? ref : ref.name;
       if (!agentNames.has(agent)) err(`scorer/${name}`, ["agents", i], "ref", `scorer grades unknown agent ${agent}`);
     }
+    if (s.frontmatter.runner && !runners.has(s.frontmatter.runner)) err(`scorer/${name}`, ["runner"], "ref", `runner ${s.frontmatter.runner} is not defined in runners/`);
     const values = s.frontmatter.labels.map((l) => l.value);
     if (new Set(values).size !== values.length) err(`scorer/${name}`, ["labels"], "unique", "label values must be unique");
   }

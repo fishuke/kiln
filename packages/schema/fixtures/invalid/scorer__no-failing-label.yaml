@@ -1,0 +1,7 @@
+name: Always passes
+agents: [implement]
+labels:
+  - { value: good, score: 1 }
+  - { value: fine, score: 0.9 }
+passingScore: 0.5
+model: claude-haiku-5-5

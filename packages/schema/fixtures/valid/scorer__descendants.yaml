@@ -1,0 +1,12 @@
+name: Orchestration Quality
+output: classification
+agents:
+  - foreman
+  - { name: implement, includeDescendants: true }
+labels:
+  - { value: good, score: 1 }
+  - { value: bad, score: 0 }
+passingScore: 1
+samplingRate: 50
+model: claude-haiku-5-5
+runner: linux-node

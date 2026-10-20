@@ -44,6 +44,8 @@ const json = async (c: Context<Env>) => {
   }
 };
 
+const isSignIn = (text: unknown) => String(text ?? "").replace(/<@[^>]+>/g, "").replace(/@\S+/g, "").trim().toLowerCase() === "sign in";
+
 /** Events that start or continue work in chat get a 👀 acknowledgement. */
 const ACK_EVENTS = ["app_mention", "message_dm", "message_im", "message_mpim", "message_posted"];
 
@@ -127,6 +129,13 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
       if (chat instanceof SlackChat && user) void chat.publishHome(user, slackHomeView(kiln.integrations.homeItems("slack", user), { webUrl: kiln.link("/") })).catch(() => {});
       return c.json({ ok: true });
     }
+    // `@app sign in` (or a DM saying it) links the Slack account instead of starting work.
+    const signIn = events.find((e) => ["app_mention", "message_dm"].includes(e.event) && isSignIn(e.data.text));
+    if (signIn) {
+      const { url } = kiln.identities.startLink("slack", String(signIn.data.author ?? ""));
+      void chat?.post({ channel: String(signIn.data.channel), thread: signIn.data.thread, text: `Open this link to connect your Slack account to Kiln (it expires in an hour): ${url}` }).catch(() => {});
+      return c.json({ ok: true });
+    }
     // Slack wants an answer within 3 s; work continues in the background.
     if (events.length) void handleChat(kiln, events).catch((err) => kiln.audit("kiln", "slack.failed", String(payload.event_id), { error: String(err) }));
     return c.json({ ok: true });
@@ -191,6 +200,10 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
     }
     // /kiln: answer now (Discord allows 3 s), start the work and move it into a thread on the reply.
     const prompt = String(ev.data.text ?? "");
+    if (isSignIn(prompt)) {
+      const { url } = kiln.identities.startLink("discord", String(ev.data.author ?? ""), { displayName: ev.data.userName as string | undefined });
+      return c.json({ type: InteractionResponse.CHANNEL_MESSAGE, data: { content: `Open this link to connect your Discord account to Kiln (it expires in an hour): ${url}`, flags: 64 } });
+    }
     void (async () => {
       const r = await kiln.automations.handle(ev);
       const chat = kiln.integrations.chat("discord");

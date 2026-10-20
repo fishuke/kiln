@@ -154,6 +154,14 @@ describe("provider webhooks", () => {
     expect((await post("/webhooks/slack", body, { "x-slack-request-timestamp": ts, "x-slack-signature": sig })).status).toBe(200);
     await settle();
     expect(chat.reactions).toContainEqual({ channel: "C1", ts: "1.1", emoji: "eyes" });
+    const signIn = JSON.stringify({ type: "event_callback", event_id: "Ev2", event: { type: "message", channel_type: "im", channel: "D1", ts: "2.1", user: "U9", text: "sign in" } });
+    const sig2 = `v0=${createHmac("sha256", "slk").update(`v0:${ts}:${signIn}`).digest("hex")}`;
+    await post("/webhooks/slack", signIn, { "x-slack-request-timestamp": ts, "x-slack-signature": sig2 });
+    await settle();
+    const linkText = chat.messages.at(-1)!.text;
+    expect(linkText).toMatch(/connect your Slack account/);
+    kiln.identities.claim(/token=([\w-]+)/.exec(linkText)![1]!, "u9@acme.test");
+    expect(kiln.automations.person("slack", "U9")).toBe("u9@acme.test");
 
     kiln.secrets.setSecret("JIRA_BOT_ACCOUNT_ID", "kiln-bot");
     const jira = JSON.stringify({ webhookEvent: "jira:issue_updated", issue: { key: "ENG-4", fields: { summary: "Slow page", description: "please investigate", project: { key: "ENG" }, assignee: { accountId: "kiln-bot" } } }, changelog: { items: [{ field: "assignee", to: "kiln-bot" }] } });

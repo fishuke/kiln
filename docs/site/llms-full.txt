@@ -1,6 +1,6 @@
 # Factory agents
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/configuration/agents.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/configuration/agents.md
 
 Each agent is a file at `agents/<name>/agent.md` with YAML frontmatter for its role and execution settings, followed by its instructions in Markdown.
 
@@ -133,7 +133,7 @@ Set `computerUse: false` on an agent (or in `agentDefaults`) to leave the browse
 
 # Automation triggers
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/configuration/automation-triggers.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/configuration/automation-triggers.md
 
 Generated from `packages/schema/src/triggers.ts`. A trigger names a `provider` and an `event`; its `filter` accepts only the keys listed for that pair. Every key must match (AND); any value in a list matches (OR). See [Automations](automations.md) for the matcher grammar, alias resolution and bot policy.
 
@@ -277,7 +277,7 @@ Server-managed keys are rejected in definitions: GitLab `bot_mentioned` fills `m
 
 # Automations
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/configuration/automations.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/configuration/automations.md
 
 An automation is a file at `automations/<name>/automation.md` (or `automations/<name>.md`) that starts a work item when one of its triggers matches an incoming event.
 
@@ -481,7 +481,7 @@ A factory with no automations still answers direct mentions of its alias by star
 
 # Typed decisions
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/configuration/decisions.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/configuration/decisions.md
 
 A typed decision sends a few fields of program state and a set of typed questions to a fast decision model, gets back a probability for each answer, and turns them into an action with thresholds you write in `decisions/<name>.yaml`.
 
@@ -614,7 +614,7 @@ Validation reports syntax errors with the file and line.
 
 # Definitions as code
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/configuration/definitions-as-code.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/configuration/definitions-as-code.md
 
 A factory is defined by a tree of files rooted at `factory.yaml`, which Kiln validates as a whole and applies whole or not at all.
 
@@ -795,7 +795,7 @@ jobs:
       - name: Check out Kiln
         uses: actions/checkout@v4
         with:
-          repository: fishuke/klin
+          repository: fishuke/kiln
           path: kiln
 
       - name: Check out the definition
@@ -874,7 +874,7 @@ Each stage runs its staffed agent with the stage prompt. The agent can name the 
 
 # Definition file reference
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/configuration/definitions-reference.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/configuration/definitions-reference.md
 
 Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kind>` for the JSON Schema of a file kind, for editor completion.
 
@@ -1233,7 +1233,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 
 # Pipelines and gates
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/configuration/pipelines-and-gates.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/configuration/pipelines-and-gates.md
 
 A pipeline is an optional file that lists a work item's stages in order; a gate is a pause in that path where a person decides before the work goes on.
 
@@ -1371,7 +1371,7 @@ When a gate expires with `park`, it closes as `expired` and the item moves to `b
 
 # Policies and budgets
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/configuration/policies-and-budgets.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/configuration/policies-and-budgets.md
 
 Policies in `policies/<name>.yaml` set rules the factory cannot change on its own, and budgets in `factory.yaml` cap what each work item may spend.
 
@@ -1448,7 +1448,7 @@ Who may approve a gate is set by the gate's `approvers` (see [Pipelines and gate
 
 # Skills
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/configuration/skills.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/configuration/skills.md
 
 A skill is a `SKILL.md` file with a short frontmatter and Markdown instructions that Kiln hands to agents at the start of each run.
 
@@ -1533,7 +1533,7 @@ How a memory gets there:
 
 # API reference
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/developer-tools/api.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/developer-tools/api.md
 
 Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a session token from login, an API key or a scoped token); each route needs the scope shown for the factory it touches (`admin` grants every scope). People's scopes come from their team and factory roles. Send `X-Kiln-Team: <team id or slug>` to act in a team other than your first. The machine-readable document is at `/api/v1/openapi.json`, and the TypeScript SDK (`@kiln/sdk-ts`) wraps every route.
 
@@ -1973,7 +1973,7 @@ Errors are JSON: `{ "error": "message" }` with status 400 (invalid request; `iss
 
 # CLI reference
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/developer-tools/cli.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/developer-tools/cli.md
 
 The `kiln` CLI validates and applies factory definitions locally and talks to a Kiln server for everything else.
 
@@ -2035,7 +2035,7 @@ Self-hosted worker (connects out to KILN_URL with a token that has the worker sc
 
 # Kiln MCP
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/developer-tools/mcp.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/developer-tools/mcp.md
 
 The Kiln MCP server is served at `<public URL>/mcp` over streamable HTTP. Agents use it to send tasks, take them to a local worktree, hand them back, decide gates and query metrics. Every call goes through the API with the caller's token, so per-factory scopes apply: a token with only `decide:preview` cannot write definitions.
 
@@ -2103,7 +2103,7 @@ List my factories, then help me send a task to the right one and follow it throu
 
 # Tasks, runs and subagents
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/developer-tools/tasks-and-runs.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/developer-tools/tasks-and-runs.md
 
 A **task** is a work item seen through the API: one request with its conversation, runs and outputs. A **run** is one agent execution. The foreman path starts several runs per task; agents can start subagents, so runs form a tree whose first run is the task's root.
 
@@ -2186,7 +2186,7 @@ A run token cannot decide gates, write definitions, see other tasks or factories
 
 # Build an incident-response factory
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/guides/incident-response-factory.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/guides/incident-response-factory.md
 
 This guide builds a factory, `@oncall`, that turns an alert or a Slack message into a tested fix on a pull request within minutes, while a person still decides what merges.
 
@@ -2419,7 +2419,7 @@ Add a scorer for the fixer, and watch cycle time and cost per merged PR on the d
 
 # Kiln builds Kiln
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/guides/kiln-builds-kiln.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/guides/kiln-builds-kiln.md
 
 Kiln's own repository is worked on by a Kiln factory, `kiln-self`: issues labeled `kiln-ready` go to its foreman, the factory opens pull requests, and people review and merge them.
 
@@ -2438,7 +2438,7 @@ name: Kiln
 alias: kiln
 project: kiln
 repositories:
-  - { owner: fishuke, name: klin }
+  - { owner: fishuke, name: kiln }
 integrations: [github, linear]
 agentDefaults:
   harness: { type: claude-code, model: router:by-task }
@@ -2459,7 +2459,7 @@ budgets: { perWorkItemUsd: 30, monthlyUsd: 3000 }
 | `decisions/command-guard.yaml` | The command guard with the standard thresholds |
 | `automations/` | `ready` (GitHub `issue_labeled` with `kiln-ready`), `review-comments` (review submitted) and `slack` (mentions) |
 
-The `ready` automation filters on `repos: [fishuke/klin]`. GitHub events carry both `repo` and `repos`.
+The `ready` automation filters on `repos: [fishuke/kiln]`. GitHub events carry both `repo` and `repos`.
 
 ## The rules it works under
 
@@ -2523,7 +2523,7 @@ Every pull request the factory opens carries the `factory:kiln` label. The share
 
 # Make a factory improve itself
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/guides/make-a-factory-improve-itself.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/guides/make-a-factory-improve-itself.md
 
 This guide sets up the full improvement loop for a factory: scorers flag failures, Kiln proposes a definition change, replays prove it, a person reviews it, and a canary confirms it.
 
@@ -2627,7 +2627,7 @@ Compare the candidate with the applied definition in the per-definition metrics.
 
 # Architecture and security
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/infrastructure/architecture-and-security.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/infrastructure/architecture-and-security.md
 
 Kiln is a control plane that receives events, decides what to do, and launches agents in disposable sandboxes; agents never run inside the control plane, and no agent identity can merge.
 
@@ -2735,7 +2735,7 @@ Harnesses send the prompt, instructions, skills and the code they read to the mo
 
 # Harnesses
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/infrastructure/harnesses.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/infrastructure/harnesses.md
 
 A harness is the coding agent program that does the work in a run; Kiln supports Claude Code, Codex and OpenCode behind one adapter interface and does not write its own agent loop.
 
@@ -2871,7 +2871,7 @@ Each steering message is kept on the run record, counted as a human touch on the
 
 # Sandboxes
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/infrastructure/sandboxes.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/infrastructure/sandboxes.md
 
 Every agent run gets a fresh sandbox built from its runner file, and Kiln destroys the sandbox when the run ends.
 
@@ -2973,7 +2973,7 @@ Snapshots hold files only. On Docker, the server can also be set to take a CRIU 
 
 # Self-hosted workers
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/infrastructure/self-hosted-workers.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/infrastructure/self-hosted-workers.md
 
 A self-hosted worker runs agent runs on a machine you choose (a build server, a GPU box, a host inside a private network) while the Kiln server keeps coordinating the work. The worker connects out to the Kiln API; it needs no inbound ports.
 
@@ -3070,7 +3070,7 @@ harness:
 
 # Self-hosting
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/infrastructure/self-hosting.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/infrastructure/self-hosting.md
 
 Kiln runs on your own infrastructure: a single host with Docker for small installs, or a Kubernetes cluster with gVisor for production.
 
@@ -3091,7 +3091,7 @@ Postgres, Temporal, NATS and S3 are not required in v1; see ADR-002 and ADR-005 
 ### Try it locally
 
 ```bash
-git clone https://github.com/fishuke/klin kiln && cd kiln
+git clone https://github.com/fishuke/kiln && cd kiln
 pnpm install
 pnpm dev            # API on :4000 with demo data, web app on :3000
 ```
@@ -3298,7 +3298,7 @@ Agents can also run on machines you choose, such as a build server or a host in 
 
 # Azure DevOps
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/azure-devops.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/azure-devops.md
 
 Azure DevOps Services (`dev.azure.com`) works as a forge for Azure Repos and as a source of work from pull requests and Boards work items.
 
@@ -3368,7 +3368,7 @@ Azure DevOps Server is not supported directly; clone it with runner setup comman
 
 # Bitbucket
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/bitbucket.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/bitbucket.md
 
 Bitbucket Cloud works as a forge (branches, pull requests, comments) and can start work from pull request events.
 
@@ -3408,7 +3408,7 @@ Bitbucket pull requests have no labels, so label filters and routing labels do n
 
 # Connections
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/connections.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/connections.md
 
 Kiln connects to each external system once for the whole workspace. Each factory then opts in to the systems it uses in `factory.yaml`, with its own settings.
 
@@ -3544,7 +3544,7 @@ Webhook secrets are read from the environment first, then from Kiln secrets, the
 
 # Custom webhooks
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/custom-webhooks.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/custom-webhooks.md
 
 A custom webhook gives any system a URL that starts factory work: alerting tools, deploy platforms, payment providers or your own services.
 
@@ -3665,7 +3665,7 @@ Webhook events only reach the factory that owns the webhook. The older `filter: 
 
 # Discord
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/discord.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/discord.md
 
 In Discord, you run `/kiln` or mention the bot to start work, and the factory continues in a thread on that message.
 
@@ -3723,7 +3723,7 @@ Buttons with the custom IDs `kiln:approve:<gate id>` and `kiln:reject:<gate id>`
 
 # GitHub
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/github.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/github.md
 
 GitHub is both a source of work and the place where Kiln delivers it: issues and comments start work items, Kiln opens pull requests on `kiln/*` branches, and a person's merge completes the work.
 
@@ -3848,7 +3848,7 @@ On pull requests to a config repo, Kiln reads the head commit, validates it and 
 
 # GitLab
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/gitlab.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/gitlab.md
 
 GitLab works as a forge (branches, merge requests, labels, comments) and as a source of work: mention the factory's bot in a merge request comment and the factory replies in that discussion.
 
@@ -3914,7 +3914,7 @@ GitLab is not supported as a config repo for factory definitions.
 
 # Jira
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/jira.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/jira.md
 
 Jira works like Linear in Kiln: issues and comments start or continue work items, updates go back as comments, and the planning agent can create its roadmap in a Jira project.
 
@@ -3985,7 +3985,7 @@ The [planning agent](../product-owners/planning.md) can create its roadmap in th
 
 # Linear
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/linear.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/linear.md
 
 Linear can start work items, receives the factory's updates as comments on the issue, and is where the planning agent creates roadmap issues.
 
@@ -4065,7 +4065,7 @@ The [planning agent](../product-owners/planning.md) creates its roadmap in Linea
 
 # Microsoft Teams
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/microsoft-teams.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/microsoft-teams.md
 
 In Microsoft Teams, you mention the Kiln bot in a connected channel to start work, and the work item lives in that thread.
 
@@ -4134,7 +4134,7 @@ If a channel isn't connected to any factory, the bot answers: "This Microsoft Te
 
 # Previews
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/previews.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/previews.md
 
 A preview provider deploys each factory pull request to its own URL, so a person can try the change and accept it before review and merge.
 
@@ -4204,7 +4204,7 @@ The card's criteria table comes from the verify stage. The verify agent runs Pla
 
 # Slack
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/slack.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/integrations/slack.md
 
 In Slack, you mention a factory's alias to start work, and the whole work item then lives in that thread: questions, approvals, the preview and the pull request link.
 
@@ -4309,7 +4309,7 @@ Steering from the thread works like steering from the run page. See [Harnesses](
 
 # Admin, RBAC and audit
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/management/admin-rbac-audit.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/management/admin-rbac-audit.md
 
 Access to Kiln's API and MCP is controlled by tokens whose scopes are granted per factory, and every change people or Kiln make is written to the audit log.
 
@@ -4438,7 +4438,7 @@ Typed decisions have their own log with inputs, answers, action, provider, fallb
 
 # Inbox
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/management/inbox.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/management/inbox.md
 
 The inbox lists every open gate assigned to you across all factories, most urgent first, so you can approve, reject or answer in one place.
 
@@ -4526,7 +4526,7 @@ Definition changes have their own actions: `POST /definition-changes/{id}/approv
 
 # Portfolio and projects
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/management/portfolio.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/management/portfolio.md
 
 A project groups the factories that serve one product or goal, and the portfolio rolls up their work, cost and pending decisions across every project. Projects and the portfolio are per team: a project's factories belong to one team, and you see the current team's projects. See [Teams and users](teams-and-users.md#current-team).
 
@@ -4571,7 +4571,7 @@ The digest tells each person which decisions are waiting on them, oldest first, 
 
 # Secrets, MCP servers and environments
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/management/secrets-mcps-environments.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/management/secrets-mcps-environments.md
 
 Secrets, MCP servers and environments belong to a team. Agents use them by name, and Kiln resolves them for each run.
 
@@ -4709,7 +4709,7 @@ An environment does the same with `registryCredentialSecretName` next to its `im
 
 # Teams and users
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/management/teams-and-users.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/management/teams-and-users.md
 
 People sign in to Kiln with an account, work in one or more teams, and get a role on each factory. Every API request acts as a user, a team service account or a scoped token.
 
@@ -4876,7 +4876,7 @@ The result becomes the work item's requester and the person who decides a gate f
 
 # Usage and spend limits
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/management/usage-and-spend-limits.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/management/usage-and-spend-limits.md
 
 Kiln is self-hosted, so there are no plans or credits. It records what runs cost and lets each team set a monthly spend limit.
 
@@ -4923,7 +4923,7 @@ Work items already in progress, or started by webhooks and schedules, move to `b
 
 # Benchmarks
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/measure-and-improve/benchmarks.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/measure-and-improve/benchmarks.md
 
 A benchmark runs the same tasks, each pinned to exact commits, under up to six configurations of one agent, so you can compare success rate and cost before changing models or skills.
 
@@ -5023,7 +5023,7 @@ The benchmarks page and API run suites with more control than `kiln bench run`:
 
 # Dashboard metrics
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/measure-and-improve/metrics.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/measure-and-improve/metrics.md
 
 Kiln computes every factory metric from stored work items, runs and scores, so the dashboard, the API and the Kiln MCP always show the same numbers.
 
@@ -5100,7 +5100,7 @@ A PR counts as autonomous when no person pushed code to it; handing a task back 
 
 # Replay and canary
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/measure-and-improve/replay-and-canary.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/measure-and-improve/replay-and-canary.md
 
 Replay re-runs a past agent run from exactly where it started, optionally under a different definition, and canary apply sends only a share of new work items to a candidate definition so you can compare it with the current one.
 
@@ -5172,7 +5172,7 @@ Approving a self-improvement proposal in Kiln, or merging its pull request uncha
 
 # Scorers
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/measure-and-improve/scorers.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/measure-and-improve/scorers.md
 
 A scorer is a rubric in `scorers/<name>/scorer.md` that grades a share of an agent's finished runs with one of a fixed set of labels.
 
@@ -5260,7 +5260,7 @@ Two more scorer keys: `agents` entries may be `{ name, includeDescendants: true 
 
 # Self-improvement
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/measure-and-improve/self-improvement.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/measure-and-improve/self-improvement.md
 
 Self-improvement turns an agent's repeated failures into a proposed change to the factory's definition, replays the failing runs to show whether the change helps, and opens it for a person to review.
 
@@ -5337,7 +5337,7 @@ Which scorers feed it is each scorer's `selfImprovement` toggle. `GET|PUT /facto
 
 # Concepts
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/overview/concepts.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/overview/concepts.md
 
 This glossary defines each Kiln term in one or two sentences and links to the page that covers it.
 
@@ -5411,7 +5411,7 @@ This glossary defines each Kiln term in one or two sentences and links to the pa
 
 # How Kiln works
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/overview/how-kiln-works.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/overview/how-kiln-works.md
 
 Every request becomes a work item that moves through a fixed set of states, from `received` to `complete`, and only a merge or a person's confirmation can complete it.
 
@@ -5502,7 +5502,7 @@ New review comments on a handed-off pull request (any review that is not an appr
 
 # Importing v1alpha1 definitions
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/overview/importing-definitions.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/overview/importing-definitions.md
 
 Kiln reads definition trees in the v1alpha1 factory definition format: run `kiln import` to convert a `schemaVersion: v1alpha1` tree to `kiln/v1`, or connect a config repo in that format and Kiln converts it on every sync.
 
@@ -5595,7 +5595,7 @@ Every change that drops something is reported as a warning.
 
 # What is Kiln
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/overview/what-is-kiln.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/overview/what-is-kiln.md
 
 Kiln is a self-hostable platform that runs software factories: teams of coding agents that take a request from GitHub, Slack, Linear, Jira, a webhook or a schedule and turn it into a pull request that a person reviews and merges.
 
@@ -5646,7 +5646,7 @@ A Kiln factory is built on a few core ideas: a foreman that routes work, work it
 
 # Writing acceptance criteria
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/product-owners/acceptance-criteria.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/product-owners/acceptance-criteria.md
 
 Good acceptance criteria are short, numbered statements a test can check, because Kiln checks each one before the spec is approved and expects one passing, recorded test per criterion before the work is handed off.
 
@@ -5698,7 +5698,7 @@ Words like "fast", "nice", "better", "intuitive", "properly" or "robust" usually
 
 # Approving specs and previews
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/product-owners/approving-specs-and-previews.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/product-owners/approving-specs-and-previews.md
 
 Kiln pauses twice for a product owner: once to approve the spec before code is written, and once to accept the running preview before the work goes to review and merge.
 
@@ -5759,7 +5759,7 @@ By default, the requester and everyone in the `po` role are assigned. Deciding t
 
 # Planning with the plan agent
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/product-owners/planning.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/product-owners/planning.md
 
 The plan agent turns a goal, a PRD or meeting notes into a roadmap of epics, milestones and issues, and creates those issues in Linear or Jira with acceptance criteria and a target factory.
 
@@ -5833,7 +5833,7 @@ Kiln can produce a digest per person of the decisions waiting on them, oldest fi
 
 # Working as a product owner
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/product-owners/workspace.md
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/product-owners/workspace.md
 
 As a product owner you send requests, answer the factory's questions, approve specs and accept previews, and you never need to touch code or definitions to do it.
 

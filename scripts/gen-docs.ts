@@ -13,7 +13,7 @@ import { ROUTES } from "../apps/api/src/openapi";
 import { HELP } from "../packages/cli/src/main";
 
 const SITE = fileURLToPath(new URL("../docs/site/", import.meta.url));
-const BASE_URL = "https://github.com/fishuke/klin/blob/main/docs/site";
+const BASE_URL = "https://github.com/fishuke/kiln/blob/main/docs/site";
 
 function page(title: string, description: string, section: string, body: string) {
   return `---\ntitle: ${title}\ndescription: ${description}\nowner: docs\nsection: ${section}\ngenerated: true\n---\n\n${body.trim()}\n`;

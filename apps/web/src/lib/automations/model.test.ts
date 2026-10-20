@@ -17,7 +17,7 @@ triggers:
   - provider: github
     event: pull_request_ready
     filter:
-      repos: [fishuke/klin]
+      repos: [fishuke/kiln]
       baseBranches: [main]
       skip_bots: self
       keywords: { not_in: [skip-review] }

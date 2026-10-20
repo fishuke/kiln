@@ -22,7 +22,7 @@ name: Kiln
 alias: kiln
 project: kiln
 repositories:
-  - { owner: fishuke, name: klin }
+  - { owner: fishuke, name: kiln }
 integrations: [github, linear]
 agentDefaults:
   harness: { type: claude-code, model: router:by-task }
@@ -43,7 +43,7 @@ budgets: { perWorkItemUsd: 30, monthlyUsd: 3000 }
 | `decisions/command-guard.yaml` | The command guard with the standard thresholds |
 | `automations/` | `ready` (GitHub `issue_labeled` with `kiln-ready`), `review-comments` (review submitted) and `slack` (mentions) |
 
-The `ready` automation filters on `repos: [fishuke/klin]`. GitHub events carry both `repo` and `repos`.
+The `ready` automation filters on `repos: [fishuke/kiln]`. GitHub events carry both `repo` and `repos`.
 
 ## The rules it works under
 

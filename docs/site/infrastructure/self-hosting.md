@@ -24,7 +24,7 @@ Postgres, Temporal, NATS and S3 are not required in v1; see ADR-002 and ADR-005 
 ### Try it locally
 
 ```bash
-git clone https://github.com/fishuke/klin kiln && cd kiln
+git clone https://github.com/fishuke/kiln && cd kiln
 pnpm install
 pnpm dev            # API on :4000 with demo data, web app on :3000
 ```

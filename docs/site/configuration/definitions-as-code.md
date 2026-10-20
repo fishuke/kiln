@@ -184,7 +184,7 @@ jobs:
       - name: Check out Kiln
         uses: actions/checkout@v4
         with:
-          repository: fishuke/klin
+          repository: fishuke/kiln
           path: kiln
 
       - name: Check out the definition

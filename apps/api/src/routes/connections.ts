@@ -135,7 +135,7 @@ export function registerConnectionRoutes({ app, kiln, need, who, user }: RouteCo
     const q = TeamsPackageQuery.parse(c.req.query());
     const botId = serverSecret(kiln, "TEAMS_APP_ID") ?? (installation(kiln, "microsoft-teams").appId as string | undefined);
     if (!botId) throw new HttpError(400, "connect Microsoft Teams (or set TEAMS_APP_ID) first");
-    const website = q.website ?? kiln.options.webUrl ?? kiln.options.publicUrl ?? "https://github.com/fishuke/klin";
+    const website = q.website ?? kiln.options.webUrl ?? kiln.options.publicUrl ?? "https://github.com/fishuke/kiln";
     const zip = teamsAppPackage({ botId, name: q.name ?? "Kiln", developerName: q.developer ?? "Kiln", websiteUrl: website, accentColor: q.color ? `#${q.color.replace("#", "")}` : undefined, validDomains: kiln.options.publicUrl ? [new URL(kiln.options.publicUrl).host] : [] });
     return new Response(zip, { headers: { "content-type": "application/zip", "content-disposition": 'attachment; filename="kiln-microsoft-teams-app.zip"' } });
   });

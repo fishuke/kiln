@@ -47,11 +47,11 @@ harness:
 
 | `auth` | What the run gets |
 | --- | --- |
-| `{ source: secret, secretName: <name> }` | The secret's value. For Claude Code it is set as `CLAUDE_CODE_OAUTH_TOKEN` when it is a subscription token from `claude setup-token` (it starts with `sk-ant-oat`), and as `ANTHROPIC_API_KEY` otherwise. For Codex it is `OPENAI_API_KEY`. For OpenCode the variable has the secret's name. Add `env: <VARIABLE>` to choose the variable yourself. A missing secret fails the run. |
+| `{ source: secret, secretName: <name> }` | A typed secret (such as `claude_oauth_token` or `anthropic_bedrock_access_key`) gives its provider variables. Otherwise, the secret's value. For Claude Code it is set as `CLAUDE_CODE_OAUTH_TOKEN` when it is a subscription token from `claude setup-token` (it starts with `sk-ant-oat`), and as `ANTHROPIC_API_KEY` otherwise. For Codex it is `OPENAI_API_KEY`. For OpenCode the variable has the secret's name. Add `env: <VARIABLE>` to choose the variable yourself. A missing secret fails the run. |
 | `{ source: worker }` | No credential from Kiln. The harness uses credentials already present on the worker or in the image. |
-| not set | Kiln looks for default secrets. Claude Code gets the first of `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` that is set. Codex gets the first of `OPENAI_API_KEY` and `CODEX_API_KEY`. OpenCode gets every one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY` that is set. |
+| not set | Kiln looks for default secrets, including typed team and personal secrets and the team-managed model keys. Claude Code gets the first of `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` and Bedrock credentials that is set. Codex gets the first of `OPENAI_API_KEY` and `CODEX_API_KEY`. OpenCode gets every one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY` that is set. |
 
-The agent's `secrets` list is passed the same way, one variable per secret. Credentials go only to that run's sandbox.
+The agent's `secrets` list is passed the same way, one variable per secret. Credentials go only to that run's sandbox, and personal secrets only to runs their owner triggered. Secret values are redacted from run output. See [Secrets, MCP servers and environments](../management/secrets-mcps-environments.md).
 
 ## Isolation
 

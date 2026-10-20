@@ -30,7 +30,7 @@ The body is the automation's prompt. Kiln appends it to the work item's body as 
 | `agent` | the foreman | When this is the `FOREMAN` agent, the work item takes the foreman's path. Any other agent runs directly on the work item. |
 | `displayName` | none | |
 | `triggers` | required | At least one. |
-| `harness`, `model`, `runner`, `secrets`, `mcpServers` | inherited from the agent | Override settings for work this automation starts. See [Inheritance](agents.md#inheritance). |
+| `harness`, `model`, `runner`, `secrets`, `mcpServers`, `environmentId` | inherited from the agent | Override settings for work this automation starts. See [Inheritance](agents.md#inheritance). |
 
 ## Triggers
 

@@ -304,7 +304,7 @@ export function AutomationEditor(p: EditorProps) {
                       const a = agentOptions.find((x) => x.name === v);
                       return v ? (
                         <span className="flex items-center gap-2">
-                          <AgentTypeIcon type={a?.agentType} /> {v}
+                          <AgentTypeIcon size="sm" type={a?.agentType ?? "CUSTOM"} /> {v}
                         </span>
                       ) : (
                         <span className="text-muted-foreground">Choose an agent</span>
@@ -315,7 +315,7 @@ export function AutomationEditor(p: EditorProps) {
                 <SelectContent>
                   {agentOptions.map((a) => (
                     <SelectItem key={a.name} value={a.name}>
-                      <AgentTypeIcon type={a.agentType} /> {a.name}
+                      <AgentTypeIcon size="sm" type={a.agentType ?? "CUSTOM"} /> {a.name}
                     </SelectItem>
                   ))}
                   {model.agent && !agentOptions.some((a) => a.name === model.agent) && <SelectItem value={model.agent}>{model.agent}</SelectItem>}
@@ -325,7 +325,7 @@ export function AutomationEditor(p: EditorProps) {
             </section>
             <section>
               <h2 className="mb-2 text-sm text-muted-foreground">Agent prompt</h2>
-              <MarkdownEditor label="Agent prompt" value={model.prompt} onChange={(prompt) => setModel((m) => ({ ...m, prompt }))} placeholder="Add an additional prompt alongside the default agent prompt(s)." />
+              <MarkdownEditor value={model.prompt} onChange={(prompt) => setModel((m) => ({ ...m, prompt }))} placeholder="Add an additional prompt alongside the default agent prompt(s)." />
             </section>
             <ExecutionOverrides overrides={model.overrides} onChange={(overrides) => setModel((m) => ({ ...m, overrides }))} res={p.resources} />
           </div>

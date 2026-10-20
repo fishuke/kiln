@@ -120,7 +120,7 @@ describe("Kiln MCP with scoped tokens ", () => {
     const client = await mcpClient(inProcess, token("read:*"));
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual(
-      ["complete_task", "decide_gate", "get_conversation", "get_factory_file_schema", "get_metrics", "get_task", "list_factories", "list_inbox", "message_foreman", "plan_project", "query_runs", "send_task", "steer_run", "validate_factory_files"].sort(),
+      ["complete_task", "create_team", "decide_gate", "get_conversation", "get_factory_file_schema", "get_metrics", "get_task", "join_team", "list_factories", "list_inbox", "list_teams", "message_foreman", "plan_project", "query_runs", "send_task", "steer_run", "validate_factory_files"].sort(),
     );
   });
 

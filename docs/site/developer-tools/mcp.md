@@ -33,13 +33,16 @@ List my factories, then help me send a task to the right one and follow it throu
 | Tool | What it does |
 | --- | --- |
 | `complete_task` | Hand a locally worked task back, or confirm a handed-off task landed (needs decide:merge). |
+| `create_team` | Create a team. You become its owner. Needs a user token (session or personal API key). |
 | `decide_gate` | Approve, reject or answer a gate. Needs the decide scope for the gate's kind. |
 | `get_conversation` | The task's conversation: requests, foreman messages, agent summaries and decisions. |
 | `get_factory_file_schema` | JSON Schema for a definition file kind. |
 | `get_metrics` | Factory metrics: PRs opened/merged, autonomy, cycle time, cost, cost per merged PR by agent, scores. `since` is an ISO date. |
 | `get_task` | Get a task by id or by its PR/issue URL. With start_working=true, returns the branch and clone URL to continue locally. |
+| `join_team` | Join a team by accepting an invite. Takes the invite token or the whole invite link. |
 | `list_factories` | List the factories this token can see. |
 | `list_inbox` | Open decisions waiting on people: spec approvals, questions, previews, merges. |
+| `list_teams` | List the teams you belong to, with your role in each. Pass a team's slug as X-Kiln-Team to act in it. |
 | `message_foreman` | Message the foreman of a task. Answers its open question if there is one. |
 | `plan_project` | Turn a goal or PRD into a roadmap and tracker issues for a project. |
 | `query_runs` | Raw rows (runs, scores or work_items) for your own analysis. |

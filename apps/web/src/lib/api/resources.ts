@@ -1,4 +1,5 @@
 import "server-only";
+import { HARNESSES as HARNESS_CATALOG, MODELS } from "@/lib/agent-catalog";
 import { api, safe } from "@/lib/kiln";
 
 /** Pickers shared by the automation, scorer and benchmark editors. */
@@ -15,8 +16,9 @@ export type Resources = {
   defaultModel: string;
 };
 
-export const FALLBACK_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "gpt-5.5", "gpt-5.5-mini", "gpt-5.3-codex", "gemini-3-pro"];
-export const HARNESSES = ["claude-code", "codex", "opencode"];
+/** Every model the pickers offer (shared catalog, including Claude Fable 5.1 and Fable 5). */
+export const FALLBACK_MODELS = MODELS.map((m) => m.id);
+export const HARNESSES = HARNESS_CATALOG.map((h) => h.id as string);
 
 export async function loadResources(factory: string, f?: Awaited<ReturnType<typeof api.factory>> | null): Promise<Resources> {
   const detail = f ?? (await safe(() => api.factory(factory), null));

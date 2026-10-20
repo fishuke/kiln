@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { issueToken } from "@kiln/auth";
+import { GitHubOAuthClient, issueToken, type GitHubOAuth } from "@kiln/auth";
 import { FakeProvider, JevProvider, LlmProvider, type DecisionProvider } from "@kiln/decide";
 import { loadTree } from "@kiln/definitions";
 import { DecisionJudge, fakeAgents, FakeJudge, Kiln, sampleTree, type KilnOptions } from "@kiln/engine";
@@ -8,7 +8,19 @@ import { FakeChat, FakeForge, FakePreview, FakeTracker, GitHubForge, JiraTracker
 import { DockerSandboxProvider, KubernetesSandboxProvider, LocalSandboxProvider } from "@kiln/sandbox";
 import { FileObjectStore, FileStore } from "@kiln/store";
 
-export type ServerConfig = { kiln: Kiln; devAuth: boolean; port: number; publicUrl: string; dataDir: string; mode: "local" | "connected"; adminToken?: string };
+export type ServerConfig = {
+  kiln: Kiln;
+  devAuth: boolean;
+  port: number;
+  publicUrl: string;
+  dataDir: string;
+  mode: "local" | "connected";
+  adminToken?: string;
+  /** GitHub login, when GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are set. */
+  github?: GitHubOAuth;
+  /** KILN_OPEN_SIGNUP=1: anyone may sign up and join the default team. */
+  openSignup: boolean;
+};
 
 /**
  * Builds Kiln from environment variables. Anything not configured falls back to a local
@@ -69,7 +81,11 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     adminToken = readFileSync(tokenFile, "utf8").trim();
   }
 
-  return { kiln, devAuth: env.KILN_DEV_AUTH === "1", port, publicUrl, dataDir, mode: env.GITHUB_TOKEN ? "connected" : "local", adminToken };
+  // Factories created before teams existed move into the default team.
+  kiln.teams.ensureDefaultTeam();
+  const github = env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET ? new GitHubOAuthClient({ clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET, baseUrl: env.GITHUB_OAUTH_URL, apiUrl: env.GITHUB_API_URL }) : undefined;
+
+  return { kiln, devAuth: env.KILN_DEV_AUTH === "1", port, publicUrl, dataDir, mode: env.GITHUB_TOKEN ? "connected" : "local", adminToken, github, openSignup: env.KILN_OPEN_SIGNUP === "1" };
 }
 
 function parseRoles(spec: string): Record<string, string[]> {

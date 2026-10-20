@@ -39,7 +39,7 @@ export function BenchmarkList({ factory, factoryName, suites }: { factory: strin
                 <DropdownMenuItem onClick={() => setType(null)}>All agent types</DropdownMenuItem>
                 {types.map((t) => (
                   <DropdownMenuItem key={t} onClick={() => setType(t)}>
-                    <AgentTypeIcon type={t} /> {label(t)}
+                    <AgentTypeIcon size="sm" type={t ?? "CUSTOM"} /> {label(t)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -66,7 +66,7 @@ export function BenchmarkList({ factory, factoryName, suites }: { factory: strin
                 <div className="min-w-0 flex-1">
                   <div className="text-lg font-semibold">{s.name}</div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
-                    <AgentTypeIcon type={s.agentType} className="size-3.5" /> {s.agent} • {s.tasks} task{s.tasks === 1 ? "" : "s"} • {s.configurations} configuration{s.configurations === 1 ? "" : "s"}
+                    <AgentTypeIcon size="sm" type={s.agentType ?? "CUSTOM"} className="size-3.5" /> {s.agent} • {s.tasks} task{s.tasks === 1 ? "" : "s"} • {s.configurations} configuration{s.configurations === 1 ? "" : "s"}
                     {s.description && <span className="truncate">• {s.description}</span>}
                   </div>
                 </div>

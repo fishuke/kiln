@@ -9,6 +9,14 @@ GitHub is both a source of work and the place where Kiln delivers it: issues and
 
 ## Set up
 
+### One click from the web app
+
+An admin opens **Integrations → GitHub** and clicks **Create GitHub App**, optionally naming an organization. GitHub shows the app Kiln asks for (the permissions, events and webhook below); click **Create**. GitHub gives the app's private key and webhook secret to the Kiln server, and Kiln takes you to install the app on the repositories you pick. When you come back, GitHub is connected and Kiln uses the app from then on, without a restart.
+
+This needs `KILN_PUBLIC_URL` (GitHub calls it) and `KILN_SECRET_KEY` (the key is stored encrypted with it). The key is kept apart from secrets: no agent can ask for it by name. `POST /api/v1/connections/github/app-manifest` returns the manifest and the URL to post it to; `GET /api/v1/connections/github/app` shows the app. Environment variables, below, take precedence.
+
+### By hand
+
 1. Create a GitHub App (Settings → Developer settings → GitHub Apps) with these repository permissions: Contents, Issues, Pull requests and Checks read and write, Metadata read.
 2. Set its webhook URL to `POST /webhooks/github` with a secret, and subscribe to Issues, Issue comment, Pull request, Pull request review, Pull request review comment, Check suite, Check run, Status, Workflow run and Push.
 3. Give Kiln the app's credentials and install the app on your organization:

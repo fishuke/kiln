@@ -69,6 +69,32 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/teams/{team}/model-keys` | — | Which team-managed model keys are set |
 | PUT | `/api/v1/teams/{team}/model-keys/{provider}` | — | Set the team's Anthropic, OpenAI, OpenRouter or Bedrock key |
 | DELETE | `/api/v1/teams/{team}/model-keys/{provider}` | — | Remove a team-managed model key |
+| GET | `/api/v1/teams/{team}/claude-tokens` | — | The team's Claude subscription tokens with status and 5-hour and 7-day usage |
+| POST | `/api/v1/teams/{team}/claude-tokens/{name}/check` | — | Check a Claude token with one minimal run (uses a little of its quota) |
+
+## Integrations
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| POST | `/api/v1/connections/github/app-manifest` | — | Start creating Kiln's own GitHub App from a manifest (admins); post `manifest` to `action` from the browser |
+| GET | `/api/v1/connections/github/app` | — | Kiln's GitHub App, if one was created here (no secrets) |
+| GET | `/api/v1/connections` | `admin` | Workspace connections to every provider, with status |
+| POST | `/api/v1/connections/{provider}/start` | `admin` | Start connecting: an OAuth/install URL and setup steps |
+| POST | `/api/v1/connections/{provider}/complete` | `admin` | Finish connecting (OAuth code + state, or manual fields) |
+| POST | `/api/v1/connections/{provider}/test` | `admin` | Test a connection's credentials |
+| DELETE | `/api/v1/connections/{provider}` | `admin` | Disconnect and delete stored credentials |
+| PUT | `/api/v1/connections/{provider}/directory` | `admin` | Set the names → ids used to resolve alias filters |
+| GET | `/api/v1/connections/{provider}/approval-links` | `admin` | Approval links sent to someone else |
+| POST | `/api/v1/connections/{provider}/approval-links` | `admin` | Send an approval link to an admin (expires in 7 days) |
+| POST | `/api/v1/approval-links/{id}/resend` | `admin` | Resend an approval link (new token, 7 more days) |
+| DELETE | `/api/v1/approval-links/{id}` | `admin` | Revoke an approval link |
+| POST | `/api/v1/me/linked-accounts/claim` | — | Link a chat account from a sign-in token (Slack, Teams, Discord `sign in`) |
+| POST | `/api/v1/me/linked-accounts/github/start` | — | Start linking your GitHub account (OAuth URL) |
+| GET | `/api/v1/factories/{id}/integrations` | `read` | A factory's integrations, settings and connection status |
+| PUT | `/api/v1/factories/{id}/integrations` | `definitions:write` | Opt a Kiln-managed factory into integrations (applies factory.yaml) |
+| GET | `/api/v1/notification-routes` | — | Where a factory can notify a person (?factory, ?workItem, ?subject) |
+| GET | `/api/v1/integrations/teams/app-package` | `admin` | Microsoft Teams app package (manifest and icons, zip) |
+| POST | `/api/v1/integrations/discord/commands` | `admin` | Register the /kiln Discord command (global or one server) |
 
 ## Factories
 
@@ -298,28 +324,6 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/tokens` | `admin` | List API tokens |
 | POST | `/api/v1/tokens` | `admin` | Issue a scoped token |
 | PUT | `/api/v1/secrets/{name}` | `admin` | Set a managed secret |
-
-## Integrations
-
-| Method | Path | Scope | What it does |
-| --- | --- | --- | --- |
-| GET | `/api/v1/connections` | `admin` | Workspace connections to every provider, with status |
-| POST | `/api/v1/connections/{provider}/start` | `admin` | Start connecting: an OAuth/install URL and setup steps |
-| POST | `/api/v1/connections/{provider}/complete` | `admin` | Finish connecting (OAuth code + state, or manual fields) |
-| POST | `/api/v1/connections/{provider}/test` | `admin` | Test a connection's credentials |
-| DELETE | `/api/v1/connections/{provider}` | `admin` | Disconnect and delete stored credentials |
-| PUT | `/api/v1/connections/{provider}/directory` | `admin` | Set the names → ids used to resolve alias filters |
-| GET | `/api/v1/connections/{provider}/approval-links` | `admin` | Approval links sent to someone else |
-| POST | `/api/v1/connections/{provider}/approval-links` | `admin` | Send an approval link to an admin (expires in 7 days) |
-| POST | `/api/v1/approval-links/{id}/resend` | `admin` | Resend an approval link (new token, 7 more days) |
-| DELETE | `/api/v1/approval-links/{id}` | `admin` | Revoke an approval link |
-| POST | `/api/v1/me/linked-accounts/claim` | — | Link a chat account from a sign-in token (Slack, Teams, Discord `sign in`) |
-| POST | `/api/v1/me/linked-accounts/github/start` | — | Start linking your GitHub account (OAuth URL) |
-| GET | `/api/v1/factories/{id}/integrations` | `read` | A factory's integrations, settings and connection status |
-| PUT | `/api/v1/factories/{id}/integrations` | `definitions:write` | Opt a Kiln-managed factory into integrations (applies factory.yaml) |
-| GET | `/api/v1/notification-routes` | — | Where a factory can notify a person (?factory, ?workItem, ?subject) |
-| GET | `/api/v1/integrations/teams/app-package` | `admin` | Microsoft Teams app package (manifest and icons, zip) |
-| POST | `/api/v1/integrations/discord/commands` | `admin` | Register the /kiln Discord command (global or one server) |
 
 ## Automations
 

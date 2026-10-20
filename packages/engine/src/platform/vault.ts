@@ -78,7 +78,8 @@ export class SecretVault {
     this.key = k.options.secretKey ? createHash("sha256").update(`kiln-vault:${k.options.secretKey}`).digest() : undefined;
   }
 
-  private seal(value: unknown): string {
+  /** Encrypt with KILN_SECRET_KEY (AES-256-GCM); for engine services that keep credentials outside the vault. */
+  seal(value: unknown): string {
     const plain = JSON.stringify(value);
     if (!this.key) return `plain:${plain}`;
     const iv = randomBytes(12);
@@ -87,7 +88,7 @@ export class SecretVault {
     return `v1:${iv.toString("base64url")}:${c.getAuthTag().toString("base64url")}:${ct.toString("base64url")}`;
   }
 
-  private unseal(sealed: string): unknown {
+  unseal(sealed: string): unknown {
     if (sealed.startsWith("plain:")) return JSON.parse(sealed.slice(6));
     const [, iv, tag, ct] = sealed.split(":");
     if (!this.key || !iv || !tag || !ct) throw new Error("cannot read a sealed secret without KILN_SECRET_KEY");

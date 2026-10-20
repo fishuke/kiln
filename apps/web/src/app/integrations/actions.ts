@@ -19,6 +19,16 @@ export async function startConnect(provider: string): Promise<ActionResult<Start
   }
 }
 
+/** Kiln's own GitHub App: the manifest and where the browser posts it. */
+export async function createGitHubApp(org: string): Promise<ActionResult<{ action: string; manifest: Record<string, unknown> }>> {
+  try {
+    const r = await api.githubAppManifest(org.trim() ? { org: org.trim() } : {});
+    return { ok: true, data: { action: r.action, manifest: r.manifest } };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
 export async function completeConnect(provider: string, state: string, params: Record<string, string>): Promise<ActionResult> {
   const r = await attempt(() => api.completeConnection(provider, { state, params }), "Connected");
   if (r.ok) revalidatePath("/integrations");

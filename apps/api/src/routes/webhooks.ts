@@ -76,9 +76,10 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
   // ---- GitHub ----
   app.post("/webhooks/github", async (c) => {
     const { body, payload } = await json(c);
-    const secret = serverSecret(kiln, "GITHUB_WEBHOOK_SECRET");
+    const ownApp = kiln.githubApp.credentials();
+    const secret = serverSecret(kiln, "GITHUB_WEBHOOK_SECRET") ?? ownApp?.webhookSecret;
     if (secret && !verifyGitHub(secret, body, c.req.header("x-hub-signature-256"))) throw new HttpError(401, "bad signature");
-    const slug = serverSecret(kiln, "GITHUB_APP_SLUG");
+    const slug = serverSecret(kiln, "GITHUB_APP_SLUG") ?? ownApp?.slug;
     const events = normalizeGitHubEvents(c.req.header("x-github-event") ?? "", payload, c.req.header("x-github-delivery"), slug ? { selfLogins: [`${slug}[bot]`, slug, "kiln-factory[bot]"] } : {});
     if (!events.length) return c.json({ ignored: true });
     // Definition PRs get the kiln/factory-config check; it never blocks the delivery.

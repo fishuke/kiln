@@ -55,7 +55,7 @@ export class FakeConnectionProvider implements ConnectionProvider {
     return { url: `https://${this.id}.test/oauth?state=${ctx.state}&redirect_uri=${encodeURIComponent(ctx.redirectUri)}`, steps: [`Approve Kiln in ${this.label}`] };
   }
   async complete(input: CompleteInput) {
-    if (input.code !== "ok" && !input.params?.token) throw new Error(`${this.label} rejected the code`);
+    if (input.code !== "ok" && !input.params?.token && !input.params?.installation_id) throw new Error(`${this.label} rejected the code`);
     return { account: { id: `${this.id}-acct`, name: `${this.label} workspace` }, scopes: ["read", "write"], installation: { site: `${this.id}.test` }, secrets: { token: input.params?.token ?? `tok_${this.id}` } };
   }
   async test(input: { secrets: Record<string, string> }) {

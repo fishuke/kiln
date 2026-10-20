@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { FakeProvider, type DecisionOutcome, type DecisionProvider } from "@kiln/decide";
 import { InMemoryEventBus } from "@kiln/events";
 import { adapterFor, type HarnessAdapter } from "@kiln/harness";
-import type { Chat, ConnectionProvider, ConnectionProviderId, Forge, Mailer, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
+import type { Chat, ConnectionProvider, ConnectionProviderId, Forge, GitHubAppCredentials, GitHubManifestClient, Mailer, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
 import { ConnectionService, IdentityService } from "./connections";
 import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
 import { WebhookSourceService } from "./webhook-sources";
@@ -16,6 +16,7 @@ import { AutomationService } from "./automations";
 import { BenchmarkAdmin } from "./benchmark-admin";
 import { BenchmarkService } from "./benchmarks";
 import { DedupeService } from "./dedupe";
+import { GitHubAppService } from "./github-app";
 import { DefinitionChangeService } from "./definition-changes";
 import { DefinitionService } from "./definitions";
 import { DefinitionEditor } from "./editing";
@@ -65,6 +66,10 @@ export type KilnOptions = {
   defaultBackend?: "local" | "docker" | "kubernetes";
   /** Image for agents without a runner (KILN_RUNNER_IMAGE); it should carry the harness CLIs. */
   defaultImage?: string;
+  /** GitHub App manifest conversion (default: api.github.com). */
+  githubManifests?: GitHubManifestClient;
+  /** Called when an admin creates Kiln's GitHub App, so the server can switch its forge to it. */
+  onGitHubApp?: (app: GitHubAppCredentials) => void;
   /** Only this email may sign up as a fresh server's first owner (KILN_OWNER_EMAIL). */
   ownerEmail?: string;
   scoreAllRuns?: boolean;
@@ -150,6 +155,7 @@ export class Kiln {
   readonly accounts: AccountService;
   readonly vault: SecretVault;
   readonly credentialPool: CredentialPool;
+  readonly githubApp: GitHubAppService;
   readonly mcp: McpRegistry;
   readonly environments: EnvironmentService;
   readonly usage: UsageService;
@@ -203,6 +209,7 @@ export class Kiln {
     this.accounts = new AccountService(this);
     this.vault = new SecretVault(this);
     this.credentialPool = new CredentialPool(this);
+    this.githubApp = new GitHubAppService(this);
     this.mcp = new McpRegistry(this);
     this.environments = new EnvironmentService(this);
     this.usage = new UsageService(this);

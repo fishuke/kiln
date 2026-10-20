@@ -3,6 +3,7 @@ import { MODULES } from "./routes";
 import * as I from "./routes/integration-schemas";
 import * as PS from "./routes/platform-schemas";
 import * as S from "./schemas";
+import * as GA from "./routes/github-app";
 
 export type Route = { method: "get" | "post" | "put" | "patch" | "delete"; path: string; summary: string; scope?: string; body?: z.ZodType; tag: string };
 
@@ -48,6 +49,8 @@ const CORE: Route[] = [
   { method: "get", path: "/api/v1/teams/{team}/model-keys", summary: "Which team-managed model keys are set", tag: "Teams" },
   { method: "put", path: "/api/v1/teams/{team}/model-keys/{provider}", summary: "Set the team's Anthropic, OpenAI, OpenRouter or Bedrock key", body: PS.ModelKey, tag: "Teams" },
   { method: "delete", path: "/api/v1/teams/{team}/model-keys/{provider}", summary: "Remove a team-managed model key", tag: "Teams" },
+  { method: "post", path: "/api/v1/connections/github/app-manifest", summary: "Start creating Kiln's own GitHub App from a manifest (admins); post `manifest` to `action` from the browser", body: GA.GitHubAppStart, tag: "Integrations" },
+  { method: "get", path: "/api/v1/connections/github/app", summary: "Kiln's GitHub App, if one was created here (no secrets)", tag: "Integrations" },
   { method: "get", path: "/api/v1/teams/{team}/claude-tokens", summary: "The team's Claude subscription tokens with status and 5-hour and 7-day usage", tag: "Teams" },
   { method: "post", path: "/api/v1/teams/{team}/claude-tokens/{name}/check", summary: "Check a Claude token with one minimal run (uses a little of its quota)", tag: "Teams" },
   { method: "get", path: "/api/v1/factories/{id}/members", summary: "Everyone with a role on the factory and where the role comes from", scope: "read", tag: "Factories" },

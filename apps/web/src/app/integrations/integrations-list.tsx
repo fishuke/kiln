@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { webhookUrl, type IntegrationSpec, type IntegrationState } from "@/lib/integration-catalog";
-import { completeConnect, disconnectProvider, startConnect, testConnect } from "./actions";
+import { completeConnect, createGitHubApp, disconnectProvider, startConnect, testConnect } from "./actions";
 
 export type Row = {
   spec: IntegrationSpec;
@@ -210,6 +210,8 @@ function ConfigureSheet({ row, publicUrl, canAdmin, connectionsApi, onDone }: { 
           )}
         </section>
 
+        {canAdmin && spec.connection === "github" && !connected && connectionsApi && <CreateGitHubApp />}
+
         {start && (
           <section className="space-y-3">
             <h3 className="font-semibold">Connect {spec.name}</h3>
@@ -284,5 +286,45 @@ function ConfigureSheet({ row, publicUrl, canAdmin, connectionsApi, onDone }: { 
         </section>
       </div>
     </>
+  );
+}
+
+/**
+ * One click to Kiln's own GitHub App: GitHub creates it from Kiln's manifest (permissions, events,
+ * webhook), hands its key to the Kiln server, then asks where to install it.
+ */
+function CreateGitHubApp() {
+  const [org, setOrg] = useState("");
+  const [pending, run] = useAction();
+  const create = () =>
+    void run(() => createGitHubApp(org), {
+      onSuccess: (r) => {
+        if (!r) return;
+        const form = document.createElement("form");
+        form.method = "post";
+        form.action = r.action;
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "manifest";
+        input.value = JSON.stringify(r.manifest);
+        form.append(input);
+        document.body.append(form);
+        form.submit();
+      },
+    });
+  return (
+    <section className="space-y-3 rounded-lg border p-4">
+      <h3 className="font-semibold">Create a GitHub App for Kiln</h3>
+      <p className="text-muted-foreground">GitHub creates the app with the permissions, events and webhook Kiln needs and gives its key to this server. You then pick the repositories to install it on. Nothing to copy.</p>
+      <label className="grid gap-1.5">
+        <span className="font-medium">
+          Organization <span className="font-normal text-muted-foreground">(optional; empty creates it on your account)</span>
+        </span>
+        <Input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="acme" autoComplete="off" className="h-9 font-mono" />
+      </label>
+      <Button disabled={pending} onClick={create}>
+        {pending ? "Opening GitHub…" : "Create GitHub App"}
+      </Button>
+    </section>
   );
 }

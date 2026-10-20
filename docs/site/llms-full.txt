@@ -1592,6 +1592,32 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/teams/{team}/model-keys` | — | Which team-managed model keys are set |
 | PUT | `/api/v1/teams/{team}/model-keys/{provider}` | — | Set the team's Anthropic, OpenAI, OpenRouter or Bedrock key |
 | DELETE | `/api/v1/teams/{team}/model-keys/{provider}` | — | Remove a team-managed model key |
+| GET | `/api/v1/teams/{team}/claude-tokens` | — | The team's Claude subscription tokens with status and 5-hour and 7-day usage |
+| POST | `/api/v1/teams/{team}/claude-tokens/{name}/check` | — | Check a Claude token with one minimal run (uses a little of its quota) |
+
+## Integrations
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| POST | `/api/v1/connections/github/app-manifest` | — | Start creating Kiln's own GitHub App from a manifest (admins); post `manifest` to `action` from the browser |
+| GET | `/api/v1/connections/github/app` | — | Kiln's GitHub App, if one was created here (no secrets) |
+| GET | `/api/v1/connections` | `admin` | Workspace connections to every provider, with status |
+| POST | `/api/v1/connections/{provider}/start` | `admin` | Start connecting: an OAuth/install URL and setup steps |
+| POST | `/api/v1/connections/{provider}/complete` | `admin` | Finish connecting (OAuth code + state, or manual fields) |
+| POST | `/api/v1/connections/{provider}/test` | `admin` | Test a connection's credentials |
+| DELETE | `/api/v1/connections/{provider}` | `admin` | Disconnect and delete stored credentials |
+| PUT | `/api/v1/connections/{provider}/directory` | `admin` | Set the names → ids used to resolve alias filters |
+| GET | `/api/v1/connections/{provider}/approval-links` | `admin` | Approval links sent to someone else |
+| POST | `/api/v1/connections/{provider}/approval-links` | `admin` | Send an approval link to an admin (expires in 7 days) |
+| POST | `/api/v1/approval-links/{id}/resend` | `admin` | Resend an approval link (new token, 7 more days) |
+| DELETE | `/api/v1/approval-links/{id}` | `admin` | Revoke an approval link |
+| POST | `/api/v1/me/linked-accounts/claim` | — | Link a chat account from a sign-in token (Slack, Teams, Discord `sign in`) |
+| POST | `/api/v1/me/linked-accounts/github/start` | — | Start linking your GitHub account (OAuth URL) |
+| GET | `/api/v1/factories/{id}/integrations` | `read` | A factory's integrations, settings and connection status |
+| PUT | `/api/v1/factories/{id}/integrations` | `definitions:write` | Opt a Kiln-managed factory into integrations (applies factory.yaml) |
+| GET | `/api/v1/notification-routes` | — | Where a factory can notify a person (?factory, ?workItem, ?subject) |
+| GET | `/api/v1/integrations/teams/app-package` | `admin` | Microsoft Teams app package (manifest and icons, zip) |
+| POST | `/api/v1/integrations/discord/commands` | `admin` | Register the /kiln Discord command (global or one server) |
 
 ## Factories
 
@@ -1821,28 +1847,6 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/tokens` | `admin` | List API tokens |
 | POST | `/api/v1/tokens` | `admin` | Issue a scoped token |
 | PUT | `/api/v1/secrets/{name}` | `admin` | Set a managed secret |
-
-## Integrations
-
-| Method | Path | Scope | What it does |
-| --- | --- | --- | --- |
-| GET | `/api/v1/connections` | `admin` | Workspace connections to every provider, with status |
-| POST | `/api/v1/connections/{provider}/start` | `admin` | Start connecting: an OAuth/install URL and setup steps |
-| POST | `/api/v1/connections/{provider}/complete` | `admin` | Finish connecting (OAuth code + state, or manual fields) |
-| POST | `/api/v1/connections/{provider}/test` | `admin` | Test a connection's credentials |
-| DELETE | `/api/v1/connections/{provider}` | `admin` | Disconnect and delete stored credentials |
-| PUT | `/api/v1/connections/{provider}/directory` | `admin` | Set the names → ids used to resolve alias filters |
-| GET | `/api/v1/connections/{provider}/approval-links` | `admin` | Approval links sent to someone else |
-| POST | `/api/v1/connections/{provider}/approval-links` | `admin` | Send an approval link to an admin (expires in 7 days) |
-| POST | `/api/v1/approval-links/{id}/resend` | `admin` | Resend an approval link (new token, 7 more days) |
-| DELETE | `/api/v1/approval-links/{id}` | `admin` | Revoke an approval link |
-| POST | `/api/v1/me/linked-accounts/claim` | — | Link a chat account from a sign-in token (Slack, Teams, Discord `sign in`) |
-| POST | `/api/v1/me/linked-accounts/github/start` | — | Start linking your GitHub account (OAuth URL) |
-| GET | `/api/v1/factories/{id}/integrations` | `read` | A factory's integrations, settings and connection status |
-| PUT | `/api/v1/factories/{id}/integrations` | `definitions:write` | Opt a Kiln-managed factory into integrations (applies factory.yaml) |
-| GET | `/api/v1/notification-routes` | — | Where a factory can notify a person (?factory, ?workItem, ?subject) |
-| GET | `/api/v1/integrations/teams/app-package` | `admin` | Microsoft Teams app package (manifest and icons, zip) |
-| POST | `/api/v1/integrations/discord/commands` | `admin` | Register the /kiln Discord command (global or one server) |
 
 ## Automations
 
@@ -2751,8 +2755,8 @@ The harness program must be installed in the runner's image. Pin its version in 
 | Model flag | `--model` | `-m` | `-m` |
 | Instructions | Appended to the system prompt | Sent before the prompt | Written to `AGENTS.md` |
 | Skills folder | `.claude/skills/` | `.agents/skills/` | `.opencode/skills/` |
-| Kiln MCP | Written to `.mcp.json` | Not configured | Not configured |
-| Command guard | `PreToolUse` hook on Bash in `.claude/settings.json` | Not installed | Not installed |
+| Kiln MCP | `.kiln/mcp.json`, passed with `--mcp-config` (never committed: it holds the run token) | Not configured | Not configured |
+| Command guard | `PreToolUse` hook on Bash in `.kiln/claude-settings.json`, passed with `--settings` | Not installed | Not installed |
 | Cost | Reported by Claude Code | Estimated from token counts | Reported per step |
 
 ## Credentials
@@ -3044,13 +3048,13 @@ Kiln runs on your own infrastructure: a single host with Docker for small instal
 
 ## Requirements
 
-| Component | Purpose |
-| --- | --- |
-| Node 22 and pnpm 10 | Kiln's services are TypeScript on Node. |
-| A data directory (a volume) | Runtime state (work items, runs, gates, scores, tokens, audit log) in `kiln.json`, and objects (videos, reports, snapshots) under `objects/`. Back it up by copying it. |
-| Docker, or Kubernetes with a `gvisor` RuntimeClass | Sandboxes for agent runs. Without either, runs use host directories (development only). |
-| An egress proxy | Enforces each runner's `egress` host list. Included in `docker-compose.yml` and the Helm chart. See [Sandboxes](sandboxes.md#egress). |
-| Optional: an OpenAI-compatible gateway (LiteLLM) | The LLM fallback for typed decisions and judges. |
+| Component                                          | Purpose                                                                                                                                                                 |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node 22 and pnpm 10                                | Kiln's services are TypeScript on Node.                                                                                                                                 |
+| A data directory (a volume)                        | Runtime state (work items, runs, gates, scores, tokens, audit log) in `kiln.json`, and objects (videos, reports, snapshots) under `objects/`. Back it up by copying it. |
+| Docker, or Kubernetes with a `gvisor` RuntimeClass | Sandboxes for agent runs. Without either, runs use host directories (development only).                                                                                 |
+| An egress proxy                                    | Enforces each runner's `egress` host list. Included in `docker-compose.yml` and the Helm chart. See [Sandboxes](sandboxes.md#egress).                                   |
+| Optional: an OpenAI-compatible gateway (LiteLLM)   | The LLM fallback for typed decisions and judges.                                                                                                                        |
 
 Postgres, Temporal, NATS and S3 are not required in v1; see ADR-002 and ADR-005 for why and for the path to them.
 
@@ -3079,6 +3083,34 @@ pnpm health
 The API prints a bootstrap admin token on first start (also in the data volume as `admin-token`). Put it in `.env` as `KILN_TOKEN` so the web app can call the API, then restart `web`.
 
 Then create your account: the first signup (`POST /api/v1/auth/signup`) becomes the owner of the default team, and existing factories move into that team. Invite everyone else. See [Teams and users](../management/teams-and-users.md).
+
+### A server: Coolify or any Docker host
+
+`docker-compose.prod.yml` runs Kiln on a public URL with sign-in: the API, the web app, the sandbox image (built on the server), the egress proxy, and an optional Caddy for HTTPS. Demo data and dev auth are off, agents are real, and runs use Docker sandboxes through the host's Docker socket. That socket is root on the host, so give Kiln a server of its own.
+
+Set these variables:
+
+| Variable                                      | Value                                                                                                            |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `KILN_WEB_URL`                                | The web app's URL, for example `https://kiln.example.com`.                                                       |
+| `KILN_PUBLIC_URL`                             | The API's URL, for example `https://api.kiln.example.com`. Webhooks from GitHub, Slack and the rest arrive here. |
+| `KILN_OWNER_EMAIL`                            | Your email. Only this address can create the first account, which owns the server.                               |
+| `KILN_SECRET_KEY`                             | A long random value (`openssl rand -hex 32`). It signs run tokens; keep it stable.                               |
+| `CLAUDE_CODE_OAUTH_TOKEN`                     | From `claude setup-token`, or set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`.                 |
+| `GITHUB_TOKEN` and the other integration keys | Optional; see [Connect your systems](#connect-your-systems).                                                     |
+
+**Coolify.** Add a resource of type Docker Compose from this repository, with `docker-compose.prod.yml` as the compose file. Give the `web` service your web domain (port 3000) and the `api` service the API domain (port 4000), fill in the variables Coolify lists, and deploy. Coolify's proxy serves HTTPS, so leave the `proxy` profile off.
+
+**Any other Docker host.** Point both domains at the server, then:
+
+```bash
+cp .env.example .env   # set the variables above
+docker compose -f docker-compose.prod.yml --profile proxy up -d --build
+```
+
+Caddy gets certificates for both domains. Open the web URL and sign up with `KILN_OWNER_EMAIL`, then invite everyone else.
+
+Sandboxes join the internal network `kiln-egress` and reach the internet only through the proxy. If your platform renames networks, set `KILN_EGRESS_NETWORK` to the name it uses. `KILN_RUNNER_IMAGE` picks another sandbox image; it needs git and the harness CLIs, like `runners/images/node`.
 
 ### Kubernetes with Helm
 
@@ -3116,19 +3148,19 @@ Kiln needs two URLs:
 
 Point each provider's webhooks at Kiln and set the matching secret. For the provider endpoints, Kiln reads the server environment variable with the secret's name (for example `GITHUB_WEBHOOK_SECRET`) first, then its secrets store, then `KILN_SECRET_<NAME>`, then the provider's [connection](../integrations/connections.md). A custom webhook's secret comes from the secrets store or `KILN_SECRET_<secretName>`.
 
-| Provider | Endpoint | Secret |
-| --- | --- | --- |
-| GitHub | `POST /webhooks/github` | `GITHUB_WEBHOOK_SECRET` |
-| GitLab | `POST /webhooks/gitlab` | `GITLAB_WEBHOOK_TOKEN` (`X-Gitlab-Token`) |
-| Azure DevOps | `POST /webhooks/azure-devops` | `AZURE_DEVOPS_WEBHOOK_PASSWORD` (basic auth) |
-| Bitbucket | `POST /webhooks/bitbucket` | `BITBUCKET_WEBHOOK_SECRET` |
-| Slack | `POST /webhooks/slack` | `SLACK_SIGNING_SECRET` |
-| Microsoft Teams | `POST /webhooks/teams` | Bot Framework token for `TEAMS_APP_ID` |
-| Discord | `POST /webhooks/discord` | Ed25519 with `DISCORD_PUBLIC_KEY` |
-| Discord bridge | `POST /webhooks/discord/events` | `DISCORD_EVENTS_TOKEN` (bearer) |
-| Linear | `POST /webhooks/linear` | `LINEAR_WEBHOOK_SECRET` |
-| Jira | `POST /webhooks/jira?token=<token>` | `JIRA_WEBHOOK_TOKEN` |
-| Custom | `POST /webhooks/w/<uid>` (or `/webhooks/<factory>/<name>`) | The webhook's secret |
+| Provider        | Endpoint                                                   | Secret                                       |
+| --------------- | ---------------------------------------------------------- | -------------------------------------------- |
+| GitHub          | `POST /webhooks/github`                                    | `GITHUB_WEBHOOK_SECRET`                      |
+| GitLab          | `POST /webhooks/gitlab`                                    | `GITLAB_WEBHOOK_TOKEN` (`X-Gitlab-Token`)    |
+| Azure DevOps    | `POST /webhooks/azure-devops`                              | `AZURE_DEVOPS_WEBHOOK_PASSWORD` (basic auth) |
+| Bitbucket       | `POST /webhooks/bitbucket`                                 | `BITBUCKET_WEBHOOK_SECRET`                   |
+| Slack           | `POST /webhooks/slack`                                     | `SLACK_SIGNING_SECRET`                       |
+| Microsoft Teams | `POST /webhooks/teams`                                     | Bot Framework token for `TEAMS_APP_ID`       |
+| Discord         | `POST /webhooks/discord`                                   | Ed25519 with `DISCORD_PUBLIC_KEY`            |
+| Discord bridge  | `POST /webhooks/discord/events`                            | `DISCORD_EVENTS_TOKEN` (bearer)              |
+| Linear          | `POST /webhooks/linear`                                    | `LINEAR_WEBHOOK_SECRET`                      |
+| Jira            | `POST /webhooks/jira?token=<token>`                        | `JIRA_WEBHOOK_TOKEN`                         |
+| Custom          | `POST /webhooks/w/<uid>` (or `/webhooks/<factory>/<name>`) | The webhook's secret                         |
 
 GitLab, Azure DevOps, Bitbucket, Teams and Discord refuse every call until their secret is set. For GitHub, Slack, Linear and Jira, Kiln accepts webhooks without checking signatures when the secret is not set. Set every secret before you expose Kiln to the internet.
 
@@ -3142,14 +3174,14 @@ Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscrip
 
 ### Accounts and login
 
-| Variable | What it does |
-| --- | --- |
-| `KILN_OPEN_SIGNUP=1` | Anyone may sign up and join the default team. Otherwise, after the first owner, signup needs an invite. |
+| Variable                                   | What it does                                                                                                                                                               |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KILN_OPEN_SIGNUP=1`                       | Anyone may sign up and join the default team. Otherwise, after the first owner, signup needs an invite.                                                                    |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Turn on GitHub login. The OAuth app's callback URL is `<KILN_PUBLIC_URL>/api/v1/auth/github/callback`. `GITHUB_OAUTH_URL` and `GITHUB_API_URL` point at GitHub Enterprise. |
-| `KILN_SECRET_KEY` | Seals team and personal secrets with AES-256-GCM, and signs run tokens. Set it, and keep it stable across restarts. |
-| `KILN_ADMIN_EMAILS` | Comma-separated emails of server admins. They see every team's audit log, tokens and server secrets. Team owners and admins see only their own team. |
-| `KILN_SMTP_URL`, `KILN_MAIL_FROM` | Email notifications, for example `smtp://user:pass@mail.acme.test:587?from=kiln@acme.test`. |
-| `KILN_DEV_AUTH=1` | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team. |
+| `KILN_SECRET_KEY`                          | Seals team and personal secrets with AES-256-GCM, and signs run tokens. Set it, and keep it stable across restarts.                                                        |
+| `KILN_ADMIN_EMAILS`                        | Comma-separated emails of server admins. They see every team's audit log, tokens and server secrets. Team owners and admins see only their own team.                       |
+| `KILN_SMTP_URL`, `KILN_MAIL_FROM`          | Email notifications, for example `smtp://user:pass@mail.acme.test:587?from=kiln@acme.test`.                                                                                |
+| `KILN_DEV_AUTH=1`                          | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team.                                                                       |
 
 ### Identities
 
@@ -3159,11 +3191,11 @@ Gate assignees are people, such as `po@acme.test`. To let replies in Slack or on
 
 Gates name approvers by role, such as `role:po` or `role:code-owners`. Kiln's server configuration maps each role to people. Kiln uses these roles:
 
-| Role | Used by |
-| --- | --- |
-| `po` | Built-in spec and preview gates |
+| Role          | Used by                                        |
+| ------------- | ---------------------------------------------- |
+| `po`          | Built-in spec and preview gates                |
 | `code-owners` | The built-in merge gate, and high-risk reviews |
-| `admins` | Command approvals for runs without a requester |
+| `admins`      | Command approvals for runs without a requester |
 
 ### Sandboxes
 
@@ -3197,16 +3229,16 @@ Kiln runs a timer pass that:
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| A definition push did not apply | The factory's last error shows the first validation error. Run `kiln validate`. |
-| An automation never fires | The trigger's `provider` and `event` match the event name exactly, and every filter key matches (GitHub events carry both `repo` and `repos`). |
-| A work item is `blocked` | Its blocked reason says why: an expired gate, a stage that failed too often, the budget, or an error. Answer the open question to resume. |
-| A run fails at install | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed. |
-| Verify waits forever | CI checks on the branch are still pending. Kiln checks again on each timer pass. |
-| Every command is blocked | The Claude Code hook cannot reach the public URL, so it blocks by design. |
-| Webhooks return 401 | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set. |
-| An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory). |
+| Symptom                                                 | Check                                                                                                                                          |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| A definition push did not apply                         | The factory's last error shows the first validation error. Run `kiln validate`.                                                                |
+| An automation never fires                               | The trigger's `provider` and `event` match the event name exactly, and every filter key matches (GitHub events carry both `repo` and `repos`). |
+| A work item is `blocked`                                | Its blocked reason says why: an expired gate, a stage that failed too often, the budget, or an error. Answer the open question to resume.      |
+| A run fails at install                                  | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed.                   |
+| Verify waits forever                                    | CI checks on the branch are still pending. Kiln checks again on each timer pass.                                                               |
+| Every command is blocked                                | The Claude Code hook cannot reach the public URL, so it blocks by design.                                                                      |
+| Webhooks return 401                                     | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set.                          |
+| An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory).      |
 
 ## Workers and monitoring
 
@@ -3655,6 +3687,14 @@ Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/github.
 GitHub is both a source of work and the place where Kiln delivers it: issues and comments start work items, Kiln opens pull requests on `kiln/*` branches, and a person's merge completes the work.
 
 ## Set up
+
+### One click from the web app
+
+An admin opens **Integrations → GitHub** and clicks **Create GitHub App**, optionally naming an organization. GitHub shows the app Kiln asks for (the permissions, events and webhook below); click **Create**. GitHub gives the app's private key and webhook secret to the Kiln server, and Kiln takes you to install the app on the repositories you pick. When you come back, GitHub is connected and Kiln uses the app from then on, without a restart.
+
+This needs `KILN_PUBLIC_URL` (GitHub calls it) and `KILN_SECRET_KEY` (the key is stored encrypted with it). The key is kept apart from secrets: no agent can ask for it by name. `POST /api/v1/connections/github/app-manifest` returns the manifest and the URL to post it to; `GET /api/v1/connections/github/app` shows the app. Environment variables, below, take precedence.
+
+### By hand
 
 1. Create a GitHub App (Settings → Developer settings → GitHub Apps) with these repository permissions: Contents, Issues, Pull requests and Checks read and write, Metadata read.
 2. Set its webhook URL to `POST /webhooks/github` with a secret, and subscribe to Issues, Issue comment, Pull request, Pull request review, Pull request review comment, Check suite, Check run, Status, Workflow run and Push.

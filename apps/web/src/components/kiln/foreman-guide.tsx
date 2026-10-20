@@ -2,7 +2,7 @@
 
 import { AtSign, Copy, MessageCircle, Tag, User } from "lucide-react";
 import { toast } from "sonner";
-import { Fragment } from "react";
+import { cn } from "@/lib/utils";
 
 type Line = { icon: React.ComponentType<{ className?: string }>; before: string; handle: string; after: string; copyLabel: string };
 type Section = { app: string; lines: Line[] };
@@ -57,13 +57,12 @@ function copy(text: string) {
   );
 }
 
-export function ForemanGuide({ alias, copyable = false }: { alias: string; copyable?: boolean }) {
+export function ForemanGuide({ alias, copyable = false, columns = 1 }: { alias: string; copyable?: boolean; columns?: 1 | 2 }) {
   const sections = foremanSections(alias);
   return (
-    <div className="flex flex-col">
+    <div className={cn(columns === 2 ? "grid grid-cols-2 gap-x-6" : "flex flex-col")}>
       {sections.map((s, i) => (
-        <Fragment key={s.app}>
-          {i > 0 && <div className="my-3 h-px bg-border" />}
+        <div key={s.app} className={cn(i >= columns && "mt-3 border-t pt-3")}>
           <div className="mb-1.5 text-sm font-medium">{s.app}</div>
           <ul className="flex flex-col gap-1.5">
             {s.lines.map((l) => (
@@ -90,7 +89,7 @@ export function ForemanGuide({ alias, copyable = false }: { alias: string; copya
               </li>
             ))}
           </ul>
-        </Fragment>
+        </div>
       ))}
     </div>
   );

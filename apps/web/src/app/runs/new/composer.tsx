@@ -84,8 +84,8 @@ export function NewRunComposer({ factories, initialFactory }: { factories: Picke
           How to chat with the factory foreman in your connected apps
           <Info className="size-4" />
         </PopoverTrigger>
-        <PopoverContent side="top" align="start" className="max-h-[70vh] w-80 overflow-y-auto bg-muted p-4 dark:bg-popover">
-          <ForemanGuide alias={current?.alias ?? current?.id ?? "factory"} />
+        <PopoverContent side="top" align="start" className="w-[600px] max-w-[calc(100vw-2rem)] bg-muted p-4 dark:bg-popover">
+          <ForemanGuide alias={current?.alias ?? current?.id ?? "factory"} columns={2} />
         </PopoverContent>
       </Popover>
     </div>

@@ -301,7 +301,7 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
     try {
       const base = (kiln.options.publicUrl ?? new URL(c.req.url).origin).replace(/\/$/, "");
       const user = await githubExchangeCode({ clientId, clientSecret, code: c.req.query("code") ?? "", redirectUri: `${base}/oauth/github-user/callback` });
-      kiln.identities.completeOAuthLink(c.req.query("state") ?? "", "github", user.login, user.login);
+      kiln.identities.completeOAuthLink(c.req.query("state") ?? "", "github", user.login, user.login, user.accessToken);
       return c.redirect(kiln.link(`/integrations?linked=github`));
     } catch (err) {
       return c.redirect(kiln.link(`/integrations?error=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`));

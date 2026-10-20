@@ -252,6 +252,8 @@ export class ConnectionService {
  * signed-in user. Lookups go through the users service.
  */
 export type IdentityLink = { id: string; provider: string; externalId: string; subject: string; userId: string; displayName?: string; linkedAt: string };
+type PersonToken = { id: string; token: string; login: string; updatedAt: string };
+
 type LinkToken = { id: string; provider: string; externalId: string; displayName?: string; userId?: string; createdAt: string };
 
 const asLinkProvider = (provider: string): LinkProvider => {
@@ -321,10 +323,25 @@ export class IdentityService {
     return t.id;
   }
 
-  completeOAuthLink(state: string, provider: string, externalId: string, handle?: string): User {
+  /** `token` is the person's own OAuth token; Kiln reviews and merges with it only when they ask (ADR-010). */
+  completeOAuthLink(state: string, provider: string, externalId: string, handle?: string, token?: string): User {
     const t = this.take(state);
     if (!t.userId || t.provider !== provider) throw new ConnectionError("this link request is not for this provider; start again");
-    return this.k.users.link(t.userId, asLinkProvider(provider), externalId, handle);
+    const user = this.k.users.link(t.userId, asLinkProvider(provider), externalId, handle);
+    if (token) this.k.store.put<PersonToken>(C.personTokens, { id: `${t.userId}:${provider}`, token, login: handle ?? externalId, updatedAt: this.k.clock.now().toISOString() });
+    return user;
+  }
+
+  /** The person's own token for a provider, with the login it belongs to. */
+  personToken(userId: string, provider: string): { token: string; login: string } | undefined {
+    const t = this.k.store.get<PersonToken>(C.personTokens, `${userId}:${provider}`);
+    return t ? { token: t.token, login: t.login } : undefined;
+  }
+
+  /** Unlink one of a person's accounts and forget the token that came with it. */
+  unlinkUser(userId: string, provider: string): User {
+    this.k.store.delete(C.personTokens, `${userId}:${provider}`);
+    return this.k.users.unlink(userId, asLinkProvider(provider));
   }
 
   /** The provider id linked to a person (for DMs). */

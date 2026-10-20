@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -82,6 +82,7 @@ export function TokenPicker({
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const listId = useId();
   const opts = useMemo(() => suggestions.map((s) => (typeof s === "string" ? { value: s, label: s } : { value: s.value, label: s.label ?? s.value })), [suggestions]);
   const labelOf = (v: string) => opts.find((o) => o.value === v)?.label ?? v;
   const add = (raw: string) => {
@@ -136,13 +137,13 @@ export function TokenPicker({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         nativeButton={false}
-        render={<div role="combobox" tabIndex={0} aria-expanded={open} aria-label={label} />}
+        render={<div role="combobox" tabIndex={0} aria-controls={listId} aria-expanded={open} aria-label={label} />}
         className={cn("flex min-h-9 w-full cursor-pointer flex-wrap items-center gap-1.5 rounded-md bg-muted py-1 pr-2 pl-2.5 text-left text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50", className)}
       >
         {values.length ? tokens : <span className="text-muted-foreground">{placeholder}</span>}
         <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground" />
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-(--anchor-width) min-w-64 gap-1 p-1">
+      <PopoverContent id={listId} align="start" className="w-(--anchor-width) min-w-64 gap-1 p-1">
         <input
           autoFocus
           aria-label={`Search ${label}`}

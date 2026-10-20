@@ -19,7 +19,7 @@ The factory posts its progress and questions back where the request started: the
 
 ## What makes Kiln different
 
-Kiln is modeled on Warp Factories and keeps its core ideas: the foreman, work items that keep one identity from intake to hand-off, definitions as code in a tree rooted at `factory.yaml`, scorers and self-improvement. It adds:
+A Kiln factory is built on a few core ideas: a foreman that routes work, work items that keep one identity from intake to hand-off, definitions as code in a tree rooted at `factory.yaml`, and scorers that feed self-improvement. On top of these, Kiln offers:
 
 - **Self-hosting.** Agents run in disposable sandboxes on your own Docker host or Kubernetes cluster.
 - **Optional pipeline graphs.** A `pipelines/<name>.yaml` file fixes the stages when a team wants a deterministic path. Without one, the foreman chooses the path.
@@ -46,6 +46,6 @@ Kiln is modeled on Warp Factories and keeps its core ideas: the foreman, work it
 
 - [How Kiln works](how-kiln-works.md)
 - [Concepts](concepts.md)
-- [Migrating from Warp Factories](migrating-from-warp.md)
+- [Importing v1alpha1 definitions](importing-definitions.md)
 - [Definitions as code](../configuration/definitions-as-code.md)
 - [Self-hosting](../infrastructure/self-hosting.md)

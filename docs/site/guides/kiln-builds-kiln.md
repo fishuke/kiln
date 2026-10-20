@@ -7,9 +7,9 @@ section: Guides
 
 Kiln's own repository is worked on by a Kiln factory, `kiln-self`: issues labeled `kiln-ready` go to its foreman, the factory opens pull requests, and people review and merge them.
 
-## How it started
+## How work arrives
 
-Milestones 0 to 2 of the build plan in `docs/plan/PLAN.md` are built by hand with Claude Code, one task per session and per branch, with tests first. Before Kiln could run factories, the team used a Warp Factories definition in the repository's `factory/` folder (schema `v1alpha1`). From milestone 3, the `kiln-self` factory takes over: new work is filed as GitHub issues labeled `kiln-ready`, and the factory takes a growing share of it.
+Work for Kiln is filed as GitHub issues in the Kiln repository. Labeling an issue `kiln-ready` sends it to the `kiln-self` factory, which triages it, writes a spec when needed, builds it and opens a pull request. People still review and merge every pull request.
 
 ## The definition
 
@@ -43,7 +43,7 @@ budgets: { perWorkItemUsd: 30, monthlyUsd: 3000 }
 | `decisions/command-guard.yaml` | The command guard with the standard thresholds |
 | `automations/` | `ready` (GitHub `issue_labeled` with `kiln-ready`), `review-comments` (review submitted) and `slack` (mentions) |
 
-The `ready` automation filters on `repos: [fishuke/klin]`, the same Warp-style key Kiln's GitHub events carry.
+The `ready` automation filters on `repos: [fishuke/klin]`. GitHub events carry both `repo` and `repos`.
 
 ## The rules it works under
 

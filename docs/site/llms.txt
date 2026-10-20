@@ -1,12 +1,12 @@
 # Kiln
 
-> Self-hostable, open source software factories. Agents (Claude Code, Codex, OpenCode) turn issues and requests into reviewed pull requests; people approve specs, previews and merges. Factories are defined as code in a Warp-compatible layout.
+> Self-hostable, open source software factories. Agents (Claude Code, Codex, OpenCode) turn issues and requests into reviewed pull requests; people approve specs, previews and merges. Factories are defined as code and stored in GitHub repos you own.
 
 ## Overview
 
 - [Concepts](https://github.com/fishuke/klin/blob/main/docs/site/overview/concepts.md): A glossary of the terms used across Kiln's docs, from factory and foreman to scorer, canary and run token.
 - [How Kiln works](https://github.com/fishuke/klin/blob/main/docs/site/overview/how-kiln-works.md): The life of a work item, from intake through triage, spec, build, verify, preview and review to a human merge.
-- [Migrating from Warp Factories](https://github.com/fishuke/klin/blob/main/docs/site/overview/migrating-from-warp.md): Convert a Warp Factories v1alpha1 definition to kiln/v1 with kiln import --from-warp, or connect a Warp-exported config repo directly.
+- [Importing v1alpha1 definitions](https://github.com/fishuke/klin/blob/main/docs/site/overview/importing-definitions.md): Convert a definition tree in the v1alpha1 factory definition format to kiln/v1 with kiln import, or connect a config repo in that format and let Kiln convert it on every sync.
 - [What is Kiln](https://github.com/fishuke/klin/blob/main/docs/site/overview/what-is-kiln.md): Kiln is a self-hostable platform that runs software factories, teams of coding agents that turn requests into reviewed pull requests.
 
 ## Factory configuration

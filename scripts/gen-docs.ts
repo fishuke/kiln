@@ -98,7 +98,7 @@ write(
     "Kiln MCP",
     "Connect coding agents to Kiln over MCP; every tool and its arguments, generated from the server.",
     "Developer tools",
-    `The Kiln MCP server is served at \`<public URL>/mcp\` over streamable HTTP. It has the same tools as Warp's Factory MCP plus \`decide_gate\`, \`list_inbox\`, \`plan_project\` and metrics tools. Every call goes through the API with the caller's token, so per-factory scopes apply: a token with only \`decide:preview\` cannot write definitions.
+    `The Kiln MCP server is served at \`<public URL>/mcp\` over streamable HTTP. Agents use it to send tasks, take them to a local worktree, hand them back, decide gates and query metrics. Every call goes through the API with the caller's token, so per-factory scopes apply: a token with only \`decide:preview\` cannot write definitions.
 
 ## Connect
 
@@ -237,7 +237,7 @@ ${sections.map((s) => `## ${s}\n\n${pages.filter((p) => p.section === s).map((p)
 );
 writeFileSync(
   join(SITE, "llms.txt"),
-  `# Kiln\n\n> Self-hostable, open source software factories. Agents (Claude Code, Codex, OpenCode) turn issues and requests into reviewed pull requests; people approve specs, previews and merges. Factories are defined as code in a Warp-compatible layout.\n\n${sections
+  `# Kiln\n\n> Self-hostable, open source software factories. Agents (Claude Code, Codex, OpenCode) turn issues and requests into reviewed pull requests; people approve specs, previews and merges. Factories are defined as code and stored in GitHub repos you own.\n\n${sections
     .map((s) => `## ${s}\n\n${pages.filter((p) => p.section === s).map((p) => `- [${p.title}](${BASE_URL}/${p.path}): ${p.description}`).join("\n")}`)
     .join("\n\n")}\n`,
 );

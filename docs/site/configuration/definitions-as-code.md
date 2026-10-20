@@ -28,7 +28,7 @@ webhooks/<name>.yaml
 memories/<slug>.md
 ```
 
-This is the same layout Warp Factories exports, with `pipelines/`, `gates/`, `policies/`, `decisions/` and `memories/` added. Files ending in `.md` have YAML frontmatter between `---` lines and a Markdown body. A file's name (or its directory's name) is the resource's name.
+This layout matches the v1alpha1 factory definition format, with `pipelines/`, `gates/`, `policies/`, `decisions/` and `memories/` added. Files ending in `.md` have YAML frontmatter between `---` lines and a Markdown body. A file's name (or its directory's name) is the resource's name.
 
 `README.md` and `.gitkeep` files are ignored. Any other file Kiln does not recognize, such as `.github/workflows/validate.yml`, produces an `unknown-file` warning but does not fail validation.
 
@@ -53,7 +53,7 @@ budgets: { perWorkItemUsd: 40, monthlyUsd: 6000 }
 
 | Key | Notes |
 | --- | --- |
-| `schemaVersion` | Must be `kiln/v1`. A `v1alpha1` tree is converted first; see [Migrating from Warp](../overview/migrating-from-warp.md). |
+| `schemaVersion` | Must be `kiln/v1`. A `v1alpha1` tree is converted first; see [Importing v1alpha1 definitions](../overview/importing-definitions.md). |
 | `name` | 1–100 characters. |
 | `alias` | Lowercase letters, digits and dashes, 1–60 characters. Also the factory's ID in Kiln. When missing, the ID is `name` turned into a slug. |
 | `description`, `project` | Optional. |
@@ -123,9 +123,9 @@ A canary only starts when the factory already has an applied definition and the 
 
 ## Config repos on GitHub
 
-A factory can live in a GitHub repository, called its config repo. Use the layout Warp exports: `factory.yaml` at the repository root (or in a subdirectory), `agents/<name>/agent.md`, and so on. For example, `fishuke/kiln-config`.
+A factory can live in a GitHub repository, called its config repo. Use the layout above: `factory.yaml` at the repository root (or in a subdirectory), `agents/<name>/agent.md`, and so on. For example, `acme/web-factory-config`.
 
-**Connect.** Connecting a config repo reads the tree at its branch (default `main`) and directory (default the root), applies it, and binds the factory to the repository. If `factory.yaml` says `schemaVersion: v1alpha1`, Kiln converts it first; see [Migrating from Warp](../overview/migrating-from-warp.md).
+**Connect.** Connecting a config repo reads the tree at its branch (default `main`) and directory (default the root), applies it, and binds the factory to the repository. If `factory.yaml` says `schemaVersion: v1alpha1`, Kiln converts it first; see [Importing v1alpha1 definitions](../overview/importing-definitions.md).
 
 **Sync on push.** When Kiln receives a GitHub `push` webhook for the config repo's branch, it reads the tree again and applies it. A push that breaks validation is recorded and rejected; the last valid definition stays active. You can also trigger a sync by hand.
 
@@ -185,7 +185,7 @@ The command prints `ok <name> (<sha>): <n> agents, <n> automations` on success, 
 
 ## Related pages
 
-- [Migrating from Warp Factories](../overview/migrating-from-warp.md)
+- [Importing v1alpha1 definitions](../overview/importing-definitions.md)
 - [Factory agents](agents.md)
 - [Replay and canary](../measure-and-improve/replay-and-canary.md)
 - [GitHub](../integrations/github.md)

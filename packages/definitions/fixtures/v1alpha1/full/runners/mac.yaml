@@ -1,0 +1,5 @@
+platform:
+  os: macos
+  arch: aarch64
+  mac:
+    version: "26"

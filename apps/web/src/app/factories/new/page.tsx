@@ -14,10 +14,10 @@ export default function NewFactory() {
 cd web-factory && pnpm kiln validate .
 git init && git add -A && git commit -m "Factory definition" && gh repo create acme/web-factory --private --source . --push`}</Pre>
         </Section>
-        <Section title="2. Connect the config repo" description="Kiln validates it, applies it, and applies every later merge to its default branch. Warp-exported repos (schemaVersion v1alpha1) are converted automatically.">
+        <Section title="2. Connect the config repo" description="Kiln validates it, applies it, and applies every later merge to its default branch. Trees in the v1alpha1 format are converted automatically.">
           <form action={connectRepo} className="space-y-2">
             <div className="flex gap-2">
-              <input name="repo" required placeholder="owner/repo, e.g. fishuke/kiln-config" className="h-9 flex-1 rounded-md border bg-background px-3 text-sm" />
+              <input name="repo" required placeholder="owner/repo, e.g. acme/web-factory-config" className="h-9 flex-1 rounded-md border bg-background px-3 text-sm" />
               <input name="ref" placeholder="main" className="h-9 w-28 rounded-md border bg-background px-3 text-sm" />
               <input name="dir" placeholder="folder (optional)" className="h-9 w-40 rounded-md border bg-background px-3 text-sm" />
             </div>

@@ -1,0 +1,30 @@
+schemaVersion: v1alpha1
+name: Web Platform
+description: Everything for the web app
+alias: Web Platform
+credentialStrategy: EXECUTOR
+codeForges:
+  - GITHUB
+repositories:
+  - owner: acme
+    name: webapp
+  - owner: acme
+    name: design-system
+    deferred: true
+secrets: [NPM_TOKEN]
+mcpServers:
+  sentry:
+    url: https://mcp.sentry.example/mcp
+cloudProviders:
+  aws:
+    roleArn: arn:aws:iam::123456789012:role/factory
+integrations:
+  - type: slack
+  - type: linear
+selfImprovement:
+  failedRunThreshold: 10
+  reviewerType: custom
+  reviewerEmails: [lead@acme.test]
+agentDefaults:
+  model: auto-genius
+  runner: default

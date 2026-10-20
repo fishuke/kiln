@@ -1,0 +1,11 @@
+description: Standard Linux runner
+setupCommands:
+  - corepack enable
+instanceShape:
+  vcpus: 4
+  memoryGb: 8
+platform:
+  os: linux
+  arch: x86_64
+  linux:
+    dockerImage: node:22-bookworm

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { diffTrees, formatDiff, formatErrors, importWarp, loadTree, validateTree, writeTree } from "@kiln/definitions";
+import { diffTrees, formatDiff, formatErrors, importV1alpha1, loadTree, validateTree, writeTree } from "@kiln/definitions";
 import { jsonSchemaFor, type FileKind } from "@kiln/schema";
 import { KilnApiError, KilnClient } from "@kiln/sdk-ts";
 
@@ -18,7 +18,7 @@ Definitions (local)
   kiln init [dir] [--template sdlc|single-repo|po-feature|incident]   Scaffold a definition tree
   kiln validate [path]                                                Schema and reference checks; exit 1 on errors
   kiln diff [path] [--against applied|<path>] [--factory <id>]        What an apply would change
-  kiln import --from-warp <src> [out]                                 Convert a Warp v1alpha1 tree
+  kiln import <src> [out]                                             Convert a v1alpha1 tree to kiln/v1
   kiln schema <kind>                                                  JSON Schema for a file kind
 
 Factory (needs KILN_URL and KILN_TOKEN)
@@ -67,7 +67,6 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
       factory: { type: "string" },
       "dry-run": { type: "boolean" },
       canary: { type: "string" },
-      "from-warp": { type: "string" },
       body: { type: "string" },
       "work-item": { type: "string" },
       all: { type: "boolean" },
@@ -130,10 +129,10 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
         return 0;
       }
       case "import": {
-        const src = str("from-warp");
-        if (!src) throw new Error("usage: kiln import --from-warp <src> [out]");
-        const { tree, warnings } = importWarp(loadTree(path(src)));
-        const out = path(positionals[0] ?? `${src.replace(/\/$/, "")}-kiln`);
+        const src = positionals[0];
+        if (!src) throw new Error("usage: kiln import <src> [out]");
+        const { tree, warnings } = importV1alpha1(loadTree(path(src)));
+        const out = path(positionals[1] ?? `${src.replace(/\/$/, "")}-kiln`);
         writeTree(out, tree);
         for (const w of warnings) io.err(`warning ${w}`);
         const result = validateTree(tree);

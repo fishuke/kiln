@@ -7,7 +7,7 @@ import { z } from "zod";
 const json = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] });
 
 /**
- * The Kiln MCP server. Same tool set as Warp's Factory MCP plus decide_gate, list_inbox,
+ * The Kiln MCP server: tasks, conversations, definitions, decide_gate, list_inbox,
  * plan_project and metrics tools. Every call goes through the API with the caller's token, so
  * per-factory scopes apply: a decide:preview token cannot write definitions.
  */

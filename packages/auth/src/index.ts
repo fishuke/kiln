@@ -2,7 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Store } from "@kiln/store";
 
 /**
- * Scopes for API and MCP tokens. Unlike Warp's Factory MCP, every grant names a factory
+ * Scopes for API and MCP tokens. Every grant names a factory
  * (or "*"), so a product owner's token can decide previews without touching definitions.
  */
 export const SCOPES = [

@@ -37,10 +37,10 @@ describe("kiln CLI", () => {
     expect(t.out.at(-1)).toBe("~ runner/linux-node");
   });
 
-  it("imports a Warp tree", async () => {
+  it("imports a v1alpha1 tree", async () => {
     const t = io();
-    const src = fileURLToPath(new URL("../../definitions/fixtures/warp/02-sdlc-issue-to-pr", import.meta.url));
-    expect(await runCli(["import", "--from-warp", src, join(t.io.cwd, "out")], t.io)).toBe(0);
+    const src = fileURLToPath(new URL("../../definitions/fixtures/v1alpha1/full", import.meta.url));
+    expect(await runCli(["import", src, join(t.io.cwd, "out")], t.io)).toBe(0);
     expect(t.out.at(-1)).toContain("it validates");
   });
 

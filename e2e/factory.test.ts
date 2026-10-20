@@ -21,7 +21,7 @@ function loadDir(dir: string): Record<string, string> {
   return out;
 }
 
-describe("M4-T1 gates engine", () => {
+describe("gates engine", () => {
   it("nudges and parks an expired spec approval", async () => {
     const clock = new FakeClock();
     const { kiln, chat } = createTestKiln({ clock });
@@ -58,7 +58,7 @@ describe("M4-T1 gates engine", () => {
   });
 });
 
-describe("M4-T2 optional pipeline graphs", () => {
+describe("optional pipeline graphs", () => {
   const tree = sampleTree({
     "pipelines/feature.yaml": `stages:
   - { id: triage,  agent: triage }
@@ -111,7 +111,7 @@ describe("M4-T2 optional pipeline graphs", () => {
   });
 });
 
-describe("M4-T3 inbox: Slack and web decide the same way", () => {
+describe("inbox: Slack and web decide the same way", () => {
   it("a PO approves a spec from Slack and from the web with the same result", async () => {
     const { kiln } = createTestKiln({ preview: false });
     const start = async (ts: string) =>
@@ -133,15 +133,14 @@ describe("M4-T3 inbox: Slack and web decide the same way", () => {
   });
 });
 
-describe("config repos on GitHub (the kiln-config layout)", () => {
-  it("connects a Warp-exported config repo and applies merges to its default branch", async () => {
+describe("config repos on GitHub", () => {
+  it("connects a v1alpha1 config repo and applies merges to its default branch", async () => {
     const { kiln, forge } = createTestKiln();
-    const exported = loadDir(fileURLToPath(new URL("../packages/definitions/fixtures/warp/08-kiln-config/", import.meta.url)));
-    exported["factory.yaml"] = exported["factory.yaml"]!.replace("name: klin", "name: web").replace("owner: fishuke", "owner: acme");
+    const exported = loadDir(fileURLToPath(new URL("../packages/definitions/fixtures/v1alpha1/full/", import.meta.url)));
     forge.createRepo({ owner: "acme", name: "kiln-config" }, exported);
     const r = await kiln.defs.connectRepo({ owner: "acme", name: "kiln-config" }, "alice");
-    expect(r.ok ? r.factory : r.errors).toBe("kiln");
-    const before = kiln.defs.require("kiln").appliedSha;
+    expect(r.ok ? r.factory : r.errors).toBe("web-platform");
+    const before = kiln.defs.require("web-platform").appliedSha;
     // a person merges a change in the config repo
     const work = new FakeForge(forge.root);
     void work;
@@ -149,14 +148,14 @@ describe("config repos on GitHub (the kiln-config layout)", () => {
     const pr = await forge.openPullRequest({ repo: { owner: "acme", name: "kiln-config" }, head: "kiln/edit", title: "Add release skill", body: "" });
     await forge.merge({ owner: "acme", name: "kiln-config" }, pr.number, "alice");
     await kiln.automations.handle(normalizeGitHub("push", { ref: "refs/heads/main", after: "abc", repository: { full_name: "acme/kiln-config" } })!);
-    const after = kiln.defs.require("kiln");
+    const after = kiln.defs.require("web-platform");
     expect(after.appliedSha).not.toBe(before);
     expect(kiln.defs.resolved(after.appliedSha!).parsed.skills.release).toBeDefined();
     expect(after.definitionRepo).toEqual({ owner: "acme", name: "kiln-config", ref: "main", dir: "" });
   });
 });
 
-describe("M5-T1 scorer service", () => {
+describe("scorer service", () => {
   it("samples about 25% of runs and labels match a labeled set", async () => {
     const labeled: Record<string, string> = {};
     const judge = new DecisionJudge(
@@ -179,7 +178,7 @@ describe("M5-T1 scorer service", () => {
   });
 });
 
-describe("M5-T2 self-improvement with replay before the PR", () => {
+describe("self-improvement with replay before the PR", () => {
   it("turns seeded failures into a definition PR with regressions and a replay table", async () => {
     const judge = new FakeJudge(({ run }) => (run.startState.instructions.includes("Lessons from reviewed failures") ? "meets" : { label: "misses", rationale: "criteria not covered by tests" }));
     const { kiln, forge } = createTestKiln({ judge, autoScore: false });
@@ -226,7 +225,7 @@ describe("M5-T2 self-improvement with replay before the PR", () => {
   });
 });
 
-describe("M5-T3/T6 benchmarks", () => {
+describe("benchmarks", () => {
   it("runs three configurations on pinned tasks, finds the Pareto frontier and proposes a router", async () => {
     const judge = new FakeJudge(({ run }) => (run.status === "succeeded" ? "success" : "failure"));
     const { kiln, forge } = createTestKiln({ judge, autoScore: false });
@@ -266,7 +265,7 @@ tasks: [${Array.from({ length: 10 }, (_, i) => `t${i}`).join(", ")}]
   }, 120_000);
 });
 
-describe("M5-T4 canary apply", () => {
+describe("canary apply", () => {
   it("routes a share of new work items to the candidate and splits metrics by definition", async () => {
     const { kiln } = createTestKiln();
     const base = kiln.defs.require("webapp").appliedSha!;
@@ -279,7 +278,7 @@ describe("M5-T4 canary apply", () => {
   });
 });
 
-describe("M5-T5 dashboard metrics", () => {
+describe("dashboard metrics", () => {
   it("computes PR activity, autonomy, cycle time and cost from fixtures", () => {
     const { kiln } = createTestKiln();
     const sha = kiln.defs.require("webapp").appliedSha!;
@@ -354,7 +353,7 @@ describe("M6 planning and portfolio", () => {
     expect(digest.text).toContain(`http://localhost:3000/inbox/${g.id}`);
   });
 
-  it("M6-T4 a convention taught in one run is applied in a later run", async () => {
+  it("a convention taught in one run is applied in a later run", async () => {
     const { kiln, forge } = createTestKiln({ preview: false });
     const first = await kiln.workflow.create({ factory: "webapp", title: "Add a logo", body: "remember: Use named exports", source: { provider: "api" }, requester: "a" });
     await kiln.workflow.advance(first.id);
@@ -369,7 +368,7 @@ describe("M6 planning and portfolio", () => {
     expect(file).toContain("// convention: Use named exports");
   });
 
-  it("M6-T5 publishes a skill from one factory and installs it in another", async () => {
+  it("publishes a skill from one factory and installs it in another", async () => {
     const { kiln, forge } = createTestKiln();
     forge.createRepo({ owner: "acme", name: "api" });
     const apiTree = sampleTree({}, "api", "api", "acme/api");

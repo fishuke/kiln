@@ -70,7 +70,7 @@ Fields you can filter on:
 
 | Provider | Fields |
 | --- | --- |
-| GitHub | `repo` (`owner/name`), `repos` (the same, as a list, for Warp-style filters), `number`, `labels`, `label` (the label just added), `mentioned`, `author`, `assignee`, `head` (branch), `state` (review state), `conclusion` |
+| GitHub | `repo` (`owner/name`), `repos` (the same, as a list; GitHub events carry both `repo` and `repos`), `number`, `labels`, `label` (the label just added), `mentioned`, `author`, `assignee`, `head` (branch), `state` (review state), `conclusion` |
 | Slack | `channel`, `mentioned`, `author`, `reaction` |
 | Linear | `team_ids`, `labels`, `mentioned`, `assignee` |
 | Jira | `project`, `labels`, `mentioned`, `assignee` |

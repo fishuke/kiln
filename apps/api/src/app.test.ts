@@ -108,14 +108,14 @@ describe("API", () => {
   });
 });
 
-describe("Kiln MCP with scoped tokens (M7-T1)", () => {
+describe("Kiln MCP with scoped tokens ", () => {
   async function mcpClient(inProcess: (i: string | URL | Request, init?: RequestInit) => Promise<Response>, token: string) {
     const client = new Client({ name: "test", version: "1.0.0" });
     await client.connect(new StreamableHTTPClientTransport(new URL("http://kiln.test/mcp"), { fetch: inProcess as typeof fetch, requestInit: { headers: { authorization: `Bearer ${token}` } } }));
     return client;
   }
 
-  it("lists Warp's tool set plus Kiln's", async () => {
+  it("lists every Kiln MCP tool", async () => {
     const { token, inProcess } = setup();
     const client = await mcpClient(inProcess, token("read:*"));
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
@@ -136,7 +136,7 @@ describe("Kiln MCP with scoped tokens (M7-T1)", () => {
     expect(readOnly.isError).toBeFalsy();
   });
 
-  it("answers 'cost per merged PR by agent last week' through MCP alone (M5-T7)", async () => {
+  it("answers 'cost per merged PR by agent last week' through MCP alone ", async () => {
     const { kiln, forge, token, inProcess } = setup();
     const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix typo", body: "", source: { provider: "api" }, requester: "a" });
     await kiln.workflow.advance(wi.id);

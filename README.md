@@ -4,7 +4,7 @@ Open source, self-hosted software factories. A team of coding agents turns issue
 
 - **Bring your own keys.** Claude Code runs on your Claude subscription (`claude setup-token`) or an API key; Codex and OpenCode run on your OpenAI, Anthropic or OpenRouter keys.
 - **Self-hosted.** One process and a data folder to start; Docker Compose or Helm (gVisor sandboxes) for teams.
-- **Factories as code.** The same layout Warp Factories exports (`factory.yaml`, `agents/`, `automations/`, `scorers/`, `skills/` …), stored in a GitHub repo you own. Merges apply automatically; Warp trees import as they are.
+- **Factories as code.** A tree of `factory.yaml`, `agents/`, `automations/`, `scorers/`, `skills/` … stored in a GitHub repo you own. Merges apply automatically; v1alpha1 trees import as they are.
 - **People stay in charge.** Agents push only `kiln/*` branches with short-lived tokens and can never approve or merge.
 
 ![New run](docs/screenshots/01-new-run.png)
@@ -29,7 +29,7 @@ pnpm kiln send "Fix the typo in the README" --factory <alias>
 
 A work item moves through `triaging → planning → awaiting_spec → building → awaiting_preview → reviewing → handed_off → complete`. The foreman picks the shortest path (small, clear changes skip the spec), or a pipeline file fixes the graph. Each run happens in a sandbox; every shell command passes a guardrail; evidence (tests, a video per acceptance criterion, a preview URL) is attached to the PR. Scorers grade runs, and self-improvement turns repeated failures into definition PRs that are replayed against the failing runs before a person reviews them.
 
-Read more in the [docs](docs/site/index.md) (also served at `/docs` in the web app) and the [build plan](docs/plan/PLAN.md); [STATUS.md](docs/plan/STATUS.md) shows where each task stands.
+Read more in the [docs](docs/site/index.md), also served at `/docs` in the web app. Design decisions are in [docs/adr](docs/adr/README.md).
 
 ## Repository
 
@@ -40,7 +40,7 @@ apps/web        Web app (Next.js + shadcn/ui)
 packages/       schema, definitions, decide, sandbox, harness, evidence,
                 integrations, auth, store, events, engine, sdk-ts, cli
 factories/      kiln-self (the factory that builds Kiln) and starter templates
-docs/           plan, ADRs, threat model, docs site, Warp setup record
+docs/           docs site, ADRs, threat model, ideas, screenshots
 deploy/         Helm chart and the sandbox egress proxy
 e2e/            end-to-end tests on a git-backed fake forge
 ```

@@ -19,7 +19,7 @@ harness: { type: claude-code, model: claude-sonnet-5-5 }
 | --- | --- | --- |
 | `claude-code` | `claude` | The default when nothing sets a harness. |
 | `codex` | `codex` | |
-| `opencode` | `opencode` | Takes the place of Warp's `oz` harness on import. |
+| `opencode` | `opencode` | The `oz` harness type becomes `opencode` on import. |
 
 The harness program must be installed in the runner's image. Pin its version in the image, because flags and output formats change between releases.
 
@@ -62,7 +62,7 @@ The sandbox is the security boundary for all three. Permission prompts are off b
 - **Instructions:** the agent's Markdown body, matching factory memories, any extra instructions, and a "Reporting back to Kiln" section.
 - **Prompt:** the work item's title, body, triage result, acceptance criteria, review findings and messages from people, plus a line telling the agent what this stage needs.
 - **Skills:** every shared skill plus the agent's own.
-- **Environment:** `KILN_RUN_ID`, `KILN_RUN_TOKEN`, `KILN_FACTORY`, `KILN_AGENT_TYPE`, `KILN_WORK_ITEM`, `KILN_STAGE`, and `WARP_FACTORY_ID` (the factory ID, for skills written for Warp).
+- **Environment:** `KILN_RUN_ID`, `KILN_RUN_TOKEN`, `KILN_FACTORY`, `KILN_AGENT_TYPE`, `KILN_WORK_ITEM` and `KILN_STAGE`.
 - **Working directory:** the first repository, checked out on the work item's `kiln/*` branch. All non-deferred repositories are cloned side by side.
 
 ## The result file

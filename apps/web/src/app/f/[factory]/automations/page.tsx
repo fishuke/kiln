@@ -1,46 +1,54 @@
+import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Empty, Page, PageHeader } from "@/components/kiln/ui";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/kiln/ui";
+import { buttonVariants } from "@/components/ui/button";
+import { automationTemplates, lastRuns } from "@/lib/api/automations";
+import { automationNames, automationPath, parseAutomation } from "@/lib/automations/model";
 import { api, safe } from "@/lib/kiln";
+import { AreaTabs } from "./_components/area-tabs";
+import { AutomationsTable, type AutomationRow } from "./_components/automations-table";
+import { Suggestions } from "./_components/suggestions";
+
+export const metadata: Metadata = { title: "Automations" };
 
 export default async function Automations({ params }: { params: Promise<{ factory: string }> }) {
   const { factory } = await params;
-  const f = await safe(() => api.factory(factory), null);
+  const [f, def, templates, last] = await Promise.all([safe(() => api.factory(factory), null), safe(() => api.definition(factory), null), automationTemplates(), lastRuns(factory)]);
   if (!f) notFound();
+  const tree = def?.tree ?? {};
+  const fromTree = automationNames(tree);
+  const rows: AutomationRow[] = fromTree.length
+    ? fromTree.map((name) => {
+        let a: ReturnType<typeof parseAutomation> | null = null;
+        try {
+          a = parseAutomation(name, tree[automationPath(tree, name)!]!);
+        } catch {
+          /* invalid front matter: show the row with no triggers */
+        }
+        return { name, title: a?.displayName || name, enabled: a?.enabled ?? true, triggers: a?.triggers ?? [], lastRun: last[name] };
+      })
+    : f.automations.map((a) => ({ name: a.name, title: a.name, enabled: a.enabled, triggers: a.triggers, lastRun: last[a.name] }));
   return (
     <>
-      <PageHeader crumbs={[{ label: f.factory.name, href: `/f/${factory}` }, { label: "Automations" }]} />
-      <Page>
-        <p className="mb-6 text-sm text-muted-foreground">Triggers that start work: provider events, schedules and signed webhooks. Defined in <code>automations/&lt;name&gt;/automation.md</code>.</p>
-        {f.automations.length === 0 && <Empty title="No automations">Mentions of @{f.factory.alias} still reach the foreman.</Empty>}
-        <div className="space-y-3">
-          {f.automations.map((a) => (
-            <Card key={a.name} size="sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  {a.name}
-                  <Badge variant={a.enabled ? "secondary" : "outline"}>{a.enabled ? "On" : "Off"}</Badge>
-                  <span className="ml-auto text-xs font-normal text-muted-foreground">→ {a.agent}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <ul className="space-y-1">
-                  {a.triggers.map((t, i) => (
-                    <li key={i} className="flex flex-wrap items-center gap-2 text-xs">
-                      <Badge variant="outline">{t.provider}</Badge>
-                      <span className="font-mono">{t.event}</span>
-                      {t.schedule && <span className="font-mono text-muted-foreground">cron {t.schedule.cron}</span>}
-                      {t.filter && <span className="font-mono text-muted-foreground">{JSON.stringify(t.filter)}</span>}
-                    </li>
-                  ))}
-                </ul>
-                {a.prompt && <p className="text-muted-foreground">{a.prompt}</p>}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </Page>
+      <PageHeader
+        crumbs={[{ label: f.factory.name, href: `/f/${factory}/dashboard` }, { label: "Automations" }]}
+        actions={
+          <>
+            <Link href={`/f/${factory}/webhooks`} className={buttonVariants({ variant: "outline" })}>
+              Manage Webhooks
+            </Link>
+            <Link href={`/f/${factory}/automations/new`} className={buttonVariants()}>
+              New
+            </Link>
+          </>
+        }
+      />
+      <div className="px-4 py-6 sm:px-6">
+        <AreaTabs factory={factory} active="automations" />
+        <AutomationsTable factory={factory} rows={rows} />
+        <Suggestions factory={factory} templates={templates} />
+      </div>
     </>
   );
 }

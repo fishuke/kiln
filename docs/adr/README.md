@@ -9,3 +9,4 @@
 - [0007](./0007-open-source-byok.md) Open source, bring your own keys, self-hosted
 - [0008](./0008-humans-merge.md) Agents never merge
 - [0009](./0009-claude-agent-sdk.md) Claude Code through the Claude Agent SDK
+- [0010](./0010-triage-picks-the-repository.md) Triage picks the repository in a multi-repository factory

@@ -92,6 +92,8 @@ export const Repository = z
     owner: z.string().min(1),
     name: z.string().min(1),
     deferred: z.boolean().default(false),
+    /** What the repository holds; helps triage pick the repository in a factory with several. */
+    description: z.string().optional(),
   })
   .strict();
 

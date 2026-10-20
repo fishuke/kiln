@@ -85,7 +85,7 @@ The sandbox is the security boundary for all three. Permission prompts are off b
 - **Prompt:** the work item's title, body, triage result, acceptance criteria, review findings and messages from people, plus a line telling the agent what this stage needs.
 - **Skills:** every shared skill plus the agent's own.
 - **Environment:** `KILN_RUN_ID`, `KILN_RUN_TOKEN`, `KILN_FACTORY`, `KILN_AGENT_TYPE`, `KILN_WORK_ITEM` and `KILN_STAGE`.
-- **Working directory:** the first repository, checked out on the work item's `kiln/*` branch. All non-deferred repositories are cloned side by side.
+- **Working directory:** the work item's repository (the one triage picked in a factory with several, else the first), checked out on the work item's `kiln/*` branch. When triage picked a repository, only it and any `required_repos` are cloned; otherwise all non-deferred repositories are cloned side by side.
 
 ## The result file
 

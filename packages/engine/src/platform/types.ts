@@ -170,6 +170,18 @@ export type EnvironmentTemplate = {
   updatedAt: string;
 };
 
+const IMAGE_EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/svg+xml": "svg" };
+
+/** Object-store key for an uploaded avatar; the extension carries the content type. */
+export function avatarKey(kind: "users" | "teams", id: string, contentType: string): string {
+  return `avatars/${kind}/${id}.${IMAGE_EXT[contentType] ?? "bin"}`;
+}
+
+export function avatarContentType(key: string): string {
+  const ext = key.split(".").pop();
+  return Object.entries(IMAGE_EXT).find(([, e]) => e === ext)?.[0] ?? "application/octet-stream";
+}
+
 export class BudgetExceededError extends Error {
   readonly code = "budget_exceeded";
   constructor(

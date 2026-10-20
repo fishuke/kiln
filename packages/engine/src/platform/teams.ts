@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { grantsForFactoryRole, isTeamAdmin, maxFactoryRole, type FactoryRole, type Grant, type TeamRole } from "@kiln/auth";
 import type { Kiln } from "../kiln";
 import { C, newId, type FactoryBinding } from "../types";
-import { DEFAULT_TEAM_SETTINGS, P, PlatformError, TeamSettings, type FactoryMember, type Invite, type Membership, type Team } from "./types";
+import { avatarKey, DEFAULT_TEAM_SETTINGS, P, PlatformError, TeamSettings, type FactoryMember, type Invite, type Membership, type Team } from "./types";
 
 const INVITE_DAYS = 7;
 const hashInvite = (raw: string) => createHash("sha256").update(raw).digest("hex");
@@ -71,7 +71,7 @@ export class TeamService {
 
   async setAvatar(id: string, bytes: Uint8Array, contentType: string, by: string): Promise<Team> {
     const t = this.require(id);
-    const key = `avatars/teams/${t.id}`;
+    const key = avatarKey("teams", t.id, contentType);
     await this.k.objects.put(key, bytes, contentType);
     const next = { ...t, avatarKey: key, avatar: `/api/v1/teams/${t.id}/avatar?v=${Date.now().toString(36)}` };
     this.k.store.put(P.teams, next);

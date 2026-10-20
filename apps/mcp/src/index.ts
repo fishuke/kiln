@@ -121,6 +121,23 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
     async ({ run_id, text }) => json(await client.steer(run_id, text)),
   );
 
+  server.registerTool("list_teams", { description: "List the teams you belong to, with your role in each. Pass a team's slug as X-Kiln-Team to act in it." }, async () => json(await client.teams()));
+
+  server.registerTool(
+    "create_team",
+    { description: "Create a team. You become its owner. Needs a user token (session or personal API key).", inputSchema: { name: z.string(), slug: z.string().optional() } },
+    async ({ name, slug }) => json(await client.createTeam({ name, slug })),
+  );
+
+  server.registerTool(
+    "join_team",
+    { description: "Join a team by accepting an invite. Takes the invite token or the whole invite link.", inputSchema: { invite: z.string() } },
+    async ({ invite }) => {
+      const token = /kinv_[\w-]+/.exec(invite)?.[0] ?? invite;
+      return json(await client.acceptInvite(token));
+    },
+  );
+
   return server;
 }
 

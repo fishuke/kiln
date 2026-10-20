@@ -507,6 +507,8 @@ export const BenchmarkSuite = z
             agents: z
               .array(z.object({ agent: z.string(), model: z.string().optional(), harness: Harness.optional() }).strict())
               .optional(),
+            /** Runner every task of this configuration uses (runners/<name>.yaml). */
+            runner: z.string().optional(),
           })
           .strict(),
       )

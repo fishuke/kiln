@@ -10,7 +10,7 @@ export type SuiteInput = {
   displayName?: string;
   description?: string;
   agent: string;
-  configurations?: { name: string; agents?: { agent: string; model?: string; harness?: { type: string; model?: string } }[] }[];
+  configurations?: { name: string; agents?: { agent: string; model?: string; harness?: { type: string; model?: string } }[]; runner?: string }[];
   tasks?: string[];
 };
 
@@ -256,7 +256,7 @@ export class BenchmarkAdmin {
         stage: `bench:${run.suite}`,
         repos: repos.map(({ owner, name }) => ({ owner, name })),
         pinned: Object.fromEntries(repos.map((r) => [r.name, r.sha])),
-        overrides: { model: override?.model, harness: override?.harness as HarnessType | undefined, runner: override?.runner },
+        overrides: { model: override?.model, harness: override?.harness as HarnessType | undefined, runner: override?.runner ?? config.runner },
         push: false,
         source: "BENCHMARK_TRIAL",
         title: `${task.title} (${config.name} #${trial.repetition})`,

@@ -21,14 +21,14 @@ export const Suite = z.object({
   displayName: z.string().optional(),
   description: z.string().optional(),
   agent: z.string().min(1),
-  configurations: z.array(z.object({ name: z.string().min(1), agents: z.array(ConfigAgent).optional() })).min(1).max(6).optional(),
+  configurations: z.array(z.object({ name: z.string().min(1), agents: z.array(ConfigAgent).optional(), runner: z.string().optional() })).min(1).max(6).optional(),
   tasks: z.array(z.string()).optional(),
   firstTask: BenchTask.optional(),
 });
 export const PatchSuite = Suite.omit({ name: true, firstTask: true }).partial();
 export const StartBenchmark = z.object({
   configurations: z
-    .array(z.object({ name: z.string().min(1), agents: z.array(z.object({ agent: z.string(), harness: z.string().optional(), model: z.string().optional(), runner: z.string().optional(), authSecretName: z.string().optional() })) }))
+    .array(z.object({ name: z.string().min(1), agents: z.array(z.object({ agent: z.string(), harness: z.string().optional(), model: z.string().optional(), runner: z.string().optional(), authSecretName: z.string().optional() })), runner: z.string().optional() }))
     .min(1)
     .max(6)
     .optional(),

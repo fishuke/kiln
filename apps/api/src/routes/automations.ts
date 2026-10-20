@@ -47,6 +47,14 @@ export function registerAutomationRoutes({ app, kiln, need, who }: RouteContext)
     return c.json(kiln.automations.deliveries({ provider: c.req.query("provider"), limit: Number(c.req.query("limit") ?? 50) }));
   });
 
+  /** "Run now": start an automation by hand with its prompt and overrides. */
+  app.post("/api/v1/factories/:id/automations/:name/run", async (c) => {
+    const { id, name } = c.req.param();
+    need(c, "send", id);
+    const wi = await kiln.automations.runNow(id, name, who(c));
+    return c.json({ workItemId: wi.id, ...(wi.deduplicated ? { deduplicated: wi.deduplicated } : {}) }, wi.deduplicated ? 200 : 201);
+  });
+
   /** "Test filter": evaluate an automation's triggers against a stored delivery. */
   app.post("/api/v1/factories/:id/automations/:name/test-filter", async (c) => {
     const { id, name } = c.req.param();

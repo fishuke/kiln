@@ -41,7 +41,7 @@ export class BenchmarkService {
           stage: `bench:${suiteName}`,
           repos: repos.map(({ owner, name }) => ({ owner, name })),
           pinned: Object.fromEntries(repos.map((r) => [r.name, r.sha])),
-          overrides: { model: override?.model, harness: override?.harness?.type },
+          overrides: { model: override?.model, harness: override?.harness?.type, runner: config.runner },
           push: false,
         });
         const verdict = await this.k.judge.judge({

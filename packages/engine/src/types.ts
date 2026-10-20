@@ -435,6 +435,8 @@ export type BenchmarkConfiguration = {
   name: string;
   /** Per-agent overrides: harness and model, or a router (`router:<slug>`), and the runner. */
   agents: { agent: string; harness?: string; model?: string; runner?: string; authSecretName?: string }[];
+  /** Runner for agents that do not name one. */
+  runner?: string;
 };
 
 export type BenchmarkRun = {

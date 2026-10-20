@@ -30,7 +30,7 @@ tasks: [t0, t1]
 | --- | --- |
 | `name`, `description` | |
 | `agent` | The agent under test. Must exist. |
-| `configurations` | 1 to 6, with unique names. A configuration without `agents` uses the agent as defined. An entry for the suite's agent overrides its `model` or `harness`. |
+| `configurations` | 1 to 6, with unique names. A configuration without `agents` uses the agent as defined. An entry for the suite's agent overrides its `model` or `harness`. `runner` names the runner for agents that do not set one. |
 | `tasks` | Task names. Each needs `tasks/<name>.yaml` in the suite folder. |
 
 ## A task

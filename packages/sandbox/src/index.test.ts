@@ -88,8 +88,10 @@ describe("docker sandbox", () => {
   it("builds locked-down docker run args with an egress allowlist", () => {
     const args = dockerRunArgs("kiln-x", spec);
     expect(args).toEqual(expect.arrayContaining(["--cpus", "2", "--memory", "4g", "--network", "kiln-egress", "--cap-drop", "ALL"]));
-    expect(args).toContain("KILN_EGRESS_ALLOW=registry.npmjs.org");
-    expect(dockerRunArgs("kiln-y", { ...spec, runner: { ...spec.runner, egress: [] } })).toEqual(expect.arrayContaining(["--network", "none"]));
+    expect(args).toContain("KILN_EGRESS_ALLOW=registry.npmjs.org,example.test");
+    expect(dockerRunArgs("kiln-y", { ...spec, repos: [], runner: { ...spec.runner, egress: [] } })).toEqual(expect.arrayContaining(["--network", "none"]));
+    // repos are cloned inside the container, so their host is reachable even with no egress list
+    expect(dockerRunArgs("kiln-z", { ...spec, runner: { ...spec.runner, egress: [] } })).toContain("KILN_EGRESS_ALLOW=example.test");
   });
 
   it("uses a cached image, clones, runs setup and destroys", async () => {

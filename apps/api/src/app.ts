@@ -8,8 +8,10 @@ import {
   normalizeSlack,
   verifyGitHub,
   verifyLinear,
+  verifySentry,
   verifySlack,
   verifyStandardWebhook,
+  verifyStripe,
 } from "@kiln/integrations";
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -114,7 +116,11 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
       hook.authMode === "signature"
         ? hook.signatureScheme === "github"
           ? verifyGitHub(secret, body, c.req.header("x-hub-signature-256"))
-          : verifyStandardWebhook(secret, c.req.header("webhook-id"), c.req.header("webhook-timestamp"), body, c.req.header("webhook-signature"))
+          : hook.signatureScheme === "stripe"
+            ? verifyStripe(secret, body, c.req.header("stripe-signature"))
+            : hook.signatureScheme === "sentry"
+              ? verifySentry(secret, body, c.req.header("sentry-hook-signature"))
+              : verifyStandardWebhook(secret, c.req.header("webhook-id"), c.req.header("webhook-timestamp"), body, c.req.header("webhook-signature"))
         : hook.authMode === "url_token"
           ? c.req.query("token") === secret
           : c.req.header("authorization") === `Bearer ${secret}`;

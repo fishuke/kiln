@@ -17,7 +17,7 @@ export const HELP = `kiln — self-hostable software factories
 Definitions (local)
   kiln init [dir] [--template sdlc|single-repo|po-feature|incident]   Scaffold a definition tree
   kiln validate [path]                                                Schema and reference checks; exit 1 on errors
-  kiln diff [path] [--against <path>] [--factory <id>]                What an apply would change
+  kiln diff [path] [--against applied|<path>] [--factory <id>]        What an apply would change
   kiln import --from-warp <src> [out]                                 Convert a Warp v1alpha1 tree
   kiln schema <kind>                                                  JSON Schema for a file kind
 
@@ -119,7 +119,7 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
       }
       case "diff": {
         const tree = loadTree(path(positionals[0]));
-        if (str("against")) {
+        if (str("against") && str("against") !== "applied") {
           io.out(formatDiff(diffTrees(loadTree(path(str("against"))), tree)));
           return 0;
         }

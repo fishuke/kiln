@@ -104,10 +104,31 @@ export class LinearTracker implements Tracker {
 
   private fields = "id identifier title description url createdAt state { type } labels { nodes { name } } parent { id }";
 
-  async createIssue(input: { title: string; body: string; parentId?: string; team?: string }) {
+  /** Linear takes label ids; look names up and create the missing ones on the team. */
+  private async labelIds(names: string[], teamId: string): Promise<string[]> {
+    if (!names.length) return [];
+    const found = await this.gql<{ issueLabels: { nodes: { id: string; name: string }[] } }>(
+      `query($names: [String!]) { issueLabels(filter: { name: { in: $names } }) { nodes { id name } } }`,
+      { names },
+    );
+    const ids = new Map(found.issueLabels.nodes.map((l) => [l.name, l.id]));
+    for (const name of names) {
+      if (ids.has(name)) continue;
+      const created = await this.gql<{ issueLabelCreate: { issueLabel: { id: string } } }>(
+        `mutation($input: IssueLabelCreateInput!) { issueLabelCreate(input: $input) { issueLabel { id } } }`,
+        { input: { name, teamId } },
+      );
+      ids.set(name, created.issueLabelCreate.issueLabel.id);
+    }
+    return names.map((n) => ids.get(n)!);
+  }
+
+  async createIssue(input: { title: string; body: string; labels?: string[]; parentId?: string; team?: string }) {
+    const teamId = input.team ?? this.options.teamId;
+    const labelIds = await this.labelIds(input.labels ?? [], teamId);
     const data = await this.gql<{ issueCreate: { issue: Record<string, any> } }>(
       `mutation($input: IssueCreateInput!) { issueCreate(input: $input) { issue { ${this.fields} } } }`,
-      { input: { teamId: input.team ?? this.options.teamId, title: input.title, description: input.body, parentId: input.parentId } },
+      { input: { teamId, title: input.title, description: input.body, parentId: input.parentId, ...(labelIds.length ? { labelIds } : {}) } },
     );
     return this.toIssue(data.issueCreate.issue);
   }

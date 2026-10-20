@@ -261,8 +261,19 @@ export class Workflow {
   }
 
   private async agentRun(wi: Item, agent: string, stage: string, prompt: string, opts: { push?: boolean; collect?: Parameters<Kiln["runs"]["execute"]>[0]["collect"] } = {}): Promise<Run> {
-    if (wi.budgetUsd !== undefined && wi.costUsd >= wi.budgetUsd) {
-      throw new Error(`budget of $${wi.budgetUsd} reached ($${wi.costUsd.toFixed(2)} spent)`);
+    const r = this.resolved(wi);
+    const caps = [wi.budgetUsd, ...Object.values(r.parsed.policies).map((p) => p.maxUsdPerWorkItem)].filter((n): n is number => typeof n === "number");
+    const cap = caps.length ? Math.min(...caps) : undefined;
+    if (cap !== undefined && wi.costUsd >= cap) {
+      throw new Error(`budget of $${cap} reached ($${wi.costUsd.toFixed(2)} spent)`);
+    }
+    const monthly = r.factory.budgets?.monthlyUsd;
+    if (monthly !== undefined) {
+      const start = new Date(this.k.clock.now());
+      start.setUTCDate(1);
+      start.setUTCHours(0, 0, 0, 0);
+      const spent = this.k.runs.list({ factory: wi.factory }).filter((x) => x.startedAt >= start.toISOString()).reduce((s, x) => s + x.costUsd, 0);
+      if (spent >= monthly) throw new Error(`monthly budget of $${monthly} for ${wi.factory} reached ($${spent.toFixed(2)} spent)`);
     }
     const run = await this.k.runs.execute({
       factory: wi.factory,
@@ -552,7 +563,16 @@ export class Workflow {
     const verdict = res.verdict ?? "accepted";
     wi.review = { verdict, findings: res.findings ?? [], reviewers };
     this.save(wi);
-    if (verdict === "changes_requested" && (res.findings?.length ?? 0) > 0) return this.loopBack(wi, stage, `${res.findings!.length} review finding(s)`);
+    if (verdict === "changes_requested" && (res.findings?.length ?? 0) > 0) {
+      const max = stage.max_loops ?? 3;
+      // Advisory reviews loop only while there is a loop to take; they never park the work.
+      if (stage.on_fail && (!stage.advisory || (wi.loops[stage.id] ?? 0) < max)) return this.loopBack(wi, stage, `${res.findings!.length} review finding(s)`);
+      if (!stage.advisory) return this.loopBack(wi, stage, `${res.findings!.length} review finding(s)`);
+      if (wi.pr) {
+        const [owner, name] = wi.pr.repo.split("/");
+        await this.k.forge.comment({ owner: owner!, name: name! }, wi.pr.number, ["Advisory review findings:", ...res.findings!.map((f) => `- ${f}`)].join("\n"));
+      }
+    }
     if (verdict === "needs_human" && wi.pr) {
       const [owner, name] = wi.pr.repo.split("/");
       await this.k.forge.comment({ owner: owner!, name: name! }, wi.pr.number, ["Findings that need a person's judgment:", ...(res.findings ?? []).map((f) => `- ${f}`)].join("\n"));

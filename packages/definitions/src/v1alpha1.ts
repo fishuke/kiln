@@ -25,7 +25,7 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
   };
   const harnessMap: Record<string, string> = { oz: "opencode", claude: "claude-code", "claude-code": "claude-code", codex: "codex" };
   const execution = (file: string, obj: Record<string, unknown>, keepOverrides = false) => {
-    drop(file, obj, keepOverrides ? ["credentialStrategy"] : ["environmentId", "workerHost", "computerUseModel", "credentialStrategy", "required_repos"]);
+    drop(file, obj, keepOverrides ? ["credentialStrategy"] : ["workerHost", "computerUseModel", "credentialStrategy", "required_repos"]);
     if (keepOverrides && Array.isArray(obj.required_repos)) {
       obj.required_repos = obj.required_repos.map((r) => (typeof r === "string" ? r : `${(r as { owner: string }).owner}/${(r as { name: string }).name}`));
     }

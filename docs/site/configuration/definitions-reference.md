@@ -58,6 +58,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `agentDefaults.runner` | string \| null |  |  |
 | `agentDefaults.secrets` | list of string \| null |  |  |
 | `agentDefaults.mcpServers` | list of string \| null |  |  |
+| `agentDefaults.environmentId` | string \| null |  |  |
 | `selfImprovement` | object |  |  |
 | `selfImprovement.failedRunThreshold` | integer |  | default `25`, min 1, max 50 |
 | `selfImprovement.maxAgeDays` | integer |  | default `7`, min 1, max 90 |
@@ -91,6 +92,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `runner` | string \| null |  |  |
 | `secrets` | list of string \| null |  |  |
 | `mcpServers` | list of string \| null |  |  |
+| `environmentId` | string \| null |  |  |
 
 ## automation
 

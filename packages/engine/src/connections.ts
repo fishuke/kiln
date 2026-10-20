@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { CONNECTION_PROVIDERS, type ConnectionProvider, type ConnectionProviderId, type ConnectionStatus, type StartResult, type TestResult } from "@kiln/integrations";
 import type { Kiln } from "./kiln";
+import { LINK_PROVIDERS, P, type LinkProvider, type User } from "./platform/types";
 import { C } from "./types";
 
 /** A workspace-level connection to one external system. Factories opt in from factory.yaml. */
@@ -245,72 +246,89 @@ export class ConnectionService {
   }
 }
 
-/** Provider identities linked to Kiln people (Slack, Teams and Discord sign-in, GitHub OAuth, email match). */
-export type IdentityLink = { id: string; provider: string; externalId: string; subject: string; displayName?: string; tenant?: string; linkedAt: string };
-type LinkToken = { id: string; provider: string; externalId: string; displayName?: string; tenant?: string; createdAt: string };
+/**
+ * Sign-in flows on top of users' linked accounts (`User.linkedAccounts`, the one store of who a
+ * provider identity is): chat `sign in` tokens for Slack, Teams and Discord, and GitHub OAuth for a
+ * signed-in user. Lookups go through the users service.
+ */
+export type IdentityLink = { id: string; provider: string; externalId: string; subject: string; userId: string; displayName?: string; linkedAt: string };
+type LinkToken = { id: string; provider: string; externalId: string; displayName?: string; userId?: string; createdAt: string };
+
+const asLinkProvider = (provider: string): LinkProvider => {
+  if (!(LINK_PROVIDERS as readonly string[]).includes(provider)) throw new ConnectionError(`accounts from ${provider} can't be linked`);
+  return provider as LinkProvider;
+};
 
 export class IdentityService {
   constructor(private readonly k: Kiln) {}
 
+  /** The person (email) behind a provider identity, when one is linked or the identity is an email. */
   lookup(provider: string, externalId: string): string | undefined {
-    const hit = this.k.store.get<IdentityLink>(C.identityLinks, `${provider}:${externalId}`)?.subject;
-    if (hit) return hit;
-    // Linear and Jira identify people by email.
+    const linked = this.k.users.byIdentity(provider, externalId);
+    if (linked) return linked.email;
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(externalId) ? externalId : undefined;
   }
 
+  /** Every linked account, flattened (optionally for one person). */
   list(subject?: string): IdentityLink[] {
-    return this.k.store.list<IdentityLink>(C.identityLinks, (l) => !subject || l.subject === subject);
+    return this.k.store
+      .list<User>(P.users, (u) => !subject || u.email === subject)
+      .flatMap((u) => u.linkedAccounts.map((a) => ({ id: `${a.provider}:${a.externalId}`, provider: a.provider, externalId: a.externalId, subject: u.email, userId: u.id, displayName: a.handle, linkedAt: a.linkedAt })));
   }
 
   /** A one-hour token a chat user opens in the browser to link their account (the `sign in` command). */
-  startLink(provider: string, externalId: string, extra: { displayName?: string; tenant?: string } = {}): { token: string; url: string } {
+  startLink(provider: string, externalId: string, extra: { displayName?: string } = {}): { token: string; url: string } {
+    asLinkProvider(provider);
     const t: LinkToken = { id: randomBytes(18).toString("base64url"), provider, externalId, createdAt: this.k.clock.now().toISOString(), ...extra };
     this.k.store.put(C.linkTokens, t);
     return { token: t.id, url: this.k.link(`/link?token=${t.id}`) };
   }
 
-  claim(token: string, subject: string): IdentityLink {
+  private take(token: string): LinkToken {
     const t = this.k.store.get<LinkToken>(C.linkTokens, token);
-    if (!t || this.k.clock.now().getTime() - Date.parse(t.createdAt) > 3600_000) throw new ConnectionError("this sign-in link expired; ask the bot for a new one");
+    if (!t || this.k.clock.now().getTime() - Date.parse(t.createdAt) > 3600_000) throw new ConnectionError("this link expired; ask for a new one");
     this.k.store.delete(C.linkTokens, token);
-    return this.link(t.provider, t.externalId, subject, { displayName: t.displayName, tenant: t.tenant });
+    return t;
   }
 
-  link(provider: string, externalId: string, subject: string, extra: { displayName?: string; tenant?: string } = {}): IdentityLink {
-    const l: IdentityLink = { id: `${provider}:${externalId}`, provider, externalId, subject, linkedAt: this.k.clock.now().toISOString(), ...extra };
-    this.k.store.put(C.identityLinks, l);
-    this.k.audit(subject, "identity.linked", l.id);
-    return l;
+  /** The signed-in user claims a chat sign-in token: the chat account joins their linked accounts. */
+  claim(token: string, userId: string): User {
+    const t = this.take(token);
+    if (t.userId) throw new ConnectionError("this link is not a chat sign-in link");
+    return this.k.users.link(userId, asLinkProvider(t.provider), t.externalId, t.displayName);
   }
 
-  /** Teams `sign out` unlinks the person everywhere in that Microsoft organization. */
-  unlink(provider: string, externalId: string, opts: { tenant?: string } = {}): number {
-    const target = this.k.store.get<IdentityLink>(C.identityLinks, `${provider}:${externalId}`);
-    if (!target) return 0;
-    const all = this.k.store.list<IdentityLink>(C.identityLinks, (l) => l.provider === provider && l.subject === target.subject && (!opts.tenant || !l.tenant || l.tenant === opts.tenant));
-    for (const l of all) this.k.store.delete(C.identityLinks, l.id);
-    this.k.audit(target.subject, "identity.unlinked", `${provider}:${externalId}`, { count: all.length });
-    return all.length;
+  /** Link an account for the user with this email (admin tools, tests, migrations). */
+  link(provider: string, externalId: string, subject: string, extra: { displayName?: string } = {}): User {
+    const user = this.k.users.byEmail(subject);
+    if (!user) throw new ConnectionError(`no Kiln user ${subject}`);
+    return this.k.users.link(user.id, asLinkProvider(provider), externalId, extra.displayName);
   }
 
-  /** A state for an OAuth account-linking flow (GitHub user OAuth) on behalf of a signed-in person. */
-  startOAuthLink(provider: string, subject: string): string {
-    const t: LinkToken = { id: `oauth_${randomBytes(18).toString("base64url")}`, provider, externalId: `pending:${subject}`, createdAt: this.k.clock.now().toISOString() };
+  /** Teams `sign out`: unlink that account. Returns how many links were removed. */
+  unlink(provider: string, externalId: string): number {
+    const user = this.k.users.byIdentity(provider, externalId);
+    if (!user) return 0;
+    this.k.users.unlink(user.id, asLinkProvider(provider));
+    return 1;
+  }
+
+  /** A state for OAuth account linking (GitHub user OAuth) on behalf of a signed-in user. */
+  startOAuthLink(provider: string, userId: string): string {
+    asLinkProvider(provider);
+    const t: LinkToken = { id: `oauth_${randomBytes(18).toString("base64url")}`, provider, externalId: "", userId, createdAt: this.k.clock.now().toISOString() };
     this.k.store.put(C.linkTokens, t);
     return t.id;
   }
 
-  /** Finish an OAuth account link: the provider told us who the person is there. */
-  completeOAuthLink(state: string, provider: string, externalId: string, displayName?: string): IdentityLink {
-    const t = this.k.store.get<LinkToken>(C.linkTokens, state);
-    if (!t || t.provider !== provider || !t.externalId.startsWith("pending:") || this.k.clock.now().getTime() - Date.parse(t.createdAt) > 3600_000) throw new ConnectionError("the link request expired; start again");
-    this.k.store.delete(C.linkTokens, state);
-    return this.link(provider, externalId, t.externalId.slice("pending:".length), { displayName });
+  completeOAuthLink(state: string, provider: string, externalId: string, handle?: string): User {
+    const t = this.take(state);
+    if (!t.userId || t.provider !== provider) throw new ConnectionError("this link request is not for this provider; start again");
+    return this.k.users.link(t.userId, asLinkProvider(provider), externalId, handle);
   }
 
   /** The provider id linked to a person (for DMs). */
   externalFor(provider: string, subject: string): string | undefined {
-    return this.k.store.list<IdentityLink>(C.identityLinks, (l) => l.provider === provider && l.subject === subject)[0]?.externalId;
+    return this.k.users.byEmail(subject)?.linkedAccounts.find((a) => a.provider === provider)?.externalId;
   }
 }

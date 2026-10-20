@@ -9,6 +9,7 @@ export type Execution = {
   runner?: string;
   secrets: string[];
   mcpServers: string[];
+  environmentId?: string;
 };
 
 export type ResolvedAgent = Execution & {
@@ -43,9 +44,10 @@ type Layer = {
   runner?: string | null;
   secrets?: string[] | null;
   mcpServers?: string[] | null;
+  environmentId?: string | null;
 };
 
-type Partial = { harness?: HarnessT; model?: string; runner?: string; secrets?: string[]; mcpServers?: string[] };
+type Partial = { harness?: HarnessT; model?: string; runner?: string; secrets?: string[]; mcpServers?: string[]; environmentId?: string };
 
 /**
  * Apply one layer of execution settings over another.
@@ -54,7 +56,7 @@ type Partial = { harness?: HarnessT; model?: string; runner?: string; secrets?: 
  */
 export function applyLayer(base: Partial, layer: Layer): Partial {
   const next: Partial = { ...base };
-  for (const key of ["runner", "secrets", "mcpServers"] as const) {
+  for (const key of ["runner", "secrets", "mcpServers", "environmentId"] as const) {
     if (layer[key] === null) delete next[key];
     else if (layer[key] !== undefined) (next as Record<string, unknown>)[key] = layer[key];
   }
@@ -74,7 +76,7 @@ export function applyLayer(base: Partial, layer: Layer): Partial {
 function toExecution(p: Partial): Execution {
   const harness: HarnessT = p.harness ?? { type: "claude-code" };
   if (!p.harness && p.model) harness.model = p.model;
-  return { harness, runner: p.runner, secrets: p.secrets ?? [], mcpServers: p.mcpServers ?? [] };
+  return { harness, runner: p.runner, secrets: p.secrets ?? [], mcpServers: p.mcpServers ?? [], ...(p.environmentId ? { environmentId: p.environmentId } : {}) };
 }
 
 export function resolve(parsed: ParsedFactory): ResolvedFactory {

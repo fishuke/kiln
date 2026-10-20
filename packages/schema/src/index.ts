@@ -35,6 +35,8 @@ const executionShape = {
   runner: z.string().nullable().optional(),
   secrets: z.array(z.string()).nullable().optional(),
   mcpServers: z.array(z.string()).nullable().optional(),
+  /** A team environment template (id or name): image, repos, setup commands and secrets. */
+  environmentId: z.string().nullable().optional(),
 };
 
 export const ForgeName = z.enum(["github", "gitlab", "azure_devops", "bitbucket"]);
@@ -222,8 +224,7 @@ export const AutomationFrontmatter = z
     displayName: z.string().nullable().optional(),
     triggers: z.array(Trigger).min(1),
     ...executionShape,
-    /** Execution overrides for runs this automation starts. */
-    environmentId: z.string().min(1).nullable().optional(),
+    /** Execution overrides for runs this automation starts (environmentId, runner… come from executionShape). */
     workerHost: z.string().min(1).nullable().optional(),
     computerUseModel: z.string().min(1).nullable().optional(),
     idleTimeoutMinutes: z.number().int().min(1).max(60).optional(),

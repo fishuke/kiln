@@ -19,6 +19,7 @@ export * from "./metrics";
 export * from "./planning";
 export * from "./memories";
 export * from "./skills";
+export * from "./platform";
 export * from "./kiln";
 export * from "./fake-agents";
 export * from "./testing";

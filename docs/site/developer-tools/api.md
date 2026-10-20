@@ -25,6 +25,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | PUT | `/api/v1/me/password` | — | Change your password |
 | PUT | `/api/v1/me/avatar` | — | Upload your avatar (raw image body, at most 1 MiB) |
 | GET | `/api/v1/users/{id}/avatar` | — | A user's uploaded avatar |
+| GET | `/api/v1/me/notifications` | — | Recent notifications Kiln sent you (email, Slack, Discord) and their status |
 | GET | `/api/v1/me/linked-accounts` | — | Your linked accounts (identity mapping) |
 | POST | `/api/v1/me/linked-accounts` | — | Link a GitHub, Slack, Discord, Linear, Jira, Teams, GitLab or Azure DevOps identity |
 | DELETE | `/api/v1/me/linked-accounts/{provider}` | — | Unlink an identity |
@@ -64,6 +65,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | DELETE | `/api/v1/teams/{team}/invites/{inviteId}` | — | Revoke an invite |
 | GET | `/api/v1/teams/{team}/settings` | — | Spend limit, GitHub orgs, sandbox host, egress allowlist, data storage, default factory role |
 | PATCH | `/api/v1/teams/{team}/settings` | — | Change team settings (team admin) |
+| POST | `/api/v1/teams/{team}/storage/{category}/test` | — | Check a storage target (artifacts, transcripts, attachments) by writing and reading an object |
 | GET | `/api/v1/teams/{team}/model-keys` | — | Which team-managed model keys are set |
 | PUT | `/api/v1/teams/{team}/model-keys/{provider}` | — | Set the team's Anthropic, OpenAI, OpenRouter or Bedrock key |
 | DELETE | `/api/v1/teams/{team}/model-keys/{provider}` | — | Remove a team-managed model key |

@@ -585,24 +585,39 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     return c.json(await kiln.skills.install(c.req.param("id"), factory, who(c)));
   });
 
-  // admin
-  app.get("/api/v1/audit", (c) => {
+  // admin: server admins see every team; team owners and admins see their own team
+  const teamAdminScope = (c: Context<Env>) => {
     need(c, "admin", "*");
-    return c.json(kiln.auditLog(Number(c.req.query("limit") ?? 200)));
+    const a = access(c);
+    if (a.serverAdmin) return undefined;
+    if (!a.team) throw new HttpError(403, "team owners and admins only");
+    return a.team.id;
+  };
+  app.get("/api/v1/audit", (c) => {
+    const teamId = teamAdminScope(c);
+    return c.json(kiln.auditLog(Number(c.req.query("limit") ?? 200), teamId));
   });
   app.get("/api/v1/decisions", (c) => {
     const wi = c.req.query("workItem");
     return c.json(kiln.store.list("decision_logs", (d: { id: string; workItemId?: string }) => !wi || d.workItemId === wi).slice(-500));
   });
   app.get("/api/v1/tokens", (c) => {
-    need(c, "admin", "*");
-    return c.json(kiln.store.list<ApiToken>("api_tokens").map(({ hash: _h, ...t }) => t));
+    const teamId = teamAdminScope(c);
+    const members = teamId ? new Set(kiln.teams.members(teamId).map((m) => m.userId)) : undefined;
+    const mine = (t: ApiToken) => !teamId || t.teamId === teamId || (!t.teamId && t.userId !== undefined && members!.has(t.userId));
+    return c.json(kiln.store.list<ApiToken>("api_tokens", mine).map(({ hash: _h, ...t }) => t));
   });
   app.post("/api/v1/tokens", async (c) => {
-    need(c, "admin", "*");
+    const teamId = teamAdminScope(c);
     const body = S.Token.parse(await c.req.json());
-    const { token, record } = issueToken(kiln.store, { ...body, now: kiln.clock.now() });
-    kiln.audit(who(c), "token.issued", record.id, { grants: record.grants });
+    if (teamId) {
+      // A team admin's tokens reach only the team's factories, never every factory.
+      const own = new Set(kiln.teams.factoriesOf(teamId).map((f) => f.id));
+      const outside = body.grants.find((g) => g.factory === "*" || !own.has(g.factory));
+      if (outside) throw new HttpError(403, `team admins can only grant scopes on their team's factories (not ${outside.factory})`);
+    }
+    const { token, record } = issueToken(kiln.store, { ...body, now: kiln.clock.now(), teamId, createdBy: who(c) });
+    kiln.audit(who(c), "token.issued", record.id, { grants: record.grants, team: teamId });
     const { hash: _h, ...rest } = record;
     return c.json({ token, record: rest }, 201);
   });
@@ -621,13 +636,21 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
       publicUrl: kiln.options.publicUrl,
     }),
   );
+  // Server secrets for server admins; for team admins these act on the team's raw secrets.
   app.get("/api/v1/secrets", (c) => {
-    need(c, "admin", "*");
-    return c.json(kiln.secrets.listSecretNames());
+    const teamId = teamAdminScope(c);
+    if (!teamId) return c.json(kiln.secrets.listSecretNames());
+    return c.json(kiln.vault.list({ teamId }).filter((s) => s.scope === "team").map((s) => s.name));
   });
   app.put("/api/v1/secrets/:name", async (c) => {
-    need(c, "admin", "*");
+    const teamId = teamAdminScope(c);
     const { value } = z.object({ value: z.string().min(1) }).parse(await c.req.json());
+    if (teamId) {
+      const name = c.req.param("name");
+      const existing = kiln.vault.getMeta("team", teamId, name);
+      kiln.vault.set({ scope: "team", owner: teamId, name, value, type: existing?.type ?? "raw" }, who(c));
+      return c.json({ ok: true, scope: "team" });
+    }
     kiln.secrets.setSecret(c.req.param("name"), value);
     kiln.audit(who(c), "secret.set", c.req.param("name"));
     return c.json({ ok: true });

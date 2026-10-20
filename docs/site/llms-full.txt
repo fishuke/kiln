@@ -936,6 +936,10 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `blueprint.stages` | object | yes |  |
 | `blueprint.edges` | object |  | default `{}` |
 | `blueprint.staffing` | object | yes |  |
+| `deduplication` | object |  |  |
+| `deduplication.enabled` | boolean |  | default `true` |
+| `deduplication.windowHours` | integer |  | default `24`, min 1, max 720 |
+| `deduplication.threshold` | number |  | default `0.5`, min 0.2, max 1 |
 | `experimental` | object |  |  |
 | `selfImprovement` | object |  |  |
 | `selfImprovement.enabled` | boolean |  | default `true` |
@@ -1079,7 +1083,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `platform.os` | `linux` \| `macos` \| `windows` |  | default `"linux"` |
 | `platform.arch` | `x86_64` \| `aarch64` |  |  |
 | `platform.linux` | object |  |  |
-| `platform.linux.dockerImage` | string | yes |  |
+| `platform.linux.dockerImage` | string |  |  |
 | `platform.linux.registryCredentialSecretName` | string |  |  |
 | `platform.mac` | object |  |  |
 | `platform.mac.version` | `14` \| `15` \| `26` \| `27` |  | default `"26"` |
@@ -1539,6 +1543,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | PUT | `/api/v1/me/password` | — | Change your password |
 | PUT | `/api/v1/me/avatar` | — | Upload your avatar (raw image body, at most 1 MiB) |
 | GET | `/api/v1/users/{id}/avatar` | — | A user's uploaded avatar |
+| GET | `/api/v1/me/notifications` | — | Recent notifications Kiln sent you (email, Slack, Discord) and their status |
 | GET | `/api/v1/me/linked-accounts` | — | Your linked accounts (identity mapping) |
 | POST | `/api/v1/me/linked-accounts` | — | Link a GitHub, Slack, Discord, Linear, Jira, Teams, GitLab or Azure DevOps identity |
 | DELETE | `/api/v1/me/linked-accounts/{provider}` | — | Unlink an identity |
@@ -1578,6 +1583,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | DELETE | `/api/v1/teams/{team}/invites/{inviteId}` | — | Revoke an invite |
 | GET | `/api/v1/teams/{team}/settings` | — | Spend limit, GitHub orgs, sandbox host, egress allowlist, data storage, default factory role |
 | PATCH | `/api/v1/teams/{team}/settings` | — | Change team settings (team admin) |
+| POST | `/api/v1/teams/{team}/storage/{category}/test` | — | Check a storage target (artifacts, transcripts, attachments) by writing and reading an object |
 | GET | `/api/v1/teams/{team}/model-keys` | — | Which team-managed model keys are set |
 | PUT | `/api/v1/teams/{team}/model-keys/{provider}` | — | Set the team's Anthropic, OpenAI, OpenRouter or Bedrock key |
 | DELETE | `/api/v1/teams/{team}/model-keys/{provider}` | — | Remove a team-managed model key |
@@ -2088,6 +2094,12 @@ curl -X POST "$KILN_URL/api/v1/factories/webapp/runs" -H "authorization: Bearer 
 
 The reply has `taskId`, the first `runId` when one started, `runUrl`, `state` and `foremanAgent`. `ticket_ref` is `<source>:<id>` (`linear:`, `jira:`, `github:owner/repo#12`, or anything else, kept as is). `branch` makes the task work on that branch.
 
+**One task per incident**: a report that matches an open task joins it instead of starting new work. The match is by identity first: `correlation_key` (an incident id or alert fingerprint), alert payload fields such as `fingerprint`, `dedup_key` or `incident_id`, the tracker issue, the source URL or the pull request. Reports from a different source (an alert and a Slack message) also match by content when they share enough salient words such as service names, hosts and error codes. The reply then carries `deduplicated: { into, reason, score }` (`POST /api/v1/work-items` answers 200 instead of 201), the report and its files are added to the task, and every place it was reported hears the updates. Pass `"dedupe": false` to always start a new task. The triage agent can also fold a task into an open one it recognises as the same work. Tune it per factory:
+
+```yaml
+deduplication: { enabled: true, windowHours: 24, threshold: 0.5 }
+```
+
 **Modes**: `normal`; `plan` (the factory always writes a plan or spec first and waits for a person to approve it before anything is built); `orchestrate` (the foreman and implement agents are told to split the work across subagents).
 
 ## Task stages
@@ -2345,6 +2357,10 @@ Treat this as an incident report.
 ```
 
 Store `ALERTS_WEBHOOK_SECRET` in Kiln and point your alerting tool at `POST /webhooks/oncall/alerts`. The alert's `title` or `summary` field becomes the work item's title. See [Automations](../configuration/automations.md#webhooks).
+
+## One task per incident
+
+An alarm usually arrives from more than one place: the alert webhook fires, then someone posts in Slack. Kiln keeps one task for the incident. Alerts that carry the same `fingerprint`, `dedup_key` or `incident_id` join the open task, and a Slack report that names the same service and error code joins it by content. Both threads then get the updates. Set `deduplication: { windowHours: 6 }` in `factory.yaml` to compare only recent tasks, or `enabled: false` to turn it off. See [Tasks and runs](../developer-tools/tasks-and-runs.md#dispatching-work).
 
 ## 8. Validate and apply
 
@@ -2843,6 +2859,7 @@ egress:
 | `shape` | none | `vcpus` and `memoryGb`. Sets CPU and memory limits. |
 | `setupCommands` | `[]` | Run in order after the repositories are cloned. A failing command fails the run. |
 | `egress` | `[]` | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed. |
+| `platform.linux.registryCredentialSecretName` | none | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images). |
 | `description` | none | |
 
 An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses `node:22-bookworm` on the server's default backend, which is `local` unless the server sets another.
@@ -3123,6 +3140,8 @@ Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscrip
 | `KILN_OPEN_SIGNUP=1` | Anyone may sign up and join the default team. Otherwise, after the first owner, signup needs an invite. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Turn on GitHub login. The OAuth app's callback URL is `<KILN_PUBLIC_URL>/api/v1/auth/github/callback`. `GITHUB_OAUTH_URL` and `GITHUB_API_URL` point at GitHub Enterprise. |
 | `KILN_SECRET_KEY` | Seals team and personal secrets with AES-256-GCM, and signs run tokens. Set it, and keep it stable across restarts. |
+| `KILN_ADMIN_EMAILS` | Comma-separated emails of server admins. They see every team's audit log, tokens and server secrets. Team owners and admins see only their own team. |
+| `KILN_SMTP_URL`, `KILN_MAIL_FROM` | Email notifications, for example `smtp://user:pass@mail.acme.test:587?from=kiln@acme.test`. |
 | `KILN_DEV_AUTH=1` | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team. |
 
 ### Identities
@@ -4210,7 +4229,16 @@ A token belongs to a subject (a person or a service), has a name, a list of gran
 
 Send it as `Authorization: Bearer <token>` to the API, and configure it in your MCP client for the Kiln MCP. See the [API overview](../developer-tools/api.md) and the [MCP reference](../developer-tools/mcp.md).
 
-Only tokens with `admin` on `*` (or team owners and admins) can issue scoped tokens, list them, manage server secrets and read the audit log.
+Only server admins and team owners and admins can issue scoped tokens, list them, manage secrets and read the audit log.
+
+### Server admins and team admins
+
+| Who | Audit log | Token list | `GET`/`PUT /api/v1/secrets` | Issuing scoped tokens |
+| --- | --- | --- | --- | --- |
+| Server admin: the bootstrap admin token (`admin` on `*`), dev auth, or a user listed in `KILN_ADMIN_EMAILS` | Every team | Every token | The server's secret store | Any grants |
+| Team owner or admin | Their current team only | Tokens of their team and its members | The team's raw secrets | Only on their team's factories, never `*`. The token belongs to the team. |
+
+Kiln records the team of each audit entry from what it is about: the factory, work item, run, gate, secret, token, team or user. When a factory moves to another team, its history moves with it.
 
 ### Token types
 
@@ -4278,7 +4306,7 @@ Agents never get API tokens. Each run gets its own run token, valid for 60 minut
 
 ## Secrets
 
-Admins store named secrets, such as webhook secrets and API keys, in Kiln. Listing secrets returns names only; values never leave the server through the API. When a secret is not in the store, Kiln looks for the server environment variable `KILN_SECRET_<NAME>`. The only plain environment variables Kiln reads as secrets are model-provider keys: `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY`. This way an agent definition cannot ask for the server's own credentials by name. Listing secrets includes names found in the environment.
+Server admins store named secrets, such as webhook secrets and API keys, in Kiln. (For a team admin, the same endpoints read and write the team's raw secrets.) Listing secrets returns names only; values never leave the server through the API. When a secret is not in the store, Kiln looks for the server environment variable `KILN_SECRET_<NAME>`. The only plain environment variables Kiln reads as secrets are model-provider keys: `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY`. This way an agent definition cannot ask for the server's own credentials by name. Listing secrets includes names found in the environment.
 
 These server secrets are the last place Kiln looks. Typed team and personal secrets, which most teams should use, are described in [Secrets, MCP servers and environments](secrets-mcps-environments.md).
 
@@ -4289,7 +4317,7 @@ Kiln writes an entry with the time, the actor, the action and the target for:
 | Area | Actions |
 | --- | --- |
 | Definitions | `definition.applied` (with SHA, diff and canary share), `definition.rejected` (with errors), `canary.promoted`, `canary.rolled_back` |
-| Work items | `work_item.created`, `work_item.cancelled`, `notify.failed` |
+| Work items | `work_item.created`, `work_item.cancelled`, `notify.failed` (posting back to a thread or issue, or a notification to a person), `transcript.failed` |
 | Gates | `gate.approve`, `gate.reject`, `gate.answer`, with the surface used |
 | Runs | `run.steered` (with the message), `run.cancelled`, `run.paused`, `run.resumed` |
 | Self-improvement | `proposal.opened`, `proposal.approved`, `proposal.force_approved`, `proposal.rejected`, `proposal.empty`, `proposal.invalid` |
@@ -4473,8 +4501,8 @@ When both scopes have a secret with the same name, a run you triggered gets your
 | Type | Value | Gives the run |
 | --- | --- | --- |
 | `raw` | a string | An environment variable named after the secret |
-| `docker_registry` | `{ host, username, password }` | Nothing in the environment. It is a private image credential. |
-| `aws_ecr` | `{ roleArn, region }` (team scope only) | Nothing in the environment. It is an image credential. |
+| `docker_registry` | `{ host, username, password }` | Nothing in the environment. It is a private image credential. See [Private images](#private-images). |
+| `aws_ecr` | `{ roleArn, region }` (team scope only) | Nothing in the environment. It is an image credential. See [Private images](#private-images). |
 | `anthropic_api_key` | a string | `ANTHROPIC_API_KEY` |
 | `claude_oauth_token` | a string from `claude setup-token` | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `anthropic_bedrock_api_key` | a string, or `{ apiKey, region }` | `AWS_BEARER_TOKEN_BEDROCK`, `AWS_REGION`, `CLAUDE_CODE_USE_BEDROCK=1` |
@@ -4558,6 +4586,26 @@ At run time:
 
 Manage environments with `GET`, `POST`, `PATCH` and `DELETE /api/v1/environments`.
 
+## Private images
+
+A runner pulls a private image with a team secret of type `docker_registry` or `aws_ecr`:
+
+```yaml
+# runners/private.yaml
+image: ghcr.io/acme/runner:2
+backend: docker
+platform:
+  linux:
+    registryCredentialSecretName: GHCR
+```
+
+An environment does the same with `registryCredentialSecretName` next to its `image`. That credential is used when the agent names no runner.
+
+- **`docker_registry`:** the secret's `host` must be the image's registry. Bare names such as `acme/runner` are on Docker Hub (`docker.io`).
+- **`aws_ecr`:** the image must be on an ECR registry (`<account>.dkr.ecr.<region>.amazonaws.com`). Kiln gets a short-lived password by running `aws ecr get-login-password --region <region>` on the server, with `AWS_ROLE_ARN` set to the secret's role. The server's AWS credentials must be allowed to call `ecr:GetAuthorizationToken`.
+- **Docker** pulls with a temporary `DOCKER_CONFIG` that is deleted right after the pull. The credential never enters the container.
+- **Kubernetes** gets a `kubernetes.io/dockerconfigjson` Secret as the pod's `imagePullSecrets`. Kiln deletes it with the sandbox.
+
 ## Related pages
 
 - [Teams and users](teams-and-users.md)
@@ -4634,10 +4682,26 @@ Owners and admins invite people by email with a role (`POST /api/v1/teams/<team>
 | `githubOrgs` | `[]` | Enabled GitHub orgs. When the list is not empty, the team's factories may only use GitHub repositories owned by these orgs. |
 | `defaultSandboxHost` | not set | `local`, `docker` or `kubernetes`. Used for runs whose agent names no runner. |
 | `egressAllowlist` | `[]` | Hosts added to every run's egress allowlist. |
-| `storage.artifacts`, `storage.transcripts`, `storage.attachments` | `{ kind: local }` | Where each kind of data should go: a local folder (`path`) or an S3-compatible bucket (`bucket`, `region`, optional `endpoint`, `prefix`, `forcePathStyle`, and the names of team secrets holding the access key). |
+| `storage.artifacts`, `storage.transcripts`, `storage.attachments` | `{ kind: local }` | Where each kind of data goes. See [Data storage](#data-storage). |
 | `defaultFactoryRole` | `user` | The factory role every member has on the team's factories: `none`, `user` or `editor`. |
 
-Kiln validates and stores the `storage` settings, but files are still written to the server's object store (`KILN_DATA_DIR/objects`). Writing to a team's own bucket is not built yet.
+### Data storage
+
+Each team chooses where three kinds of data go:
+
+| Category | What | Object keys |
+| --- | --- | --- |
+| `artifacts` | Screenshots, recordings and reports that runs save | `runs/<run id>/<file>` |
+| `transcripts` | Each run's events as JSON lines, written when the run finishes | `transcripts/<run id>.jsonl` |
+| `attachments` | Files people attach to requests | `attachments/<team id>/…` |
+
+A target is one of:
+
+- `{ kind: local }`: the server's object store (`KILN_DATA_DIR/objects`). This is the default.
+- `{ kind: local, path: "acme/artifacts" }`: a folder under the server's storage root (`KILN_DATA_DIR/storage`). The path must stay inside the root.
+- `{ kind: s3, bucket, region, endpoint?, prefix?, forcePathStyle?, accessKeyIdSecret?, secretAccessKeySecret? }`: an S3-compatible bucket, such as AWS S3, MinIO or Cloudflare R2. Kiln signs requests itself (SigV4). Put the access key in two team secrets and name them here. Without them Kiln uses the server's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`. With an `endpoint`, Kiln uses path-style URLs unless `forcePathStyle: false`.
+
+Kiln remembers where each object went, so changing the settings later does not lose anything. Existing objects are not moved. Check a target with `POST /api/v1/teams/<team>/storage/<category>/test`, which writes a small object and reads it back.
 
 Team-managed model keys (Anthropic, OpenAI, OpenRouter, Bedrock) are team secrets with fixed names. See [Secrets, MCP servers and environments](secrets-mcps-environments.md#team-managed-model-keys).
 
@@ -4674,9 +4738,19 @@ Expiry is `1d`, `30d` (the default), `90d` or `never`. The key list shows when e
 - `name` and `email`.
 - `avatar`: a URL, or `null` to clear it. You can also upload an image with `PUT /api/v1/me/avatar` (PNG, JPEG, GIF, WebP or SVG, at most 1 MiB).
 - `appearance`: `light`, `dark` or `system`.
-- `notifications`: for each inbox kind (`spec`, `preview`, `question`, `merge`, `custom`), whether to notify by `email`, `slack` and `discord`.
+- `notifications`: for each kind (`spec`, `preview`, `question`, `merge` (pull request review), `custom`, `blocked`, `failed`), whether to notify by `email`, `slack` and `discord`.
+- `digest`: `{ daily, hourUtc, channels, only }`. With `daily: true`, Kiln sends one summary of the decisions waiting on you each day at or after `hourUtc`. With `only: true`, it sends nothing right away.
 
 Change your password with `PUT /api/v1/me/password`.
+
+### Notifications
+
+When a gate opens (a spec, preview, question, pull request review or custom decision), Kiln notifies its assignees. When work moves to `blocked` or `failed`, it notifies the requester. Only people with an account are notified, and only on the channels their preferences allow:
+
+- **Email:** set `KILN_SMTP_URL` on the server, for example `smtp://user:password@mail.acme.test:587?from=kiln@acme.test`, or `smtps://…:465` for implicit TLS. Kiln upgrades to STARTTLS when the server offers it. `KILN_MAIL_FROM` sets the sender.
+- **Slack and Discord:** a direct message to your linked account, through the chat integration for that provider.
+
+`GET /api/v1/me/notifications` lists what Kiln sent you and whether it arrived. Failed deliveries are also in the audit log as `notify.failed`.
 
 `GET /api/v1/me` returns your user, your teams, the current team, your role in it, your role on each factory, and the token's grants.
 

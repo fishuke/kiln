@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { FakeProvider, type DecisionOutcome, type DecisionProvider } from "@kiln/decide";
 import { InMemoryEventBus } from "@kiln/events";
 import { adapterFor, type HarnessAdapter } from "@kiln/harness";
-import type { Chat, ConnectionProvider, ConnectionProviderId, Forge, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
+import type { Chat, ConnectionProvider, ConnectionProviderId, Forge, Mailer, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
 import { ConnectionService, IdentityService } from "./connections";
 import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
 import { WebhookSourceService } from "./webhook-sources";
@@ -26,7 +26,7 @@ import { ImprovementService, RuleImprover, type Improver } from "./improvement";
 import { InboxService } from "./inbox";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
-import { AccountService, EnvironmentService, McpRegistry, SecretVault, TeamService, UsageService, UserService } from "./platform";
+import { AccountService, EnvironmentService, McpRegistry, NotificationService, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
 import { PlanningService, type Planner } from "./planning";
 import { RunQuery } from "./run-query";
 import { RunService } from "./runs";
@@ -69,6 +69,16 @@ export type KilnOptions = {
   canaryPercent?: number;
   canaryDays?: number;
   secretKey?: string;
+  /** Server admins (KILN_ADMIN_EMAILS): users who see every team's audit log, tokens and server secrets. */
+  serverAdmins?: string[];
+  /** Email for notifications (KILN_SMTP_URL). */
+  mailer?: Mailer;
+  /** Chat adapters for direct-message notifications, by provider key; the main `chat` is used when it is real. */
+  chats?: Partial<Record<"slack" | "discord", Chat>>;
+  /** ECR pull passwords for aws_ecr registry credentials (default: the AWS CLI). */
+  ecr?: EcrTokenProvider;
+  /** Root folder for teams' local storage folders (default .data/storage). */
+  storageRoot?: string;
   /** Token used when Kiln itself commits to config repos (GitHub App installation token). */
   forgeToken?: string;
   /** Attempts per run for retryable platform errors (default 3). */
@@ -138,10 +148,14 @@ export class Kiln {
   readonly mcp: McpRegistry;
   readonly environments: EnvironmentService;
   readonly usage: UsageService;
+  /** Routes artifacts, transcripts and attachments to each team's storage; `objects` is this router. */
+  readonly storage: StorageRouter;
+  readonly notifications: NotificationService;
 
   constructor(readonly options: KilnOptions) {
     this.store = options.store ?? new MemoryStore();
-    this.objects = options.objects ?? new MemoryObjectStore();
+    this.storage = new StorageRouter(this, options.objects ?? new MemoryObjectStore());
+    this.objects = this.storage;
     this.clock = options.clock ?? systemClock;
     this.bus = new InMemoryEventBus(() => this.clock.now());
     this.forge = options.forge;
@@ -200,6 +214,8 @@ export class Kiln {
       const wi = this.workflow.get(e.payload.workItemId);
       if (wi) await this.integrations.onStageChanged(wi, e.payload.to);
     });
+    this.notifications = new NotificationService(this);
+    this.notifications.subscribe();
 
     // `provider: factory, event: work_item_stage_changed` automations react to stage changes in their own factory.
     this.bus.subscribe("work_item.stage_changed", async (e) => {
@@ -227,12 +243,43 @@ export class Kiln {
 
   audit(actor: string, action: string, target: string, details?: unknown) {
     const entry: AuditEntry = { id: newId("audit"), at: this.clock.now().toISOString(), actor, action, target, details };
+    const team = this.auditTeam(target, details);
+    if (team) entry.team = team;
     this.store.put(C.audit, entry);
   }
 
-  auditLog(limit = 200): AuditEntry[] {
+  /** The team an audit entry belongs to, from its target or details, so team admins see only their team's log. */
+  private auditTeam(target: string, details: unknown): string | undefined {
+    const d = (details ?? {}) as Record<string, unknown>;
+    if (typeof d.team === "string" && d.team.startsWith("team_")) return d.team;
+    if (target.startsWith("team_")) return target;
+    if (target.startsWith("usr_")) return this.teams.teamsOf(target)[0]?.id;
+    const scoped = /^(?:team):(team_[^:]+):/.exec(target);
+    if (scoped) return scoped[1];
+    const personal = /^personal:([^:]+):/.exec(target);
+    if (personal) return this.teams.teamsOf(personal[1]!)[0]?.id;
+    try {
+      if (this.defs.get(target)) return this.teams.factoryTeam(target);
+      const wi = target.startsWith("wi_") ? this.store.get<WorkItem>(C.workItems, target) : undefined;
+      if (wi) return this.teams.factoryTeam(wi.factory);
+      const run = target.startsWith("run_") ? this.store.get<{ id: string; factory: string; team?: string }>(C.runs, target) : undefined;
+      if (run) return run.team ?? this.teams.factoryTeam(run.factory);
+      const owned = this.store.get<{ id: string; factory?: string; teamId?: string }>(C.gates, target) ?? this.store.get(C.proposals, target) ?? this.store.get(C.memories, target) ?? this.store.get("mcp_servers", target) ?? this.store.get("environments", target);
+      if (owned?.teamId) return owned.teamId;
+      if (owned?.factory) return this.teams.factoryTeam(owned.factory);
+      const token = target.startsWith("tok_") ? this.store.get<{ id: string; teamId?: string; userId?: string }>("api_tokens", target) : undefined;
+      if (token?.teamId) return token.teamId;
+      if (token?.userId) return this.teams.teamsOf(token.userId)[0]?.id;
+      if (typeof d.factory === "string" && this.defs.get(d.factory)) return this.teams.factoryTeam(d.factory);
+    } catch {
+      /* attribution is best effort */
+    }
+    return undefined;
+  }
+
+  auditLog(limit = 200, team?: string): AuditEntry[] {
     return this.store
-      .list<AuditEntry>(C.audit)
+      .list<AuditEntry>(C.audit, (a) => !team || a.team === team)
       .sort((a, b) => b.at.localeCompare(a.at))
       .slice(0, limit);
   }
@@ -312,6 +359,7 @@ export class Kiln {
     await this.automations.tick();
     this.workers.tick();
     for (const f of this.defs.list()) if (f.migration) await this.editor.completeMigration(f.id).catch(() => false);
+    await this.notifications.tick();
     for (const wi of this.workflow.list()) {
       if (wi.blockedReason === "waiting for CI" && wi.state === "building") await this.workflow.advance(wi.id);
     }

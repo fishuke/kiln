@@ -7,3 +7,6 @@ export * from "./mcp";
 export * from "./environments";
 export * from "./usage";
 export * from "./access";
+export * from "./storage";
+export * from "./registry";
+export * from "./notifications";

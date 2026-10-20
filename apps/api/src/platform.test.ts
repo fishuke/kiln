@@ -10,8 +10,8 @@ import { createApp, type AppOptions } from "./app";
 
 const pw = "correct horse battery";
 
-function setup(opts: AppOptions & { harnessCost?: number } = {}) {
-  const t = createTestKiln({ preview: false, webUrl: "http://web.test", publicUrl: "http://kiln.test", ...(opts.harnessCost !== undefined ? { harness: () => new FakeHarness(async () => ({ summary: "ok", costUsd: opts.harnessCost })) } : {}) });
+function setup(opts: AppOptions & { harnessCost?: number; serverAdmins?: string[] } = {}) {
+  const t = createTestKiln({ preview: false, webUrl: "http://web.test", publicUrl: "http://kiln.test", serverAdmins: opts.serverAdmins, ...(opts.harnessCost !== undefined ? { harness: () => new FakeHarness(async () => ({ summary: "ok", costUsd: opts.harnessCost })) } : {}) });
   let app: ReturnType<typeof createApp>;
   const inProcess = async (input: string | URL | Request, init?: RequestInit) => app.fetch(new Request(input as string, init));
   app = createApp(t.kiln, { mcp: createMcpHandler("http://kiln.test", inProcess), ...opts });
@@ -137,10 +137,12 @@ describe("teams API", () => {
       githubOrgs: ["acme"],
       egressAllowlist: ["registry.npmjs.org"],
       defaultSandboxHost: "local",
-      storage: { artifacts: { kind: "s3", bucket: "kiln-artifacts", region: "eu-west-1" }, transcripts: { kind: "local" }, attachments: { kind: "local", path: "/data/att" } },
+      storage: { artifacts: { kind: "s3", bucket: "kiln-artifacts", region: "eu-west-1" }, transcripts: { kind: "local" }, attachments: { kind: "local", path: "att" } },
     });
     expect(next.storage.artifacts).toMatchObject({ kind: "s3", bucket: "kiln-artifacts" });
     await expect(o.updateTeamSettings("default", { storage: { artifacts: { kind: "gcs" } } } as never)).rejects.toMatchObject({ status: 400 });
+    await expect(o.updateTeamSettings("default", { storage: { ...next.storage, attachments: { kind: "local", path: "/etc" } } })).rejects.toMatchObject({ status: 400 });
+    expect(await o.testStorage("default", "transcripts")).toEqual({ ok: true });
     const png = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
     const team = await o.uploadTeamAvatar("default", png, "image/png");
     expect(team.avatar).toMatch(/^\/api\/v1\/teams\/team_.+\/avatar/);
@@ -213,6 +215,9 @@ describe("user settings API", () => {
     const me = await member.c.updateMe({ name: "Max M", appearance: "dark", notifications: { spec: { email: false, slack: true, discord: true } } });
     expect(me).toMatchObject({ name: "Max M", appearance: "dark", notifications: { spec: { email: false, slack: true, discord: true }, preview: { email: true } } });
     await expect(member.c.updateMe({ email: "olga@acme.test" })).rejects.toMatchObject({ status: 409 });
+    expect((await member.c.updateMe({ digest: { daily: true, hourUtc: 7 } })).digest).toEqual({ daily: true, hourUtc: 7, channels: ["email"], only: false });
+    await expect(member.c.updateMe({ digest: { hourUtc: 25 } })).rejects.toMatchObject({ status: 400 });
+    expect(await member.c.notifications()).toEqual([]);
     const withAvatar = await member.c.uploadAvatar(new Uint8Array([1, 2, 3]), "image/webp");
     expect(withAvatar.avatar).toMatch(/^\/api\/v1\/users\/usr_.+\/avatar/);
     await expect(member.c.uploadAvatar(new Uint8Array(1024 * 1024 + 1), "image/png")).rejects.toMatchObject({ status: 413 });

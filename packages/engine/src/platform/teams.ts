@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { grantsForFactoryRole, isTeamAdmin, maxFactoryRole, type FactoryRole, type Grant, type TeamRole } from "@kiln/auth";
 import type { Kiln } from "../kiln";
-import { C, newId, type FactoryBinding } from "../types";
+import { C, newId, type AuditEntry, type FactoryBinding } from "../types";
 import { avatarKey, DEFAULT_TEAM_SETTINGS, P, PlatformError, TeamSettings, type FactoryMember, type Invite, type Membership, type Team } from "./types";
 
 const INVITE_DAYS = 7;
@@ -86,6 +86,7 @@ export class TeamService {
   updateSettings(id: string, patch: Partial<TeamSettings>, by: string): TeamSettings {
     const t = this.require(id);
     const settings = TeamSettings.parse({ ...this.settings(id), ...patch });
+    for (const target of Object.values(settings.storage)) if (target.kind === "local" && target.path) this.k.storage.localPath(target.path);
     this.k.store.put(P.teams, { ...t, settings });
     this.k.audit(by, "team.settings_changed", t.id, patch);
     return settings;
@@ -115,6 +116,8 @@ export class TeamService {
     this.require(teamId);
     if (f.team === teamId) return;
     this.k.store.put(C.factories, { ...f, team: teamId });
+    // The factory's history moves with it, so the old team no longer sees it.
+    for (const a of this.k.store.list<AuditEntry>(C.audit, (x) => x.target === f.id)) this.k.store.put(C.audit, { ...a, team: teamId });
     this.k.audit(by, "factory.team_assigned", f.id, { team: teamId, from: f.team });
   }
 

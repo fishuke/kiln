@@ -222,6 +222,8 @@ export type Run = {
   userId?: string;
   /** The environment template the run started from. */
   environmentId?: string;
+  /** Object key of the run's event transcript (JSON lines), stored per the team's transcript storage. */
+  transcriptKey?: string;
   startedAt: string;
   finishedAt?: string;
 };
@@ -400,7 +402,7 @@ export type BenchmarkResult = {
   at: string;
 };
 
-export type AuditEntry = { id: string; at: string; actor: string; action: string; target: string; details?: unknown };
+export type AuditEntry = { id: string; at: string; actor: string; action: string; target: string; details?: unknown; /** The team it belongs to, when Kiln can tell. */ team?: string };
 
 /** A file someone uploaded; the bytes live in the object store under `key`. */
 export type Upload = Attachment & { id: string; uploader: string; factory?: string; createdAt: string };

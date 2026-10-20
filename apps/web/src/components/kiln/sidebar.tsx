@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpen, Boxes, FolderKanban, Inbox, KeyRound, LayoutList, MessageSquarePlus, Plug, Plus, Puzzle, ScrollText, Search, Sparkles, Users } from "lucide-react";
+import { BookOpen, Boxes, Inbox, KeyRound, LayoutList, MessageSquarePlus, Plug, Plus, Puzzle, ScrollText, Search, Sparkles, Users } from "lucide-react";
 import type { FactorySummary } from "@kiln/sdk-ts";
 import { NavLink } from "./nav-link";
 
@@ -43,9 +43,6 @@ export function Sidebar({ factories, inboxCount, subject, mode }: { factories: F
         </NavLink>
         <NavLink href="/runs">
           <LayoutList className="size-4" /> Runs
-        </NavLink>
-        <NavLink href="/po">
-          <FolderKanban className="size-4" /> PO workspace
         </NavLink>
         <NavLink href="/projects">
           <Boxes className="size-4" /> Projects

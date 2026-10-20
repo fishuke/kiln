@@ -17,9 +17,10 @@ import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { openApiDocument } from "./openapi";
+import { registerModules } from "./routes";
 import * as S from "./schemas";
 
-type Env = { Variables: { token: ApiToken } };
+export type Env = { Variables: { token: ApiToken } };
 
 export class HttpError extends Error {
   constructor(
@@ -40,6 +41,16 @@ export type AppOptions = {
 };
 
 const GATE_SCOPE: Record<Gate["kind"], Scope> = { spec: "decide:spec", preview: "decide:preview", question: "decide:question", merge: "decide:merge", custom: "decide:merge" };
+
+/** What a route module gets: the app, the Kiln container and the auth helpers. */
+export type RouteContext = {
+  app: Hono<Env>;
+  kiln: Kiln;
+  options: AppOptions;
+  need: (c: Context<Env>, scope: Scope, factory: string | "*") => void;
+  who: (c: Context<Env>) => string;
+  visible: (c: Context<Env>, factory: string) => boolean;
+};
 
 export function createApp(kiln: Kiln, options: AppOptions = {}) {
   const app = new Hono<Env>();
@@ -546,6 +557,7 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     return c.json({ ok: true });
   });
 
+  registerModules({ app, kiln, options, need, who, visible });
   return app;
 }
 

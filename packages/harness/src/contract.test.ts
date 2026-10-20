@@ -175,6 +175,32 @@ describe("claude code specifics", () => {
     expect(files["app/.claude/settings.json"]).toBeUndefined();
     expect(spawned[0]).toEqual(expect.arrayContaining(["--output-format", "stream-json", "--model", "m", "--mcp-config", ".kiln/mcp.json", "--settings", ".kiln/claude-settings.json"]));
   });
+
+  it("reports why the process could not start when docker exec prints it on stdout", async () => {
+    // docker exec writes OCI failures (bad cwd, missing binary) to stdout, and its own warnings to stderr.
+    const oci = 'OCI runtime exec failed: exec failed: unable to start container process: exec: "claude": executable file not found in $PATH: unknown';
+    const { sandbox } = scriptedSandbox();
+    sandbox.spawn = (): Proc => {
+      const lines = new EventStream<string>();
+      lines.push(oci);
+      lines.close();
+      return {
+        lines,
+        write: () => {},
+        closeStdin: () => {},
+        kill: () => {},
+        exit: Promise.resolve({ code: 126, stdout: "", stderr: "WARNING: Error loading config file: open /root/.docker/config.json: permission denied\n" }),
+      };
+    };
+    const session = await new ClaudeCodeAdapter().start({ ...base, sandbox });
+    const events = await collect(session.events);
+    const result = await session.result;
+    expect(result.outcome).toBe("failed");
+    expect(result.summary).toContain(oci);
+    const error = events.find((e) => e.type === "error");
+    expect(error?.type === "error" && error.text).toContain(oci);
+    expect(error?.type === "error" && error.text).not.toContain("docker/config.json");
+  });
 });
 
 describe("fake harness", () => {

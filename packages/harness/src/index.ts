@@ -125,6 +125,9 @@ function parseJson(line: string): Record<string, any> | undefined {
   }
 }
 
+/** The docker CLI's own noise on stderr, which says nothing about why the agent stopped. */
+const DOCKER_CLI_WARNING = /^WARNING: Error loading config file/;
+
 /** Shared session plumbing: runs one or more processes in sequence and streams normalized events. */
 abstract class CliSession implements HarnessSession {
   readonly events = new EventStream<HarnessEvent>();
@@ -154,13 +157,23 @@ abstract class CliSession implements HarnessSession {
 
   protected async pump(proc: Proc) {
     this.proc = proc;
+    // Output that is not the CLI's JSON, such as docker exec's "OCI runtime exec failed" (printed on stdout).
+    const plain: string[] = [];
     for await (const line of proc.lines) {
-      if (line.trim()) this.handle(line);
+      if (!line.trim()) continue;
+      if (!parseJson(line)) plain.push(line.trim());
+      this.handle(line);
     }
     const exit = await proc.exit;
     if (exit.code !== 0 && !this.cancelled) {
       this.failed = true;
-      this.emit({ type: "error", text: exit.stderr.trim() || `exited with code ${exit.code}` });
+      const stderr = exit.stderr
+        .split("\n")
+        .filter((l) => l.trim() && !DOCKER_CLI_WARNING.test(l))
+        .join("\n");
+      const text = [stderr, ...plain.slice(-20)].filter(Boolean).join("\n") || `exited with code ${exit.code}`;
+      this.emit({ type: "error", text });
+      if (!this.summary) this.summary = text;
     }
   }
 

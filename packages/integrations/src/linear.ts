@@ -88,7 +88,8 @@ export function normalizeLinear(payload: Payload, deliveryId?: string, options?:
 // ---------------------------------------------------------------------------------------------
 // Agent sessions: live progress inside the Linear issue
 
-export type AgentActivity = { type: "thought" | "action" | "response" | "elicitation" | "error"; body: string; action?: string; parameter?: string; result?: string };
+/** `options` on an elicitation asks with Linear's select signal: the person picks one, and the pick comes back as their reply. */
+export type AgentActivity = { type: "thought" | "action" | "response" | "elicitation" | "error"; body: string; action?: string; parameter?: string; result?: string; options?: string[] };
 
 export interface LinearAgentApi {
   /** Post progress into a session (thought / action / response / elicitation / error). */
@@ -135,7 +136,8 @@ export class HttpLinearAgentApi implements LinearAgentApi {
     const content: Record<string, unknown> = { type: activity.type };
     if (activity.type === "action") Object.assign(content, { action: activity.action ?? activity.body, parameter: activity.parameter ?? "", ...(activity.result ? { result: activity.result } : {}) });
     else content.body = activity.body;
-    await this.gql(`mutation($input: AgentActivityCreateInput!) { agentActivityCreate(input: $input) { success } }`, { input: { agentSessionId: sessionId, content } });
+    const select = activity.type === "elicitation" && activity.options?.length ? { signal: "select", signalMetadata: { options: activity.options.map((value) => ({ value })) } } : {};
+    await this.gql(`mutation($input: AgentActivityCreateInput!) { agentActivityCreate(input: $input) { success } }`, { input: { agentSessionId: sessionId, content, ...select } });
   }
 
   async attachLink(issueId: string, url: string, title: string) {

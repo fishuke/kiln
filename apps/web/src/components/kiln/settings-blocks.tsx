@@ -104,21 +104,21 @@ export function ConnectedBadge({ children = "Connected", tone = "green" }: { chi
 /** The large grey panel used for empty lists (Secrets, Environments). */
 export function EmptyPanel({ title, children, actions }: { title: string; children?: React.ReactNode; actions?: React.ReactNode }) {
   return (
-    <div className="m-4 flex min-h-[calc(100vh-6rem)] flex-col items-center justify-center rounded-lg bg-muted px-6 text-center">
+    <div className="mx-4 mb-4 flex min-h-[calc(100vh-4.5rem)] flex-col items-center justify-center rounded-lg bg-muted px-6 text-center">
       <div className="text-base font-semibold text-foreground/70">{title}</div>
-      {children && <div className="mt-1 max-w-lg text-sm text-muted-foreground">{children}</div>}
+      {children && <div className="mt-1 max-w-xl text-sm text-muted-foreground">{children}</div>}
       {actions && <div className="mt-4 flex gap-3">{actions}</div>}
     </div>
   );
 }
 
 /** Small centered empty state with an icon circle (MCPs and apps). */
-export function EmptyIcon({ icon, title, children, action }: { icon: React.ReactNode; title: string; children?: React.ReactNode; action?: React.ReactNode }) {
+export function EmptyIcon({ icon, title, children, action, className }: { icon: React.ReactNode; title: string; children?: React.ReactNode; action?: React.ReactNode; className?: string }) {
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center text-center">
+    <div className={cn("flex min-h-[60vh] flex-col items-center justify-center px-6 text-center", className)}>
       <div className="mb-3 flex size-10 items-center justify-center rounded-full border text-muted-foreground">{icon}</div>
       <div className="text-sm font-semibold">{title}</div>
-      {children && <div className="mt-1 max-w-sm text-xs text-muted-foreground">{children}</div>}
+      {children && <div className="mt-1 max-w-md text-xs text-muted-foreground">{children}</div>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );

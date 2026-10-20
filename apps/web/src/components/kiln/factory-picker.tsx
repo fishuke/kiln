@@ -21,11 +21,11 @@ export function FactoryPicker({ factories, value, onChange }: { factories: Picke
         <ChevronDown className="size-4 text-muted-foreground" />
       </PopoverTrigger>
       <PopoverContent align="start" className="w-62 gap-1 p-1">
-        <div className="flex h-9 items-center gap-2 rounded-md px-2 ring-1 ring-border focus-within:ring-2 focus-within:ring-ring">
+        <div className="flex h-9 items-center gap-2 rounded-md px-2 ring-1 ring-border focus-within:ring-2 focus-within:ring-foreground">
           <Search className="size-4 text-muted-foreground" />
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search factories" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
         </div>
-        <div role="radiogroup" className="mt-1 flex flex-col">
+        <div role="radiogroup" className="-mx-1 mt-1 flex flex-col border-t px-1 pt-1">
           {shown.length === 0 && <div className="px-2 py-2 text-sm text-muted-foreground">No factories</div>}
           {shown.map((f) => (
             <button
@@ -37,7 +37,7 @@ export function FactoryPicker({ factories, value, onChange }: { factories: Picke
                 onChange(f.id);
                 setOpen(false);
               }}
-              className={cn("flex h-9 items-center gap-2 rounded-md px-2 text-left text-sm font-medium hover:bg-muted")}
+              className={cn("flex h-9 items-center gap-2 rounded-md px-2 text-left text-sm font-medium hover:bg-muted", f.id === value && "bg-muted")}
             >
               <FactoryAvatar name={f.name} />
               <span className="flex-1 truncate">{f.name}</span>

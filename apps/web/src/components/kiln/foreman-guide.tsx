@@ -67,7 +67,7 @@ export function ForemanGuide({ alias, copyable = false, columns = 1 }: { alias: 
           <ul className="flex flex-col gap-1.5">
             {s.lines.map((l) => (
               <li key={l.copyLabel} className="group/line flex items-start gap-2.5 text-sm text-muted-foreground">
-                <span className="mt-px flex size-[22px] shrink-0 items-center justify-center rounded-[4px] bg-muted">
+                <span className="mt-px flex size-[22px] shrink-0 items-center justify-center rounded-[4px] bg-foreground/[0.06]">
                   <l.icon className="size-3.5" />
                 </span>
                 <span className="min-w-0 flex-1 leading-[22px]">

@@ -52,6 +52,10 @@ describe("helpers", () => {
       ["c", []],
     ]);
   });
+  it("lists agents in the order they started", () => {
+    const t = agentTree([run("late", { startedAt: "2026-10-20T10:05:00Z" }), run("early", { startedAt: "2026-10-20T10:01:00Z" })]);
+    expect(t.map((n) => n.id)).toEqual(["early", "late"]);
+  });
   it("groups artifacts and proxies stored files", () => {
     expect(artifactUrl({ url: "s3://x", key: "runs/r1/a.png" })).toBe("/files/runs/r1/a.png");
     expect(artifactUrl({ url: "file:///tmp/data/objects/evidence/wi/v.webm" })).toBe("/files/evidence/wi/v.webm");

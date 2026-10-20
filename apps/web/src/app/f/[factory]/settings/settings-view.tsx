@@ -71,7 +71,7 @@ function Card({ id, title, action, children, className }: { id: string; title: s
         <h2 className="text-lg font-medium text-muted-foreground">{title}</h2>
         {action}
       </div>
-      <div className={cn("rounded-xl border bg-muted/40 p-6", className)}>{children}</div>
+      <div className={cn("rounded-xl border bg-muted p-6 dark:bg-muted/30", className)}>{children}</div>
     </section>
   );
 }
@@ -424,32 +424,38 @@ function ScorerDefaults({ factory, yaml, secrets, mcps, runners, readOnly, onRun
   const inherited = <span className="text-xs text-muted-foreground">From Agent defaults</span>;
   return (
     <Card id="scorer-defaults" title="Scorer defaults">
-      <fieldset disabled={readOnly} className="space-y-4">
-        <FormRow label="Runner" tip="The runner scorer judge runs use." labelWidth="sm:grid-cols-[200px_1fr]">
-          <div className="space-y-1">
-            <RunnerSelect value={s.runner} onChange={(v) => setS({ ...s, runner: v })} runners={runners} defaultRunner={yaml.agentDefaults?.runner ?? undefined} inherit onEdit={(n) => onRunner(n)} onNew={() => onRunner()} disabled={readOnly} />
-            {!s.runner && inherited}
-          </div>
-        </FormRow>
-        {(["secrets", "mcpServers"] as const).map((k) => (
-          <FormRow key={k} label={k === "secrets" ? "Secrets" : "MCPs"} labelWidth="sm:grid-cols-[200px_1fr]">
-            {s[k] === null ? (
-              <div className="flex items-center gap-3 text-sm">
-                <span className="text-muted-foreground">--</span>
-                {inherited}
-                <Button variant="ghost" size="sm" onClick={() => setS({ ...s, [k]: [] })}>
-                  Customize
-                </Button>
-              </div>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <ResourceList kind={k === "secrets" ? "secret" : "mcp"} value={s[k] ?? []} onChange={(v) => setS({ ...s, [k]: v })} secrets={secrets} mcps={mcps} />
-                <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setS({ ...s, [k]: null })}>
-                  Use agent defaults
-                </button>
-              </div>
-            )}
+      <fieldset disabled={readOnly} className="divide-y">
+        <div className="pb-4">
+          <FormRow label="Runner" tip="The runner scorer judge runs use." labelWidth="sm:grid-cols-[200px_1fr]" align="start">
+            <div className="space-y-1.5">
+              <RunnerSelect value={s.runner} onChange={(v) => setS({ ...s, runner: v })} runners={runners} defaultRunner={yaml.agentDefaults?.runner ?? undefined} inherit onEdit={(n) => onRunner(n)} onNew={() => onRunner()} disabled={readOnly} />
+              {!s.runner && inherited}
+            </div>
           </FormRow>
+        </div>
+        {(["secrets", "mcpServers"] as const).map((k) => (
+          <div key={k} className="py-4 last:pb-0">
+            <FormRow label={k === "secrets" ? "Secrets" : "MCPs"} labelWidth="sm:grid-cols-[200px_1fr]" align="start">
+              {s[k] === null ? (
+                <div className="flex items-start justify-between gap-3 sm:pt-2">
+                  <div className="space-y-1.5">
+                    <div className="text-sm text-muted-foreground">--</div>
+                    {inherited}
+                  </div>
+                  <button type="button" className="text-sm font-medium text-violet-600 hover:underline disabled:opacity-50 dark:text-violet-400" onClick={() => setS({ ...s, [k]: [] })}>
+                    Customize
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <ResourceList kind={k === "secrets" ? "secret" : "mcp"} value={s[k] ?? []} onChange={(v) => setS({ ...s, [k]: v })} secrets={secrets} mcps={mcps} />
+                  <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setS({ ...s, [k]: null })}>
+                    Use agent defaults
+                  </button>
+                </div>
+              )}
+            </FormRow>
+          </div>
         ))}
       </fieldset>
       <SaveBar

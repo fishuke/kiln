@@ -60,7 +60,7 @@ function ClassificationDialog({ label, threshold, onSave, onClose, taken }: { la
             <Input id="cl-score" inputMode="decimal" value={score} onChange={(e) => setScore(e.target.value)} placeholder="E.g. “1.00” for pass" className="h-10" />
           </Field>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit" disabled={!nameOk || !scoreOk}>
@@ -73,10 +73,10 @@ function ClassificationDialog({ label, threshold, onSave, onClose, taken }: { la
   );
 }
 
-function ResourceRow({ label, info, children, source }: { label: string; info?: string; children: React.ReactNode; source: string }) {
+function ResourceRow({ label, info, children, source, action }: { label: string; info?: string; children: React.ReactNode; source: string; action?: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[120px_1fr_auto] items-center gap-3 px-4 py-3">
-      <span className="flex items-center gap-1 text-sm">
+    <div className="grid grid-cols-[112px_1fr_auto] items-start gap-x-3 py-4 first:pt-1">
+      <span className="flex h-8 items-center gap-1 text-sm text-muted-foreground">
         {label}
         {info && (
           <Tooltip>
@@ -87,9 +87,20 @@ function ResourceRow({ label, info, children, source }: { label: string; info?: 
           </Tooltip>
         )}
       </span>
-      <div className="min-w-0">{children}</div>
-      <span className="text-xs text-muted-foreground">{source}</span>
+      <div className="min-w-0">
+        <div className="flex min-h-8 items-center">{children}</div>
+        <div className="mt-1.5 text-xs text-muted-foreground">{source}</div>
+      </div>
+      <div className="flex h-8 items-center">{action}</div>
     </div>
+  );
+}
+
+function CustomizeButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" className="text-sm font-medium text-violet-600 hover:underline dark:text-violet-400" onClick={onClick}>
+      Customize
+    </button>
   );
 }
 
@@ -166,10 +177,10 @@ export function ScorerConfig({ model, onChange, res, errors, isNew }: { model: S
       </Field>
 
       <Field label="Judge resources" help="Values resolve from Factory agent defaults → scorer defaults → this scorer.">
-        <div className="divide-y rounded-xl border">
+        <div className="divide-y">
           <ResourceRow label="Runner" info="The runner the hidden judge agent uses." source={model.runner ? "This scorer" : "From Agent defaults"}>
             <Select value={model.runner ?? DEFAULT_RUNNER} onValueChange={(v) => set({ runner: v === DEFAULT_RUNNER ? undefined : String(v) })}>
-              <SelectTrigger aria-label="Runner" className="h-8 w-56">
+              <SelectTrigger aria-label="Runner" className="h-9 w-full">
                 <SelectValue>{(v: string) => (v === DEFAULT_RUNNER ? "default" : v)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -182,28 +193,18 @@ export function ScorerConfig({ model, onChange, res, errors, isNew }: { model: S
               </SelectContent>
             </Select>
           </ResourceRow>
-          <ResourceRow label="Secrets" source={customSecrets ? "This scorer" : "From Agent defaults"}>
+          <ResourceRow label="Secrets" source={customSecrets ? "This scorer" : "From Agent defaults"} action={!customSecrets && <CustomizeButton onClick={() => setCustomSecrets(true)} />}>
             {customSecrets ? (
               <TokenPicker label="Judge secrets" values={model.secrets ?? []} onChange={(secrets) => set({ secrets })} suggestions={res.secrets} placeholder="select secrets" />
             ) : (
-              <span className="flex items-center gap-3 text-sm text-muted-foreground">
-                --
-                <button type="button" className="font-medium text-violet-600 hover:underline dark:text-violet-400" onClick={() => setCustomSecrets(true)}>
-                  Customize
-                </button>
-              </span>
+              <span className="text-sm text-muted-foreground">--</span>
             )}
           </ResourceRow>
-          <ResourceRow label="MCPs" source={customMcps ? "This scorer" : "From Agent defaults"}>
+          <ResourceRow label="MCPs" source={customMcps ? "This scorer" : "From Agent defaults"} action={!customMcps && <CustomizeButton onClick={() => setCustomMcps(true)} />}>
             {customMcps ? (
               <TokenPicker label="Judge MCP servers" values={model.mcpServers ?? []} onChange={(mcpServers) => set({ mcpServers })} suggestions={res.mcpServers.map((m) => m.name)} placeholder="select MCP servers" />
             ) : (
-              <span className="flex items-center gap-3 text-sm text-muted-foreground">
-                --
-                <button type="button" className="font-medium text-violet-600 hover:underline dark:text-violet-400" onClick={() => setCustomMcps(true)}>
-                  Customize
-                </button>
-              </span>
+              <span className="text-sm text-muted-foreground">--</span>
             )}
           </ResourceRow>
         </div>

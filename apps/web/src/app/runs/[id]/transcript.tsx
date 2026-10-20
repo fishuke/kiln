@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bot, ChevronDown, ChevronRight, CircleAlert, GitBranch, SquareTerminal, Wrench } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, CircleAlert, GitBranch, Terminal, Wrench } from "lucide-react";
 import { useState } from "react";
 import { SentAttachments } from "@/components/kiln/attachments";
 import { GateCard } from "@/components/kiln/gate-card";
@@ -50,7 +50,8 @@ function UserMessage({ item }: { item: Extract<TranscriptItem, { type: "user" }>
   return (
     <div className="flex flex-col items-end">
       <div className="max-w-[80%] rounded-2xl bg-muted px-3 py-2 text-sm">
-        <Markdown>{item.text}</Markdown>
+        {/* Prompts often start with a "# Title"; keep the bubble at body size like a chat message. */}
+        <Markdown className="text-sm [&_h1]:my-1 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:my-1 [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:my-1 [&_h3]:text-sm [&_h3]:font-semibold">{item.text}</Markdown>
       </div>
       <SentAttachments attachments={item.attachments} align="end" />
       <div className="mt-1.5 flex items-center gap-1.5 text-xs">
@@ -118,7 +119,7 @@ function WorkGroup({ durationMs, steps }: { durationMs: number; steps: Step[] })
 }
 
 function StepRow({ step }: { step: Step }) {
-  const icon = step.kind === "command" ? <SquareTerminal className="size-4 shrink-0" /> : step.kind === "push" ? <GitBranch className="size-4 shrink-0" /> : step.kind === "tool" ? <Wrench className="size-4 shrink-0" /> : undefined;
+  const icon = step.kind === "command" ? <Terminal className="size-4 shrink-0" /> : step.kind === "push" ? <GitBranch className="size-4 shrink-0" /> : step.kind === "tool" ? <Wrench className="size-4 shrink-0" /> : undefined;
   const label =
     step.kind === "reasoning" ? (
       <>{step.durationMs ? `Reasoned for ${shortDuration(step.durationMs)}` : "Reasoned"}</>

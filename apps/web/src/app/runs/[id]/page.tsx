@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import type { Run, Score, WorkItemDetail } from "@kiln/sdk-ts";
 import { api, safe } from "@/lib/kiln";
 import { agentLabel, agentTree, collectArtifacts, runTranscript, workItemNode, workItemTranscript, type GateView } from "@/lib/run-detail";
-import { runStatus, runTitle, workItemStatus } from "@/lib/run-tree";
+import { runSource, runStatus, runTitle, workItemStatus } from "@/lib/run-tree";
 import type { RunDetailModel } from "./model";
 import { RunDetailView } from "./run-detail-view";
 
@@ -151,7 +151,7 @@ async function runModel(run: RunWithLive, wi: WorkItemDetail | null, factories: 
       ],
       runTimeMs: durationMs(run.startedAt, run.finishedAt),
       createdAt: run.startedAt,
-      source: run.source ?? (run.kind === "work" ? "orchestration" : run.kind === "improver" ? "improver" : run.kind),
+      source: runSource(run),
       usage: subtree.map((r) => ({ label: `${cap(r.agent)} · ${runTitle(r, wi?.title)}`, costUsd: r.costUsd })),
       totalUsd: subtree.reduce((n, r) => n + r.costUsd, 0),
       extra: [

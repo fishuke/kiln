@@ -176,11 +176,11 @@ export function AgentEditor(p: Props) {
         {tab === "automations" && (
           <section className="mt-8">
             {p.automations.length === 0 ? (
-              <div className="rounded-lg border px-6 py-12 text-center">
-                <div className="font-medium">No automations yet</div>
+              <div className="flex min-h-[50vh] flex-col items-center justify-center px-6 text-center">
+                <div className="font-semibold">No automations yet</div>
                 <p className="mt-1 text-sm text-muted-foreground">Automations using this Agent will appear here.</p>
                 <div className="mt-4 flex justify-center gap-2">
-                  <Button variant="outline" render={<Link href={`/f/${p.factory}/automations`} />} nativeButton={false}>
+                  <Button render={<Link href={`/f/${p.factory}/automations`} />} nativeButton={false}>
                     View automations
                   </Button>
                   {!isNew && (
@@ -192,10 +192,10 @@ export function AgentEditor(p: Props) {
               </div>
             ) : (
               <>
-                <ul className="divide-y rounded-lg border">
+                <ul className="rounded-lg border py-2">
                   {p.automations.map((a) => (
                     <li key={a.name}>
-                      <Link href={`/f/${p.factory}/automations/${a.name}`} aria-label={`Open automation ${a.title}`} className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted/50">
+                      <Link href={`/f/${p.factory}/automations/${a.name}`} aria-label={`Open automation ${a.title}`} className="flex h-9 items-center gap-3 px-4 text-sm hover:bg-muted/50">
                         <Zap className={cn("size-4 shrink-0", a.enabled ? "text-amber-500" : "text-muted-foreground")} />
                         <span className="truncate font-semibold">{a.title}</span>
                         <span className="ml-auto truncate text-muted-foreground">{a.enabled ? a.triggers : "Paused"}</span>

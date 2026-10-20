@@ -6,6 +6,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { automationTemplates, lastRuns } from "@/lib/api/automations";
 import { automationNames, automationPath, parseAutomation } from "@/lib/automations/model";
 import { api, safe } from "@/lib/kiln";
+import { cn } from "@/lib/utils";
 import { AreaTabs } from "./_components/area-tabs";
 import { AutomationsTable, type AutomationRow } from "./_components/automations-table";
 import { Suggestions } from "./_components/suggestions";
@@ -35,7 +36,7 @@ export default async function Automations({ params }: { params: Promise<{ factor
         crumbs={[{ label: f.factory.name, href: `/f/${factory}/dashboard` }, { label: "Automations" }]}
         actions={
           <>
-            <Link href={`/f/${factory}/webhooks`} className={buttonVariants({ variant: "outline" })}>
+            <Link href={`/f/${factory}/webhooks`} className={cn(buttonVariants({ variant: "outline" }))}>
               Manage Webhooks
             </Link>
             <Link href={`/f/${factory}/automations/new`} className={buttonVariants()}>

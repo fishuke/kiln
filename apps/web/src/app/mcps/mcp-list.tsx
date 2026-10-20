@@ -60,7 +60,7 @@ export function McpPage({ servers, builtins, secrets, mcpUrl, canEdit }: { serve
     <>
       <PageHeader crumbs={[{ label: "MCPs and apps" }]} actions={actions} />
       {empty ? (
-        <EmptyIcon icon={<Server className="size-4" />} title="No MCPs or apps yet" action={canEdit ? <Button className="h-8 px-4" onClick={() => setAdding(true)}>New</Button> : undefined}>
+        <EmptyIcon className="min-h-[calc(100vh-7rem)]" icon={<Server className="size-5" />} title="No MCPs or apps yet" action={canEdit ? <Button className="h-8 px-4" onClick={() => setAdding(true)}>New</Button> : undefined}>
           Team-managed MCP servers available to your factories will appear here.
         </EmptyIcon>
       ) : (

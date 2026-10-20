@@ -76,7 +76,7 @@ export function ProfileForm({ name, email, avatar }: { name: string; email: stri
         </div>
       </Field>
       <div className="mt-6 flex justify-end">
-        <Button type="submit" disabled={!dirty || pending}>
+        <Button type="submit" disabled={!dirty || pending} variant={dirty ? "default" : "secondary"}>
           {pending ? "Saving…" : "Save"}
         </Button>
       </div>

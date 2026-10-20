@@ -109,7 +109,7 @@ export function AddWebhook({ factory, secrets, origin, label = "Add webhook", va
                 </Field>
                 <Field label="Authentication type" help={AUTH_MODES.find((m) => m.value === mode)?.help}>
                   <Select value={mode} onValueChange={(v) => setMode(v as Mode)}>
-                    <SelectTrigger aria-label="Authentication type" className="h-10 w-full">
+                    <SelectTrigger aria-label="Authentication type" className="h-10 w-full data-[size=default]:h-10">
                       <SelectValue>{(v: string) => AUTH_MODES.find((m) => m.value === v)?.label}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
@@ -124,7 +124,7 @@ export function AddWebhook({ factory, secrets, origin, label = "Add webhook", va
                 {mode === "signature" && (
                   <Field label="Provider" required help={secretAfterUrl ? "This provider issues its signing secret after you give it the URL. Create the webhook first, then paste the secret." : scheme === "standard_webhooks" ? "Leave the signing secret empty and Kiln generates one." : "Paste the signing secret from the provider."}>
                     <Select value={scheme} onValueChange={(v) => setScheme(v as Scheme)}>
-                      <SelectTrigger aria-label="Provider" className="h-10 w-full">
+                      <SelectTrigger aria-label="Provider" className="h-10 w-full data-[size=default]:h-10">
                         <SelectValue>{(v: string) => SIGNATURE_SCHEMES.find((s) => s.value === v)?.label}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>

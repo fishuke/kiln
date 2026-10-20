@@ -46,7 +46,7 @@ export function NewBenchmark({ factory, factoryName, agents }: { factory: string
       <div className="mx-auto w-full max-w-[768px] space-y-8 px-6 py-10">
         <input autoFocus aria-label="Benchmark name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter benchmark name" className="w-full bg-transparent text-[28px] leading-tight font-semibold tracking-tight outline-none placeholder:text-muted-foreground/70" />
         <Field label="Description" help="Describe what this benchmark is intended to measure.">
-          <Textarea aria-label="Description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe this benchmark" />
+          <Textarea aria-label="Description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe this benchmark" className="min-h-28" />
         </Field>
         <Field label="Agent to evaluate" required help="Choose the agent whose behavior this benchmark will test.">
           <Select value={agent} onValueChange={(v) => (v === "__new__" ? router.push(`/f/${factory}/agents/new`) : setAgent(String(v)))}>
@@ -76,7 +76,7 @@ export function NewBenchmark({ factory, factoryName, agents }: { factory: string
         <Field label="Tasks">
           <div className="rounded-xl border">
             {tasks.length === 0 ? (
-              <p className="px-4 py-4 text-sm text-muted-foreground">No tasks yet.</p>
+              <p className="px-4 pt-4 pb-2 text-sm">No tasks yet.</p>
             ) : (
               <ul className="divide-y">
                 {tasks.map((t, i) => (
@@ -90,13 +90,13 @@ export function NewBenchmark({ factory, factoryName, agents }: { factory: string
                 ))}
               </ul>
             )}
-            <div className="border-t px-2 py-1">
+            <div className={tasks.length ? "border-t px-2 py-1" : "px-2 pb-1"}>
               <Button variant="ghost" disabled={!agent} onClick={() => setAdding(true)}>
                 <Plus /> Add task
               </Button>
+              {!agent && <p className="px-2 pb-2 text-xs text-muted-foreground">Choose an agent to evaluate before adding tasks.</p>}
             </div>
           </div>
-          {!agent && <p className="text-xs text-muted-foreground">Choose an agent to evaluate before adding tasks.</p>}
         </Field>
       </div>
       <AddTaskDialog

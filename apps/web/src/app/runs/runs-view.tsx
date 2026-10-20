@@ -155,9 +155,9 @@ export function RunsView({ rows, me, factories, setup }: { rows: RunRow[]; me: s
           </div>
           <div className="px-3 pb-6">
             {shown.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-32 text-center">
-                <div className="text-sm font-semibold">No runs found</div>
-                <p className="mt-1 max-w-sm text-xs text-muted-foreground">No runs match the current filters. Try adjusting your search or filter criteria.</p>
+              <div className="mt-3 flex min-h-[calc(100vh-150px)] flex-col items-center justify-center rounded-xl bg-muted/60 px-6 text-center">
+                <div className="text-base font-semibold text-foreground/80">No runs found</div>
+                <p className="mt-0.5 text-sm text-muted-foreground">No runs match the current filters. Try adjusting your search or filter criteria.</p>
               </div>
             ) : (
               <ul className="flex flex-col">
@@ -213,7 +213,7 @@ function RunTreeRow({ row, depth, expanded, onToggle }: { row: RunRow; depth: nu
                 {count}
               </span>
             </span>
-            <span className={cn("absolute inset-0 flex items-center justify-center rounded-[5px] bg-muted text-muted-foreground transition-opacity", open ? "opacity-100" : "opacity-0 group-hover/row:opacity-100")}>
+            <span className={cn("absolute inset-0 flex items-center justify-center rounded-[5px] bg-foreground/[0.07] text-muted-foreground transition-opacity", open ? "opacity-100" : "opacity-0 group-hover/row:opacity-100")}>
               {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
             </span>
           </button>
@@ -285,9 +285,9 @@ function SortMenu({ sort, dir, onChange }: { sort: SortKey; dir: "asc" | "desc";
           ))}
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
-        <div role="tablist" aria-label="Sort direction" className="m-1 grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5">
+        <div role="tablist" aria-label="Sort direction" className="m-1 grid grid-cols-2 gap-1 rounded-md bg-muted/70 p-0.5">
           {(["asc", "desc"] as const).map((d) => (
-            <button key={d} type="button" role="tab" aria-selected={dir === d} aria-label={d === "asc" ? "Sort ascending" : "Sort descending"} onClick={() => onChange(sort, d)} className={cn("flex h-7 items-center justify-center rounded text-muted-foreground", dir === d && "bg-background text-foreground shadow-sm")}>
+            <button key={d} type="button" role="tab" aria-selected={dir === d} aria-label={d === "asc" ? "Sort ascending" : "Sort descending"} onClick={() => onChange(sort, d)} className={cn("flex h-7 items-center justify-center rounded text-muted-foreground", dir === d && "bg-foreground/10 text-foreground")}>
               {d === "asc" ? <ArrowUpNarrowWide className="size-4" /> : <ArrowDownWideNarrow className="size-4" />}
             </button>
           ))}

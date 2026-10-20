@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Zap } from "lucide-react";
-import { PageHeader } from "@/components/kiln/ui";
 import { buttonVariants } from "@/components/ui/button";
 import { loadResources } from "@/lib/api/resources";
 import { listWebhooks, publicUrl } from "@/lib/api/webhooks";
 import { api, safe } from "@/lib/kiln";
 import { fileWebhooks, webhookUsage } from "@/lib/webhook-files";
+import { cn } from "@/lib/utils";
 import { AreaTabs } from "../automations/_components/area-tabs";
 import { AddWebhook } from "./_components/add-webhook";
 import { WebhookList, type WebhookRow } from "./_components/webhook-list";
@@ -31,8 +31,7 @@ export default async function Webhooks({ params }: { params: Promise<{ factory: 
   const add = <AddWebhook factory={factory} secrets={res.secrets} origin={origin} />;
   return (
     <>
-      <PageHeader crumbs={[{ label: f.factory.name, href: `/f/${factory}/dashboard` }, { label: "Automations", href: `/f/${factory}/automations` }, { label: "Webhooks" }]} actions={add} />
-      <div className="px-4 py-4 sm:px-6">
+      <WebhookList factory={factory} rows={rows} addButton={add} crumbs={[{ label: f.factory.name, href: `/f/${factory}/dashboard` }, { label: "Automations", href: `/f/${factory}/automations` }, { label: "Webhooks" }]}>
         <AreaTabs factory={factory} active="webhooks" />
         <div className="mb-4 flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3">
           <Zap className="size-4 shrink-0 self-start text-muted-foreground" />
@@ -40,7 +39,7 @@ export default async function Webhooks({ params }: { params: Promise<{ factory: 
             <p className="font-semibold">Webhooks need an automation to run anything</p>
             <p className="text-muted-foreground">A webhook only receives deliveries. To act on them, create an automation with a Webhook trigger that subscribes to it.</p>
           </div>
-          <Link href={`/f/${factory}/automations/new`} className={buttonVariants({ variant: "outline" })}>
+          <Link href={`/f/${factory}/automations/new`} className={cn(buttonVariants({ variant: "outline" }))}>
             Create automation
           </Link>
         </div>
@@ -49,8 +48,7 @@ export default async function Webhooks({ params }: { params: Promise<{ factory: 
             This server does not manage webhooks through the API yet. New webhooks are added to the factory definition as <code className="font-mono">webhooks/&lt;name&gt;.yaml</code> and reference an existing secret.
           </p>
         )}
-        <WebhookList factory={factory} rows={rows} addButton={add} />
-      </div>
+      </WebhookList>
     </>
   );
 }

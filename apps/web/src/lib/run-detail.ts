@@ -168,7 +168,8 @@ export function gateOutcome(g: Pick<GateView, "kind" | "state" | "decidedBy" | "
   return `${what} sent back${by}${g.answer ? `: ${g.answer}` : ""}`;
 }
 
-export function agentTree(runs: RunLike[], workItemTitle?: string): AgentNode[] {
+export function agentTree(input: RunLike[], workItemTitle?: string): AgentNode[] {
+  const runs = [...input].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   const ids = new Set(runs.map((r) => r.id));
   const node = (r: RunLike): AgentNode => ({
     id: r.id,

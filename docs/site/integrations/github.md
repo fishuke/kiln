@@ -63,7 +63,7 @@ A comment that mentions the factory's alias, such as `@webapp please take this`,
 
 - **Merge.** When a person merges the pull request, the `pull_request` webhook completes the work item and closes its open gates.
 - **Review comments.** A submitted review that is not an approval sends the work item back to build, with the review text as findings.
-- **Comments.** Comments on the source issue or the pull request are added to the work item's conversation, or answer an open question.
+- **Comments.** Comments on the source issue or the pull request decide an open spec or preview gate, answer an open question, steer a running agent, or are added to the work item's conversation. Map GitHub logins to people with the server's `identities` option (`github:<login>`). Replies decide a gate only when their author is one of its assignees; see [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 
 ## Config repos
 

@@ -1,0 +1,55 @@
+# Sandboxes run in their own namespace under gVisor, with no ingress and egress only through the proxy.
+apiVersion: v1
+kind: Namespace
+metadata: { name: {{ .Values.sandboxes.namespace }}, labels: { pod-security.kubernetes.io/enforce: restricted } }
+---
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata: { name: {{ .Values.sandboxes.runtimeClass }} }
+handler: runsc
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: kiln-sandbox-manager, namespace: {{ .Values.sandboxes.namespace }} }
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/exec, pods/log]
+    verbs: [create, get, list, watch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create, get, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: kiln-sandbox-manager, namespace: {{ .Values.sandboxes.namespace }} }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: kiln-sandbox-manager }
+subjects: [{ kind: ServiceAccount, name: kiln-api, namespace: {{ .Release.Namespace }} }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: kiln-egress-proxy, namespace: {{ .Values.sandboxes.namespace }} }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: kiln-egress-proxy } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: kiln-egress-proxy } }
+    spec:
+      containers:
+        - name: squid
+          image: {{ .Values.image.egressProxy }}
+          env: [{ name: KILN_EGRESS_ALLOW, value: {{ .Values.sandboxes.egressAllow | quote }} }]
+          ports: [{ containerPort: 3128 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: kiln-egress-proxy, namespace: {{ .Values.sandboxes.namespace }} }
+spec:
+  selector: { app.kubernetes.io/name: kiln-egress-proxy }
+  ports: [{ port: 3128, targetPort: 3128 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: default-deny, namespace: {{ .Values.sandboxes.namespace }} }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: kiln-sandbox } }
+  policyTypes: [Ingress, Egress]

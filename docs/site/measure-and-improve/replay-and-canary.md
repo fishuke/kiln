@@ -62,7 +62,7 @@ Kiln also decides on its own after 7 days:
 
 If the applied definition has no scores, a candidate with scores is promoted.
 
-Approving a self-improvement proposal in Kiln starts a 10% canary in the same way.
+Approving a self-improvement proposal in Kiln, or merging its pull request unchanged in a config repo, starts a 10% canary in the same way.
 
 ## Related pages
 

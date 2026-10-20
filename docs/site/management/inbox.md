@@ -39,6 +39,8 @@ The inbox, Slack and issue replies, the API and the Kiln MCP all call the same d
 
 The decision is added to the work item's conversation and counted as a human touch, and the audit log gets an entry. Deciding a gate that is already closed changes nothing.
 
+A reply in Slack or on an issue or pull request decides a gate only when its author is one of the gate's assignees, or the gate has none. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
+
 Only question gates take free-text answers. To decide through the inbox, the API or the MCP, your token needs the matching scope for the factory:
 
 | Gate kind | Scope |

@@ -35,7 +35,7 @@ budgets: { perWorkItemUsd: 30, monthlyUsd: 3000 }
 | Part | What it does |
 | --- | --- |
 | Agents | `foreman`, `triage`, `spec`, `implement`, `verify`, `review`, plus `planner` (`PLAN`), `po-assistant` (`PO_ASSISTANT`) and `improver` (`CUSTOM`) |
-| `pipelines/feature.yaml` | Triage, spec (skipped for `xs` and `s`), build per user story, verify with CI and a video per criterion (up to 3 loops), preview, review, hand-off |
+| `pipelines/feature.yaml` | Triage, spec (skipped for `xs` and `s`), build per user story, verify with CI and a video per criterion (up to 3 loops), preview, an advisory review whose findings are posted on the pull request, hand-off |
 | `gates/` | Spec approval and preview acceptance by the requester or the `po` role, nudged after 24h, parked after 72h |
 | `routers/by-task.yaml` | A complexity router: Haiku for easy, Sonnet for medium and by default, Opus for hard |
 | `runners/linux-node.yaml` | `node:22-bookworm` on Docker, 4 vCPUs and 8 GB, `pnpm install`, egress to the npm registry, `github.com` and `api.github.com` |
@@ -43,7 +43,7 @@ budgets: { perWorkItemUsd: 30, monthlyUsd: 3000 }
 | `decisions/command-guard.yaml` | The command guard with the standard thresholds |
 | `automations/` | `ready` (GitHub `issue_labeled` with `kiln-ready`), `review-comments` (review submitted) and `slack` (mentions) |
 
-The `ready` automation filters on `repos: [fishuke/klin]`. Kiln's GitHub events carry the repository as `repo`, so that key must be `repo` for the automation to fire.
+The `ready` automation filters on `repos: [fishuke/klin]`, the same Warp-style key Kiln's GitHub events carry.
 
 ## The rules it works under
 
@@ -79,7 +79,7 @@ What Kiln enforces from these today:
 - A self-improvement change to a two-approval path needs two different people.
 - Kiln never opens a self-improvement proposal without a replay report, and agents cannot approve proposals.
 
-Self-improvement changes definition files. Code changes to `packages/` and `apps/` arrive as ordinary pull requests from work items, so the protected code paths there also need branch protection and code owners in the repository. The `deniedActions` and `maxUsdPerWorkItem` keys in these policies are accepted but not enforced yet; the per-item budget comes from `budgets.perWorkItemUsd`.
+Self-improvement changes definition files. Code changes to `packages/` and `apps/` arrive as ordinary pull requests from work items, so the protected code paths there also need branch protection and code owners in the repository. Spending is capped at the lowest of `budgets.perWorkItemUsd` (30) and the policies' `maxUsdPerWorkItem` (40 and 30), so $30 per work item, and at `monthlyUsd` (3000) per month. The `deniedActions` keys are accepted but not enforced yet.
 
 ## Scorers
 

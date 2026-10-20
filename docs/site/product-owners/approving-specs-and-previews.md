@@ -40,7 +40,7 @@ All surfaces record the same decision, with who decided and through which surfac
 
 | Surface | How |
 | --- | --- |
-| Slack thread, or a comment on the Linear, Jira or GitHub issue | Reply starting with `approve`, `approved`, `lgtm`, `ship it` or `accept`. To reject, start with `reject`, `changes:` or `request changes`, followed by your feedback. |
+| Slack thread, or a comment on the Linear, Jira or GitHub issue | Reply starting with `approve`, `approved`, `lgtm`, `ship it` or `accept`. To reject, start with `reject`, `changes:` or `request changes`, followed by your feedback. This works only when you are one of the gate's assignees; ask your admin to map your Slack or tracker user to you. |
 | Inbox | Open the gate and approve or reject. |
 | API or Kiln MCP | `decide_gate`, with a token that has `decide:spec` or `decide:preview` for the factory. See the [MCP reference](../developer-tools/mcp.md). |
 

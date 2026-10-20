@@ -24,7 +24,7 @@ When the factory has no pipeline, or the work item names none, the foreman build
 3. **Build.** The `IMPLEMENT` agent makes the change on a `kiln/<id>-<title>` branch.
 4. **Verify.** The `VERIFY` agent checks the change, and Kiln waits for CI to pass. A failure loops back to build, up to 3 times.
 5. **Preview.** If a preview provider is configured, Kiln deploys the branch and asks for preview acceptance.
-6. **Review.** The `REVIEW` agent reviews the pull request. `changes_requested` with findings loops back to build, up to 2 times.
+6. **Review.** The `REVIEW` agent reviews the pull request. The review is advisory: `changes_requested` with findings loops back to build, up to 2 times. After that, Kiln posts the remaining findings on the pull request as "Advisory review findings:" and goes on to hand-off.
 7. **Hand-off.** Kiln marks the pull request ready, labels it `factory:<alias>`, posts "Ready to merge" to the source thread, and opens a merge gate.
 
 Spec and review are left out when the factory has no `SPEC` or `REVIEW` agent. Without a `VERIFY` agent, the verify stage only waits for CI. Build falls back to a `CUSTOM` agent, then to the foreman. A [pipeline](../configuration/pipelines-and-gates.md) replaces this path with stages you list.

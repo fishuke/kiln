@@ -53,13 +53,13 @@ When a tracker is connected, Kiln creates:
 
 In Linear the child issues are sub-issues of the epic. In Jira the epic is a Task and the items are Sub-tasks.
 
-Jira gets the labels. The Linear adapter does not set labels yet, so in Linear the "Factory: @<alias>" line is what names the factory.
+In Linear, Kiln creates any missing labels on the team.
 
 The roadmap is saved on the project with links to every issue.
 
 ## From roadmap to work
 
-Each issue names its factory, so it can flow into that factory's automations. For example, in Jira an automation that triggers on `issue_created` with a `labels: [factory:webapp]` filter turns each new issue into a work item for `webapp`. In Linear, start work with an agent session on the issue, or mention the factory's alias in a comment. You can also hold issues back and send them when you are ready.
+Each issue names its factory, so it can flow into that factory's automations. For example, an automation that triggers on `issue_created` with a `labels: [factory:webapp]` filter turns each new issue into a work item for `webapp`. You can also hold issues back, and start work later with a Linear agent session or by mentioning the factory's alias in a comment.
 
 ## Weekly digest
 

@@ -204,10 +204,13 @@ export class AutomationService {
     if (["complete", "cancelled", "failed"].includes(match.state)) return [];
     const text = String(d.text ?? "").replace(/<@[^>]+>\s*/g, "").trim();
     if (!text) return [match.id];
-    const author = String(d.author ?? event.provider);
+    const raw = String(d.author ?? event.provider);
+    const author = this.k.options.identities?.[`${event.provider}:${raw}`] ?? raw;
     const open = this.k.gates.list({ workItemId: match.id, state: "open" });
-    const question = open.find((g) => g.kind === "question" && !g.command);
-    const approval = open.find((g) => g.kind === "spec" || g.kind === "preview");
+    // Text in a thread or comment is content, not authority: only a gate's assignees decide it.
+    const mayDecide = (g: { assignees: string[] }) => g.assignees.length === 0 || g.assignees.includes(author);
+    const question = open.find((g) => g.kind === "question" && !g.command && mayDecide(g));
+    const approval = open.find((g) => (g.kind === "spec" || g.kind === "preview") && mayDecide(g));
     if (approval && /^(approve|approved|lgtm|ship it|accept)\b/i.test(text)) {
       await this.k.gates.decide(approval.id, { decision: "approve", by: author, via: event.provider });
     } else if (approval && /^(reject|changes?:|request changes)/i.test(text)) {

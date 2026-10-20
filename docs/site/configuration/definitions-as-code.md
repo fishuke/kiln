@@ -100,7 +100,7 @@ Kiln stores each tree by its definition SHA, a 40-character hash of every path a
 - **Valid tree.** Kiln stores it, makes it the applied definition, keeps the previous SHA, and records who applied it and the diff in the audit log. New work items use it. Work items already in flight keep the SHA they started with.
 - **Invalid tree.** Kiln records the attempt and the errors, and the previous definition stays active. The factory shows the first error as its last error.
 
-`kiln diff --against applied` shows what would change, by resource:
+`kiln diff --against applied` asks the server what would change compared with the applied definition, by resource:
 
 ```text
 + agent/docs
@@ -129,13 +129,15 @@ A factory can live in a GitHub repository, called its config repo. Use the layou
 
 **Sync on push.** When Kiln receives a GitHub `push` webhook for the config repo's branch, it reads the tree again and applies it. A push that breaks validation is recorded and rejected; the last valid definition stays active. You can also trigger a sync by hand.
 
+One exception: when the pushed tree is exactly the candidate of an open self-improvement proposal, which is what merging that proposal's pull request produces, Kiln applies it as a canary (10% by default) and marks the proposal merged. See [Self-improvement](../measure-and-improve/self-improvement.md#reviewing-a-proposal).
+
 **Changes from Kiln.** When Kiln itself proposes a definition change, such as a self-improvement, an accepted memory, an installed skill or a router from benchmarks, it commits to a `kiln/*` branch of the config repo and opens a pull request. A person merges it, and the push applies it.
 
 Protect the config repo's default branch so that every change needs a review and a passing validation check.
 
 ### Validate pull requests with GitHub Actions
 
-This workflow checks out Kiln and the config repo side by side, installs Kiln, and runs `pnpm kiln validate` on the definition. `pnpm kiln` runs from the Kiln checkout, so the path to the definition is relative to it.
+This workflow checks out the config repo inside a Kiln checkout, installs Kiln, and runs `pnpm kiln validate .` from the config repo's directory. The CLI resolves paths against the directory you ran `pnpm` from, so `.` is the config repo.
 
 ```yaml
 # .github/workflows/validate.yml
@@ -158,7 +160,7 @@ jobs:
       - name: Check out the definition
         uses: actions/checkout@v4
         with:
-          path: definition
+          path: kiln/definition
 
       - uses: pnpm/action-setup@v4
         with:
@@ -175,8 +177,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate
-        working-directory: kiln
-        run: pnpm kiln validate ../definition
+        working-directory: kiln/definition
+        run: pnpm kiln validate .
 ```
 
 The command prints `ok <name> (<sha>): <n> agents, <n> automations` on success, prints each error as `file:line: message` and exits 1 on failure. Make the `validate` job a required status check in the branch protection rules. The workflow file itself is outside the definition layout, so validation lists it as an `unknown-file` warning.

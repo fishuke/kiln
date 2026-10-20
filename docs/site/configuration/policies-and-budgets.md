@@ -24,7 +24,7 @@ A factory can have several policy files. Kiln combines the lists from all of the
 | `twoApprovalPaths` | Yes | A self-improvement proposal that changes a matching path needs approvals from two different people before Kiln applies it. |
 | `deniedActions` | Not yet | Accepted by the schema. |
 | `allowedTriggerers` | Not yet | Accepted by the schema. |
-| `maxUsdPerWorkItem` | Not yet | Accepted by the schema. Use `budgets.perWorkItemUsd` instead. |
+| `maxUsdPerWorkItem` | Yes | A spending cap per work item. See [Budgets](#budgets). |
 | `description` | Not applicable | |
 
 Patterns are paths relative to the definition root. `*` matches within one directory level and `**` matches across levels.
@@ -51,10 +51,15 @@ budgets:
 
 | Key | Enforced today | What it does |
 | --- | --- | --- |
-| `perWorkItemUsd` | Yes | Before each agent run, Kiln compares the work item's spend with its budget. When spend has reached the budget, the item stops as `blocked` with the reason "budget of $40 reached ($41.20 spent)". |
-| `monthlyUsd` | Not yet | Accepted by the schema. |
+| `perWorkItemUsd` | Yes | The default budget of each new work item. |
+| `monthlyUsd` | Yes | The most the factory may spend on runs in a calendar month. |
 
-A work item created through the API can set its own budget, which replaces `perWorkItemUsd` for that item. A pipeline's `budget.maxUsd` is accepted but not enforced yet.
+Before each agent run, Kiln checks two limits:
+
+- **Per work item.** The cap is the lowest of the work item's budget and every policy's `maxUsdPerWorkItem`. A work item's budget is `perWorkItemUsd`, unless the work item was created through the API with its own budget, which replaces it. When the item's spend has reached the cap, it stops as `blocked` with the reason "budget of $40 reached ($41.20 spent)".
+- **Per month.** Kiln adds up the cost of all the factory's runs since the 1st of the month (UTC). When that has reached `monthlyUsd`, the item stops as `blocked` with the reason "monthly budget of $6000 for webapp reached ($6012.40 spent)".
+
+A pipeline's `budget.maxUsd` is accepted but not enforced yet.
 
 Cost comes from each run's harness. Claude Code and OpenCode report cost directly. Codex reports tokens, and Kiln estimates the cost from them.
 

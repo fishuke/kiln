@@ -1,0 +1,23 @@
+image:
+  api: ghcr.io/fishuke/kiln-api:1.0.0
+  web: ghcr.io/fishuke/kiln-web:1.0.0
+  egressProxy: ghcr.io/fishuke/kiln-egress-proxy:1.0.0
+publicUrl: https://kiln.example.com
+webUrl: https://kiln.example.com
+ingress:
+  enabled: true
+  className: nginx
+  host: kiln.example.com
+  tls: true
+persistence:
+  size: 20Gi
+  storageClass: ""
+sandboxes:
+  namespace: kiln-sandboxes
+  runtimeClass: gvisor
+  egressAllow: github.com,codeload.github.com,registry.npmjs.org,api.anthropic.com,api.openai.com
+# Name of an existing Secret with the variables from .env.example (keys, tokens, webhook secrets).
+existingSecret: kiln-env
+resources:
+  api: { requests: { cpu: 250m, memory: 512Mi }, limits: { memory: 2Gi } }
+  web: { requests: { cpu: 100m, memory: 256Mi }, limits: { memory: 1Gi } }

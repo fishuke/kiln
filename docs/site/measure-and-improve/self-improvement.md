@@ -44,7 +44,7 @@ The failures in the proposal are marked reviewed, so they do not trigger another
 
 ## Reviewing a proposal
 
-For a factory with a [config repo](../configuration/definitions-as-code.md#config-repos-on-github), Kiln commits the change to a `kiln/self-improve-<agent>-<id>` branch and opens a pull request titled "Self-improvement: <agent> (<category>)", labeled `kiln:self-improvement`. Merging it applies the new definition through the normal push sync, to all new work items at once; a merge does not start a canary.
+For a factory with a [config repo](../configuration/definitions-as-code.md#config-repos-on-github), Kiln commits the change to a `kiln/self-improve-<agent>-<id>` branch and opens a pull request titled "Self-improvement: <agent> (<category>)", labeled `kiln:self-improvement`. Merging it ships the change as a [canary](replay-and-canary.md): when the pushed tree is exactly the proposal's candidate, the push sync applies it to 10% of new work items (the server's default share) and marks the proposal merged. If the branch was edited before the merge, the tree no longer matches and the push applies it to all new work items, like any other change.
 
 In Kiln, you can approve or reject any proposal:
 

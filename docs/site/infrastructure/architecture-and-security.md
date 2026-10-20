@@ -52,7 +52,7 @@ The [command guard](../configuration/decisions.md#command-guard) rates shell com
 
 ### Network is closed by default
 
-A runner with no `egress` hosts gets no network. With hosts listed, traffic goes through Kiln's egress proxy, which allows only those hosts. On Kubernetes, a NetworkPolicy allows only DNS and the proxy.
+Traffic from a sandbox goes through Kiln's egress proxy, which allows only the hosts of the run's repositories and the runner's `egress` list. Everything else is unreachable. On Kubernetes, a NetworkPolicy allows only DNS and the proxy.
 
 ### Sandboxes are locked down
 
@@ -72,11 +72,26 @@ Self-improvement cannot change `policies/` or `gates/`, drops changes to any `pr
 
 ### Content is not a source of permissions
 
-Text in issues, tickets and Slack messages becomes the work item's request, never its permissions. What an agent may do comes from the definition, the run token and the gates.
+Text in issues, tickets and Slack messages becomes the work item's request, never its permissions. What an agent may do comes from the definition, the run token and the gates. A reply in a thread or comment decides a gate only when its author is one of the gate's assignees, matched through the server's `identities` map.
 
 ### Everything is audited
 
 Definition applies and rejections, gate decisions, steering, cancellations, pauses, proposals, canary changes, token issues and secret changes are written to the audit log with the actor.
+
+## Design records
+
+The decisions behind this architecture are written down as ADRs in `docs/adr/`:
+
+- [0001 TypeScript monorepo](../../adr/0001-typescript-monorepo.md)
+- [0002 Orchestration](../../adr/0002-orchestration.md)
+- [0003 Definition format](../../adr/0003-definition-format.md)
+- [0004 Harness adapters](../../adr/0004-harness-adapters.md)
+- [0005 Storage](../../adr/0005-storage.md)
+- [0006 Decision layer](../../adr/0006-decision-layer.md)
+- [0007 Open source and bring your own keys](../../adr/0007-open-source-byok.md)
+- [0008 Humans merge](../../adr/0008-humans-merge.md)
+
+The [threat model](../../security/threat-model.md) lists the threats these controls answer.
 
 ## Data sent to model providers
 
@@ -89,3 +104,5 @@ Harnesses send the prompt, instructions, skills and the code they read to the mo
 - [Self-hosting](self-hosting.md)
 - [Typed decisions](../configuration/decisions.md)
 - [Admin, RBAC and audit](../management/admin-rbac-audit.md)
+- [Threat model](../../security/threat-model.md)
+- [Architecture decision records](../../adr/README.md)

@@ -1,0 +1,9 @@
+# Egress allowlist for sandboxes. KILN_EGRESS_ALLOW (comma-separated hosts) becomes the dstdomain list.
+http_port 3128
+acl allowed dstdomain __ALLOW__
+acl SSL_ports port 443
+acl CONNECT method CONNECT
+http_access deny CONNECT !SSL_ports
+http_access allow allowed
+http_access deny all
+cache deny all

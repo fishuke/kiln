@@ -92,8 +92,9 @@ services:
     restart: unless-stopped
     environment:
       KILN_EGRESS_ALLOW: ${KILN_EGRESS_ALLOW:-github.com,codeload.github.com,objects.githubusercontent.com,registry.npmjs.org,api.anthropic.com,api.openai.com,openrouter.ai}
-      # With OpenTelemetry on, the access log goes to the API, which sends it on as the kiln-egress-proxy service.
-      KILN_EGRESS_LOG: ${OTEL_EXPORTER_OTLP_ENDPOINT:+udp://api:5140}
+      # With OpenTelemetry on, the access log goes to the API (udp://api:5140), which sends it on as the
+      # kiln-egress-proxy service. Decided in the entrypoint: Coolify cannot parse the ":+" form of interpolation.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     # Squid resolves the API's address once, so it restarts whenever a deploy replaces the API.
     depends_on:
       api: { condition: service_started, restart: true }

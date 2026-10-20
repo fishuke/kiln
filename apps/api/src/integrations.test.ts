@@ -94,6 +94,24 @@ describe("connections API", () => {
   });
 });
 
+describe("deleting a factory", () => {
+  it("needs Admin, cancels open work and removes labels and webhooks", async () => {
+    const { admin, client, token, kiln, forge } = setup();
+    await settle();
+    expect([...(forge.labels.get("acme/web") ?? [])]).toContain("factory:webapp");
+    const { webhook } = await admin.createWebhook("webapp", { name: "gone" });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "In flight", body: "", source: { provider: "api" }, requester: "a" });
+    const reader = client(token("dev@acme.test", [{ scope: "read", factory: "webapp" }, { scope: "send", factory: "webapp" }]));
+    await expect(reader.deleteFactory("webapp")).rejects.toMatchObject({ status: 403 });
+    const r = await admin.deleteFactory("webapp");
+    expect(r.cancelled).toContain(wi.id);
+    expect(kiln.defs.get("webapp")).toBeUndefined();
+    expect([...(forge.labels.get("acme/web") ?? [])]).not.toContain("factory:webapp");
+    expect(kiln.webhookSources.get(webhook.id)).toBeUndefined();
+    await expect(admin.deleteFactory("webapp")).rejects.toMatchObject({ status: 404 });
+  });
+});
+
 describe("provider webhooks", () => {
   it("Teams: verifies the Bot Framework token, starts work and answers sign in", async () => {
     const { post, kiln, teams } = setup();
@@ -160,7 +178,8 @@ describe("provider webhooks", () => {
     await settle();
     const linkText = chat.messages.at(-1)!.text;
     expect(linkText).toMatch(/connect your Slack account/);
-    kiln.identities.claim(/token=([\w-]+)/.exec(linkText)![1]!, "u9@acme.test");
+    const u9 = kiln.users.create({ email: "u9@acme.test" });
+    kiln.identities.claim(/token=([\w-]+)/.exec(linkText)![1]!, u9.id);
     expect(kiln.automations.person("slack", "U9")).toBe("u9@acme.test");
 
     kiln.secrets.setSecret("JIRA_BOT_ACCOUNT_ID", "kiln-bot");

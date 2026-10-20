@@ -162,11 +162,11 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
     if (ev.event === "command") {
       const user = String(ev.data.author ?? "");
       if (ev.data.command === "sign in") {
-        const { url } = kiln.identities.startLink("teams", user, { displayName: ev.data.userName as string | undefined, tenant: ev.data.tenant as string | undefined });
+        const { url } = kiln.identities.startLink("teams", user, { displayName: ev.data.userName as string | undefined });
         await reply(`Open this link to connect your Teams account to Kiln (it expires in an hour): ${url}`);
       } else if (ev.data.command === "sign out") {
-        const n = kiln.identities.unlink("teams", user, { tenant: ev.data.tenant as string | undefined });
-        await reply(n ? "Signed out: your Teams account is no longer linked to Kiln in this organization." : "Your Teams account isn't linked to Kiln.");
+        const n = kiln.identities.unlink("teams", user);
+        await reply(n ? "Signed out: your Teams account is no longer linked to Kiln." : "Your Teams account isn't linked to Kiln.");
       } else {
         await reply(teamsHelpText(factoriesHere.map((f) => f.name)));
       }

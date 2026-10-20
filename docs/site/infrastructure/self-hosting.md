@@ -43,6 +43,8 @@ pnpm health
 
 The API prints a bootstrap admin token on first start (also in the data volume as `admin-token`). Put it in `.env` as `KILN_TOKEN` so the web app can call the API, then restart `web`.
 
+Then create your account: the first signup (`POST /api/v1/auth/signup`) becomes the owner of the default team, and existing factories move into that team. Invite everyone else. See [Teams and users](../management/teams-and-users.md).
+
 ### Kubernetes with Helm
 
 ```bash
@@ -103,9 +105,18 @@ Admins can set secrets through the API; values are never returned, only names. S
 
 Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscription token from `claude setup-token`) or `ANTHROPIC_API_KEY` for Claude Code, `OPENAI_API_KEY` or `CODEX_API_KEY` for Codex, and the keys OpenCode's providers need. You can store them as Kiln secrets or set them as plain environment variables on the server. Agents can also name their own secret with `harness.auth`. See [Harnesses](harnesses.md#credentials).
 
+### Accounts and login
+
+| Variable | What it does |
+| --- | --- |
+| `KILN_OPEN_SIGNUP=1` | Anyone may sign up and join the default team. Otherwise, after the first owner, signup needs an invite. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Turn on GitHub login. The OAuth app's callback URL is `<KILN_PUBLIC_URL>/api/v1/auth/github/callback`. `GITHUB_OAUTH_URL` and `GITHUB_API_URL` point at GitHub Enterprise. |
+| `KILN_SECRET_KEY` | Seals team and personal secrets with AES-256-GCM, and signs run tokens. Set it, and keep it stable across restarts. |
+| `KILN_DEV_AUTH=1` | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team. |
+
 ### Identities
 
-Gate assignees are people, such as `po@acme.test`. To let replies in Slack or on issues decide gates, map provider users to people with the server option `identities`, keyed by `<provider>:<user>`, for example `slack:U024BE7LH` → `po@acme.test`. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
+Gate assignees are people, such as `po@acme.test`. To let replies in Slack or on issues decide gates, people link their Slack, GitHub, Linear, Jira, Discord, Teams, GitLab or Azure DevOps accounts in user settings. See [Linked accounts](../management/teams-and-users.md#linked-accounts). The server option `identities` still works as a fallback. It is keyed by `<provider>:<user>`, for example `slack:U024BE7LH` → `po@acme.test`. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 
 ### Roles
 

@@ -241,9 +241,9 @@ export class AutomationService {
     return wi;
   }
 
-  /** The Kiln person behind a provider identity (identity links, then the static map). */
+  /** The Kiln person behind a provider identity (linked accounts, the static map, then email). */
   person(provider: string, external: string): string {
-    return this.k.identities?.lookup(provider, external) ?? this.k.options.identities?.[`${provider}:${external}`] ?? external;
+    return this.k.users.resolveIdentity(provider, external);
   }
 
   /** Factory-internal events (stage changes) only reach automations of the same factory. */

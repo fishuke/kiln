@@ -36,7 +36,7 @@ Mention `@kiln-factory` in a new issue, pull request, comment or review. Edits a
 - **With a `factory:<alias>` label**, the mention goes to that factory.
 - **Without a label**, Kiln looks for factories whose `repositories` include the repo. With exactly one, it adds that factory's label and starts the work. With several, it comments asking you to add one of their labels and mention `@kiln-factory` again. With none, it comments that no factory works on the repo yet.
 
-Kiln creates the `factory:<alias>` label on the factory's repositories whenever its definition is applied.
+Kiln creates the `factory:<alias>` label on the factory's repositories whenever its definition is applied. Deleting the factory (`DELETE /api/v1/factories/<id>`, Admin role) removes the label again, cancels its open work and deletes its managed webhooks.
 
 The default mentions template routes on both, and you can change the handle or label it filters on:
 

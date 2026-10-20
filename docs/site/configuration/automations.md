@@ -39,9 +39,9 @@ These apply to every run of work this automation starts, over the agent's own se
 | --- | --- |
 | `harness`, `model` | Set one: `harness` replaces the agent's harness and model, `model` keeps the harness. See [Inheritance](agents.md#inheritance). |
 | `runner` | A file in `runners/`. |
-| `secrets` | Extra secret names, added to the agent's own. |
-| `mcpServers` | MCP server names, passed to the run as `KILN_MCP_SERVERS`. |
-| `environmentId` | Passed to the run as `KILN_ENVIRONMENT_ID`. |
+| `secrets` | Extra secret names, resolved from the vault like the agent's own and added to them. |
+| `mcpServers` | MCP servers from the team's registry, replacing the agent's list. |
+| `environmentId` | A team environment (id or name): its image, repositories, setup commands and secrets. Also passed as `KILN_ENVIRONMENT_ID`. |
 | `workerHost` | A self-hosted worker, passed as `KILN_WORKER_HOST`. |
 | `computerUseModel` | Accepted for compatibility. |
 | `idleTimeoutMinutes` | 1–60, passed as `KILN_IDLE_TIMEOUT_MINUTES`. |

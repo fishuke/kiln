@@ -178,6 +178,31 @@ export class DefinitionService {
     return this.applyAny(tree, { author: by, definitionRepo });
   }
 
+  /**
+   * Delete a factory: cancel its open work, drop its binding, members and managed webhooks, and
+   * remove what it set up in connected systems (the `factory:<alias>` labels). Stored definitions,
+   * runs and audit history stay for the record. Irreversible.
+   */
+  async remove(factory: string, by: string): Promise<{ factory: string; cancelled: string[] }> {
+    const b = this.require(factory);
+    const repos = b.appliedSha ? this.resolved(b.appliedSha).factory.repositories.map((r) => ({ owner: r.owner, name: r.name, forge: r.forge })) : [];
+    const cancelled: string[] = [];
+    for (const wi of this.k.workflow.list({ factory })) {
+      if (["complete", "cancelled", "failed"].includes(wi.state)) continue;
+      await this.k.workflow.cancel(wi.id, by).catch(() => undefined);
+      cancelled.push(wi.id);
+    }
+    await this.k.integrations.cleanupFactory(b, repos.filter((r) => r.forge === "github" || r.forge === "gitlab"));
+    for (const w of this.k.store.list<{ id: string; factory: string; secretName: string }>(C.webhookSources, (x) => x.factory === factory)) {
+      this.k.store.delete(C.webhookSources, w.id);
+      this.k.store.delete(C.secrets, w.secretName);
+    }
+    for (const m of this.k.store.list<{ id: string; factory: string }>("factory_members", (x) => x.factory === factory)) this.k.store.delete("factory_members", m.id);
+    this.k.store.delete(C.factories, factory);
+    this.k.audit(by, "factory.deleted", factory, { name: b.name, alias: b.alias, cancelled });
+    return { factory, cancelled };
+  }
+
   /** Accept kiln/v1 and v1alpha1 trees alike. */
   applyAny(tree: DefinitionTree, opts: Parameters<DefinitionService["apply"]>[1]): ApplyResult {
     const factoryYaml = tree["factory.yaml"] ?? "";

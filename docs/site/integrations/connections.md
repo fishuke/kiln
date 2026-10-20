@@ -89,11 +89,11 @@ For factories managed in Kiln (not in a config repo), `PUT /api/v1/factories/<id
 
 Gate assignees are people. Kiln maps provider users to people in three ways:
 
-- **Chat sign-in.** `sign in` replies with a one-hour link: `@Kiln sign in` in Teams, a mention of the app or a DM saying `sign in` in Slack, and `/kiln prompt: sign in` in Discord (only you see the reply). Opening it and calling `POST /api/v1/identity-links/claim` with the token links the chat account to the signed-in person.
-- **GitHub.** `POST /api/v1/identity-links/github/start` returns a GitHub OAuth URL (needs `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`). The callback `/oauth/github-user/callback` links the GitHub login.
+- **Chat sign-in.** `sign in` replies with a one-hour link: `@Kiln sign in` in Teams, a mention of the app or a DM saying `sign in` in Slack, and `/kiln prompt: sign in` in Discord (only you see the reply). Opening it and calling `POST /api/v1/me/linked-accounts/claim` with the token adds the chat account to your linked accounts.
+- **GitHub.** `POST /api/v1/me/linked-accounts/github/start` returns a GitHub OAuth URL (needs `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`). The callback `/oauth/github-user/callback` links the GitHub login.
 - **Email.** Linear and Jira users that report an email address map to the person with that email.
 
-`GET /api/v1/identity-links` lists your links (admins add `?all=1`). `DELETE /api/v1/identity-links/<id>` unlinks one. The server's static `identities` map still works as a fallback.
+Everything ends up in your linked accounts: `GET /api/v1/me/linked-accounts` lists them, `POST` adds one by hand and `DELETE /api/v1/me/linked-accounts/<provider>` unlinks one. The server's static `identities` map still works as a fallback.
 
 ## Notification routes
 

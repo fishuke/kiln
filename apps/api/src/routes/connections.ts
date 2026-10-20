@@ -14,7 +14,7 @@ const wrap = async <T>(fn: () => Promise<T> | T): Promise<T> => {
   }
 };
 
-export function registerConnectionRoutes({ app, kiln, need, who }: RouteContext) {
+export function registerConnectionRoutes({ app, kiln, need, who, user }: RouteContext) {
   // Workspace connections (admin)
   app.get("/api/v1/connections", (c) => {
     need(c, "admin", "*");
@@ -73,30 +73,17 @@ export function registerConnectionRoutes({ app, kiln, need, who }: RouteContext)
     });
   });
 
-  // Identity links (Slack/Teams/Discord sign-in, GitHub OAuth)
-  app.get("/api/v1/identity-links", (c) => {
-    const all = c.req.query("all");
-    if (all) need(c, "admin", "*");
-    return c.json(kiln.identities.list(all ? undefined : who(c)));
-  });
-  app.post("/api/v1/identity-links/github/start", (c) => {
+  // Sign-in flows that add to the user's linked accounts (GET/POST/DELETE /api/v1/me/linked-accounts)
+  app.post("/api/v1/me/linked-accounts/github/start", (c) => {
     const clientId = serverSecret(kiln, "GITHUB_CLIENT_ID");
     if (!clientId) throw new HttpError(400, "GitHub account linking needs GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET");
-    const state = kiln.identities.startOAuthLink("github", who(c));
+    const state = kiln.identities.startOAuthLink("github", user(c).id);
     const base = (kiln.options.publicUrl ?? new URL(c.req.url).origin).replace(/\/$/, "");
     return c.json({ url: githubOAuthUrl({ clientId, redirectUri: `${base}/oauth/github-user/callback`, state }) });
   });
-  app.post("/api/v1/identity-links/claim", async (c) => {
+  app.post("/api/v1/me/linked-accounts/claim", async (c) => {
     const { token } = IdentityClaim.parse(await c.req.json());
-    return wrap(() => c.json(kiln.identities.claim(token, who(c)), 201));
-  });
-  app.delete("/api/v1/identity-links/:id", (c) => {
-    const id = c.req.param("id");
-    const link = kiln.identities.list().find((l) => l.id === id);
-    if (!link) throw new HttpError(404, "unknown identity link");
-    if (link.subject !== who(c)) need(c, "admin", "*");
-    kiln.identities.unlink(link.provider, link.externalId);
-    return c.json({ ok: true });
+    return wrap(() => c.json(kiln.identities.claim(token, user(c).id).linkedAccounts, 201));
   });
 
   // Per-factory opt-in

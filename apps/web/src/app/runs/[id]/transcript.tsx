@@ -1,0 +1,169 @@
+"use client";
+
+import Link from "next/link";
+import { Bot, ChevronDown, ChevronRight, CircleAlert, GitBranch, SquareTerminal, Wrench } from "lucide-react";
+import { useState } from "react";
+import { SentAttachments } from "@/components/kiln/attachments";
+import { GateCard } from "@/components/kiln/gate-card";
+import { Markdown } from "@/components/kiln/markdown";
+import { PersonAvatar, StatusSquare, personName } from "@/components/kiln/run-visuals";
+import type { Step, TranscriptItem } from "@/lib/run-detail";
+import { relativeTime, shortDuration } from "@/lib/run-tree";
+import { cn } from "@/lib/utils";
+
+export function Transcript({ items, showThinking, showTools, prUrl, previewUrl }: { items: TranscriptItem[]; showThinking: boolean; showTools: boolean; prUrl?: string; previewUrl?: string }) {
+  return (
+    <div className="flex flex-col gap-5">
+      {items.map((it) => {
+        if (it.type === "user") return <UserMessage key={it.key} item={it} />;
+        if (it.type === "agent")
+          return (
+            <div key={it.key}>
+              <Markdown className="text-sm leading-6 [&_a]:text-violet-600 dark:[&_a]:text-violet-400">{it.text}</Markdown>
+              <div className="mt-1 text-xs text-muted-foreground" suppressHydrationWarning>
+                {relativeTime(it.at)}
+              </div>
+            </div>
+          );
+        if (it.type === "reasoning") return showThinking ? <Reasoning key={it.key} text={it.text} durationMs={it.durationMs} /> : null;
+        if (it.type === "work") return showTools ? <WorkGroup key={it.key} durationMs={it.durationMs} steps={it.steps.filter((s) => showThinking || s.kind !== "reasoning")} /> : null;
+        if (it.type === "subagents") return <Subagents key={it.key} item={it} />;
+        if (it.type === "gate") {
+          // The foreman usually posts the same text it asks about; show it once.
+          const head = it.gate.question?.slice(0, 80);
+          const said = Boolean(head && items.some((x) => x.type === "agent" && x.text.includes(head)));
+          return <GateCard key={it.key} gate={it.gate} prUrl={prUrl} previewUrl={previewUrl} hideQuestion={said && it.gate.kind !== "question"} />;
+        }
+        return (
+          <div key={it.key} className={cn("flex items-start gap-2 text-xs text-muted-foreground", it.tone === "error" && "text-red-600 dark:text-red-400")}>
+            {it.tone === "error" ? <CircleAlert className="mt-px size-3.5 shrink-0" /> : <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />}
+            <span>{it.text}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function UserMessage({ item }: { item: Extract<TranscriptItem, { type: "user" }> }) {
+  const name = item.from.includes("@") ? personName(item.from) : item.from;
+  return (
+    <div className="flex flex-col items-end">
+      <div className="max-w-[80%] rounded-2xl bg-muted px-3 py-2 text-sm">
+        <Markdown>{item.text}</Markdown>
+      </div>
+      <SentAttachments attachments={item.attachments} align="end" />
+      <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+        <PersonAvatar name={item.from} size={20} />
+        <span className="font-semibold">{name}</span>
+        <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => void navigator.clipboard?.writeText(`${location.origin}${location.pathname}#${item.key}`)} suppressHydrationWarning>
+          · {relativeTime(item.at)}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Disclosure({ label, children, defaultOpen = false, icon, className }: { label: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean; icon?: React.ReactNode; className?: string }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={className}>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex max-w-full items-center gap-2 text-xs text-muted-foreground hover:text-foreground">
+        {icon}
+        <span className="min-w-0 truncate">{label}</span>
+        {open ? <ChevronDown className="size-3.5 shrink-0" /> : <ChevronRight className="size-3.5 shrink-0" />}
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
+function Reasoning({ text, durationMs }: { text: string; durationMs: number }) {
+  return (
+    <Disclosure label={durationMs ? `Reasoned for ${shortDuration(durationMs)}` : "Reasoned"}>
+      <div className="mt-2 ml-1 border-l pl-6 text-xs leading-5 whitespace-pre-wrap text-muted-foreground italic">{text}</div>
+    </Disclosure>
+  );
+}
+
+function summary(steps: Step[]) {
+  const commands = steps.filter((s) => s.kind === "command").length;
+  const tools = steps.filter((s) => s.kind === "tool").length;
+  const parts = [];
+  if (commands) parts.push(`Ran ${commands} command${commands === 1 ? "" : "s"}`);
+  if (tools) parts.push(`Called ${tools} tool${tools === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
+function WorkGroup({ durationMs, steps }: { durationMs: number; steps: Step[] }) {
+  if (!steps.length) return null;
+  return (
+    <Disclosure
+      label={
+        <>
+          Worked for {shortDuration(durationMs)}
+          <span className="sr-only">: {summary(steps)}</span>
+        </>
+      }
+    >
+      <ul className="mt-2 ml-1 flex flex-col gap-1 border-l py-1 pl-6">
+        {steps.map((s, i) => (
+          <li key={i}>
+            <StepRow step={s} />
+          </li>
+        ))}
+      </ul>
+    </Disclosure>
+  );
+}
+
+function StepRow({ step }: { step: Step }) {
+  const icon = step.kind === "command" ? <SquareTerminal className="size-4 shrink-0" /> : step.kind === "push" ? <GitBranch className="size-4 shrink-0" /> : step.kind === "tool" ? <Wrench className="size-4 shrink-0" /> : undefined;
+  const label =
+    step.kind === "reasoning" ? (
+      <>{step.durationMs ? `Reasoned for ${shortDuration(step.durationMs)}` : "Reasoned"}</>
+    ) : (
+      <>
+        {step.label}
+        {step.detail && <span className={cn("ml-1.5", step.kind === "command" && "font-mono text-[12px]")}>{step.detail}</span>}
+      </>
+    );
+  if (!step.output) {
+    return (
+      <div className="flex h-7 items-center gap-2 text-xs text-muted-foreground">
+        {icon}
+        <span className="min-w-0 truncate">{label}</span>
+      </div>
+    );
+  }
+  return (
+    <Disclosure icon={icon} label={label} className="py-1">
+      {step.kind === "reasoning" ? (
+        <div className="mt-1.5 ml-1 border-l pl-5 text-xs whitespace-pre-wrap text-muted-foreground italic">{step.output}</div>
+      ) : (
+        <div className="mt-2 mb-1">
+          <div className={cn("mb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase", step.isError && "text-red-600 dark:text-red-400")}>Output{step.isError ? " (error)" : ""}</div>
+          <pre className="max-h-72 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-5 whitespace-pre-wrap">{step.output}</pre>
+        </div>
+      )}
+    </Disclosure>
+  );
+}
+
+function Subagents({ item }: { item: Extract<TranscriptItem, { type: "subagents" }> }) {
+  const n = item.runs.length;
+  return (
+    <Disclosure defaultOpen icon={<Bot className="size-4" />} label={`Launched ${n} subagent${n === 1 ? "" : "s"}`}>
+      <ul className="mt-2 ml-2 flex flex-col border-l pl-4">
+        {item.runs.map((r) => (
+          <li key={r.id}>
+            <Link href={`/runs/${r.id}?tab=agents&from=parent`} className="flex h-8 items-center gap-2.5 rounded-md px-1.5 text-sm font-medium hover:bg-muted">
+              <StatusSquare status={r.status} size={20} />
+              <span className="truncate">{r.title}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Disclosure>
+  );
+}

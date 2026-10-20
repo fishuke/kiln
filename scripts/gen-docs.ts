@@ -62,7 +62,7 @@ write(
     "API reference",
     "Every REST endpoint with its scope, generated from the route table.",
     "Developer tools",
-    `Kiln's REST API lives under \`/api/v1\`. Send \`Authorization: Bearer <token>\`; each route needs the scope shown for the factory it touches (\`admin\` grants every scope). The machine-readable document is at \`/api/v1/openapi.json\`, and the TypeScript SDK (\`@kiln/sdk-ts\`) wraps every route.
+    `Kiln's REST API lives under \`/api/v1\`. Send \`Authorization: Bearer <token>\` (a session token from login, an API key or a scoped token); each route needs the scope shown for the factory it touches (\`admin\` grants every scope). People's scopes come from their team and factory roles. Send \`X-Kiln-Team: <team id or slug>\` to act in a team other than your first. The machine-readable document is at \`/api/v1/openapi.json\`, and the TypeScript SDK (\`@kiln/sdk-ts\`) wraps every route.
 
 ${tags
   .map(
@@ -78,13 +78,14 @@ ${ROUTES.filter((r) => r.tag === tag)
 
 ## Errors
 
-Errors are JSON: \`{ "error": "message" }\` with status 400 (invalid request; \`issues\` lists the fields), 401 (missing or invalid token), 403 (token lacks the scope), 404 (unknown resource) or 409 (wrong state).
+Errors are JSON: \`{ "error": "message" }\` with status 400 (invalid request; \`issues\` lists the fields), 401 (missing or invalid token), 402 (\`{ "error": "budget_exceeded", "message": ... }\`: the team's spend limit is reached and auto-stop is on), 403 (token lacks the scope), 404 (unknown resource), 409 (wrong state or already exists), 410 (expired invite) or 413 (upload too large).
 
 ## Related pages
 
 - [CLI reference](cli.md)
 - [Kiln MCP](mcp.md)
 - [Admin, RBAC and audit](../management/admin-rbac-audit.md)
+- [Teams and users](../management/teams-and-users.md)
 `,
   ),
 );

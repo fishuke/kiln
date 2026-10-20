@@ -255,17 +255,21 @@ describe("connections", () => {
     expect(() => kiln.connections.openApprovalLink(expired.token, urls)).toThrow(/expired/);
   });
 
-  it("links chat identities through a sign-in token", () => {
+  it("links chat identities through a sign-in token into the user's linked accounts", () => {
     const { kiln } = createTestKiln();
-    const { token, url } = kiln.identities.startLink("teams", "aad-1", { tenant: "t1" });
+    const ann = kiln.users.create({ email: "ann@acme.test" });
+    const bob = kiln.users.create({ email: "bob@acme.test" });
+    const { token, url } = kiln.identities.startLink("teams", "aad-1");
     expect(url).toContain(token);
-    kiln.identities.claim(token, "ann@acme.test");
+    expect(kiln.identities.claim(token, ann.id).linkedAccounts).toEqual([expect.objectContaining({ provider: "teams", externalId: "aad-1" })]);
     expect(kiln.automations.person("teams", "aad-1")).toBe("ann@acme.test");
-    kiln.identities.link("teams", "aad-2", "ann@acme.test", { tenant: "t1" });
-    expect(kiln.identities.unlink("teams", "aad-1", { tenant: "t1" })).toBe(2);
-    expect(() => kiln.identities.claim(token, "x")).toThrow(/expired/);
-    const state = kiln.identities.startOAuthLink("github", "bob@acme.test");
-    kiln.identities.completeOAuthLink(state, "github", "bobcat");
+    expect(kiln.identities.list("ann@acme.test").map((l) => l.id)).toEqual(["teams:aad-1"]);
+    expect(kiln.identities.unlink("teams", "aad-1")).toBe(1);
+    expect(kiln.automations.person("teams", "aad-1")).toBe("aad-1");
+    expect(() => kiln.identities.claim(token, ann.id)).toThrow(/expired/);
+    expect(() => kiln.identities.startLink("myspace", "x")).toThrow(/can't be linked/);
+    const state = kiln.identities.startOAuthLink("github", bob.id);
+    kiln.identities.completeOAuthLink(state, "github", "bobcat", "bobcat");
     expect(kiln.automations.person("github", "bobcat")).toBe("bob@acme.test");
     expect(() => kiln.identities.completeOAuthLink(state, "github", "bobcat")).toThrow(/expired/);
   });
@@ -309,6 +313,7 @@ describe("integration hub", () => {
     await kiln.integrations.acknowledge(ev("slack", "app_mention", { channel: "C1", ts: "5.0" }));
     expect(chat.reactions).toEqual([{ channel: "C1", ts: "5.0", emoji: "eyes" }]);
     expect(kiln.integrations.homeItems("slack", "U1").map((i) => i.title)).toEqual([started[0]!.title]);
+    kiln.users.create({ email: "ann@acme.test" });
     kiln.identities.link("slack", "U1", "ann@acme.test");
     const routes = kiln.integrations.notificationRoutes({ subject: "ann@acme.test", workItemId: started[0]!.id });
     expect(routes.find((r) => r.kind === "slack_dm")).toMatchObject({ available: true, target: "U1" });

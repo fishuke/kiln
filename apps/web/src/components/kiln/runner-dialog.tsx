@@ -79,14 +79,15 @@ export function RunnerDialog({ factory, open, onOpenChange, name, runner, isDefa
   const imageCreds = { "": "None (public image)", ...Object.fromEntries(secrets.map((s) => [s.name, s.name])) };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(640px,90vh)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[640px]" showCloseButton={false}>
+      <DialogContent className="flex! max-h-[min(640px,90vh)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[640px]" showCloseButton={false}>
         <div className="flex items-center justify-between px-6 pt-5 pb-2">
           <DialogTitle className="text-base font-semibold">{isNew ? "New runner" : "Edit runner"}</DialogTitle>
           <Button variant="ghost" size="icon-sm" aria-label="Close runner editor" onClick={() => onOpenChange(false)}>
             <X />
           </Button>
         </div>
-        <fieldset disabled={readOnly} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-6">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+        <fieldset disabled={readOnly} className="min-w-0 space-y-5 px-6 pb-6">
           <p className="text-sm text-muted-foreground">Runners are the machines that your factory uses for compute. Configure the operating system, machine size, and commands that prepare each agent workspace.</p>
           <div className="space-y-1.5">
             <label className="text-sm font-medium" htmlFor="runner-name">
@@ -190,7 +191,8 @@ export function RunnerDialog({ factory, open, onOpenChange, name, runner, isDefa
             </label>
           )}
         </fieldset>
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t px-6 py-3">
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t px-6 py-3">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

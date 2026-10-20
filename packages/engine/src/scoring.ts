@@ -5,7 +5,7 @@ import type { Kiln } from "./kiln";
 import { C, newId, type Run, type Score } from "./types";
 
 export type JudgeInput = { scorer: ScorerFrontmatter; rubric: string; run: Run; transcript: string };
-export type JudgeOutput = { label: string; confidence: number; rationale?: string; judge: string };
+export type JudgeOutput = { label: string; confidence: number; rationale?: string; judge: string; costUsd?: number };
 
 export interface Judge {
   readonly name: string;
@@ -67,27 +67,44 @@ export class ScoringService {
     );
   }
 
-  /** Score a finished run with every scorer that covers its agent. Replays and benchmarks are always scored. */
-  async scoreRun(runId: string, opts: { force?: boolean } = {}): Promise<Score[]> {
+  private transcriptOf(runId: string) {
+    return this.k.runs
+      .events(runId)
+      .map((e) => `${e.type}: ${e.text ?? ""}`)
+      .join("\n");
+  }
+
+  /**
+   * Score a finished run with every scorer that covers its agent. Replays and benchmarks are
+   * always scored. `scorers` limits it to some scorers (by slug or name) and bypasses sampling;
+   * `replace` re-scores (a manual re-score replaces the earlier result).
+   */
+  async scoreRun(runId: string, opts: { force?: boolean; scorers?: string[]; replace?: boolean; trigger?: "automatic" | "manual"; resolvedSha?: string } = {}): Promise<Score[]> {
     const run = this.k.runs.get(runId);
-    if (!run || run.status === "running") return [];
+    if (!run || run.status === "running" || run.status === "queued" || run.status === "claimed") return [];
     let resolved;
     try {
-      resolved = this.k.defs.resolved(run.definitionSha);
+      resolved = this.k.defs.resolved(opts.resolvedSha ?? run.definitionSha);
     } catch {
       return [];
     }
     const out: Score[] = [];
-    const transcript = this.k.runs
-      .events(run.id)
-      .map((e) => `${e.type}: ${e.text ?? ""}`)
-      .join("\n");
+    const base = this.transcriptOf(run.id);
     for (const [name, s] of Object.entries(resolved.parsed.scorers)) {
-      if (!s.frontmatter.agents.includes(run.agent)) continue;
-      const force = opts.force || run.kind === "replay" || run.kind === "benchmark";
+      const selected = opts.scorers ? opts.scorers.includes(name) || opts.scorers.includes(s.frontmatter.name) : undefined;
+      if (selected === false) continue;
+      const ref = s.frontmatter.agents.find((a) => (typeof a === "string" ? a : a.name) === run.agent);
+      if (!ref && !selected) continue;
+      if (s.frontmatter.kind === "benchmark_task_correctness" && !selected) continue;
+      const force = selected || opts.force || run.kind === "replay" || run.kind === "benchmark";
       const rate = this.k.options.scoreAllRuns ? 100 : s.frontmatter.samplingRate;
       if (!force && !sampled(run.id, name, rate)) continue;
-      if (this.list({ runId: run.id, scorer: s.frontmatter.name }).length) continue;
+      const existing = this.list({ runId: run.id, scorer: s.frontmatter.name });
+      if (existing.length && !opts.replace) continue;
+      for (const old of existing) this.k.store.delete(C.scores, old.id);
+      const withDescendants = typeof ref === "object" && ref.includeDescendants;
+      const transcript = withDescendants ? [base, ...this.k.runs.descendants(run.id).map((d) => `--- subagent ${d.agent} (${d.id}) ---\n${this.transcriptOf(d.id)}`)].join("\n") : base;
+      const started = Date.now();
       const verdict = await this.k.judge.judge({ scorer: s.frontmatter, rubric: s.rubric, run, transcript });
       const label = s.frontmatter.labels.find((l) => l.value === verdict.label);
       if (!label) {
@@ -108,6 +125,9 @@ export class ScoringService {
         definitionSha: run.definitionSha,
         selfImprovement: s.frontmatter.selfImprovement && run.kind === "work",
         reviewed: false,
+        trigger: opts.trigger ?? (selected ? "manual" : "automatic"),
+        costUsd: verdict.costUsd ?? 0,
+        durationMs: Date.now() - started,
         createdAt: this.k.clock.now().toISOString(),
       };
       this.k.store.put(C.scores, score);

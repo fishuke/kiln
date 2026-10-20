@@ -13,20 +13,32 @@ import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import { MemoryObjectStore, MemoryStore, type ObjectStore, type Store } from "@kiln/store";
 import { AutomationService } from "./automations";
+import { BenchmarkAdmin } from "./benchmark-admin";
 import { BenchmarkService } from "./benchmarks";
+import { DedupeService } from "./dedupe";
+import { DefinitionChangeService } from "./definition-changes";
 import { DefinitionService } from "./definitions";
+import { DefinitionEditor } from "./editing";
+import { FactoryMetricsService } from "./factory-metrics";
+import { FileService } from "./files";
 import { GateService } from "./gates";
 import { ImprovementService, RuleImprover, type Improver } from "./improvement";
+import { InboxService } from "./inbox";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
 import { AccountService, EnvironmentService, McpRegistry, NotificationService, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
 import { PlanningService, type Planner } from "./planning";
+import { RunQuery } from "./run-query";
 import { RunService } from "./runs";
+import { ScorerAdmin } from "./scorer-admin";
 import { DecisionJudge, ScoringService, type Judge } from "./scoring";
 import { SecretsBroker } from "./secrets";
 import { SkillService } from "./skills";
+import { TaskService } from "./tasks";
 import { C, newId, systemClock, type AuditEntry, type Clock, type DecisionLog, type WorkItem } from "./types";
+import { WorkerRegistry } from "./workers";
 import { Workflow } from "./workflow";
+import { FactoryWizard } from "./wizard";
 
 export type KilnOptions = {
   forge: Forge;
@@ -69,6 +81,12 @@ export type KilnOptions = {
   storageRoot?: string;
   /** Token used when Kiln itself commits to config repos (GitHub App installation token). */
   forgeToken?: string;
+  /** Attempts per run for retryable platform errors (default 3). */
+  maxRunAttempts?: number;
+  /** A worker that has not sent a heartbeat for this long is no longer connected (default 60 s). */
+  workerStaleMs?: number;
+  /** Runs nobody claims fail after this long (default 30 min). */
+  workerQueueTimeoutMs?: number;
   /** Workspace connections Kiln can make (GitHub, GitLab, Slack, Teams, Discord, Linear, Jira…). */
   connectionProviders?: Partial<Record<ConnectionProviderId, ConnectionProvider>>;
   /** Adapters for providers beyond the primary forge, tracker and chat. */
@@ -91,7 +109,7 @@ export class Kiln {
   readonly improver: Improver;
   readonly planner?: Planner;
   readonly secrets: SecretsBroker;
-  readonly stopping = new Map<string, "pause" | "cancel">();
+  readonly stopping = new Map<string, "pause" | "cancel" | "interrupt">();
 
   readonly defs: DefinitionService;
   readonly runs: RunService;
@@ -105,6 +123,18 @@ export class Kiln {
   readonly planning: PlanningService;
   readonly memories: MemoryService;
   readonly skills: SkillService;
+  readonly files: FileService;
+  readonly tasks: TaskService;
+  readonly runQuery: RunQuery;
+  readonly workers: WorkerRegistry;
+  readonly inbox: InboxService;
+  readonly editor: DefinitionEditor;
+  readonly definitionChanges: DefinitionChangeService;
+  readonly factoryMetrics: FactoryMetricsService;
+  readonly scorers: ScorerAdmin;
+  readonly benchmarkAdmin: BenchmarkAdmin;
+  readonly wizard: FactoryWizard;
+  readonly dedupe: DedupeService;
   readonly connections: ConnectionService;
   readonly identities: IdentityService;
   readonly webhookSources: WebhookSourceService;
@@ -151,6 +181,18 @@ export class Kiln {
     this.planning = new PlanningService(this);
     this.memories = new MemoryService(this);
     this.skills = new SkillService(this);
+    this.files = new FileService(this);
+    this.tasks = new TaskService(this);
+    this.runQuery = new RunQuery(this);
+    this.workers = new WorkerRegistry(this);
+    this.inbox = new InboxService(this);
+    this.editor = new DefinitionEditor(this);
+    this.definitionChanges = new DefinitionChangeService(this);
+    this.factoryMetrics = new FactoryMetricsService(this);
+    this.scorers = new ScorerAdmin(this);
+    this.benchmarkAdmin = new BenchmarkAdmin(this);
+    this.wizard = new FactoryWizard(this);
+    this.dedupe = new DedupeService(this);
     this.users = new UserService(this);
     this.teams = new TeamService(this);
     this.accounts = new AccountService(this);
@@ -260,12 +302,17 @@ export class Kiln {
   }
 
   /** Post back where the work started: the Slack thread, the issue or the PR. */
-  async notify(wi: WorkItem, text: string) {
-    try {
-      await this.integrations.notify(wi, text);
-    } catch (err) {
-      this.audit("kiln", "notify.failed", wi.id, { error: err instanceof Error ? err.message : String(err) });
+  async notify(wi: WorkItem, text: string, opts: { only?: WorkItem["source"] } = {}) {
+    // Every place the work was reported hears about it (an incident's alert channel and the user's thread).
+    const sources = opts.only ? [opts.only] : [wi.source, ...(this.workflow.get(wi.id)?.linkedSources ?? wi.linkedSources ?? [])];
+    for (const source of sources) {
+      try {
+        await this.integrations.notify({ ...wi, source }, text);
+      } catch (err) {
+        this.audit("kiln", "notify.failed", wi.id, { error: err instanceof Error ? err.message : String(err), provider: source.provider });
+      }
     }
+    if (opts.only) return;
     const fresh = this.workflow.get(wi.id);
     if (fresh) {
       fresh.conversation.push({ at: this.clock.now().toISOString(), from: "foreman", role: "foreman", text });
@@ -279,14 +326,22 @@ export class Kiln {
   }
 
   /** Kiln's own commits (self-improvement, skills, memories, routers) to a config repo branch. */
-  async commitFiles(repo: RepoRef & { ref?: string }, branch: string, files: Record<string, string>, message: string) {
+  async commitFiles(repo: RepoRef & { ref?: string }, branch: string, files: Record<string, string | null>, message: string) {
     const work = mkdtempSync(join(tmpdir(), "kiln-commit-"));
     const env = { ...process.env, KILN_PUSH_AS: "agent:kiln" };
     const git = (...args: string[]) => execFileSync("git", args, { cwd: work, env, stdio: "pipe" }).toString();
     try {
       git("clone", "-q", this.forge.cloneUrl(repo, this.options.forgeToken), ".");
-      git("checkout", "-q", "-B", branch, `origin/${repo.ref ?? "main"}`);
+      const base = repo.ref ?? "main";
+      const hasBase = git("ls-remote", "origin", `refs/heads/${base}`).trim() !== "";
+      if (hasBase) git("checkout", "-q", "-B", branch, `origin/${base}`);
+      else git("checkout", "-q", "--orphan", branch);
       for (const [path, content] of Object.entries(files)) {
+        if (path.split("/").includes("..")) throw new Error(`refusing to write ${path}`);
+        if (content === null) {
+          git("rm", "-q", "-f", "--ignore-unmatch", path);
+          continue;
+        }
         mkdirSync(dirname(join(work, path)), { recursive: true });
         writeFileSync(join(work, path), content);
       }
@@ -302,6 +357,8 @@ export class Kiln {
   async tick(opts: { selfImprovement?: boolean } = {}) {
     await this.gates.tick();
     await this.automations.tick();
+    this.workers.tick();
+    for (const f of this.defs.list()) if (f.migration) await this.editor.completeMigration(f.id).catch(() => false);
     await this.notifications.tick();
     for (const wi of this.workflow.list()) {
       if (wi.blockedReason === "waiting for CI" && wi.state === "building") await this.workflow.advance(wi.id);

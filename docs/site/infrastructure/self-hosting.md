@@ -173,8 +173,13 @@ Kiln runs a timer pass that:
 | Webhooks return 401 | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set. |
 | An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory). |
 
+## Workers and monitoring
+
+Agents can also run on machines you choose, such as a build server or a host in a private network: start `kiln worker` there and set `workerHost` on the agent. See [Self-hosted workers](self-hosted-workers.md). The API serves Prometheus metrics at `/metrics` (runs by state, tasks, open gates, workers and the worker queue); set `KILN_METRICS_TOKEN` to require a bearer token.
+
 ## Related pages
 
+- [Self-hosted workers](self-hosted-workers.md)
 - [Architecture and security](architecture-and-security.md)
 - [Sandboxes](sandboxes.md)
 - [Harnesses](harnesses.md)

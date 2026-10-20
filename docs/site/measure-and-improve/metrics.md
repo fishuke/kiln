@@ -53,6 +53,22 @@ The [portfolio](../management/portfolio.md) adds these metrics up per project an
 
 For your own views, Kiln returns the raw rows for runs, scores or work items of a factory since a date. An agent can use the Kiln MCP's metrics tools to answer questions such as "cost per merged PR by agent last week". See the [API overview](../developer-tools/api.md) and the [MCP reference](../developer-tools/mcp.md).
 
+## Dashboard API
+
+The dashboard reads these endpoints. All take `start_date` (inclusive) and `end_date` (exclusive) as RFC 3339 times, default to the last 30 days, and with `group_by_period=day|week|month` (weeks start on Sunday) add a `series`. Most add `deltas` against the previous period of the same length.
+
+| Endpoint | What it returns |
+| --- | --- |
+| `GET /factories/{id}/metrics` | `runCount`, `prCount`, `mergedPrCount`, `autonomy`, the autonomy funnel (merged, merged without a human code change, per repo), impact (additions and deletions of merged PRs), PR latency medians (kickoff → PR → first review → merge), average human interactions per PR. |
+| `GET /factories/{id}/costs/per-pr` | PRs opened in the range, total, mean and median cost. With your own keys all spend is `inference`. |
+| `GET /factories/{id}/costs/breakdown?group_by=source\|user\|agent\|model` | Spend per group. `source` and `user` roll up to the root run. |
+| `GET /factories/{id}/costs/per-pr/top?limit=20` | The most expensive PRs. |
+| `GET /factories/{id}/costs/per-pr/by-size` | Cost by PR size: S < 100, M < 500, L < 1000, XL ≥ 1000 changed lines. |
+| `GET /factories/{id}/metrics/run-breakdown?group_by=agent_type\|status\|source\|root_vs_subrun\|model\|harness` | Run counts per group (source counts top-level runs only). |
+| `GET /factories/{id}/pull-requests` | Every PR the factory produced: state, timing, size, human interactions, runs and cycle times; filter by `repo`, `state`, opened/merged dates and `updated_after` for incremental sync. |
+
+A PR counts as autonomous when no person pushed code to it; handing a task back from a local worktree marks its PR as changed by a person.
+
 ## Related pages
 
 - [Scorers](scorers.md)

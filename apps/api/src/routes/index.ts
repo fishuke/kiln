@@ -1,29 +1,56 @@
 import type { RouteContext } from "../app";
 import { authRoutes } from "./auth";
+import { registerAutomationRoutes } from "./automations";
+import * as benchmarks from "./benchmarks";
+import { registerConnectionRoutes } from "./connections";
+import * as definitions from "./definitions";
 import { environmentRoutes } from "./environments";
+import * as factories from "./factories";
+import { factoryDeleteRoutes } from "./factory-delete";
+import * as factoryFiles from "./factory-files";
 import { factoryMemberRoutes } from "./factory-members";
+import * as files from "./files";
+import * as inbox from "./inbox";
 import { mcpServerRoutes } from "./mcp-servers";
 import { meRoutes } from "./me";
+import * as measure from "./measure";
+import * as runs from "./runs";
+import * as scorers from "./scorers";
 import { secretRoutes } from "./secrets";
+import * as tasks from "./tasks";
 import { teamRoutes } from "./teams";
 import { usageRoutes } from "./usage";
-import { registerAutomationRoutes } from "./automations";
-import { registerConnectionRoutes } from "./connections";
 import { registerWebhookSourceRoutes } from "./webhook-sources";
 import { registerWebhookRoutes } from "./webhooks";
-import { factoryDeleteRoutes } from "./factory-delete";
+import * as workers from "./workers";
 
 /**
- * Route modules, one file per area. Each registers its routes on the app and lists them in
- * ../openapi.ts. Add a module here; keep app.ts for auth, webhooks and the core routes.
+ * Route modules, one file per area. The factory-core modules export `register` and their
+ * `routes` (listed in ../openapi.ts); the platform and integration modules are registration
+ * functions whose routes openapi.ts lists directly. Keep app.ts for auth and the core routes.
  */
-const MODULES: ((ctx: RouteContext) => void)[] = [authRoutes, meRoutes, teamRoutes, factoryMemberRoutes, secretRoutes, mcpServerRoutes, environmentRoutes, usageRoutes, registerConnectionRoutes, registerAutomationRoutes, registerWebhookSourceRoutes, factoryDeleteRoutes];
+export const MODULES = [factoryFiles, files, tasks, runs, inbox, measure, scorers, benchmarks, definitions, factories, workers];
+const PLATFORM: ((ctx: RouteContext) => void)[] = [
+  authRoutes,
+  meRoutes,
+  teamRoutes,
+  factoryMemberRoutes,
+  secretRoutes,
+  mcpServerRoutes,
+  environmentRoutes,
+  usageRoutes,
+  registerConnectionRoutes,
+  registerAutomationRoutes,
+  registerWebhookSourceRoutes,
+  factoryDeleteRoutes,
+];
 
 /** Public routes (provider webhooks, OAuth callbacks): registered before the API's auth middleware. */
 const PUBLIC_MODULES: ((ctx: RouteContext) => void)[] = [registerWebhookRoutes];
 
 export function registerModules(ctx: RouteContext) {
-  for (const register of MODULES) register(ctx);
+  for (const register of PLATFORM) register(ctx);
+  for (const m of MODULES) m.register(ctx);
 }
 
 export function registerPublicRoutes(ctx: RouteContext) {

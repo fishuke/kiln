@@ -23,10 +23,11 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       }
     }
   };
-  const harnessMap: Record<string, string> = { oz: "opencode", claude: "claude-code", "claude-code": "claude-code", codex: "codex" };
+  const harnessMap: Record<string, string> = { oz: "opencode", claude: "claude-code", "claude-code": "claude-code", codex: "codex", gemini: "gemini", pi: "pi" };
   const execution = (file: string, obj: Record<string, unknown>, keepOverrides = false) => {
-    drop(file, obj, keepOverrides ? ["credentialStrategy"] : ["workerHost", "computerUseModel", "credentialStrategy", "required_repos"]);
-    if (keepOverrides && Array.isArray(obj.required_repos)) {
+    // workerHost, computerUseModel, required_repos and (on agents) credentialStrategy are kiln/v1 keys too.
+    if (keepOverrides) drop(file, obj, ["credentialStrategy"]);
+    if (Array.isArray(obj.required_repos)) {
       obj.required_repos = obj.required_repos.map((r) => (typeof r === "string" ? r : `${(r as { owner: string }).owner}/${(r as { name: string }).name}`));
     }
     if (obj.harness && typeof obj.harness === "object") {
@@ -56,7 +57,13 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       const f = parse(src) as Record<string, unknown>;
       f.schemaVersion = "kiln/v1";
       f.name = String(f.name ?? "factory");
-      f.alias = slug(String(f.alias ?? f.name)).slice(0, 60);
+      // Aliases keep their case and spaces; characters Kiln does not allow become dashes.
+      f.alias = String(f.alias ?? f.name).replace(/[^A-Za-z0-9 ._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").slice(0, 60) || slug(String(f.name));
+      if (f.scorerDefaults && typeof f.scorerDefaults === "object") {
+        const sd = f.scorerDefaults as Record<string, unknown>;
+        if (sd.mcpServers && !Array.isArray(sd.mcpServers)) sd.mcpServers = Object.keys(sd.mcpServers);
+        drop(file, sd, ["environmentId"]);
+      }
       const primary = String(((f.codeForges as string[] | undefined) ?? ["GITHUB"])[0] ?? "GITHUB").toLowerCase();
       f.repositories = ((f.repositories as Record<string, unknown>[]) ?? []).map((r) => ({
         forge: String(r.codeForge ?? primary).toLowerCase(),
@@ -85,16 +92,7 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       execution(file, defaults);
       f.agentDefaults = defaults;
       usesAuto ||= defaults.model === "router:auto";
-      drop(file, f, [
-        "codeForges",
-        "credentialStrategy",
-        "benchmarkRepoSubstitutions",
-        "secrets",
-        "mcpServers",
-        "scorerDefaults",
-        "networkPolicy",
-        "experimental",
-      ]);
+      drop(file, f, ["codeForges", "benchmarkRepoSubstitutions", "secrets", "mcpServers"]);
       out[file] = stringify(f);
     } else if (/^agents\/[^/]+\/agent\.md$/.test(file)) {
       out[file] = frontmatter(file, src, (fm) => {
@@ -112,14 +110,15 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       const r = parse(src) as Record<string, unknown>;
       const platform = (r.platform ?? {}) as Record<string, Record<string, unknown> | string>;
       const image = (platform.linux as Record<string, unknown> | undefined)?.dockerImage;
-      const registry = (platform.linux as Record<string, unknown> | undefined)?.registryCredentialSecretName;
-      if (platform.os && platform.os !== "linux") warnings.push(`${file}: ${platform.os} runners are not supported; using linux`);
+      const linux = !platform.os || platform.os === "linux";
+      if (!linux) warnings.push(`${file}: ${platform.os} runners are not supported; using linux`);
       out[file] = stringify({
         ...(r.description ? { description: r.description } : {}),
         image: image ?? "ubuntu:24.04",
+        ...(linux && r.platform ? { platform: r.platform } : {}),
         ...(r.instanceShape ? { shape: r.instanceShape } : {}),
-        setupCommands: r.setupCommands ?? [],
-        ...(typeof registry === "string" ? { platform: { linux: { registryCredentialSecretName: registry } } } : {}),
+        ...(r.failureSessionRetentionMinutes ? { failureSessionRetentionMinutes: r.failureSessionRetentionMinutes } : {}),
+        setupCommands: ((r.setupCommands as unknown[]) ?? []).filter((c) => typeof c === "string"),
       });
     } else if (/^scorers\/[^/]+\/scorer\.md$/.test(file)) {
       out[file] = frontmatter(file, src, (fm) => {

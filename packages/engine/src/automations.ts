@@ -201,7 +201,7 @@ export class AutomationService {
       environmentId: fm?.environmentId ?? undefined,
       workerHost: fm?.workerHost ?? undefined,
       idleTimeoutMinutes: fm?.idleTimeoutMinutes,
-      requiredRepos: fm?.required_repos,
+      requiredRepos: fm?.required_repos?.map((r) => (typeof r === "string" ? r : `${r.owner}/${r.name}`)),
     };
     const hasOverrides = Object.values(execution).some((v) => v !== undefined);
     return this.startWith(factory, a.name, a.agent, a.prompt, event, viaForeman, hasOverrides ? execution : undefined, opts);

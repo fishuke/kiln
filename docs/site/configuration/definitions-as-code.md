@@ -213,6 +213,44 @@ jobs:
 
 The command prints `ok <name> (<sha>): <n> agents, <n> automations` on success, prints each error as `file:line: message` and exits 1 on failure. Make the `validate` job a required status check in the branch protection rules. The workflow file itself is outside the definition layout, so validation lists it as an `unknown-file` warning.
 
+## Editing through the API
+
+The web app edits definitions file by file:
+
+- `GET /api/v1/factories/{id}/files` and `GET|PUT|DELETE /api/v1/factories/{id}/files/{path}`.
+- `POST /api/v1/factories/{id}/files:batch {changes: [{path, content | null}], message}` changes several files in one commit and returns `{applied: sha}` or `{pullRequest: url}`.
+- Higher-level endpoints for agents, automations, runners, routers, skills and settings (`PATCH /factories/{id}/settings`: name, alias, description, repositories, credential strategy, agent and scorer defaults, self-improvement, benchmarking model).
+
+A Kiln-managed factory validates the whole tree and applies it atomically; nothing changes on an error. A factory stored in a config repo gets a branch and a pull request instead, and the merge applies it. `POST /factories/{id}/migrate {owner, name}` moves a managed factory into a GitHub repo through a pull request; the factory switches over when it merges.
+
+## Creating a factory
+
+`POST /api/v1/factories` (and the MCP tool `create_factory`) is the setup wizard in one call: repositories, which of triage, spec, implement and review to include (the foreman is always there), Slack, a tracker (Linear or Jira, with teams or projects), a cost preset (`quality` uses Claude Fable 5.1 for the foreman and spec agents and Opus 5.5 to implement; `efficient` uses Sonnet and Haiku), self-improvement on or off, and starter automations. It writes default prompts for every agent, the `github`, `slack`, `linear`/`jira`, `code-review` and `ui-verification` skills, the default scorers and the automations for the connected tools. `dryRun: true` returns the files without creating anything. `POST /factories/{id}/learning` then starts a run that studies the repositories and tools and proposes memories and prompt changes for review.
+
+## Schemas and validation for editors and CI
+
+These need no token:
+
+- `GET /api/v1/factory-files/schemas`, `/schemas/v1` (every document) and `/schemas/v1/{document}` (for example `agent.schema.json`), with `ETag` and `If-None-Match`.
+- `POST /api/v1/factory-files/validate {files: [{path, content}]}` returns `diagnostics` (path, line, code, message, severity) and `deferredResolutions`: models, secrets, MCP servers, worker hosts and aliases that are only checked when the tree is applied. Limits: 256 files, 256 KB per file, 2 MB in total. `kiln files validate [path]` calls it.
+
+## Blueprints
+
+`blueprint` in factory.yaml replaces the foreman's own workflow with an explicit graph:
+
+```yaml
+blueprint:
+  entry: draft
+  stages:
+    draft: { prompt: Write the change and its tests., outputs: The branch. }
+    check: { prompt: Review the change against the issue. }
+  edges:
+    to-check: { from: draft, to: check, when: the change is written }
+  staffing: { foreman: foreman, draft: implement, check: review }
+```
+
+Each stage runs its staffed agent with the stage prompt. The agent can name the edge that holds (`next` in its result); with several edges and no answer the foreman decides; with one edge it is taken. A stage with no edge that holds ends the workflow, with the pull request handed off to a person.
+
 ## Related pages
 
 - [Importing v1alpha1 definitions](../overview/importing-definitions.md)

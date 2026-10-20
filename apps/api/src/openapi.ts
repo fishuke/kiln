@@ -1,12 +1,13 @@
 import { z } from "zod";
+import { MODULES } from "./routes";
 import * as I from "./routes/integration-schemas";
 import * as PS from "./routes/platform-schemas";
 import * as S from "./schemas";
 
-type Route = { method: "get" | "post" | "put" | "patch" | "delete"; path: string; summary: string; scope?: string; body?: z.ZodType; tag: string };
+export type Route = { method: "get" | "post" | "put" | "patch" | "delete"; path: string; summary: string; scope?: string; body?: z.ZodType; tag: string };
 
-/** The API surface, used for the OpenAPI document and the generated API reference. */
-export const ROUTES: Route[] = [
+/** The core routes in app.ts; route modules list their own and are appended below. */
+const CORE: Route[] = [
   { method: "get", path: "/api/v1/health", summary: "Health check", tag: "System" },
   { method: "get", path: "/api/v1/me", summary: "You: user, teams, current team, role, per-factory roles and grants", tag: "Users" },
   { method: "patch", path: "/api/v1/me", summary: "Update your profile, email, appearance and notification preferences", body: PS.UpdateMe, tag: "Users" },
@@ -85,8 +86,8 @@ export const ROUTES: Route[] = [
   { method: "post", path: "/api/v1/work-items/{id}/complete", summary: "Confirm a handed-off item landed (human only)", scope: "decide:merge", tag: "Work items" },
   { method: "post", path: "/api/v1/work-items/{id}/pull", summary: "Take a task to a local worktree", scope: "send", tag: "Work items" },
   { method: "post", path: "/api/v1/work-items/{id}/handback", summary: "Hand a local task back to the factory", scope: "send", body: S.Message, tag: "Work items" },
-  { method: "get", path: "/api/v1/runs", summary: "List runs", scope: "read", tag: "Runs" },
-  { method: "get", path: "/api/v1/runs/{id}", summary: "A run with its scores", scope: "read", tag: "Runs" },
+  { method: "get", path: "/api/v1/runs", summary: "List runs: state[], task_status[], source[], factory_uid[], ancestor_run_id, artifact_type, q, creator, mine, created/updated filters, metadata[key]=, sort_by, cursor", scope: "read", tag: "Runs" },
+  { method: "get", path: "/api/v1/runs/{id}", summary: "A run with its state, source, root run, task and scores", scope: "read", tag: "Runs" },
   { method: "get", path: "/api/v1/runs/{id}/events", summary: "Run events after a sequence number", scope: "read", tag: "Runs" },
   { method: "get", path: "/api/v1/runs/{id}/stream", summary: "Run events as server-sent events", scope: "read", tag: "Runs" },
   { method: "post", path: "/api/v1/runs/{id}/steer", summary: "Send a steering message to a running agent", scope: "send", body: S.Message, tag: "Runs" },
@@ -95,7 +96,7 @@ export const ROUTES: Route[] = [
   { method: "post", path: "/api/v1/runs/{id}/resume", summary: "Resume a paused run on any node", scope: "send", tag: "Runs" },
   { method: "post", path: "/api/v1/runs/{id}/cancel", summary: "Cancel a run", scope: "send", tag: "Runs" },
   { method: "post", path: "/api/v1/runs/{id}/save-benchmark", summary: "Save a finished run as a benchmark task", scope: "definitions:write", body: S.SaveBenchmark, tag: "Benchmarks" },
-  { method: "get", path: "/api/v1/inbox", summary: "Open decisions, most urgent first", tag: "Inbox" },
+  { method: "get", path: "/api/v1/inbox", summary: "Open decisions (gates), most urgent first", tag: "Inbox" },
   { method: "get", path: "/api/v1/gates/{id}", summary: "A gate with its work item", scope: "read", tag: "Inbox" },
   { method: "post", path: "/api/v1/gates/{id}/decide", summary: "Approve, reject or answer (scope depends on the gate kind)", scope: "decide:*", body: S.Decide, tag: "Inbox" },
   { method: "get", path: "/api/v1/projects", summary: "List projects", tag: "Planning" },
@@ -173,6 +174,9 @@ export const ROUTES: Route[] = [
   { method: "get", path: "/connect/approve/{token}", summary: "Open an approval link (browser redirect)", tag: "Webhooks" },
   { method: "get", path: "/oauth/github-user/callback", summary: "GitHub account linking callback (browser redirect)", tag: "Webhooks" },
 ];
+
+/** The API surface, used for the OpenAPI document and the generated API reference. */
+export const ROUTES: Route[] = [...CORE, ...MODULES.flatMap((m) => m.routes)];
 
 export function openApiDocument() {
   const paths: Record<string, Record<string, unknown>> = {};

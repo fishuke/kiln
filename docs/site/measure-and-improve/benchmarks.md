@@ -83,6 +83,15 @@ routing:
 
 For a config-repo factory, Kiln opens this as a pull request labeled `kiln:benchmarks`. To use it, point the agent at it with `model: router:by-task`.
 
+## Benchmark runs, trials and results
+
+The benchmarks page and API run suites with more control than `kiln bench run`:
+
+- Suites and tasks: `GET|POST /factories/{id}/benchmark-suites`, `GET|PATCH|DELETE …/benchmark-suites/{suite}`, and `…/{suite}/tasks[/{task}]`. Adding a task with the same content again is a no-op; another task with the same title is a conflict. `POST /runs/{id}/benchmark-task` turns a finished run into a task.
+- `POST …/benchmark-suites/{suite}/runs {configurations, repetitions, scorers, tasks}` starts a benchmark run. Each configuration sets, per agent, the harness and model (or a `router:<slug>`) and the runner. Every task × configuration × repetition is a **trial**: an agent run of kind `benchmark` with source `BENCHMARK_TRIAL`. The run freezes its inputs; it is not idempotent.
+- After the trials, each is scored for task correctness and with the scorers you picked. `GET /benchmark-runs/{id}/results` returns per-configuration averages, an overall score, cost and duration, the Pareto frontier, chart points (quality against cost), spend (execution and judging), coverage and a short narrative, plus a recommendation: **highest quality**, **most efficient** (quality per second) and **lowest cost**.
+- `GET /benchmark-runs/{id}/trials` (filter by task, configuration or `agent_run_id`) and `POST /benchmark-runs/{id}/cancel`.
+
 ## Related pages
 
 - [Scorers](scorers.md)

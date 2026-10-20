@@ -36,8 +36,14 @@ The directory name is the agent's name. Other files refer to the agent by that n
 | `secrets` | list | inherited | Names of Kiln secrets. A raw secret that is set is passed to the run as an environment variable with the same name. A typed secret passes its provider variables. See [Secrets](../management/secrets-mcps-environments.md#secrets). |
 | `mcpServers` | list | inherited | Names or ids of the team's MCP servers, or built-in ids such as `linear` and `github`. See [MCP servers](../management/secrets-mcps-environments.md#mcp-servers-mcps-and-apps). |
 | `environmentId` | string | inherited | A team environment (id or name): image, repositories, setup commands and secrets. See [Environments](../management/secrets-mcps-environments.md#environments). |
+| `workerHost` | string | inherited | Run on a [self-hosted worker](../infrastructure/self-hosted-workers.md) with this id. `""` or `null` runs on the Kiln server. |
+| `computerUse` | boolean | inherited | Turn computer use (screenshots and recordings of the running app) on or off. |
+| `computerUseModel` | string | automatic | The model for computer use, for example `claude-fable-5-1` or `claude-sonnet-5-5`. |
+| `credentialStrategy` | `EXECUTOR` or `CREATOR` | factory's, else `EXECUTOR` | Whose forge identity the run acts as: the agent, or the person who started the work. |
+| `networkPolicy` | object | factory's | `allowedHosts` (added to the runner's egress) and `deniedHosts` (always blocked). Literal hosts or IPs only. `null` turns an inherited policy off. |
+| `required_repos` | list | none | Repositories (`owner/name` or `{owner, name}`) prepared for every run even when marked `deferred`. |
 
-Unknown keys are errors.
+Unknown keys are errors. Every key can also be changed through the API: `PUT /api/v1/factories/{id}/agents/{name}` with the keys above plus `prompt` (a pull request for config-repo factories).
 
 ## Roles
 

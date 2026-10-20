@@ -3,6 +3,8 @@ import type { Proc, Sandbox } from "@kiln/sandbox";
 
 export type HarnessEvent =
   | { type: "message"; text: string }
+  /** The model's thinking, when the harness exposes it; `durationMs` is how long it thought. */
+  | { type: "reasoning"; text: string; durationMs?: number }
   | { type: "tool_call"; name: string; input?: unknown }
   | { type: "tool_result"; name?: string; output?: string; isError?: boolean }
   | { type: "steer"; text: string }
@@ -136,7 +138,11 @@ abstract class CliSession implements HarnessSession {
     this.result = new Promise((r) => (this.resolve = r));
   }
 
+  /** When the last event arrived, to time the model's thinking. */
+  protected lastEventAt = Date.now();
+
   protected emit(e: HarnessEvent) {
+    this.lastEventAt = Date.now();
     this.events.push(e);
   }
 
@@ -235,7 +241,10 @@ class ClaudeSession extends CliSession {
     if (!msg) return;
     if (msg.type === "assistant") {
       this.turns++;
+      const now = Date.now();
       for (const c of msg.message?.content ?? []) {
+        // Thinking time: from the previous event to this message.
+        if (c.type === "thinking" && c.thinking) this.emit({ type: "reasoning", text: c.thinking, durationMs: this.lastEventAt ? now - this.lastEventAt : undefined });
         if (c.type === "text") this.emit({ type: "message", text: c.text });
         if (c.type === "tool_use") this.emit({ type: "tool_call", name: c.name, input: c.input });
       }
@@ -463,6 +472,72 @@ export class FakeHarness implements HarnessAdapter {
   }
 }
 
+/** Streaming JSON events shared by the Gemini CLI and Pi: message, tool_use/tool_result, result/error. */
+function streamJsonLine(msg: Record<string, any>, s: Parameters<LineHandler>[1]) {
+  const text = typeof msg.content === "string" ? msg.content : typeof msg.text === "string" ? msg.text : undefined;
+  if ((msg.type === "message" || msg.type === "assistant") && text && msg.role !== "user") {
+    s.emit({ type: "message", text });
+    s.setSummary(text);
+  } else if (msg.type === "tool_use" || msg.type === "tool_call") {
+    s.emit({ type: "tool_call", name: String(msg.tool_name ?? msg.name ?? "tool"), input: msg.parameters ?? msg.args ?? msg.input });
+  } else if (msg.type === "tool_result") {
+    s.emit({ type: "tool_result", name: msg.tool_name ?? msg.name, output: String(msg.output ?? msg.result ?? ""), isError: msg.status === "error" || msg.isError === true });
+  } else if (msg.type === "result" || msg.type === "turn_end" || msg.type === "agent_end") {
+    s.turn();
+    const cost = msg.stats?.cost_usd ?? msg.usage?.cost?.total ?? msg.cost;
+    if (typeof cost === "number") s.addCost(cost);
+    if (msg.status === "error") s.fail();
+  } else if (msg.type === "error") {
+    s.emit({ type: "error", text: String(msg.message ?? msg.error ?? "harness failed") });
+    s.fail();
+  }
+}
+
+/** Gemini CLI headless mode (`gemini -p … --output-format stream-json`); steering resumes the latest session. */
+export class GeminiAdapter implements HarnessAdapter {
+  readonly type = "gemini" as const;
+
+  constructor(private readonly bin = "gemini") {}
+
+  async start(opts: StartOptions): Promise<HarnessSession> {
+    await writeSkills(opts, ".gemini/skills");
+    await opts.sandbox.writeFile(`${opts.cwd ? `${opts.cwd}/` : ""}GEMINI.md`, `${opts.instructions}\n`);
+    const session = new ResumingSession(opts, (message, resume) => [
+      ...(resume ? ["--resume", "latest"] : []),
+      "--output-format",
+      "stream-json",
+      "--yolo",
+      ...(opts.model ? ["-m", opts.model] : []),
+      "-p",
+      message,
+    ], this.bin, streamJsonLine);
+    session.begin(opts.prompt);
+    return session;
+  }
+}
+
+/** Pi coding agent in JSON mode; steering continues the same session. */
+export class PiAdapter implements HarnessAdapter {
+  readonly type = "pi" as const;
+
+  constructor(private readonly bin = "pi") {}
+
+  async start(opts: StartOptions): Promise<HarnessSession> {
+    await writeSkills(opts, ".pi/skills");
+    await opts.sandbox.writeFile(`${opts.cwd ? `${opts.cwd}/` : ""}AGENTS.md`, `${opts.instructions}\n`);
+    const session = new ResumingSession(opts, (message, resume) => [
+      ...(resume ? ["--continue"] : []),
+      "--mode",
+      "json",
+      ...(opts.model ? ["--model", opts.model] : []),
+      "-p",
+      message,
+    ], this.bin, streamJsonLine);
+    session.begin(opts.prompt);
+    return session;
+  }
+}
+
 export function adapterFor(type: HarnessType): HarnessAdapter {
   switch (type) {
     case "claude-code":
@@ -471,5 +546,9 @@ export function adapterFor(type: HarnessType): HarnessAdapter {
       return new CodexAdapter();
     case "opencode":
       return new OpenCodeAdapter();
+    case "gemini":
+      return new GeminiAdapter();
+    case "pi":
+      return new PiAdapter();
   }
 }

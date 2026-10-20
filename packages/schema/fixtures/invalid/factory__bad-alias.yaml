@@ -1,6 +1,6 @@
 schemaVersion: kiln/v1
 name: web-app
-alias: Web App
+alias: "web/app: the best!"
 repositories:
   - { owner: acme, name: web-app }
 agentDefaults:

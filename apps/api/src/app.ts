@@ -1,14 +1,15 @@
 import { can, issueToken, SCOPES, teamRoleAllows, verifyToken, type ApiToken, type GitHubOAuth, type Scope } from "@kiln/auth";
 import { guardCommand } from "@kiln/decide";
-import { BudgetExceededError, PlatformError, resolveAccess, type Access, type Gate, type Kiln, type Team, type User } from "@kiln/engine";
+import { BudgetExceededError, KilnError, PlatformError, resolveAccess, slug, type Access, type Gate, type Kiln, type Run, type Team, type User } from "@kiln/engine";
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { openApiDocument } from "./openapi";
+import { agentMayCall, inOwnTree, isPublicPath, runTokenAuth, type RunPrincipal } from "./run-auth";
 import { registerModules, registerPublicRoutes } from "./routes";
 import * as S from "./schemas";
 
-export type Env = { Variables: { token: ApiToken; access: Access } };
+export type Env = { Variables: { token: ApiToken; access: Access; run?: RunPrincipal } };
 
 export class HttpError extends Error {
   constructor(
@@ -49,6 +50,14 @@ export type RouteContext = {
   user: (c: Context<Env>) => User;
   /** The current team (X-Kiln-Team, else the default); 400 when there is none. */
   team: (c: Context<Env>) => Team;
+  /** Read access to a run: the factory, the agent's own tree, or the run's share link. */
+  canReadRun: (c: Context<Env>, run: Run) => boolean;
+  /** Send access to a run (steer, follow up): the factory, the agent's own tree, or an EDITOR share link. */
+  canSendRun: (c: Context<Env>, run: Run) => boolean;
+  /** Give factories created by this request (not in `before`) to the caller's team. */
+  adopt: (c: Context<Env>, before: Set<string>) => void;
+  /** 403 when a repo is outside the team's enabled GitHub orgs. */
+  checkOrgs: (c: Context<Env>, repos: { owner: string; forge?: string }[]) => void;
 };
 
 export function createApp(kiln: Kiln, options: AppOptions = {}) {
@@ -61,6 +70,11 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
 
   app.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status);
+    if (err instanceof KilnError) {
+      const s = err.spec;
+      const status = s.http;
+      return c.json({ error: err.message, code: err.code, title: s.title, status, retryable: s.retryable !== false, ...err.details }, status);
+    }
     if (err instanceof PlatformError) return c.json({ error: err.message }, err.status);
     if (err instanceof BudgetExceededError) return c.json({ error: err.code, message: err.message, limitUsd: err.limitUsd, spentUsd: err.spentUsd }, 402);
     if (err instanceof z.ZodError) return c.json({ error: "invalid request", issues: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`) }, 400);
@@ -133,7 +147,29 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const outside = orgs.length ? repos.filter((r) => (r.forge ?? "github") === "github" && !orgs.includes(r.owner.toLowerCase())) : [];
     if (outside.length) throw new HttpError(403, `GitHub org ${outside[0]!.owner} is not enabled for team ${t!.slug}`);
   };
-  const ctx: RouteContext = { app, kiln, options, need, who, visible, access, user, team };
+  const canReadRun = (c: Context<Env>, run: Run) => {
+    const p = c.get("run");
+    if (p) return inOwnTree(kiln, p, run);
+    return can(access(c).token, "read", run.factory) || Boolean(run.sharing?.publicAccess);
+  };
+  const canSendRun = (c: Context<Env>, run: Run) => {
+    const p = c.get("run");
+    if (p) return inOwnTree(kiln, p, run);
+    return can(access(c).token, "send", run.factory) || run.sharing?.publicAccess === "EDITOR";
+  };
+  const mustReadRun = (c: Context<Env>, id: string) => {
+    const run = kiln.runs.get(id);
+    if (!run) throw new HttpError(404, "unknown run");
+    if (!canReadRun(c, run)) throw new HttpError(403, `token lacks read on ${run.factory}`);
+    return run;
+  };
+  const mustSendRun = (c: Context<Env>, id: string) => {
+    const run = kiln.runs.get(id);
+    if (!run) throw new HttpError(404, "unknown run");
+    if (!canSendRun(c, run)) throw new HttpError(403, `token lacks send on ${run.factory}`);
+    return run;
+  };
+  const ctx: RouteContext = { app, kiln, options, need, who, visible, access, user, team, canReadRun, canSendRun, adopt, checkOrgs };
 
   // ---- webhooks and OAuth callbacks: public, verified per provider (routes/webhooks.ts) ----
   registerPublicRoutes(ctx);
@@ -144,10 +180,21 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   // ---- authenticated API ----
   app.use("/api/v1/*", async (c, next) => {
     const raw = c.req.header("authorization")?.replace(/^Bearer\s+/i, "");
+    // Agents call with their run token: limited to their own factory, task and run tree.
+    const agent = runTokenAuth(kiln, raw);
+    if (agent) {
+      const denied = agentMayCall(kiln, agent.principal, c.req.method, c.req.path);
+      if (denied) throw new HttpError(403, denied);
+      const a = resolveAccess(kiln, { ...agent.token, teamId: kiln.teams.factoryTeam(agent.principal.factory) });
+      c.set("access", { ...a, token: agent.token, teamScoped: false });
+      c.set("token", agent.token);
+      c.set("run", agent.principal);
+      return next();
+    }
     const verified = raw ? verifyToken(kiln.store, raw, kiln.clock.now()) : undefined;
     const token = verified ?? devToken;
     if (!token) {
-      if (PUBLIC_ROUTES.some((r) => r.test(c.req.path))) return next();
+      if (PUBLIC_ROUTES.some((r) => r.test(c.req.path)) || isPublicPath(c.req.path)) return next();
       throw new HttpError(401, "missing or invalid token");
     }
     const access = resolveAccess(kiln, token, c.req.header("x-kiln-team") || undefined);
@@ -212,7 +259,8 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   app.post("/api/v1/definitions/apply", async (c) => {
     const body = S.Apply.parse(await c.req.json());
     const v = kiln.defs.validate(body.tree);
-    const target = body.factory ?? (v.ok ? kiln.defs.resolveTree(body.tree).factory.alias : undefined) ?? "*";
+    const named = v.ok ? kiln.defs.resolveTree(body.tree).factory : undefined;
+    const target = body.factory ?? (named ? slug(named.alias ?? named.name) : undefined) ?? "*";
     need(c, "definitions:write", target);
     if (v.ok) checkOrgs(c, kiln.defs.resolveTree(body.tree).factory.repositories);
     const before = known();
@@ -250,12 +298,14 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     return c.json(items.map(({ conversation, ...w }) => ({ ...w, messages: conversation.length })));
   });
   app.post("/api/v1/work-items", async (c) => {
-    const body = S.CreateWorkItem.parse(await c.req.json());
+    const { attachments: keys, mode, ...body } = S.CreateWorkItem.parse(await c.req.json());
     need(c, "send", body.factory);
     kiln.usage.assertWithinBudget(kiln.teams.factoryTeam(body.factory));
-    const wi = await kiln.workflow.create({ ...body, source: { provider: body.via ?? "api" }, requester: who(c) });
+    const attachments = keys?.length ? kiln.files.resolveAttachments(keys, who(c), body.factory) : undefined;
+    const wi = await kiln.workflow.create({ ...body, attachments, mode, source: { provider: body.via ?? "api" }, requester: who(c) });
     void kiln.workflow.advance(wi.id);
-    return c.json(wi, 201);
+    // 200 with `deduplicated` when the report joined an open task for the same incident.
+    return c.json(wi, wi.deduplicated ? 200 : 201);
   });
   app.get("/api/v1/work-items/:id", (c) => {
     const wi = kiln.workflow.get(c.req.param("id"));
@@ -267,10 +317,13 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const wi = kiln.workflow.get(c.req.param("id"));
     if (!wi) throw new HttpError(404, "unknown work item");
     need(c, "send", wi.factory);
-    const { text } = S.Message.parse(await c.req.json());
-    const open = kiln.gates.list({ workItemId: wi.id, state: "open" }).find((g) => g.kind === "question" && !g.command);
-    if (open) await kiln.gates.decide(open.id, { decision: "answer", answer: text, by: who(c), via: "web" });
-    else kiln.workflow.addMessage(wi.id, who(c), text);
+    const { text, attachments: keys } = S.Message.parse(await c.req.json());
+    const attachments = keys?.length ? kiln.files.resolveAttachments(keys, who(c), wi.factory) : [];
+    const open = c.get("run") ? undefined : kiln.gates.list({ workItemId: wi.id, state: "open" }).find((g) => g.kind === "question" && !g.command);
+    if (open) {
+      if (attachments.length) kiln.workflow.addMessage(wi.id, who(c), `Attached ${attachments.map((a) => a.name).join(", ")}`, attachments);
+      await kiln.gates.decide(open.id, { decision: "answer", answer: text, by: who(c), via: "web" });
+    } else kiln.workflow.addMessage(wi.id, who(c), text, attachments);
     return c.json(kiln.workflow.get(wi.id));
   });
   app.post("/api/v1/work-items/:id/cancel", async (c) => {
@@ -301,31 +354,59 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     need(c, "send", wi.factory);
     const { text } = S.Message.parse(await c.req.json());
     kiln.workflow.addMessage(wi.id, who(c), `Handed back: ${text}`);
+    // Code written by a person in a local worktree: the PR is no longer autonomous.
+    kiln.workflow.update(wi.id, (w) => {
+      if (w.pr) w.pr.humanCodeChange = true;
+    });
     void kiln.workflow.advance(wi.id);
     return c.json(kiln.workflow.get(wi.id));
   });
 
   // runs
+  // Runs: filters, sorting and cursor pages (see RunQuery). Old `factory`/`workItem` params still work.
   app.get("/api/v1/runs", (c) => {
-    const runs = kiln.runs.list({ factory: c.req.query("factory"), workItemId: c.req.query("workItem"), agent: c.req.query("agent"), kind: c.req.query("kind") as never }).filter((r) => visible(c, r.factory));
-    return c.json(runs.slice(0, Number(c.req.query("limit") ?? 200)));
+    const q = S.RunListQuery.parse(Object.fromEntries(Object.entries(c.req.queries()).map(([k, v]) => [k, v.length > 1 ? v : v[0]])));
+    const metadata = Object.fromEntries(Object.entries(c.req.query()).filter(([k]) => /^metadata\[.+\]$/.test(k)).map(([k, v]) => [k.slice(9, -1), v]));
+    if (Object.keys(metadata).length > 5) throw new HttpError(400, "filter on at most 5 metadata keys");
+    const principal = c.get("run");
+    const mine = q.mine === "true" || q.mine === "1" ? who(c) : undefined;
+    return c.json(
+      kiln.runQuery.list({
+        state: q.state,
+        taskStatus: q.task_status,
+        source: q.source,
+        factory: q.factory_uid ?? (q.factory ? [q.factory] : undefined),
+        agent: q.agent ?? q.name,
+        model: q.model_id,
+        kind: q.kind as Run["kind"] | undefined,
+        workItemId: q.workItem ?? q.task_id,
+        ancestorRunId: q.ancestor_run_id,
+        artifactType: q.artifact_type,
+        q: q.q,
+        creator: mine ?? q.creator,
+        executor: q.executor,
+        createdAfter: q.created_after,
+        createdBefore: q.created_before,
+        updatedAfter: q.updated_after,
+        metadata: Object.keys(metadata).length ? metadata : undefined,
+        sortBy: q.sort_by,
+        sortOrder: q.sort_order,
+        limit: q.limit,
+        cursor: q.cursor,
+        visible: (r) => (principal ? inOwnTree(kiln, principal, r) : visible(c, r.factory) || Boolean(r.sharing?.publicAccess)),
+      }),
+    );
   });
   app.get("/api/v1/runs/:id", (c) => {
-    const run = kiln.runs.get(c.req.param("id"));
-    if (!run) throw new HttpError(404, "unknown run");
-    need(c, "read", run.factory);
-    return c.json({ ...run, live: kiln.runs.isActive(run.id), scores: kiln.scoring.list({ runId: run.id }) });
+    const run = mustReadRun(c, c.req.param("id"));
+    return c.json({ ...kiln.runQuery.view(run), live: kiln.runs.isActive(run.id), scores: kiln.scoring.list({ runId: run.id }) });
   });
   app.get("/api/v1/runs/:id/events", (c) => {
-    const run = kiln.runs.get(c.req.param("id"));
-    if (!run) throw new HttpError(404, "unknown run");
-    need(c, "read", run.factory);
+    const run = mustReadRun(c, c.req.param("id"));
     return c.json(kiln.runs.events(run.id, Number(c.req.query("after") ?? 0)));
   });
   app.get("/api/v1/runs/:id/stream", (c) => {
-    const run = kiln.runs.get(c.req.param("id"));
-    if (!run) throw new HttpError(404, "unknown run");
-    need(c, "read", run.factory);
+    const run = mustReadRun(c, c.req.param("id"));
     return streamSSE(c, async (stream) => {
       let after = Number(c.req.query("after") ?? 0);
       for (;;) {
@@ -334,24 +415,21 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
           after = e.seq;
         }
         const r = kiln.runs.get(run.id);
-        if (r && r.status !== "running" && !kiln.runs.isActive(run.id)) break;
+        if (r && !["running", "queued", "claimed"].includes(r.status) && !kiln.runs.isActive(run.id)) break;
         await stream.sleep(500);
       }
     });
   });
   app.post("/api/v1/runs/:id/steer", async (c) => {
-    const run = kiln.runs.get(c.req.param("id"));
-    if (!run) throw new HttpError(404, "unknown run");
-    need(c, "send", run.factory);
+    const run = mustSendRun(c, c.req.param("id"));
     const { text } = S.Message.parse(await c.req.json());
     await kiln.runs.steer(run.id, text, who(c));
     return c.json({ ok: true });
   });
   app.post("/api/v1/runs/:id/:action{replay|cancel|pause|resume}", async (c) => {
-    const run = kiln.runs.get(c.req.param("id"));
-    if (!run) throw new HttpError(404, "unknown run");
-    need(c, "send", run.factory);
+    const run = mustSendRun(c, c.req.param("id"));
     const action = c.req.param("action");
+    if (c.get("run") && action !== "cancel") throw new HttpError(403, `run tokens cannot ${action} runs`);
     if (action === "replay") {
       const body = S.Replay.parse(await c.req.json().catch(() => ({})));
       return c.json(await kiln.runs.replay(run.id, { sha: body.sha }));
@@ -373,7 +451,14 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   app.get("/api/v1/inbox", (c) => {
     const assignee = c.req.query("all") ? undefined : (c.req.query("assignee") ?? (options.devAuth ? undefined : who(c)));
     const gates = kiln.gates.inbox(assignee).filter((g) => visible(c, g.factory));
-    return c.json(gates.map((g) => ({ ...g, workItem: summarizeItem(kiln, g.workItemId) })));
+    const user = who(c);
+    return c.json(
+      gates.map((g) => {
+        const q = g.questions?.[0];
+        const s = kiln.inbox.gateState(user, g.id);
+        return { ...g, ...(q ? { options: q.options, multiSelect: q.type === "multi_select", recommendedOptionIndex: q.recommendedOptionIndex } : {}), read: s.read, resolved: s.resolved, workItem: summarizeItem(kiln, g.workItemId) };
+      }),
+    );
   });
   app.get("/api/v1/gates/:id", (c) => {
     const g = kiln.gates.get(c.req.param("id"));

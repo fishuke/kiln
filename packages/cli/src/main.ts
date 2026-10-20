@@ -7,6 +7,9 @@ import { parseArgs } from "node:util";
 import { diffTrees, formatDiff, formatErrors, importV1alpha1, loadTree, validateTree, writeTree } from "@kiln/definitions";
 import { jsonSchemaFor, type FileKind } from "@kiln/schema";
 import { KilnApiError, KilnClient } from "@kiln/sdk-ts";
+import { KilnWorker, parseDuration, readConfigFile, WorkerConfig } from "./worker";
+
+export { KilnWorker, WorkerConfig, parseDuration, readConfigFile } from "./worker";
 
 export type CliIO = { out: (s: string) => void; err: (s: string) => void; cwd: string; env: NodeJS.ProcessEnv; client?: KilnClient };
 
@@ -28,7 +31,15 @@ Factory (needs KILN_URL and KILN_TOKEN)
   kiln send "<task>" --factory <id> [--body <text>]                   Create a work item
   kiln pull <task>                                                    Take a task to a local worktree
   kiln handback <task> [message]                                      Return it to the factory
-  kiln runs [--factory <id>] [--work-item <id>]                       List runs
+  kiln dispatch "<prompt>" --factory <id> [--ticket linear:ENG-1] [--mode plan|orchestrate]   Send a prompt to the foreman
+  kiln tasks --factory <id> [--stage IMPLEMENT] [--q <text>]          List tasks
+  kiln tasks get|cancel|outputs <task> --factory <id>                 One task: details, cancel it, its outputs
+  kiln runs [--factory <id>] [--state FAILED] [--source SLACK] [--mine]   List runs
+  kiln runs get|timeline|transcript <run>                             One run
+  kiln runs followup <run> <message> | interrupt <run> | cancel <run>   Talk to or stop a run
+  kiln upload <file...> [--factory <id>]                              Upload attachments; prints their keys
+  kiln create-factory --name <n> --repo owner/name [--repo …] [--slack] [--tracker linear|jira] [--preset quality|efficient] [--dry-run]
+  kiln files validate [path]                                          Validate a tree with the server's parser (no token needed)
   kiln inbox [--all]                                                  Decisions waiting on you
   kiln decide <gate> approve|reject|answer [text]                     Decide a gate
   kiln replay <run> [--with <sha>]                                    Replay a run, optionally under another definition
@@ -36,6 +47,12 @@ Factory (needs KILN_URL and KILN_TOKEN)
   kiln bench run <suite> --factory <id>                               Run a benchmark suite
   kiln metrics --factory <id> [--since <iso>]                         Factory metrics
   kiln token create --name <n> --subject <email> --grants read:*,send:webapp
+
+Self-hosted worker (connects out to KILN_URL with a token that has the worker scope)
+  kiln worker --worker-id <id> [--api-key <key>] [--backend docker|kubernetes|direct]
+              [--max-concurrent-tasks N] [--one-shot] [--idle-on-complete 45m]
+              [-v HOST:CONTAINER[:ro]]… [-e KEY[=VALUE]]… [--config-file worker.yaml]
+              [--no-cleanup] [--metrics-port 9464] [--log-level info]
 `;
 
 function config(io: CliIO): { url: string; token?: string } {
@@ -78,6 +95,30 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
       subject: { type: "string" },
       grants: { type: "string" },
       json: { type: "boolean" },
+      state: { type: "string" },
+      source: { type: "string" },
+      stage: { type: "string" },
+      q: { type: "string" },
+      mine: { type: "boolean" },
+      ticket: { type: "string" },
+      mode: { type: "string" },
+      repo: { type: "string", multiple: true },
+      slack: { type: "boolean" },
+      tracker: { type: "string" },
+      preset: { type: "string" },
+      "worker-id": { type: "string" },
+      "api-key": { type: "string" },
+      backend: { type: "string" },
+      "max-concurrent-tasks": { type: "string" },
+      "one-shot": { type: "boolean" },
+      "idle-on-complete": { type: "string" },
+      volumes: { type: "string", multiple: true, short: "v" },
+      env: { type: "string", multiple: true, short: "e" },
+      "config-file": { type: "string" },
+      "no-cleanup": { type: "boolean" },
+      "metrics-port": { type: "string" },
+      "log-level": { type: "string" },
+      url: { type: "string" },
     },
   });
   const str = (k: string) => values[k] as string | undefined;
@@ -173,7 +214,7 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
       case "send": {
         const factory = str("factory");
         if (!factory || !positionals[0]) throw new Error('usage: kiln send "<task>" --factory <id>');
-        const wi = await client(io).send({ factory, title: positionals[0], body: str("body") ?? "", via: "kiln" });
+        const wi = await client(io).send({ factory, title: positionals[0], body: str("body") ?? "", via: "cli" });
         io.out(`Created ${wi.id} in ${factory}. Follow it with: kiln runs --work-item ${wi.id}`);
         return 0;
       }
@@ -196,8 +237,127 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
         return 0;
       }
       case "runs": {
-        const runs = await client(io).runs({ factory: str("factory"), workItem: str("work-item"), limit: 50 });
-        io.out(table([["RUN", "AGENT", "STATUS", "COST", "STARTED"], ...runs.map((r) => [r.id, r.agent, r.status, `$${r.costUsd.toFixed(2)}`, r.startedAt.slice(0, 19)])]));
+        const c = client(io);
+        const [sub, id, ...text] = positionals;
+        if (sub && sub !== "list") {
+          if (!id) throw new Error(`usage: kiln runs ${sub} <run>`);
+          if (sub === "get") {
+            const r = await c.run(id);
+            io.out(values.json ? JSON.stringify(r, null, 2) : `${r.id} ${r.agent} ${r.state} (${r.source})\n${r.title ?? ""}\ncost $${r.costUsd.toFixed(2)} · root ${r.rootRunId}${r.taskId ? ` · task ${r.taskId}` : ""}${r.error ? `\nerror ${r.error.code}: ${r.error.message}` : ""}`);
+          } else if (sub === "timeline") {
+            const t = await c.runTimeline(id);
+            io.out(t.entries.map((e) => `${e.at.slice(11, 19)} ${e.agent.padEnd(12)} ${e.type}${e.text ? `: ${e.text.split("\n")[0]}` : ""}`).join("\n"));
+          } else if (sub === "transcript") io.out(await c.runTranscript(id));
+          else if (sub === "followup") {
+            if (!text.length) throw new Error("usage: kiln runs followup <run> <message>");
+            const r = await c.followup(id, text.join(" "));
+            io.out(r.delivered === "steered" ? "Sent to the running agent." : `Continued in ${r.run.id}.`);
+          } else if (sub === "interrupt") {
+            await c.interrupt(id);
+            io.out("Interrupted; send a follow-up to continue.");
+          } else if (sub === "cancel") {
+            await c.cancelRun(id);
+            io.out("Cancelled.");
+          } else throw new Error(`unknown runs command ${sub}`);
+          return 0;
+        }
+        const page = await c.runsPage({ factory: str("factory"), workItem: str("work-item"), state: str("state")?.split(",") as never, source: str("source")?.split(","), mine: Boolean(values.mine), limit: 50 });
+        if (values.json) io.out(JSON.stringify(page, null, 2));
+        else io.out(table([["RUN", "AGENT", "STATE", "SOURCE", "COST", "STARTED"], ...page.runs.map((r) => [r.id, r.agent, r.state, r.source, `$${r.costUsd.toFixed(2)}`, r.startedAt.slice(0, 19)])]));
+        return 0;
+      }
+      case "dispatch": {
+        const factory = str("factory");
+        if (!factory || !positionals[0]) throw new Error('usage: kiln dispatch "<prompt>" --factory <id> [--ticket linear:ENG-1] [--mode plan]');
+        const r = await client(io).dispatch(factory, { prompt: positionals.join(" "), ticket_ref: str("ticket"), mode: str("mode") as never });
+        io.out(`Task ${r.taskId}${r.runId ? `, run ${r.runId}` : ""} (${r.state}). ${r.runUrl}`);
+        return 0;
+      }
+      case "tasks": {
+        const c = client(io);
+        const factory = str("factory");
+        const [sub, id] = positionals;
+        if (sub && sub !== "list") {
+          if (!factory || !id) throw new Error(`usage: kiln tasks ${sub} <task> --factory <id>`);
+          if (sub === "get") {
+            const t = await c.task(factory, id);
+            io.out(values.json ? JSON.stringify(t, null, 2) : `${t.id} ${t.stage} (${t.state})\n${t.title}\n${t.outputs.map((o) => `- ${o.type}: ${o.url}`).join("\n")}`);
+          } else if (sub === "cancel") io.out(`Cancelled ${(await c.cancelTask(factory, id)).id}.`);
+          else if (sub === "outputs") io.out((await c.taskOutputs(factory, id)).outputs.map((o) => `${o.type.padEnd(18)} ${o.url}${o.title ? `  ${o.title}` : ""}`).join("\n") || "No outputs yet.");
+          else throw new Error(`unknown tasks command ${sub}`);
+          return 0;
+        }
+        const page = factory ? await c.tasks(factory, { stage: str("stage")?.split(",") as never, q: str("q"), limit: 50 }) : await c.allTasks({ stage: str("stage")?.split(",") as never, q: str("q"), limit: 50 });
+        if (values.json) io.out(JSON.stringify(page, null, 2));
+        else io.out(table([["TASK", "FACTORY", "STAGE", "TITLE", "UPDATED"], ...page.tasks.map((t) => [t.id, t.factory, t.stage, t.title.slice(0, 50), t.updatedAt.slice(0, 16)])]));
+        return 0;
+      }
+      case "upload": {
+        if (!positionals.length) throw new Error("usage: kiln upload <file...> [--factory <id>]");
+        const files = positionals.map((p) => ({ name: p.split("/").pop()!, bytes: new Uint8Array(readFileSync(path(p))) }));
+        const r = await client(io).uploadFiles(files, str("factory"));
+        io.out(r.attachments.map((a) => `${a.key}  (${a.contentType}, ${a.size} bytes)`).join("\n"));
+        return 0;
+      }
+      case "create-factory": {
+        const name = str("name");
+        const repos = ((values.repo as string[] | undefined) ?? []).map((r) => {
+          const [owner, repo] = r.split("/");
+          if (!owner || !repo) throw new Error(`--repo takes owner/name, got ${r}`);
+          return { owner, name: repo };
+        });
+        if (!name || !repos.length) throw new Error("usage: kiln create-factory --name <n> --repo owner/name [--repo …]");
+        const tracker = str("tracker") as "linear" | "jira" | undefined;
+        const r = await client(io).createFactory({ name, repos, communications: { slack: Boolean(values.slack) }, ...(tracker ? { tracker: { type: tracker } } : {}), costPreset: (str("preset") as "quality" | "efficient" | undefined) ?? "quality", dryRun: Boolean(values["dry-run"]) });
+        io.out(r.dryRun ? `Would create ${r.files.length} files:\n${r.files.join("\n")}` : `Created ${r.factory?.id} @ ${r.sha.slice(0, 12)} with ${r.files.length} files.`);
+        return 0;
+      }
+      case "files": {
+        if (positionals[0] !== "validate") throw new Error("usage: kiln files validate [path]");
+        const tree = loadTree(path(positionals[1]));
+        const c = io.client ?? new KilnClient({ baseUrl: str("url") ?? config(io).url, token: config(io).token });
+        let r;
+        try {
+          r = await c.validateFiles(Object.entries(tree).map(([p, content]) => ({ path: p, content })));
+        } catch (err) {
+          io.err(`not validated: ${err instanceof Error ? err.message : String(err)}`);
+          return 2;
+        }
+        if (values.json) io.out(JSON.stringify(r, null, 2));
+        else {
+          for (const d of r.diagnostics) (d.severity === "error" ? io.err : io.out)(`${d.severity} ${d.path}:${d.line}: ${d.message} [${d.code}]`);
+          if (r.deferredResolutions.length) io.out(`Resolved when applied: ${r.deferredResolutions.map((d) => `${d.kind} ${d.value}`).join(", ")}`);
+          io.out(r.ok ? `ok (${r.schemaVersion}); state-dependent checks run when the tree is applied.` : "invalid");
+        }
+        return r.ok ? 0 : 1;
+      }
+      case "worker": {
+        const fileCfg = str("config-file") ? readConfigFile(path(str("config-file"))) : {};
+        const envPairs = Object.fromEntries(((values.env as string[] | undefined) ?? []).map((e) => {
+          const i = e.indexOf("=");
+          return i < 0 ? [e, io.env[e] ?? ""] : [e.slice(0, i), e.slice(i + 1)];
+        }));
+        const cfg = WorkerConfig.parse({
+          ...fileCfg,
+          workerId: str("worker-id") ?? fileCfg.workerId ?? io.env.KILN_WORKER_ID,
+          apiUrl: str("url") ?? fileCfg.apiUrl ?? config(io).url,
+          apiKey: str("api-key") ?? io.env.KILN_WORKER_KEY ?? config(io).token,
+          ...(str("backend") ? { backend: str("backend") } : {}),
+          ...(str("max-concurrent-tasks") ? { maxConcurrentTasks: Number(str("max-concurrent-tasks")) } : {}),
+          ...(values["one-shot"] ? { oneShot: true } : {}),
+          ...(str("idle-on-complete") ? { idleOnCompleteMs: parseDuration(str("idle-on-complete")!) } : {}),
+          ...((values.volumes as string[] | undefined)?.length ? { volumes: values.volumes } : {}),
+          env: { ...(fileCfg.env ?? {}), ...envPairs },
+          ...(values["no-cleanup"] ? { cleanup: false } : {}),
+          ...(str("metrics-port") ? { metricsPort: Number(str("metrics-port")) } : {}),
+          ...(str("log-level") ? { logLevel: str("log-level") } : {}),
+        });
+        if (cfg.oneShot && cfg.backend !== "direct") throw new Error("--one-shot works with --backend direct");
+        const worker = new KilnWorker(cfg, { client: io.client, log: (l, m) => io.err(`[kiln-worker] ${l} ${m}`) });
+        const stop = () => void worker.stop();
+        process.once("SIGINT", stop);
+        process.once("SIGTERM", stop);
+        await worker.start();
         return 0;
       }
       case "inbox": {

@@ -1,5 +1,5 @@
 import { KEY_EXPIRY, MIN_PASSWORD_LENGTH, TEAM_ROLES, FACTORY_ROLES } from "@kiln/auth";
-import { Appearance, DigestPrefs, INBOX_KINDS, LINK_PROVIDERS, NOTIFY_CHANNELS, SECRET_TYPES, TeamSettings } from "@kiln/engine";
+import { Appearance, DigestPrefs, NOTIFY_KINDS, LINK_PROVIDERS, NOTIFY_CHANNELS, SECRET_TYPES, TeamSettings } from "@kiln/engine";
 import { z } from "zod";
 
 const email = z.string().trim().email();
@@ -19,7 +19,7 @@ export const UpdateMe = z
     avatar: avatar.optional(),
     appearance: Appearance.optional(),
     digest: DigestPrefs.partial().optional(),
-    notifications: z.object(Object.fromEntries(INBOX_KINDS.map((k) => [k, channelPrefs.optional()])) as Record<(typeof INBOX_KINDS)[number], z.ZodOptional<typeof channelPrefs>>).strict().optional(),
+    notifications: z.object(Object.fromEntries(NOTIFY_KINDS.map((k) => [k, channelPrefs.optional()])) as Record<(typeof NOTIFY_KINDS)[number], z.ZodOptional<typeof channelPrefs>>).strict().optional(),
   })
   .strict();
 export const LinkAccount = z.object({ provider: z.enum(LINK_PROVIDERS), externalId: z.string().trim().min(1).max(200), handle: z.string().trim().max(200).optional() }).strict();

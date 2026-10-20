@@ -33,8 +33,14 @@ The directory name is the agent's name. Other files refer to the agent by that n
 | `secrets` | list | inherited | Names of Kiln secrets. A raw secret that is set is passed to the run as an environment variable with the same name. A typed secret passes its provider variables. See [Secrets](../management/secrets-mcps-environments.md#secrets). |
 | `mcpServers` | list | inherited | Names or ids of the team's MCP servers, or built-in ids such as `linear` and `github`. See [MCP servers](../management/secrets-mcps-environments.md#mcp-servers-mcps-and-apps). |
 | `environmentId` | string | inherited | A team environment (id or name): image, repositories, setup commands and secrets. See [Environments](../management/secrets-mcps-environments.md#environments). |
+| `workerHost` | string | inherited | Run on a [self-hosted worker](../infrastructure/self-hosted-workers.md) with this id. `""` or `null` runs on the Kiln server. |
+| `computerUse` | boolean | inherited | Turn computer use (screenshots and recordings of the running app) on or off. |
+| `computerUseModel` | string | automatic | The model for computer use, for example `claude-fable-5-1` or `claude-sonnet-5-5`. |
+| `credentialStrategy` | `EXECUTOR` or `CREATOR` | factory's, else `EXECUTOR` | Whose forge identity the run acts as: the agent, or the person who started the work. |
+| `networkPolicy` | object | factory's | `allowedHosts` (added to the runner's egress) and `deniedHosts` (always blocked). Literal hosts or IPs only. `null` turns an inherited policy off. |
+| `required_repos` | list | none | Repositories (`owner/name` or `{owner, name}`) prepared for every run even when marked `deferred`. |
 
-Unknown keys are errors.
+Unknown keys are errors. Every key can also be changed through the API: `PUT /api/v1/factories/{id}/agents/{name}` with the keys above plus `prompt` (a pull request for config-repo factories).
 
 ## Roles
 
@@ -808,6 +814,44 @@ jobs:
 
 The command prints `ok <name> (<sha>): <n> agents, <n> automations` on success, prints each error as `file:line: message` and exits 1 on failure. Make the `validate` job a required status check in the branch protection rules. The workflow file itself is outside the definition layout, so validation lists it as an `unknown-file` warning.
 
+## Editing through the API
+
+The web app edits definitions file by file:
+
+- `GET /api/v1/factories/{id}/files` and `GET|PUT|DELETE /api/v1/factories/{id}/files/{path}`.
+- `POST /api/v1/factories/{id}/files:batch {changes: [{path, content | null}], message}` changes several files in one commit and returns `{applied: sha}` or `{pullRequest: url}`.
+- Higher-level endpoints for agents, automations, runners, routers, skills and settings (`PATCH /factories/{id}/settings`: name, alias, description, repositories, credential strategy, agent and scorer defaults, self-improvement, benchmarking model).
+
+A Kiln-managed factory validates the whole tree and applies it atomically; nothing changes on an error. A factory stored in a config repo gets a branch and a pull request instead, and the merge applies it. `POST /factories/{id}/migrate {owner, name}` moves a managed factory into a GitHub repo through a pull request; the factory switches over when it merges.
+
+## Creating a factory
+
+`POST /api/v1/factories` (and the MCP tool `create_factory`) is the setup wizard in one call: repositories, which of triage, spec, implement and review to include (the foreman is always there), Slack, a tracker (Linear or Jira, with teams or projects), a cost preset (`quality` uses Claude Fable 5.1 for the foreman and spec agents and Opus 5.5 to implement; `efficient` uses Sonnet and Haiku), self-improvement on or off, and starter automations. It writes default prompts for every agent, the `github`, `slack`, `linear`/`jira`, `code-review` and `ui-verification` skills, the default scorers and the automations for the connected tools. `dryRun: true` returns the files without creating anything. `POST /factories/{id}/learning` then starts a run that studies the repositories and tools and proposes memories and prompt changes for review.
+
+## Schemas and validation for editors and CI
+
+These need no token:
+
+- `GET /api/v1/factory-files/schemas`, `/schemas/v1` (every document) and `/schemas/v1/{document}` (for example `agent.schema.json`), with `ETag` and `If-None-Match`.
+- `POST /api/v1/factory-files/validate {files: [{path, content}]}` returns `diagnostics` (path, line, code, message, severity) and `deferredResolutions`: models, secrets, MCP servers, worker hosts and aliases that are only checked when the tree is applied. Limits: 256 files, 256 KB per file, 2 MB in total. `kiln files validate [path]` calls it.
+
+## Blueprints
+
+`blueprint` in factory.yaml replaces the foreman's own workflow with an explicit graph:
+
+```yaml
+blueprint:
+  entry: draft
+  stages:
+    draft: { prompt: Write the change and its tests., outputs: The branch. }
+    check: { prompt: Review the change against the issue. }
+  edges:
+    to-check: { from: draft, to: check, when: the change is written }
+  staffing: { foreman: foreman, draft: implement, check: review }
+```
+
+Each stage runs its staffed agent with the stage prompt. The agent can name the edge that holds (`next` in its result); with several edges and no answer the foreman decides; with one edge it is taken. A stage with no edge that holds ends the workflow, with the pull request handed off to a person.
+
 ## Related pages
 
 - [Importing v1alpha1 definitions](../overview/importing-definitions.md)
@@ -832,7 +876,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | --- | --- | --- | --- |
 | `schemaVersion` | `"kiln/v1"` | yes |  |
 | `name` | string | yes |  |
-| `alias` | string |  | pattern `^[a-z0-9-]{1,60}$` |
+| `alias` | string |  | pattern `^[A-Za-z0-9][A-Za-z0-9 ._-]{0,59}$` |
 | `description` | string |  |  |
 | `project` | string |  |  |
 | `repositories` | list of object | yes |  |
@@ -861,23 +905,48 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `providers.gcp.workloadIdentityFederationPoolId` | string | yes |  |
 | `providers.gcp.workloadIdentityFederationProviderId` | string | yes |  |
 | `providers.gcp.serviceAccountEmail` | string |  | pattern `^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$` |
+| `credentialStrategy` | `EXECUTOR` \| `CREATOR` |  |  |
+| `networkPolicy` | object |  |  |
+| `networkPolicy.allowedHosts` | list of string |  |  |
+| `networkPolicy.deniedHosts` | list of string |  |  |
+| `networkPolicy.extends` | string \| list of string |  |  |
+| `avatar` | string |  |  |
 | `agentDefaults` | object | yes |  |
 | `agentDefaults.harness` | object \| null |  |  |
-| `agentDefaults.harness.type` | `claude-code` \| `codex` \| `opencode` | yes |  |
+| `agentDefaults.harness.type` | `claude-code` \| `codex` \| `opencode` \| `gemini` \| `pi` | yes |  |
 | `agentDefaults.harness.model` | string |  |  |
-| `agentDefaults.harness.reasoningLevel` | `low` \| `medium` \| `high` |  |  |
-| `agentDefaults.harness.auth` | object \| object |  |  |
-| `agentDefaults.harness.auth.source` | `"secret"` | yes |  |
-| `agentDefaults.harness.auth.secretName` | string | yes |  |
-| `agentDefaults.harness.auth.env` | string |  |  |
+| `agentDefaults.harness.reasoningLevel` | `low` \| `medium` \| `high` \| `xhigh` \| `max` |  |  |
+| `agentDefaults.harness.auth` | object \| object \| object \| object \| null |  |  |
 | `agentDefaults.model` | string \| null |  |  |
 | `agentDefaults.runner` | string \| null |  |  |
 | `agentDefaults.secrets` | list of string \| null |  |  |
 | `agentDefaults.mcpServers` | list of string \| null |  |  |
+| `agentDefaults.workerHost` | string \| `""` \| null |  |  |
+| `agentDefaults.computerUseModel` | string \| null |  |  |
+| `agentDefaults.computerUse` | boolean \| null |  |  |
 | `agentDefaults.environmentId` | string \| null |  |  |
+| `scorerDefaults` | object |  |  |
+| `scorerDefaults.runner` | string |  |  |
+| `scorerDefaults.secrets` | list of string |  |  |
+| `scorerDefaults.mcpServers` | list of string |  |  |
+| `scoring` | object |  |  |
+| `scoring.defaultModel` | string |  |  |
+| `blueprint` | object |  |  |
+| `blueprint.entry` | string | yes |  |
+| `blueprint.stages` | object | yes |  |
+| `blueprint.edges` | object |  | default `{}` |
+| `blueprint.staffing` | object | yes |  |
+| `deduplication` | object |  |  |
+| `deduplication.enabled` | boolean |  | default `true` |
+| `deduplication.windowHours` | integer |  | default `24`, min 1, max 720 |
+| `deduplication.threshold` | number |  | default `0.5`, min 0.2, max 1 |
+| `experimental` | object |  |  |
 | `selfImprovement` | object |  |  |
+| `selfImprovement.enabled` | boolean |  | default `true` |
 | `selfImprovement.failedRunThreshold` | integer |  | default `25`, min 1, max 50 |
 | `selfImprovement.maxAgeDays` | integer |  | default `7`, min 1, max 90 |
+| `selfImprovement.model` | string |  |  |
+| `selfImprovement.scorers` | list of string \| object |  |  |
 | `selfImprovement.reviewers` | object |  | default `{"type":"admins"}` |
 | `selfImprovement.reviewers.type` | `admins` \| `team` \| `custom` \| `none` |  | default `"admins"` |
 | `selfImprovement.reviewers.emails` | list of string |  |  |
@@ -895,19 +964,25 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `description` | string |  |  |
 | `agentType` | `FOREMAN` \| `TRIAGE` \| `SPEC` \| `IMPLEMENT` \| `REVIEW` \| `VERIFY` \| `PLAN` \| `PO_ASSISTANT` \| `CUSTOM` |  | default `"CUSTOM"` |
 | `spawnableBy` | list of string |  |  |
-| `idleTimeoutMinutes` | integer |  | min 1, max 60 |
+| `idleTimeoutMinutes` | integer \| null |  |  |
+| `credentialStrategy` | `EXECUTOR` \| `CREATOR` \| null |  |  |
+| `networkPolicy` | object \| null |  |  |
+| `networkPolicy.allowedHosts` | list of string |  |  |
+| `networkPolicy.deniedHosts` | list of string |  |  |
+| `networkPolicy.extends` | string \| list of string |  |  |
+| `required_repos` | list of string \| object |  |  |
 | `harness` | object \| null |  |  |
-| `harness.type` | `claude-code` \| `codex` \| `opencode` | yes |  |
+| `harness.type` | `claude-code` \| `codex` \| `opencode` \| `gemini` \| `pi` | yes |  |
 | `harness.model` | string |  |  |
-| `harness.reasoningLevel` | `low` \| `medium` \| `high` |  |  |
-| `harness.auth` | object \| object |  |  |
-| `harness.auth.source` | `"secret"` | yes |  |
-| `harness.auth.secretName` | string | yes |  |
-| `harness.auth.env` | string |  |  |
+| `harness.reasoningLevel` | `low` \| `medium` \| `high` \| `xhigh` \| `max` |  |  |
+| `harness.auth` | object \| object \| object \| object \| null |  |  |
 | `model` | string \| null |  |  |
 | `runner` | string \| null |  |  |
 | `secrets` | list of string \| null |  |  |
 | `mcpServers` | list of string \| null |  |  |
+| `workerHost` | string \| `""` \| null |  |  |
+| `computerUseModel` | string \| null |  |  |
+| `computerUse` | boolean \| null |  |  |
 | `environmentId` | string \| null |  |  |
 
 ## automation
@@ -927,22 +1002,20 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `triggers[].schedule.cron` | string | yes |  |
 | `triggers[].schedule.name` | string |  |  |
 | `harness` | object \| null |  |  |
-| `harness.type` | `claude-code` \| `codex` \| `opencode` | yes |  |
+| `harness.type` | `claude-code` \| `codex` \| `opencode` \| `gemini` \| `pi` | yes |  |
 | `harness.model` | string |  |  |
-| `harness.reasoningLevel` | `low` \| `medium` \| `high` |  |  |
-| `harness.auth` | object \| object |  |  |
-| `harness.auth.source` | `"secret"` | yes |  |
-| `harness.auth.secretName` | string | yes |  |
-| `harness.auth.env` | string |  |  |
+| `harness.reasoningLevel` | `low` \| `medium` \| `high` \| `xhigh` \| `max` |  |  |
+| `harness.auth` | object \| object \| object \| object \| null |  |  |
 | `model` | string \| null |  |  |
 | `runner` | string \| null |  |  |
 | `secrets` | list of string \| null |  |  |
 | `mcpServers` | list of string \| null |  |  |
-| `environmentId` | string \| null |  |  |
 | `workerHost` | string \| null |  |  |
 | `computerUseModel` | string \| null |  |  |
+| `computerUse` | boolean \| null |  |  |
+| `environmentId` | string \| null |  |  |
 | `idleTimeoutMinutes` | integer |  | min 1, max 60 |
-| `required_repos` | list of string |  |  |
+| `required_repos` | list of string \| object |  |  |
 
 ## pipeline
 
@@ -998,16 +1071,26 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | Key | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `description` | string |  |  |
-| `image` | string | yes |  |
+| `image` | string |  |  |
 | `backend` | `docker` \| `kubernetes` \| `local` |  | default `"docker"` |
 | `shape` | object |  |  |
 | `shape.vcpus` | integer | yes | max 9007199254740991 |
 | `shape.memoryGb` | number | yes |  |
+| `instanceShape` | object |  |  |
+| `instanceShape.vcpus` | integer | yes | max 9007199254740991 |
+| `instanceShape.memoryGb` | number | yes |  |
+| `platform` | object |  |  |
+| `platform.os` | `linux` \| `macos` \| `windows` |  | default `"linux"` |
+| `platform.arch` | `x86_64` \| `aarch64` |  |  |
+| `platform.linux` | object |  |  |
+| `platform.linux.dockerImage` | string |  |  |
+| `platform.linux.registryCredentialSecretName` | string |  |  |
+| `platform.mac` | object |  |  |
+| `platform.mac.version` | `14` \| `15` \| `26` \| `27` |  | default `"26"` |
+| `registryCredentialSecretName` | string |  |  |
 | `setupCommands` | list of string |  | default `[]` |
 | `egress` | list of string |  | default `[]` |
-| `platform` | object |  |  |
-| `platform.linux` | object |  |  |
-| `platform.linux.registryCredentialSecretName` | string |  |  |
+| `failureSessionRetentionMinutes` | integer |  | min 1, max 60 |
 
 ## router
 
@@ -1031,7 +1114,9 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | --- | --- | --- | --- |
 | `name` | string | yes |  |
 | `description` | string |  |  |
-| `agents` | list of string | yes |  |
+| `output` | `"classification"` |  |  |
+| `kind` | `user` \| `benchmark_task_correctness` |  | default `"user"` |
+| `agents` | list of string \| object | yes |  |
 | `labels` | list of object | yes |  |
 | `labels[].value` | string | yes |  |
 | `labels[].score` | number | yes | min 0, max 1 |
@@ -1040,6 +1125,9 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `samplingRate` | number |  | default `25`, min 0, max 100 |
 | `model` | string | yes |  |
 | `selfImprovement` | boolean |  | default `false` |
+| `runner` | string |  |  |
+| `secrets` | list of string |  |  |
+| `mcpServers` | list of string |  |  |
 
 ## benchmark-suite
 
@@ -1056,13 +1144,10 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `configurations[].agents[].agent` | string | yes |  |
 | `configurations[].agents[].model` | string |  |  |
 | `configurations[].agents[].harness` | object |  |  |
-| `configurations[].agents[].harness.type` | `claude-code` \| `codex` \| `opencode` | yes |  |
+| `configurations[].agents[].harness.type` | `claude-code` \| `codex` \| `opencode` \| `gemini` \| `pi` | yes |  |
 | `configurations[].agents[].harness.model` | string |  |  |
-| `configurations[].agents[].harness.reasoningLevel` | `low` \| `medium` \| `high` |  |  |
-| `configurations[].agents[].harness.auth` | object \| object |  |  |
-| `configurations[].agents[].harness.auth.source` | `"secret"` | yes |  |
-| `configurations[].agents[].harness.auth.secretName` | string | yes |  |
-| `configurations[].agents[].harness.auth.env` | string |  |  |
+| `configurations[].agents[].harness.reasoningLevel` | `low` \| `medium` \| `high` \| `xhigh` \| `max` |  |  |
+| `configurations[].agents[].harness.auth` | object \| object \| object \| object \| null |  |  |
 | `tasks` | list of string | yes |  |
 
 ## benchmark-task
@@ -1077,6 +1162,8 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `startingRepoRefs` | list of string | yes |  |
 | `sourceRunId` | string |  |  |
 | `tags` | list of string |  |  |
+| `labels` | list of string |  |  |
+| `referencePr` | string |  |  |
 
 ## skill
 
@@ -1445,6 +1532,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | --- | --- | --- | --- |
 | GET | `/api/v1/health` | — | Health check |
 | POST | `/api/v1/guard` | — | Check a shell command against the guardrail (run token) |
+| GET | `/metrics` | — | Prometheus metrics (KILN_METRICS_TOKEN protects it when set) |
 
 ## Users
 
@@ -1511,6 +1599,10 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/factories` | `read` | List factories you can read |
 | GET | `/api/v1/factories/{id}` | `read` | A factory with its resolved definition |
 | DELETE | `/api/v1/factories/{id}` | `admin` | Delete a factory: cancels open work, removes its routing labels and webhooks (irreversible) |
+| POST | `/api/v1/factories` | `definitions:write` | Create a factory (the setup wizard in one call): repos, agents, communications, tracker, cost preset, self-improvement, automation templates |
+| POST | `/api/v1/factories/{id}/learning` | `definitions:write` | Enable learning: a run that studies the repos and tools and proposes memories and prompt changes |
+| GET | `/api/v1/forge/repositories` | — | Repositories the code forge can reach (for the wizard and list_forge_repositories) |
+| GET | `/api/v1/tracker/scopes` | — | Tracker teams or projects (for the wizard and list_tracker_scopes) |
 
 ## Secrets
 
@@ -1558,6 +1650,32 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/factories/connect` | `definitions:write` | Bind a factory to a GitHub config repo and apply it |
 | POST | `/api/v1/factories/{id}/sync` | `definitions:write` | Pull the config repo and apply it |
 | POST | `/api/v1/factories/{id}/canary/{action}` | `definitions:write` | Promote or roll back the canary definition |
+| GET | `/api/v1/factory-files/schemas` | — | Published definition schema versions (no token; ETag) |
+| GET | `/api/v1/factory-files/schemas/{version}` | — | Every schema document of a version (no token; ETag) |
+| GET | `/api/v1/factory-files/schemas/{version}/{document}` | — | One schema document, e.g. agent.schema.json (no token; ETag) |
+| POST | `/api/v1/factory-files/validate` | — | Validate files without saving: diagnostics and deferred resolutions (no token; ≤256 files, ≤256 KB each, ≤2 MB) |
+| GET | `/api/v1/factories/{id}/files` | `read` | Every file of the applied definition (path and size) |
+| GET | `/api/v1/factories/{id}/files/{path}` | `read` | One definition file |
+| PUT | `/api/v1/factories/{id}/files/{path}` | `definitions:write` | Write one file: managed factories validate and apply; repo-backed factories get a PR |
+| DELETE | `/api/v1/factories/{id}/files/{path}` | `definitions:write` | Delete one file (same rules as PUT) |
+| POST | `/api/v1/factories/{id}/files:batch` | `definitions:write` | Change several files in one commit: {changes:[{path, content|null}], message} → {applied: sha} or {pullRequest: url} |
+| POST | `/api/v1/factories/{id}/files/commit` | `definitions:write` | Change several files in one commit with a message (null deletes); dryRun validates only |
+| GET | `/api/v1/factories/{id}/agents` | `read` | Agents with their resolved settings and prompts |
+| PUT | `/api/v1/factories/{id}/agents/{name}` | `definitions:write` | Create or update an agent (prompt, harness, model, runner, workerHost, MCPs, secrets, spawnableBy, idle timeout, computer use, network policy) |
+| DELETE | `/api/v1/factories/{id}/agents/{name}` | `definitions:write` | Delete an agent (not the foreman) |
+| PUT | `/api/v1/factories/{id}/automations/{name}` | `definitions:write` | Create or update an automation |
+| DELETE | `/api/v1/factories/{id}/automations/{name}` | `definitions:write` | Delete an automation |
+| PUT | `/api/v1/factories/{id}/runners/{name}` | `definitions:write` | Create or update a runner (image or platform, shape, setup commands, egress, failure retention) |
+| DELETE | `/api/v1/factories/{id}/runners/{name}` | `definitions:write` | Delete a runner |
+| PUT | `/api/v1/factories/{id}/routers/{name}` | `definitions:write` | Create or replace a model router (complexity or prompt) |
+| DELETE | `/api/v1/factories/{id}/routers/{name}` | `definitions:write` | Delete a router |
+| PUT | `/api/v1/factories/{id}/skills/{name}` | `definitions:write` | Create or update a skill (shared, or one agent's with `agent`) |
+| DELETE | `/api/v1/factories/{id}/skills/{name}` | `definitions:write` | Delete a skill (?agent= for an agent's own) |
+| GET | `/api/v1/factories/{id}/settings` | `read` | Factory settings from factory.yaml plus the avatar and where the definition lives |
+| PATCH | `/api/v1/factories/{id}/settings` | `definitions:write` | Change name, alias, description, repositories, credential strategy, agent and scorer defaults, self-improvement, benchmarking model |
+| POST | `/api/v1/factories/{id}/avatar` | `definitions:write` | Set the avatar from an uploaded image (file key) |
+| POST | `/api/v1/factories/{id}/migrate` | `definitions:write` | Move a Kiln-managed factory to a GitHub repo (opens a PR; the merge switches it over) |
+| POST | `/api/v1/factories/{id}/migrate/complete` | `definitions:write` | Finish the move once the migration PR merged |
 
 ## Work items
 
@@ -1576,8 +1694,8 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
-| GET | `/api/v1/runs` | `read` | List runs |
-| GET | `/api/v1/runs/{id}` | `read` | A run with its scores |
+| GET | `/api/v1/runs` | `read` | List runs: state[], task_status[], source[], factory_uid[], ancestor_run_id, artifact_type, q, creator, mine, created/updated filters, metadata[key]=, sort_by, cursor |
+| GET | `/api/v1/runs/{id}` | `read` | A run with its state, source, root run, task and scores |
 | GET | `/api/v1/runs/{id}/events` | `read` | Run events after a sequence number |
 | GET | `/api/v1/runs/{id}/stream` | `read` | Run events as server-sent events |
 | POST | `/api/v1/runs/{id}/steer` | `send` | Send a steering message to a running agent |
@@ -1585,6 +1703,20 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/runs/{id}/pause` | `send` | Snapshot and pause a running agent |
 | POST | `/api/v1/runs/{id}/resume` | `send` | Resume a paused run on any node |
 | POST | `/api/v1/runs/{id}/cancel` | `send` | Cancel a run |
+| POST | `/api/v1/agent-runs` | `send` | Start a run of one agent directly (no task): prompt, mode, metadata, attachments, model, workerHost |
+| GET | `/api/v1/runs/{id}/timeline` | `read` | Lifecycle, events and subagent starts/finishes in time order |
+| GET | `/api/v1/runs/{id}/conversation` | `read` | The run as normalized messages (instructions, prompt, agent, tools, steering) |
+| GET | `/api/v1/runs/{id}/transcript` | `read` | Plain-text transcript |
+| GET | `/api/v1/runs/{id}/scores` | `read` | Every score of the run, with how it was triggered |
+| POST | `/api/v1/runs/{id}/followups` | `send` | Follow-up message (with attachments): steers a live run, continues a finished one |
+| POST | `/api/v1/runs/{id}/score` | `send` | Score the run now with the scorers that cover its agent (or `scorers`); re-scoring replaces |
+| POST | `/api/v1/runs/{id}/interrupt` | `send` | Stop what the agent is doing; the run waits (BLOCKED) for a follow-up |
+| POST | `/api/v1/runs/{id}/spawn` | `send` | Start a subagent (run token of this run, or send scope); spawnableBy decides who may start whom |
+| POST | `/api/v1/runs/{id}/run-agents` | `send` | Start several subagents at once |
+| POST | `/api/v1/runs/{id}/questions` | `send` | Ask the requester (single or multi select, recommended option); answer arrives on the gate |
+| PUT | `/api/v1/runs/{id}/sharing` | `send` | Share the run with signed-in people as VIEWER or EDITOR (null stops sharing) |
+| GET | `/api/v1/run-by-external-reference` | `read` | The run behind a PR, issue, thread or Kiln URL (?url=) |
+| GET | `/api/v1/errors` | — | Error catalog: codes, HTTP status, retryable, FAILED vs ERROR |
 
 ## Benchmarks
 
@@ -1594,14 +1726,43 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/factories/{id}/benchmarks` | `read` | Benchmark results and Pareto summary |
 | POST | `/api/v1/factories/{id}/benchmarks/{suite}/run` | `definitions:write` | Run a benchmark suite |
 | POST | `/api/v1/factories/{id}/benchmarks/{suite}/router` | `definitions:write` | Propose routing rules from results |
+| GET | `/api/v1/factories/{id}/benchmark-suites` | `read` | Benchmark suites with their tasks |
+| POST | `/api/v1/factories/{id}/benchmark-suites` | `definitions:write` | Create a suite (with its first task) |
+| GET | `/api/v1/factories/{id}/benchmark-suites/{suite}` | `read` | One suite |
+| PATCH | `/api/v1/factories/{id}/benchmark-suites/{suite}` | `definitions:write` | Update a suite (agent, configurations, tasks) |
+| DELETE | `/api/v1/factories/{id}/benchmark-suites/{suite}` | `definitions:write` | Delete a suite's files (runs and results stay) |
+| POST | `/api/v1/factories/{id}/benchmark-suites/{suite}/tasks` | `definitions:write` | Add a task (idempotent on identical content; same title is a conflict) |
+| GET | `/api/v1/factories/{id}/benchmark-suites/{suite}/tasks/{task}` | `read` | One task |
+| PATCH | `/api/v1/factories/{id}/benchmark-suites/{suite}/tasks/{task}` | `definitions:write` | Update a task |
+| DELETE | `/api/v1/factories/{id}/benchmark-suites/{suite}/tasks/{task}` | `definitions:write` | Delete a task |
+| POST | `/api/v1/factories/{id}/benchmark-suites/{suite}/runs` | `definitions:write` | Run the suite: configurations (harness/model/router/runner per agent), repetitions, scorers, tasks. Not idempotent |
+| GET | `/api/v1/factories/{id}/benchmark-suites/{suite}/runs` | `read` | Benchmark runs of a suite (?state=) |
+| GET | `/api/v1/benchmark-runs/{id}` | `read` | A benchmark run |
+| POST | `/api/v1/benchmark-runs/{id}/cancel` | `definitions:write` | Cancel while running or scoring |
+| GET | `/api/v1/benchmark-runs/{id}/results` | `read` | Per-configuration metrics, recommendation, Pareto chart data, spend and narrative |
+| GET | `/api/v1/benchmark-runs/{id}/trials` | `read` | Trials (?task, configuration, agent_run_id) |
+| GET | `/api/v1/benchmark-trials/{id}` | `read` | One trial with its scores |
+| POST | `/api/v1/runs/{id}/benchmark-task` | `definitions:write` | Turn a finished run into a benchmark task of a suite |
 
 ## Inbox
 
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
-| GET | `/api/v1/inbox` | — | Open decisions, most urgent first |
+| GET | `/api/v1/inbox` | — | Open decisions (gates), most urgent first |
 | GET | `/api/v1/gates/{id}` | `read` | A gate with its work item |
 | POST | `/api/v1/gates/{id}/decide` | `decide:*` | Approve, reject or answer (scope depends on the gate kind) |
+| GET | `/api/v1/inbox/items` | — | Inbox items: question, answer_question, spec_review, pr_review, blocked, failed (scope mine|team, factory, kind, read, q) |
+| POST | `/api/v1/inbox/read` | — | Mark items read |
+| POST | `/api/v1/inbox/unread` | — | Mark items unread |
+| POST | `/api/v1/inbox/resolve` | — | Resolve (hide) items for you |
+| POST | `/api/v1/inbox/unresolve` | — | Undo a resolve |
+| GET | `/api/v1/factories/{id}/definition-changes` | `read` | Proposed definition changes (?state=open|merged|changes_requested|rejected) |
+| POST | `/api/v1/factories/{id}/definition-changes` | `send` | Propose a definition change for review (agents and people) |
+| GET | `/api/v1/definition-changes/{id}` | `read` | A proposed change with its diff and comments |
+| POST | `/api/v1/definition-changes/{id}/approve` | `definitions:write` | Approve & merge: apply it (managed) or open the config-repo PR |
+| POST | `/api/v1/definition-changes/{id}/request-changes` | `definitions:write` | Request changes; the comments go back to the proposing agent |
+| POST | `/api/v1/definition-changes/{id}/comments` | `read` | Comment on the diff (optionally a path and line) |
+| POST | `/api/v1/definition-changes/{id}/reject` | `definitions:write` | Reject the change |
 
 ## Planning
 
@@ -1626,6 +1787,15 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/factories/{id}/self-improvement/run` | `definitions:write` | Run self-improvement now |
 | POST | `/api/v1/proposals/{id}/approve` | `definitions:write` | Approve a proposal (ships as a canary) |
 | POST | `/api/v1/proposals/{id}/reject` | `definitions:write` | Reject a proposal (kept as a negative example) |
+| GET | `/api/v1/factories/{id}/metrics` | `read` | Runs, PRs, merged, autonomy funnel, impact, PR latency medians, human interactions per PR, deltas (start_date, end_date (RFC 3339, default last 30 days), group_by_period day|week|month) |
+| GET | `/api/v1/factories/{id}/costs/per-pr` | `read` | Cost per PR: total, mean, median by component (start_date, end_date (RFC 3339, default last 30 days), group_by_period day|week|month) |
+| GET | `/api/v1/factories/{id}/costs/breakdown` | `read` | Spend by group_by=source|user|agent|model (source and user roll up to the root run) |
+| GET | `/api/v1/factories/{id}/costs/per-pr/top` | `read` | Most expensive PRs (?limit ≤ 50, default 20) |
+| GET | `/api/v1/factories/{id}/costs/per-pr/by-size` | `read` | Cost per PR by size: S < 100, M < 500, L < 1000, XL changed lines |
+| GET | `/api/v1/factories/{id}/metrics/run-breakdown` | `read` | Run counts by group_by=agent_type|status|source|root_vs_subrun|model|harness |
+| GET | `/api/v1/factories/{id}/pull-requests` | `read` | PRs produced by the factory: repo, state[], opened/merged after/before, updated_after, cursor |
+| GET | `/api/v1/factories/{id}/self-improvement/settings` | `read` | Self-improvement toggle, threshold, reviewers, model and per-scorer toggles |
+| PUT | `/api/v1/factories/{id}/self-improvement/settings` | `definitions:write` | Change self-improvement settings and per-scorer toggles in one change |
 
 ## Memories and skills
 
@@ -1714,6 +1884,58 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/connect/approve/{token}` | — | Open an approval link (browser redirect) |
 | GET | `/oauth/github-user/callback` | — | GitHub account linking callback (browser redirect) |
 
+## Files
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| POST | `/api/v1/uploads` | `send` | Upload files (multipart, up to 25 files of 25 MB): {key, name, contentType, size} of the first plus `attachments` |
+| GET | `/api/v1/files/{key}` | `read` | Download a stored file (uploads, run artifacts, evidence) with its content type; supports Range |
+
+## Tasks
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| POST | `/api/v1/factories/{id}/runs` | `send` | Dispatch a prompt to the factory's foreman (optional ticket_ref, ticket_url, branch, mode) |
+| GET | `/api/v1/factories/{id}/tasks` | `read` | List tasks: stage[], created_by[], q, created/updated after/before, sort, cursor, include_current_run |
+| POST | `/api/v1/factories/{id}/tasks` | `send` | Create a task for a conversation without starting work (one live task per conversation) |
+| GET | `/api/v1/factories/{id}/tasks/{taskId}` | `read` | A task with its stage, outputs and current run |
+| PATCH | `/api/v1/factories/{id}/tasks/{taskId}` | `send` | Change title, description or stage (any direction; COMPLETE and CANCELLED close it) |
+| DELETE | `/api/v1/factories/{id}/tasks/{taskId}` | `send` | Soft-delete a task (cancels it first when it is still active) |
+| POST | `/api/v1/factories/{id}/tasks/{taskId}/cancel` | `send` | Cancel the task and every run and subagent of it that is still going |
+| POST | `/api/v1/factories/{id}/tasks/{taskId}/complete` | `send` | complete_task: close the task after its PR merged (agents) or as a person's confirmation (decide:merge) |
+| GET | `/api/v1/factories/{id}/tasks/{taskId}/outputs` | `read` | Task outputs newest first: PLAN, PULL_REQUEST, SCREENSHOT, FILE, EXTERNAL_REFERENCE |
+| GET | `/api/v1/factories/{id}/task-by-run` | `read` | The task a run (any run in its tree) belongs to (?run_id=) |
+| GET | `/api/v1/factories/{id}/task-by-conversation` | `read` | The task of a conversation (?conversation_id=) |
+| GET | `/api/v1/tasks` | `read` | Tasks across the factories you can read (same filters as the factory list, plus factory) |
+| GET | `/api/v1/tasks/lookup` | `read` | Find a task by id, run, PR or issue URL, tracker key or branch (?reference=, &start_working=true for local commands) |
+| POST | `/api/v1/tasks/{taskId}/handback` | `send` | Hand a locally worked task back with a note and the pushed branch or PR |
+
+## Scorers
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/factories/{id}/scorers` | `read` | Scorers with result counts, last scored time and kind (user | benchmark_task_correctness) |
+| POST | `/api/v1/factories/{id}/scorers` | `definitions:write` | Create a scorer (writes scorers/<slug>/scorer.md; a PR for repo-backed factories). Does not score past runs |
+| GET | `/api/v1/factories/{id}/scorers/{slug}` | `read` | One scorer with its rubric |
+| PATCH | `/api/v1/factories/{id}/scorers/{slug}` | `definitions:write` | Update a scorer (bumps its version) |
+| DELETE | `/api/v1/factories/{id}/scorers/{slug}` | `definitions:write` | Delete a scorer and every score it recorded |
+| GET | `/api/v1/factories/{id}/scorers/{slug}/results` | `read` | Results (classification, score, outcome, reason with include_reasons, run_id filter, cursor) |
+| GET | `/api/v1/factories/{id}/scorers/{slug}/metrics` | `read` | Pass/fail counts, pass rate and series; include_cost adds judge cost |
+| POST | `/api/v1/factories/{id}/scorers/{slug}/dispatch` | `send` | Score up to 100 runs now (bypasses sampling; re-scoring replaces) |
+| POST | `/api/v1/factories/{id}/runs/{runId}/scorer-dispatch` | `send` | Score a run with up to 100 scorers now |
+
+## Workers
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/workers` | `read` | Connected self-hosted workers with their last heartbeat, and the run queue |
+| POST | `/api/v1/workers/connect` | `worker` | A worker process connects (kiln worker) and gets its instance id |
+| POST | `/api/v1/workers/{instance}/heartbeat` | `worker` | Heartbeat; the reply carries cancellations and steering for its runs |
+| POST | `/api/v1/workers/{instance}/claim` | `worker` | Long-poll for a run routed to this worker id (?wait= seconds, default 25) |
+| POST | `/api/v1/workers/{instance}/runs/{runId}/events` | `worker` | Stream a run's events back |
+| POST | `/api/v1/workers/{instance}/runs/{runId}/complete` | `worker` | Report a run's result, artifacts and pushed branches |
+| DELETE | `/api/v1/workers/{instance}` | `worker` | Disconnect; its running runs fail and are retried |
+
 ## Errors
 
 Errors are JSON: `{ "error": "message" }` with status 400 (invalid request; `issues` lists the fields), 401 (missing or invalid token), 402 (`{ "error": "budget_exceeded", "message": ... }`: the team's spend limit is reached and auto-stop is on), 403 (token lacks the scope), 404 (unknown resource), 409 (wrong state or already exists), 410 (expired invite) or 413 (upload too large).
@@ -1752,7 +1974,15 @@ Factory (needs KILN_URL and KILN_TOKEN)
   kiln send "<task>" --factory <id> [--body <text>]                   Create a work item
   kiln pull <task>                                                    Take a task to a local worktree
   kiln handback <task> [message]                                      Return it to the factory
-  kiln runs [--factory <id>] [--work-item <id>]                       List runs
+  kiln dispatch "<prompt>" --factory <id> [--ticket linear:ENG-1] [--mode plan|orchestrate]   Send a prompt to the foreman
+  kiln tasks --factory <id> [--stage IMPLEMENT] [--q <text>]          List tasks
+  kiln tasks get|cancel|outputs <task> --factory <id>                 One task: details, cancel it, its outputs
+  kiln runs [--factory <id>] [--state FAILED] [--source SLACK] [--mine]   List runs
+  kiln runs get|timeline|transcript <run>                             One run
+  kiln runs followup <run> <message> | interrupt <run> | cancel <run>   Talk to or stop a run
+  kiln upload <file...> [--factory <id>]                              Upload attachments; prints their keys
+  kiln create-factory --name <n> --repo owner/name [--repo …] [--slack] [--tracker linear|jira] [--preset quality|efficient] [--dry-run]
+  kiln files validate [path]                                          Validate a tree with the server's parser (no token needed)
   kiln inbox [--all]                                                  Decisions waiting on you
   kiln decide <gate> approve|reject|answer [text]                     Decide a gate
   kiln replay <run> [--with <sha>]                                    Replay a run, optionally under another definition
@@ -1760,6 +1990,12 @@ Factory (needs KILN_URL and KILN_TOKEN)
   kiln bench run <suite> --factory <id>                               Run a benchmark suite
   kiln metrics --factory <id> [--since <iso>]                         Factory metrics
   kiln token create --name <n> --subject <email> --grants read:*,send:webapp
+
+Self-hosted worker (connects out to KILN_URL with a token that has the worker scope)
+  kiln worker --worker-id <id> [--api-key <key>] [--backend docker|kubernetes|direct]
+              [--max-concurrent-tasks N] [--one-shot] [--idle-on-complete 45m]
+              [-v HOST:CONTAINER[:ro]]… [-e KEY[=VALUE]]… [--config-file worker.yaml]
+              [--no-cleanup] [--metrics-port 9464] [--log-level info]
 ```
 
 ## Exit codes
@@ -1805,28 +2041,124 @@ List my factories, then help me send a task to the right one and follow it throu
 
 | Tool | What it does |
 | --- | --- |
-| `complete_task` | Hand a locally worked task back, or confirm a handed-off task landed (needs decide:merge). |
+| `ask_user` | Ask the requester a question and get a gate id; read the answer with get_gate. Questions can be single or multi select with a recommended option. |
+| `complete_task` | Close a task. Safe to call more than once. A factory agent may close it only after its pull request merged; a person (decide:merge) confirms completion. Pass task_id, or run_id to find the task. |
+| `create_factory` | Create a factory: repos, agents to enable (the foreman is always there), Slack, tracker, cost preset, self-improvement and starter automations. Use dry_run first to show the files. |
 | `create_team` | Create a team. You become its owner. Needs a user token (session or personal API key). |
 | `decide_gate` | Approve, reject or answer a gate. Needs the decide scope for the gate's kind. |
-| `get_conversation` | The task's conversation: requests, foreman messages, agent summaries and decisions. |
-| `get_factory_file_schema` | JSON Schema for a definition file kind. |
-| `get_metrics` | Factory metrics: PRs opened/merged, autonomy, cycle time, cost, cost per merged PR by agent, scores. `since` is an ISO date. |
-| `get_task` | Get a task by id or by its PR/issue URL. With start_working=true, returns the branch and clone URL to continue locally. |
+| `follow_up_run` | Send a follow-up to a run: steers it while it runs, continues it when it finished. |
+| `get_conversation` | A task's conversation (requests, foreman messages, agent summaries, decisions), or a run's normalized conversation. |
+| `get_factory_file_schema` | The definition schema catalog, or one document (e.g. agent.schema.json, factory.schema.json). |
+| `get_gate` | A gate (decision) and its answer. |
+| `get_metrics` | Factory metrics: PRs opened and merged, autonomy, cycle time, cost and cost per merged PR by agent (`since`), plus the autonomy funnel, PR latency medians, human interactions and period-over-period deltas (`start_date`, `end_date`, `group_by_period`). Dates are ISO. |
+| `get_run` | A run's state, summary, result, artifacts and children. With conversation=true, its messages too. |
+| `get_task` | Get a task by id or reference (task or run URL, PR URL, issue URL or key, branch). With start_working=true, also returns git commands to continue it in a local worktree. |
 | `join_team` | Join a team by accepting an invite. Takes the invite token or the whole invite link. |
 | `list_factories` | List the factories this token can see. |
-| `list_inbox` | Open decisions waiting on people: spec approvals, questions, previews, merges. |
+| `list_forge_repositories` | Repositories the code forge can reach, for picking a new factory's repos. |
+| `list_inbox` | Your inbox: questions, spec and PR reviews, blocked and failed tasks, definition changes. all=true lists the team's. |
+| `list_notification_routes` | Where updates about a task go: the originating thread, issue or PR. |
+| `list_tasks` | List tasks, newest first. Filter by factory, stage, creator (email) and dates (ISO). |
 | `list_teams` | List the teams you belong to, with your role in each. Pass a team's slug as X-Kiln-Team to act in it. |
+| `list_tracker_scopes` | Teams (Linear) or projects (Jira) of the connected tracker. |
 | `message_foreman` | Message the foreman of a task. Answers its open question if there is one. |
 | `plan_project` | Turn a goal or PRD into a roadmap and tracker issues for a project. |
-| `query_runs` | Raw rows (runs, scores or work_items) for your own analysis. |
-| `send_task` | Send work to a factory's foreman. Returns the new task (work item). |
+| `propose_definition_change` | Propose a change to a factory definition (prompts, skills, settings). People review it in the inbox and approve & merge it. Set a file to null to delete it. |
+| `query_runs` | Runs with filters: factory, state (QUEUED…CANCELLED), source, agent, q, created_after. Or raw rows (runs, scores, work_items) with kind. |
+| `run_agents` | Start several subagents at once (fan out). Returns their runs. |
+| `search_task` | Search task titles and descriptions across factories. |
+| `send_task` | Send new work to a factory's foreman (factory, title, note), or hand a task you worked on locally back (task_id, branch or pr_url, note). |
+| `spawn_agent` | Start a subagent of your factory for part of the work. Returns at once with the child run; follow it with get_run. Only agents whose spawnableBy allows you can be started. |
 | `steer_run` | Send a steering message to a running agent. |
-| `validate_factory_files` | Validate a definition tree (path → content). With apply=true, applies it (needs definitions:write). |
+| `validate_factory_files` | Validate a whole definition tree without saving it: diagnostics with file and line, plus what is resolved only when applied. With apply=true and a factory, applies it (definitions:write). |
 
 ## Related pages
 
 - [API reference](api.md)
 - [Admin, RBAC and audit](../management/admin-rbac-audit.md)
+
+---
+
+# Tasks, runs and subagents
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/developer-tools/tasks-and-runs.md
+
+A **task** is a work item seen through the API: one request with its conversation, runs and outputs. A **run** is one agent execution. The foreman path starts several runs per task; agents can start subagents, so runs form a tree whose first run is the task's root.
+
+## Dispatching work
+
+```bash
+curl -X POST "$KILN_URL/api/v1/factories/webapp/runs" -H "authorization: Bearer $KILN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"prompt": "Fix the rounding bug in invoices", "ticket_ref": "linear:PAY-123", "mode": "plan"}'
+```
+
+The reply has `taskId`, the first `runId` when one started, `runUrl`, `state` and `foremanAgent`. `ticket_ref` is `<source>:<id>` (`linear:`, `jira:`, `github:owner/repo#12`, or anything else, kept as is). `branch` makes the task work on that branch.
+
+**One task per incident**: a report that matches an open task joins it instead of starting new work. The match is by identity first: `correlation_key` (an incident id or alert fingerprint), alert payload fields such as `fingerprint`, `dedup_key` or `incident_id`, the tracker issue, the source URL or the pull request. Reports from a different source (an alert and a Slack message) also match by content when they share enough salient words such as service names, hosts and error codes. The reply then carries `deduplicated: { into, reason, score }` (`POST /api/v1/work-items` answers 200 instead of 201), the report and its files are added to the task, and every place it was reported hears the updates. Pass `"dedupe": false` to always start a new task. The triage agent can also fold a task into an open one it recognises as the same work. Tune it per factory:
+
+```yaml
+deduplication: { enabled: true, windowHours: 24, threshold: 0.5 }
+```
+
+**Modes**: `normal`; `plan` (the factory always writes a plan or spec first and waits for a person to approve it before anything is built); `orchestrate` (the foreman and implement agents are told to split the work across subagents).
+
+## Task stages
+
+| Stage | Kiln states |
+| --- | --- |
+| `TRIAGE` | received, triaging |
+| `SPEC` | planning, awaiting_spec |
+| `IMPLEMENT` | building, awaiting_preview |
+| `REVIEW` | reviewing, handed_off |
+| `COMPLETE` | complete |
+| `CANCELLED` | cancelled, failed |
+
+`PATCH …/tasks/{id}` may set any stage. `COMPLETE` needs `decide:merge` and closes the task as a person's confirmation; `CANCELLED` cancels it and every run and subagent still going. `DELETE` is a soft delete. Task outputs (`PLAN`, `PULL_REQUEST`, `SCREENSHOT`, `FILE`, `EXTERNAL_REFERENCE`) come newest first.
+
+## Run states and sources
+
+| State | Meaning |
+| --- | --- |
+| `QUEUED` | Waiting for a [self-hosted worker](../infrastructure/self-hosted-workers.md). |
+| `CLAIMED` | A worker took it and is preparing the sandbox. |
+| `INPROGRESS` | The agent is working. |
+| `BLOCKED` | Waiting on a person: a command approval, an interrupt, or a paused run. |
+| `SUCCEEDED`, `FAILED`, `ERROR`, `CANCELLED` | Finished. `FAILED` means the task could not be done as asked; `ERROR` means the platform failed. |
+
+The coarse `task_status` filter groups them: `running`, `blocked`, `failed`, `cancelled`, `complete`. Each run also has a `source` (`LINEAR`, `SLACK`, `GITHUB_WEBHOOK`, `API`, `CLI`, `MCP`, `WEB_APP`, `SCHEDULED_AGENT`, `ORCHESTRATION`, `SELF_IMPROVEMENT`, `BENCHMARK_TRIAL`, `CUSTOM_WEBHOOK`, …), a `title`, `creator` and `executor`, `rootRunId`, and up to 20 immutable `metadata` keys you can filter on with `metadata[key]=value`.
+
+`GET /api/v1/runs` filters by `state`, `task_status`, `source`, `factory_uid`, `ancestor_run_id`, `artifact_type`, `q`, `creator`, `mine=true`, dates and metadata, sorts with `sort_by`, and pages with `cursor`.
+
+## Errors
+
+Errors carry a `code` from the catalog (`GET /api/v1/errors`): for example `budget_exceeded`, `insufficient_credits`, `integration_not_configured`, `environment_setup_failed` (FAILED) and `internal_error`, `resource_unavailable`, `infrastructure_timeout`, `agent_process_failed` (ERROR). Kiln retries `internal_error` and `resource_unavailable` on the same run up to three times before it reports the run.
+
+## Talking to a run
+
+- `POST /runs/{id}/followups {message, attachments}` steers a live run, or continues a finished one in a new run with the same agent, branch and task.
+- `POST /runs/{id}/interrupt` stops what the agent is doing; the run is `BLOCKED` until a follow-up.
+- `GET /runs/{id}/timeline`, `/conversation` and `/transcript` show what happened; `/scores` its scores.
+- `PUT /runs/{id}/sharing {publicAccess: "VIEWER" | "EDITOR" | null}` shares the run with signed-in people who cannot otherwise see the factory.
+- Agents stay alive for follow-ups for `idleTimeoutMinutes` (default 10, 60 for subagents).
+
+## Subagents and run tokens
+
+A running agent gets `KILN_RUN_TOKEN` and the Kiln MCP server. With it, it may:
+
+- read its own task and the runs of its task or run tree, message its task, and upload files;
+- start subagents: `POST /runs/{id}/spawn` (MCP `spawn_agent`) or several at once with `run-agents` (`run_agents`). The child's `spawnableBy` decides who may start it; nesting stops at five levels;
+- ask the requester a question (`POST /runs/{id}/questions`, MCP `ask_user`) with single- or multi-select options and a recommended option, and read the answer from the gate;
+- propose a definition change (`propose_definition_change`) that people review in the inbox;
+- call `complete_task`, which closes the task only after its pull request merged.
+
+A run token cannot decide gates, write definitions, see other tasks or factories, merge or approve.
+
+## Related pages
+
+- [API reference](api.md)
+- [Kiln MCP](mcp.md)
+- [Inbox](../management/inbox.md)
 
 ---
 
@@ -2026,6 +2358,10 @@ Treat this as an incident report.
 ```
 
 Store `ALERTS_WEBHOOK_SECRET` in Kiln and point your alerting tool at `POST /webhooks/oncall/alerts`. The alert's `title` or `summary` field becomes the work item's title. See [Automations](../configuration/automations.md#webhooks).
+
+## One task per incident
+
+An alarm usually arrives from more than one place: the alert webhook fires, then someone posts in Slack. Kiln keeps one task for the incident. Alerts that carry the same `fingerprint`, `dedup_key` or `incident_id` join the open task, and a Slack report that names the same service and error code joins it by content. Both threads then get the updates. Set `deduplication: { windowHours: 6 }` in `factory.yaml` to compare only recent tasks, or `enabled: false` to turn it off. See [Tasks and runs](../developer-tools/tasks-and-runs.md#dispatching-work).
 
 ## 8. Validate and apply
 
@@ -2394,6 +2730,10 @@ harness: { type: claude-code, model: claude-sonnet-5-5 }
 | `claude-code` | `claude` | The default when nothing sets a harness. |
 | `codex` | `codex` | |
 | `opencode` | `opencode` | The `oz` harness type becomes `opencode` on import. |
+| `gemini` | `gemini` | Gemini CLI in headless mode (`--output-format stream-json`). Reads `GEMINI_API_KEY` or `GOOGLE_API_KEY`. |
+| `pi` | `pi` | The Pi coding agent in JSON mode. Reads Anthropic, OpenAI, OpenRouter or Gemini keys. |
+
+`reasoningLevel` takes `low`, `medium`, `high`, `xhigh` or `max` where the harness supports it. `auth` also accepts the v1alpha1 spellings `managedSecret` (same as `secret`) and `workerEnvironment` (same as `worker`). Claude Code thinking is recorded as `reasoning` run events with how long the model thought.
 
 The harness program must be installed in the runner's image. Pin its version in the image, because flags and output formats change between releases.
 
@@ -2593,6 +2933,103 @@ Snapshots hold files only. On Docker, the server can also be set to take a CRIU 
 
 ---
 
+# Self-hosted workers
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/infrastructure/self-hosted-workers.md
+
+A self-hosted worker runs agent runs on a machine you choose (a build server, a GPU box, a host inside a private network) while the Kiln server keeps coordinating the work. The worker connects out to the Kiln API; it needs no inbound ports.
+
+## How it works
+
+1. An agent (or automation, or `agentDefaults`) sets `workerHost: <id>`.
+2. When that agent runs, the Kiln server prepares the run (prompt, instructions, skills, scoped run token) and queues it for the worker id. The run's state is `QUEUED`.
+3. A `kiln worker --worker-id <id>` process long-polls the API, claims the run (`CLAIMED`), creates its sandbox (Docker, Kubernetes or a host directory), clones the repositories with the run token, starts the harness and streams events back (`INPROGRESS`).
+4. At the end it reports the result, uploads artifacts from `.kiln/artifacts/` and pushes the `kiln/*` branch with the run token. The server records everything as for any other run.
+
+Several processes can share one worker id; each run goes to the process with the most free capacity. Runs wait in the queue while no worker of that id is connected and fail with `infrastructure_timeout` after 30 minutes. A worker that stops sending heartbeats is dropped and its runs are retried.
+
+## Start a worker
+
+Create a key with the `worker` scope (a worker API key, or `kiln token create --grants worker:*`), then:
+
+```bash
+KILN_URL=https://kiln.example.com KILN_WORKER_KEY=kiln_tok_… \
+  pnpm kiln worker --worker-id build-farm --backend docker --max-concurrent-tasks 4
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--worker-id` | (required) | The id agents name in `workerHost`. Letters, digits, `.`, `_`, `-`; ids starting with `kiln` are reserved. |
+| `--api-key` | `KILN_WORKER_KEY`, else `KILN_TOKEN` | The worker key. |
+| `--backend` | `docker` | `docker` (a container per run), `kubernetes` (a pod per run) or `direct` (a directory on the host). |
+| `--max-concurrent-tasks` | `0` (unlimited) | Runs at once. |
+| `--one-shot` | off | Take one run, then exit (direct backend only). For CI jobs and ephemeral VMs. |
+| `--idle-on-complete` | `45m` | How long a one-shot worker stays up after its run. |
+| `-v`, `--volumes` | | `HOST:CONTAINER[:ro|rw]` mounts for Docker sandboxes. Repeatable. |
+| `-e`, `--env` | | `KEY=VALUE` (or `KEY` to pass the worker's own value) added to every run. Repeatable. |
+| `--config-file` | | A YAML or JSON file with the same settings (below). |
+| `--no-cleanup` | off | Keep sandboxes after runs, for debugging. |
+| `--metrics-port` | | Serve Prometheus metrics on this port at `/metrics`. |
+| `--log-level` | `info` | `debug`, `info`, `warn` or `error`. |
+
+### Config file
+
+```yaml
+worker_id: build-farm
+max_concurrent_tasks: 4
+idle_on_complete: 10m
+cleanup: true
+metrics_port: 9464
+backend:
+  docker:
+    volumes: [/var/cache/npm:/root/.npm]
+    image_pull_policy: IfNotPresent   # Always | IfNotPresent | Never
+    environment:
+      - { name: NPM_TOKEN }             # inherit from the worker's environment
+      - { name: CI, value: "true" }
+```
+
+The `kubernetes` backend takes `namespace`; the `direct` backend takes `workspace_root`.
+
+## Route agents to a worker
+
+```yaml
+# agents/implement/agent.md
+---
+agentType: IMPLEMENT
+workerHost: build-farm
+harness:
+  type: claude-code
+  auth: { source: worker }   # use the credentials already on the worker
+---
+```
+
+`workerHost` follows the usual inheritance: set it in `agentDefaults` to send every agent, override it per agent or automation, and set it to `""` or `null` to run on the Kiln server again. With `auth: { source: worker }` (or the v1alpha1 spelling `workerEnvironment`) the harness uses the credentials on the worker and Kiln sends none; otherwise Kiln sends the run's harness credential and the agent's secrets with the job.
+
+## Watch workers
+
+- `GET /api/v1/workers` (and `client.workers()`) lists connected processes with their last heartbeat, active runs, and the queue.
+- The API's `/metrics` endpoint includes `kiln_workers_connected`, `kiln_worker_runs_active` and `kiln_worker_queue_depth`. Set `KILN_METRICS_TOKEN` to require `Authorization: Bearer <token>`.
+- A worker's own `/metrics` (with `--metrics-port`) has `kiln_worker_connected`, `kiln_worker_tasks_active`, `kiln_worker_tasks_max_concurrent`, `kiln_worker_tasks_claimed_total`, `kiln_worker_tasks_completed_total{result}`, `kiln_worker_task_duration_seconds_sum{result}`, `kiln_worker_reconnects_total` and `kiln_worker_info`.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Runs stay `QUEUED` | Is a worker with exactly that id connected (`GET /api/v1/workers`)? Ids are case-sensitive. Is it at `--max-concurrent-tasks`? |
+| The worker gets 403 | The key needs the `worker` scope or must be a worker key. |
+| Runs fail with `environment_setup_failed` | The sandbox could not start or clone: check Docker on the worker, the image, and that the worker can reach the forge. |
+| Every shell command is blocked | The worker could not reach `/api/v1/guard`; it blocks commands when the guard is unreachable. |
+
+## Related pages
+
+- [Sandboxes](sandboxes.md)
+- [Harnesses](harnesses.md)
+- [Agents](../configuration/agents.md)
+- [Self-hosting](self-hosting.md)
+
+---
+
 # Self-hosting
 
 Source: https://github.com/fishuke/klin/blob/main/docs/site/infrastructure/self-hosting.md
@@ -2765,8 +3202,13 @@ Kiln runs a timer pass that:
 | Webhooks return 401 | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set. |
 | An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory). |
 
+## Workers and monitoring
+
+Agents can also run on machines you choose, such as a build server or a host in a private network: start `kiln worker` there and set `workerHost` on the agent. See [Self-hosted workers](self-hosted-workers.md). The API serves Prometheus metrics at `/metrics` (runs by state, tasks, open gates, workers and the worker queue); set `KILN_METRICS_TOKEN` to require a bearer token.
+
 ## Related pages
 
+- [Self-hosted workers](self-hosted-workers.md)
 - [Architecture and security](architecture-and-security.md)
 - [Sandboxes](sandboxes.md)
 - [Harnesses](harnesses.md)
@@ -3968,6 +4410,22 @@ A command approval waits up to 30 minutes, then expires and the command is block
 
 The digest groups open gates by person, oldest first, with each one's age in hours and a link to it in the inbox.
 
+## Inbox items API
+
+`GET /api/v1/inbox/items` lists your inbox across factories as items of six kinds:
+
+| Kind | When |
+| --- | --- |
+| `question` | An agent or the foreman asked you something. Questions can be single or multi select, with a recommended option. |
+| `answer_question` | A question on your task was answered (for your information, for a week). |
+| `spec_review` | A spec or plan waits for approval; also definition changes proposed by agents and self-improvement proposals, with their diff. |
+| `pr_review` | A pull request or preview waits on you. |
+| `blocked`, `failed` | A task of yours is stuck, when nothing else on it needs you. |
+
+Filter with `scope=mine|team`, `factory`, `kind`, `read=true|false` and `q`. `POST /api/v1/inbox/read`, `/unread`, `/resolve` and `/unresolve` take `{ids}` (item ids, or plain gate ids). Items clear themselves when they stop being relevant: the question was answered, the spec approved, the PR merged.
+
+Definition changes have their own actions: `POST /definition-changes/{id}/approve` (Approve & merge: applied at once for Kiln-managed factories, a pull request on the config repo otherwise), `/request-changes` (the comments go back to the agent that proposed it), `/comments` and `/reject`. Agents can never approve.
+
 ## Related pages
 
 - [Approving specs and previews](../product-owners/approving-specs-and-previews.md)
@@ -4452,6 +4910,15 @@ routing:
 
 For a config-repo factory, Kiln opens this as a pull request labeled `kiln:benchmarks`. To use it, point the agent at it with `model: router:by-task`.
 
+## Benchmark runs, trials and results
+
+The benchmarks page and API run suites with more control than `kiln bench run`:
+
+- Suites and tasks: `GET|POST /factories/{id}/benchmark-suites`, `GET|PATCH|DELETE …/benchmark-suites/{suite}`, and `…/{suite}/tasks[/{task}]`. Adding a task with the same content again is a no-op; another task with the same title is a conflict. `POST /runs/{id}/benchmark-task` turns a finished run into a task.
+- `POST …/benchmark-suites/{suite}/runs {configurations, repetitions, scorers, tasks}` starts a benchmark run. Each configuration sets, per agent, the harness and model (or a `router:<slug>`) and the runner. Every task × configuration × repetition is a **trial**: an agent run of kind `benchmark` with source `BENCHMARK_TRIAL`. The run freezes its inputs; it is not idempotent.
+- After the trials, each is scored for task correctness and with the scorers you picked. `GET /benchmark-runs/{id}/results` returns per-configuration averages, an overall score, cost and duration, the Pareto frontier, chart points (quality against cost), spend (execution and judging), coverage and a short narrative, plus a recommendation: **highest quality**, **most efficient** (quality per second) and **lowest cost**.
+- `GET /benchmark-runs/{id}/trials` (filter by task, configuration or `agent_run_id`) and `POST /benchmark-runs/{id}/cancel`.
+
 ## Related pages
 
 - [Scorers](scorers.md)
@@ -4512,6 +4979,22 @@ The [portfolio](../management/portfolio.md) adds these metrics up per project an
 ## Raw data
 
 For your own views, Kiln returns the raw rows for runs, scores or work items of a factory since a date. An agent can use the Kiln MCP's metrics tools to answer questions such as "cost per merged PR by agent last week". See the [API overview](../developer-tools/api.md) and the [MCP reference](../developer-tools/mcp.md).
+
+## Dashboard API
+
+The dashboard reads these endpoints. All take `start_date` (inclusive) and `end_date` (exclusive) as RFC 3339 times, default to the last 30 days, and with `group_by_period=day|week|month` (weeks start on Sunday) add a `series`. Most add `deltas` against the previous period of the same length.
+
+| Endpoint | What it returns |
+| --- | --- |
+| `GET /factories/{id}/metrics` | `runCount`, `prCount`, `mergedPrCount`, `autonomy`, the autonomy funnel (merged, merged without a human code change, per repo), impact (additions and deletions of merged PRs), PR latency medians (kickoff → PR → first review → merge), average human interactions per PR. |
+| `GET /factories/{id}/costs/per-pr` | PRs opened in the range, total, mean and median cost. With your own keys all spend is `inference`. |
+| `GET /factories/{id}/costs/breakdown?group_by=source\|user\|agent\|model` | Spend per group. `source` and `user` roll up to the root run. |
+| `GET /factories/{id}/costs/per-pr/top?limit=20` | The most expensive PRs. |
+| `GET /factories/{id}/costs/per-pr/by-size` | Cost by PR size: S < 100, M < 500, L < 1000, XL ≥ 1000 changed lines. |
+| `GET /factories/{id}/metrics/run-breakdown?group_by=agent_type\|status\|source\|root_vs_subrun\|model\|harness` | Run counts per group (source counts top-level runs only). |
+| `GET /factories/{id}/pull-requests` | Every PR the factory produced: state, timing, size, human interactions, runs and cycle times; filter by `repo`, `state`, opened/merged dates and `updated_after` for incremental sync. |
+
+A PR counts as autonomous when no person pushed code to it; handing a task back from a local worktree marks its PR as changed by a person.
 
 ## Related pages
 
@@ -4660,6 +5143,19 @@ Use scores in:
 - [Self-improvement](self-improvement.md): unreviewed failures trigger a proposal,
 - [Replay and canary](replay-and-canary.md): pass rates before and after a change.
 
+## Default scorers
+
+A factory made with the setup wizard starts with five scorers, each with a written rubric you can edit: **Verbosity**, **Task Compliance**, **Procedure Compliance**, **Efficiency** and **Code Quality** (implement agent only). Task Compliance, Procedure Compliance and Code Quality feed self-improvement. A sixth, **Task Correctness** (`kind: benchmark_task_correctness`), grades benchmark trials against their success criteria and never scores everyday runs.
+
+Two more scorer keys: `agents` entries may be `{ name, includeDescendants: true }` to include a run's subagents as evidence, and `runner`, `secrets` and `mcpServers` set up the judge.
+
+## Scorers API
+
+- `GET|POST /factories/{id}/scorers`, `GET|PATCH|DELETE /factories/{id}/scorers/{slug}`: the UI's scorer editor. Writes go into `scorers/<slug>/scorer.md` (a pull request for config-repo factories). Each update bumps the scorer's `version`; deleting removes its scores too. Creating a scorer does not score past runs.
+- `GET …/scorers/{slug}/results` (with `include_reasons=true`, `run_id=`) and `GET …/scorers/{slug}/metrics` (pass rate and series; `include_cost=true` adds judge cost).
+- Manual scoring, which ignores sampling and replaces earlier scores: `POST …/scorers/{slug}/dispatch {runIds}`, `POST /factories/{id}/runs/{runId}/scorer-dispatch {scorers}`, or `POST /runs/{id}/score` for every scorer that covers the run's agent.
+- `GET /runs/{id}/scores` lists a run's scores with `triggerSource` (`automatic` or `manual`).
+
 ## Related pages
 
 - [Self-improvement](self-improvement.md)
@@ -4724,6 +5220,18 @@ Nothing is adopted without a person's review.
 ## Improving Kiln's own factory
 
 The same loop runs on the factory that builds Kiln. See [Kiln builds Kiln](../guides/kiln-builds-kiln.md).
+
+## Settings
+
+| Key (`selfImprovement` in factory.yaml) | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `true` | Scheduled checks run. "Run now" works either way. |
+| `failedRunThreshold` | `25` | Distinct unreviewed failures (1–50) of one agent that start a proposal. |
+| `maxAgeDays` | `7` | Or when the oldest unreviewed failure is this old. |
+| `reviewers` | `admins` | Pool for the one reviewer each proposal asks: `admins`, `team`, `custom` (with `emails`) or `none`. |
+| `model` | the improver agent's | Model for the analysis run. |
+
+Which scorers feed it is each scorer's `selfImprovement` toggle. `GET|PUT /factories/{id}/self-improvement/settings` reads and changes all of these in one change. Proposals show up in the inbox as spec reviews, and every proposal's description has a **Regressions addressed** section linking the failing runs and scores.
 
 ## Related pages
 

@@ -55,6 +55,15 @@ describe("default runner image", () => {
     await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "foreman", prompt: "route this", push: false });
     expect(images).toEqual(["ghcr.io/acme/kiln-runner:1"]);
   });
+
+  it("lets every run reach Kiln itself (the command guard and the Kiln MCP server) through the egress allowlist", async () => {
+    const egress: string[][] = [];
+    const local = new LocalSandboxProvider();
+    const recording: SandboxProvider = { name: "docker", create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })), resume: (ref, spec, store) => local.resume(ref, spec, store) };
+    const { kiln } = createTestKiln({ sandboxes: { local, docker: recording }, defaultBackend: "docker", publicUrl: "https://kiln-api.acme.test" });
+    await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "foreman", prompt: "route this", push: false });
+    expect(egress[0]).toContain("kiln-api.acme.test");
+  });
 });
 
 describe("runs: sources, metadata, follow-ups, interrupts and subagent trees", () => {

@@ -85,7 +85,7 @@ export function ActionRow({ icon, title, description, children, className }: { i
   );
 }
 
-export function ConnectedBadge({ children = "Connected", tone = "green" }: { children?: React.ReactNode; tone?: "green" | "grey" | "amber" }) {
+export function ConnectedBadge({ children = "Connected", tone = "green" }: { children?: React.ReactNode; tone?: "green" | "grey" | "amber" | "red" }) {
   return (
     <span
       className={cn(
@@ -93,9 +93,10 @@ export function ConnectedBadge({ children = "Connected", tone = "green" }: { chi
         tone === "green" && "border-green-600/25 bg-green-500/10 text-green-700 dark:text-green-400",
         tone === "grey" && "border-border bg-background text-muted-foreground",
         tone === "amber" && "border-amber-600/25 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+        tone === "red" && "border-destructive/25 bg-destructive/10 text-destructive",
       )}
     >
-      <span className={cn("size-1.5 rounded-full", tone === "green" ? "bg-green-500" : tone === "amber" ? "bg-amber-500" : "bg-muted-foreground/60")} />
+      <span className={cn("size-1.5 rounded-full", tone === "green" ? "bg-green-500" : tone === "amber" ? "bg-amber-500" : tone === "red" ? "bg-destructive" : "bg-muted-foreground/60")} />
       {children}
     </span>
   );

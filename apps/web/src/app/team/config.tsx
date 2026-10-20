@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { ModelKeyProvider, TeamSettings } from "@kiln/sdk-ts";
+import type { ModelKeyProvider, PoolEntry, TeamSettings } from "@kiln/sdk-ts";
 import { ConfirmAction } from "@/components/kiln/confirm-action";
 import { ConnectedBadge, Field, SettingsRow } from "@/components/kiln/settings-blocks";
 import { SimpleSelect } from "@/components/kiln/simple-select";
@@ -11,24 +11,15 @@ import { useAction } from "@/components/kiln/use-action";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { byHeadroom, resetsIn, tokenStatus, usageLine } from "@/lib/claude-tokens";
 import { cn } from "@/lib/utils";
 import * as A from "./actions";
 
 type StorageTarget = TeamSettings["storage"]["artifacts"];
 type KeyState = { set: boolean; updatedAt?: string; updatedBy?: string };
 
-const MODEL_KEYS: { id: ModelKeyProvider | "claude"; title: string; description: React.ReactNode; placeholder: string }[] = [
+const MODEL_KEYS: { id: ModelKeyProvider; title: string; description: React.ReactNode; placeholder: string }[] = [
   { id: "anthropic", title: "Anthropic API key", description: "Claude Code and OpenCode runs bill this key.", placeholder: "sk-ant-api03-…" },
-  {
-    id: "claude",
-    title: "Claude subscription token",
-    description: (
-      <>
-        Run <code className="font-mono text-xs">claude setup-token</code> on your machine and paste the token. Claude Code runs use your Claude plan instead of an API key.
-      </>
-    ),
-    placeholder: "sk-ant-oat01-…",
-  },
   { id: "openai", title: "OpenAI API key", description: "Codex and OpenCode runs, or any OpenAI-compatible gateway key.", placeholder: "sk-proj-…" },
   { id: "openrouter", title: "OpenRouter API key", description: "OpenCode through OpenRouter, including open-weight models.", placeholder: "sk-or-v1-…" },
   { id: "bedrock", title: "Amazon Bedrock", description: "Claude Code on Bedrock, with an access key or a Bedrock API key.", placeholder: "" },
@@ -38,14 +29,110 @@ function since(iso?: string) {
   return iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
 }
 
-export function ModelKeys({ team, keys, claude, canEdit }: { team: string; keys: Partial<Record<ModelKeyProvider, KeyState>>; claude: KeyState; canEdit: boolean }) {
+export function ModelKeys({ team, keys, pool, canEdit }: { team: string; keys: Partial<Record<ModelKeyProvider, KeyState>>; pool: PoolEntry[]; canEdit: boolean }) {
   return (
     <div>
       <p className="mb-5 text-sm text-muted-foreground">Runs without their own harness credential use these. Values are write-only: Kiln never shows them again and redacts them from run output.</p>
+      <ClaudeTokenPool team={team} pool={pool} canEdit={canEdit} />
       {MODEL_KEYS.map((k) => (
-        <ModelKeyRow key={k.id} team={team} spec={k} state={k.id === "claude" ? claude : (keys[k.id] ?? { set: false })} canEdit={canEdit} />
+        <ModelKeyRow key={k.id} team={team} spec={k} state={keys[k.id] ?? { set: false }} canEdit={canEdit} />
       ))}
     </div>
+  );
+}
+
+/** Claude subscription tokens: each one's status and 5-hour and 7-day usage; runs use the one with the most left. */
+function ClaudeTokenPool({ team, pool, canEdit }: { team: string; pool: PoolEntry[]; canEdit: boolean }) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [value, setValue] = useState("");
+  const [pending, run] = useAction();
+  const router = useRouter();
+  const validName = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name.trim());
+  return (
+    <div className="border-b pb-4 mb-4">
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold">Claude subscription tokens</div>
+          <div className="text-sm text-muted-foreground">
+            Run <code className="font-mono text-xs">claude setup-token</code> and add the token. With several, each run uses the working one with the most of its 5-hour and 7-day limits left, and skips rejected or limited ones until they reset.
+          </div>
+        </div>
+        {canEdit && !adding && (
+          <Button variant="outline" onClick={() => setAdding(true)}>
+            Add token
+          </Button>
+        )}
+      </div>
+      {pool.length === 0 && !adding && <p className="mt-3 text-sm text-muted-foreground">No tokens yet. Runs fall back to the API keys below or to the server&apos;s environment.</p>}
+      {pool.length > 0 && (
+        <ul className="mt-3 divide-y rounded-lg border bg-background">
+          {byHeadroom(pool).map((t) => {
+            const s = tokenStatus(t);
+            return (
+              <li key={`${t.scope}:${t.name}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 text-sm">
+                <code className="min-w-0 flex-1 truncate font-mono text-xs">{t.name}</code>
+                <ConnectedBadge tone={s.tone}>{s.label}</ConnectedBadge>
+                <UsageBar label="5h" window={t.fiveHour} />
+                <UsageBar label="7d" window={t.sevenDay} />
+                {t.status === "limited" && t.resetsAt && <span className="text-xs text-muted-foreground">usable {resetsIn(t.resetsAt)}</span>}
+                {t.status === "invalid" && t.error && <span className="w-full truncate text-xs text-destructive" title={t.error}>{t.error}</span>}
+                {canEdit && (
+                  <span className="flex gap-1">
+                    <Button variant="ghost" size="sm" disabled={pending} onClick={() => void run(() => A.checkClaudeToken(team, t.name), { onSuccess: () => router.refresh() })}>
+                      Check now
+                    </Button>
+                    <ConfirmAction
+                      title={`Remove ${t.name}?`}
+                      description="Runs stop using this token. The other tokens keep working."
+                      confirmLabel="Remove"
+                      action={() => A.deleteClaudeToken(t.name)}
+                      onDone={() => router.refresh()}
+                      trigger={(open) => (
+                        <Button variant="ghost" size="sm" onClick={open} className="text-destructive hover:text-destructive">
+                          Remove
+                        </Button>
+                      )}
+                    />
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {adding && (
+        <form
+          className="mt-3 grid gap-2 sm:grid-cols-[1fr_2fr_auto_auto]"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void run(() => A.addClaudeToken(name, value), { onSuccess: () => (setAdding(false), setName(""), setValue(""), router.refresh()) });
+          }}
+        >
+          <Input autoFocus placeholder="CLAUDE_ALICE" value={name} onChange={(e) => setName(e.target.value)} className="h-9 bg-background font-mono" aria-label="Token name" />
+          <Input type="password" autoComplete="off" placeholder="sk-ant-oat01-…" value={value} onChange={(e) => setValue(e.target.value)} className="h-9 bg-background font-mono" aria-label="Token" />
+          <Button type="button" variant="ghost" onClick={() => setAdding(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={pending || !validName || !value.trim()}>
+            {pending ? "Saving…" : "Add"}
+          </Button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function UsageBar({ label, window }: { label: string; window: PoolEntry["fiveHour"] }) {
+  const pct = Math.min(100, Math.round((window?.utilization ?? 0) * 100));
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-muted-foreground" title={usageLine(window) ?? "No usage reported yet"}>
+      {label}
+      <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+        <span className={cn("block h-full rounded-full", pct >= 90 ? "bg-destructive" : pct >= 70 ? "bg-amber-500" : "bg-foreground/60")} style={{ width: `${window ? pct : 0}%` }} />
+      </span>
+      <span className="w-8 tabular-nums">{window ? `${pct}%` : "–"}</span>
+    </span>
   );
 }
 
@@ -57,14 +144,13 @@ function ModelKeyRow({ team, spec, state, canEdit }: { team: string; spec: (type
   const router = useRouter();
   const save = () => {
     const done = { onSuccess: () => (setEditing(false), setValue(""), router.refresh()) };
-    if (spec.id === "claude") return run(() => A.setClaudeToken(value, state.set), done);
     if (spec.id === "bedrock") {
       const v: Record<string, string> = bedrock.mode === "access" ? { accessKeyId: bedrock.accessKeyId, secretAccessKey: bedrock.secretAccessKey, region: bedrock.region } : { apiKey: bedrock.apiKey, region: bedrock.region };
       return run(() => A.setModelKey(team, "bedrock", v), done);
     }
-    return run(() => A.setModelKey(team, spec.id as ModelKeyProvider, value.trim()), done);
+    return run(() => A.setModelKey(team, spec.id, value.trim()), done);
   };
-  const remove = () => (spec.id === "claude" ? A.deleteClaudeToken() : A.deleteModelKey(team, spec.id as ModelKeyProvider));
+  const remove = () => A.deleteModelKey(team, spec.id);
   const valid = spec.id === "bedrock" ? (bedrock.mode === "access" ? bedrock.accessKeyId && bedrock.secretAccessKey && bedrock.region : bedrock.apiKey && bedrock.region) : value.trim();
   return (
     <div className="py-4 first:pt-0 last:pb-0 [&+&]:border-t">

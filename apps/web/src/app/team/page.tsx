@@ -4,7 +4,6 @@ import { ActionRow, SettingsColumn, SettingsSection } from "@/components/kiln/se
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, safe } from "@/lib/kiln";
 import { DataStorage, HostAndRoles, LeaveTeam, ListSetting, ModelKeys, SpendLimit } from "./config";
-import { CLAUDE_TOKEN_SECRET } from "./constants";
 import { NewTeamButton } from "./new-team";
 import { FactoryMembers, GeneralForm, Invites, MembersTable } from "./people";
 
@@ -46,17 +45,16 @@ export default async function TeamSettingsPage() {
   }
   const id = current.id;
   const canEdit = me.role === "owner" || me.role === "admin";
-  const [detail, members, invites, settings, modelKeys, secrets] = await Promise.all([
+  const [detail, members, invites, settings, modelKeys, pool] = await Promise.all([
     safe(() => api.team(id), null),
     safe(() => api.teamMembers(id), []),
     canEdit ? safe(() => api.invites(id), []) : Promise.resolve([]),
     safe(() => api.teamSettings(id), null),
     canEdit ? safe(() => api.modelKeys(id) as Promise<Partial<Awaited<ReturnType<typeof api.modelKeys>>>>, {}) : Promise.resolve({}),
-    safe(() => api.managedSecrets(), []),
+    canEdit ? safe(() => api.claudeTokens(id), []) : Promise.resolve([]),
   ]);
   if (!detail || !settings) return <ApiDown />;
   const factoryRows = await Promise.all(detail.factories.map(async (f) => ({ f, rows: await safe(() => api.factoryMembers(f.id), []) })));
-  const claude = secrets.find((s) => s.scope === "team" && s.name === CLAUDE_TOKEN_SECRET);
   const myId = me.user?.id;
   const owners = members.filter((m) => m.role === "owner");
   const lastOwner = me.role === "owner" && owners.length <= 1;
@@ -108,7 +106,7 @@ export default async function TeamSettingsPage() {
 
         <SettingsSection id="model-keys" title="Model keys">
           {canEdit ? (
-            <ModelKeys team={id} keys={modelKeys} claude={{ set: Boolean(claude), updatedAt: claude?.updatedAt, updatedBy: claude?.updatedBy }} canEdit={canEdit} />
+            <ModelKeys team={id} keys={modelKeys} pool={pool} canEdit={canEdit} />
           ) : (
             <p className="text-sm text-muted-foreground">Team owners and admins manage the team&apos;s model keys. You can add your own keys as personal secrets.</p>
           )}

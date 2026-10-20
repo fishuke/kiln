@@ -2,6 +2,7 @@ import { BUILTIN_DECISIONS, runDecision, top } from "@kiln/decide";
 import type { ResolvedFactory } from "@kiln/definitions";
 import { collectPlaywrightEvidence, criteriaCovered, previewCard } from "@kiln/evidence";
 import { evalBool, type PipelineStage } from "@kiln/schema";
+import { correlationKeys } from "./dedupe";
 import { KilnError } from "./errors";
 import { BUILTIN_GATES } from "./gates";
 import type { Kiln } from "./kiln";
@@ -89,7 +90,21 @@ export class Workflow {
     /** Work on this branch instead of a generated kiln/<id>-<slug> one. */
     branch?: string;
     execution?: ExecutionOverrides;
-  }): Promise<WorkItem> {
+    /** An identity for the incident (alert fingerprint, ticket id); reports with the same key share a task. */
+    correlationKey?: string;
+    /** false: always start a new task, even when an open one looks like the same work. */
+    dedupe?: boolean;
+  }): Promise<WorkItem & { deduplicated?: { into: string; reason: string; score: number } }> {
+    // The same incident reported again (an alarm and a user report, or the same alert twice) joins the open task.
+    if (input.dedupe !== false) {
+      const report = { factory: input.factory, title: input.title, body: input.body, source: input.source, requester: input.requester, trackerKey: input.trackerKey, correlationKey: input.correlationKey, attachments: input.attachments };
+      const match = this.k.dedupe.find(report);
+      if (match) {
+        const target = this.k.dedupe.attach(match.target.id, report, match);
+        void this.k.notify(target, `Also reported via ${input.source.provider}; this is being handled in ${this.k.link(`/runs/${target.id}`)}.`, { only: input.source });
+        return { ...target, deduplicated: { into: target.id, reason: match.reason, score: match.score } };
+      }
+    }
     const id = newId("wi");
     const sha = this.k.defs.shaFor(input.factory, id);
     const resolved = this.k.defs.resolved(sha);
@@ -116,6 +131,7 @@ export class Workflow {
       ...(input.conversationId ? { conversationId: input.conversationId } : {}),
       ...(input.mode && input.mode !== "normal" ? { mode: input.mode } : {}),
       ...(input.branch ? { branch: input.branch } : {}),
+      correlationKeys: correlationKeys({ source: input.source, trackerKey: input.trackerKey, correlationKey: input.correlationKey, body: input.body }),
       createdAt: now,
       updatedAt: now,
     };
@@ -129,6 +145,25 @@ export class Workflow {
     this.k.bus.publish("work_item.created", { workItemId: id, factory: input.factory, source: input.source.provider });
     this.k.audit(input.requester, "work_item.created", id, { factory: input.factory, source: input.source });
     return wi;
+  }
+
+  /**
+   * Fold a task into another one that handles the same incident: its report, files and origin
+   * join the target, and it closes with a link there.
+   */
+  async foldInto(id: string, targetId: string, reason: "triage" | "key" | "similarity" = "triage") {
+    const wi = this.get(id);
+    const target = this.get(targetId);
+    if (!wi || !target || id === targetId) return undefined;
+    this.k.dedupe.attach(targetId, { factory: wi.factory, title: wi.title, body: wi.body, source: wi.source, requester: wi.requester, trackerKey: wi.trackerKey, attachments: wi.attachments }, { reason, score: 1 }, id);
+    const fresh = this.get(id)!;
+    fresh.duplicateOf = targetId;
+    this.say(fresh, "foreman", "foreman", `Same work as ${targetId}; continuing there.`);
+    this.save(fresh);
+    for (const g of this.k.gates.list({ workItemId: id, state: "open" })) this.k.store.put(C.gates, { ...g, state: "expired", decidedBy: "kiln:duplicate" });
+    const closed = this.move(this.get(id)!, "cancelled", `duplicate of ${targetId}`);
+    await this.k.notify(closed, `This is the same as work already in progress; follow it at ${this.k.link(`/runs/${targetId}`)}.`);
+    return closed;
   }
 
   /** Record a human interaction: a message, a decision, a steering note. */
@@ -487,11 +522,33 @@ export class Workflow {
     if (kind && size && kind.p >= 0.6 && size.p >= 0.6) {
       wi.triage = { kind: kind.option, size: size.option, confidence: Math.min(kind.p, size.p) };
     } else if (stage.agent) {
-      const run = await this.agentRun(wi, stage.agent, "triage", this.briefing(wi, ["", "Triage this request: classify kind and size, look for duplicates, and summarize the cause or scope."]), { push: false });
+      const open = this.list({ factory: wi.factory })
+        .filter((w) => w.id !== wi.id && isActive(w.state) && !w.deletedAt && !w.duplicateOf)
+        .slice(0, 30)
+        .map((w) => `- ${w.id}: ${w.title}${w.trackerKey ? ` (${w.trackerKey})` : ""}`);
+      const run = await this.agentRun(
+        wi,
+        stage.agent,
+        "triage",
+        this.briefing(wi, [
+          "",
+          "Triage this request: classify kind and size, look for duplicates, and summarize the cause or scope.",
+          ...(open.length ? ["", "Open tasks in this factory. If this request is the same incident or work as one of them, set duplicateOf to that task id:", ...open] : []),
+        ]),
+        { push: false },
+      );
       const res = (run.result ?? {}) as { kind?: string; size?: string; summary?: string; duplicateOf?: string };
       wi.triage = { kind: res.kind ?? kind?.option ?? "feature", size: res.size ?? size?.option ?? "m", summary: res.summary, duplicateOf: res.duplicateOf, confidence: 0.9 };
     } else {
       wi.triage = { kind: kind?.option ?? "feature", size: size?.option ?? "m", confidence: Math.min(kind?.p ?? 0, size?.p ?? 0) };
+    }
+    // Triage found an open task for the same incident: fold this one into it.
+    const dupOf = wi.triage.duplicateOf;
+    const target = dupOf ? this.list({ factory: wi.factory }).find((w) => w.id !== wi.id && (w.id === dupOf || (w.trackerKey && w.trackerKey === dupOf)) && isActive(w.state) && !w.deletedAt && !w.duplicateOf) : undefined;
+    if (target && this.k.dedupe.config(wi.factory).enabled) {
+      this.save(wi);
+      await this.foldInto(wi.id, target.id);
+      return "done";
     }
     if (outcome.action === "duplicate" || wi.triage.duplicateOf) {
       this.say(wi, "foreman", "foreman", `This may duplicate ${wi.triage.duplicateOf ?? "a recent issue"}; continuing unless told otherwise.`);

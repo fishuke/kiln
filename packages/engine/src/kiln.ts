@@ -15,6 +15,7 @@ import { MemoryObjectStore, MemoryStore, type ObjectStore, type Store } from "@k
 import { AutomationService } from "./automations";
 import { BenchmarkAdmin } from "./benchmark-admin";
 import { BenchmarkService } from "./benchmarks";
+import { DedupeService } from "./dedupe";
 import { DefinitionChangeService } from "./definition-changes";
 import { DefinitionService } from "./definitions";
 import { DefinitionEditor } from "./editing";
@@ -123,6 +124,7 @@ export class Kiln {
   readonly scorers: ScorerAdmin;
   readonly benchmarkAdmin: BenchmarkAdmin;
   readonly wizard: FactoryWizard;
+  readonly dedupe: DedupeService;
   readonly connections: ConnectionService;
   readonly identities: IdentityService;
   readonly webhookSources: WebhookSourceService;
@@ -176,6 +178,7 @@ export class Kiln {
     this.scorers = new ScorerAdmin(this);
     this.benchmarkAdmin = new BenchmarkAdmin(this);
     this.wizard = new FactoryWizard(this);
+    this.dedupe = new DedupeService(this);
     this.users = new UserService(this);
     this.teams = new TeamService(this);
     this.accounts = new AccountService(this);
@@ -252,12 +255,17 @@ export class Kiln {
   }
 
   /** Post back where the work started: the Slack thread, the issue or the PR. */
-  async notify(wi: WorkItem, text: string) {
-    try {
-      await this.integrations.notify(wi, text);
-    } catch (err) {
-      this.audit("kiln", "notify.failed", wi.id, { error: err instanceof Error ? err.message : String(err) });
+  async notify(wi: WorkItem, text: string, opts: { only?: WorkItem["source"] } = {}) {
+    // Every place the work was reported hears about it (an incident's alert channel and the user's thread).
+    const sources = opts.only ? [opts.only] : [wi.source, ...(this.workflow.get(wi.id)?.linkedSources ?? wi.linkedSources ?? [])];
+    for (const source of sources) {
+      try {
+        await this.integrations.notify({ ...wi, source }, text);
+      } catch (err) {
+        this.audit("kiln", "notify.failed", wi.id, { error: err instanceof Error ? err.message : String(err), provider: source.provider });
+      }
     }
+    if (opts.only) return;
     const fresh = this.workflow.get(wi.id);
     if (fresh) {
       fresh.conversation.push({ at: this.clock.now().toISOString(), from: "foreman", role: "foreman", text });

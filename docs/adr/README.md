@@ -8,3 +8,4 @@
 - [0006](./0006-decision-layer.md) Typed decisions with Jev and an LLM fallback
 - [0007](./0007-open-source-byok.md) Open source, bring your own keys, self-hosted
 - [0008](./0008-humans-merge.md) Agents never merge
+- [0009](./0009-claude-agent-sdk.md) Claude Code through the Claude Agent SDK

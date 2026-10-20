@@ -1,3 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# The Agent SDK's bundled Claude Code binaries: Kiln runs the CLI from the runner image inside the sandbox.
+ignoredOptionalDependencies:
+  - "@anthropic-ai/claude-agent-sdk-*"

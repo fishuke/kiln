@@ -140,6 +140,8 @@ export type Run = {
   userId?: string;
   /** The environment template the run started from. */
   environmentId?: string;
+  /** Object key of the run's event transcript (JSON lines), stored per the team's transcript storage. */
+  transcriptKey?: string;
   startedAt: string;
   finishedAt?: string;
 };

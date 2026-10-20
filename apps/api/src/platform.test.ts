@@ -137,10 +137,12 @@ describe("teams API", () => {
       githubOrgs: ["acme"],
       egressAllowlist: ["registry.npmjs.org"],
       defaultSandboxHost: "local",
-      storage: { artifacts: { kind: "s3", bucket: "kiln-artifacts", region: "eu-west-1" }, transcripts: { kind: "local" }, attachments: { kind: "local", path: "/data/att" } },
+      storage: { artifacts: { kind: "s3", bucket: "kiln-artifacts", region: "eu-west-1" }, transcripts: { kind: "local" }, attachments: { kind: "local", path: "att" } },
     });
     expect(next.storage.artifacts).toMatchObject({ kind: "s3", bucket: "kiln-artifacts" });
     await expect(o.updateTeamSettings("default", { storage: { artifacts: { kind: "gcs" } } } as never)).rejects.toMatchObject({ status: 400 });
+    await expect(o.updateTeamSettings("default", { storage: { ...next.storage, attachments: { kind: "local", path: "/etc" } } })).rejects.toMatchObject({ status: 400 });
+    expect(await o.testStorage("default", "transcripts")).toEqual({ ok: true });
     const png = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
     const team = await o.uploadTeamAvatar("default", png, "image/png");
     expect(team.avatar).toMatch(/^\/api\/v1\/teams\/team_.+\/avatar/);

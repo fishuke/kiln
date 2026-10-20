@@ -270,6 +270,7 @@ export class KilnClient {
   revokeInvite = (team: string, inviteId: string) => this.request<{ ok: true }>("DELETE", `/api/v1/teams/${encodeURIComponent(team)}/invites/${encodeURIComponent(inviteId)}`);
   teamSettings = (team: string) => this.request<TeamSettings>("GET", `/api/v1/teams/${encodeURIComponent(team)}/settings`);
   updateTeamSettings = (team: string, patch: Partial<TeamSettings>) => this.request<TeamSettings>("PATCH", `/api/v1/teams/${encodeURIComponent(team)}/settings`, patch);
+  testStorage = (team: string, category: "artifacts" | "transcripts" | "attachments") => this.request<{ ok: boolean; error?: string }>("POST", `/api/v1/teams/${encodeURIComponent(team)}/storage/${category}/test`);
   modelKeys = (team: string) => this.request<Record<ModelKeyProvider, { set: boolean; updatedAt?: string; updatedBy?: string }>>("GET", `/api/v1/teams/${encodeURIComponent(team)}/model-keys`);
   setModelKey = (team: string, provider: ModelKeyProvider, value: string | Record<string, string>) => this.request<SecretMeta>("PUT", `/api/v1/teams/${encodeURIComponent(team)}/model-keys/${provider}`, { value });
   deleteModelKey = (team: string, provider: ModelKeyProvider) => this.request<{ ok: true }>("DELETE", `/api/v1/teams/${encodeURIComponent(team)}/model-keys/${provider}`);

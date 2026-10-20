@@ -361,6 +361,7 @@ export class RunService {
       this.save(run);
       this.record(run, "finished", run.status, { costUsd: run.costUsd });
       this.redactions.delete(run.id);
+      await this.saveTranscript(run);
       this.k.bus.publish("run.finished", { runId: run.id, outcome: run.status === "succeeded" ? "succeeded" : run.status === "failed" ? "failed" : "cancelled", costUsd: run.costUsd });
     }
     return run;
@@ -403,6 +404,18 @@ export class RunService {
       }
     }
     return env;
+  }
+
+  /** The run's events as JSON lines, in the team's transcript storage. */
+  private async saveTranscript(run: Run) {
+    const key = `transcripts/${run.id}.jsonl`;
+    try {
+      await this.k.objects.put(key, this.events(run.id).map((e) => JSON.stringify(e)).join("\n") + "\n", "application/x-ndjson");
+      run.transcriptKey = key;
+      this.save(run);
+    } catch (err) {
+      this.k.audit("kiln", "transcript.failed", run.id, { error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   /** Upload what the agent saved in .kiln/artifacts/ (and lists in result.artifacts) for reviewers. */

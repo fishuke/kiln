@@ -86,6 +86,7 @@ export class TeamService {
   updateSettings(id: string, patch: Partial<TeamSettings>, by: string): TeamSettings {
     const t = this.require(id);
     const settings = TeamSettings.parse({ ...this.settings(id), ...patch });
+    for (const target of Object.values(settings.storage)) if (target.kind === "local" && target.path) this.k.storage.localPath(target.path);
     this.k.store.put(P.teams, { ...t, settings });
     this.k.audit(by, "team.settings_changed", t.id, patch);
     return settings;

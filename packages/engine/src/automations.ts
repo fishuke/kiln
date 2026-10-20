@@ -93,6 +93,18 @@ export class AutomationService {
    */
   async handle(event: IncomingEvent): Promise<{ started: WorkItem[]; continued: string[]; duplicate: boolean }> {
     if (!this.dedupe.firstTime(event.deliveryId ? `${event.provider}:${event.deliveryId}` : undefined)) return { started: [], continued: [], duplicate: true };
+    // A merge to a factory's config repo (e.g. fishuke/kiln-config) applies the new definition.
+    if (event.provider === "github" && event.event === "push") {
+      const synced: string[] = [];
+      for (const f of this.k.defs.list()) {
+        const r = f.definitionRepo;
+        if (r && `${r.owner}/${r.name}` === event.data.repo && event.data.head === r.ref) {
+          await this.k.defs.syncFromRepo(f.id, `push:${String(event.data.sha ?? "").slice(0, 7)}`);
+          synced.push(f.id);
+        }
+      }
+      if (synced.length) return { started: [], continued: synced, duplicate: false };
+    }
     const continued = await this.continueExisting(event);
     const started: WorkItem[] = [];
     if (continued.length === 0) {
@@ -134,7 +146,7 @@ export class AutomationService {
     const wi = await this.k.workflow.create({
       factory,
       title,
-      body: [d.body ?? (d.title ? d.text : "") ?? "", prompt ? `\n---\nAutomation "${automation}": ${prompt}` : ""].join("").trim(),
+      body: [d.body ?? (d.title ? d.text : String(d.text ?? "").split("\n").slice(1).join("\n")) ?? "", prompt ? `\n---\nAutomation "${automation}": ${prompt}` : ""].join("").trim(),
       source: {
         provider: event.provider === "factory" ? "kiln" : (event.provider as WorkItem["source"]["provider"]),
         url: d.url as string | undefined,

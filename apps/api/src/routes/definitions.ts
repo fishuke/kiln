@@ -68,6 +68,11 @@ export const SelfImprovementBody = z.object({
 });
 export const PutFile = z.object({ content: z.string(), message: z.string().optional() });
 export const Commit = z.object({ message: z.string().min(1), files: z.record(z.string().min(1), z.string().nullable()).refine((f) => Object.keys(f).length > 0, "change at least one file"), dryRun: z.boolean().optional() });
+export const Batch = z.object({
+  changes: z.array(z.object({ path: z.string().min(1), content: z.string().nullable() })).min(1).max(256),
+  message: z.string().min(1),
+  dryRun: z.boolean().optional(),
+});
 export const Migrate = z.object({ owner: z.string().min(1), name: z.string().min(1), ref: z.string().optional(), dir: z.string().optional() });
 export const Avatar = z.object({ file: z.string().min(1) });
 
@@ -77,6 +82,7 @@ export const routes: Route[] = [
   { method: "get", path: `${F}/files/{path}`, summary: "One definition file", scope: "read", tag: "Definitions" },
   { method: "put", path: `${F}/files/{path}`, summary: "Write one file: managed factories validate and apply; repo-backed factories get a PR", scope: "definitions:write", body: PutFile, tag: "Definitions" },
   { method: "delete", path: `${F}/files/{path}`, summary: "Delete one file (same rules as PUT)", scope: "definitions:write", tag: "Definitions" },
+  { method: "post", path: `${F}/files:batch`, summary: "Change several files in one commit: {changes:[{path, content|null}], message} → {applied: sha} or {pullRequest: url}", scope: "definitions:write", body: Batch, tag: "Definitions" },
   { method: "post", path: `${F}/files/commit`, summary: "Change several files in one commit with a message (null deletes); dryRun validates only", scope: "definitions:write", body: Commit, tag: "Definitions" },
   { method: "get", path: `${F}/agents`, summary: "Agents with their resolved settings and prompts", scope: "read", tag: "Definitions" },
   { method: "put", path: `${F}/agents/{name}`, summary: "Create or update an agent (prompt, harness, model, runner, workerHost, MCPs, secrets, spawnableBy, idle timeout, computer use, network policy)", scope: "definitions:write", body: AgentBody, tag: "Definitions" },
@@ -120,6 +126,16 @@ export function register({ app, kiln, need, who }: RouteContext) {
     const body = Commit.parse(await c.req.json());
     const r = await kiln.editor.write(id, body.files, { message: body.message, by: who(c), dryRun: body.dryRun });
     return c.json(r, r.ok ? 200 : 400);
+  });
+  // The web UI's batch commit: {changes:[{path, content|null}], message} → {applied: sha} | {pullRequest: url}.
+  app.post("/api/v1/factories/:id/:op{files:batch}", async (c) => {
+    const id = c.req.param("id");
+    need(c, "definitions:write", id);
+    const body = Batch.parse(await c.req.json());
+    const r = await kiln.editor.write(id, Object.fromEntries(body.changes.map((ch) => [ch.path, ch.content])), { message: body.message, by: who(c), dryRun: body.dryRun });
+    if (!r.ok) return c.json({ error: "the definition would be invalid", errors: r.errors }, 400);
+    if (r.mode === "pull_request") return c.json({ pullRequest: r.prUrl, branch: r.branch, diff: r.diff });
+    return c.json({ applied: r.sha, diff: r.diff, ...(r.mode === "dry_run" ? { dryRun: true } : {}) });
   });
   app.get("/api/v1/factories/:id/files/*", (c) => {
     const id = c.req.param("id");
@@ -249,7 +265,10 @@ export function register({ app, kiln, need, who }: RouteContext) {
   app.delete("/api/v1/factories/:id", async (c) => {
     const id = c.req.param("id");
     need(c, "admin", id);
-    if (c.req.query("confirm") !== id) throw new HttpError(400, `deleting a factory cannot be undone; pass ?confirm=${id}`);
-    return c.json(await kiln.editor.deleteFactory(id, who(c)));
+    const result = await kiln.editor.deleteFactory(id, who(c));
+    // Integrations remove what they set up for the factory (Slack app, factory labels) when they can.
+    const hub = (kiln as unknown as { integrations?: { cleanupFactory?: (factory: string) => Promise<unknown> } }).integrations;
+    if (hub?.cleanupFactory) await hub.cleanupFactory(id).catch((err: unknown) => kiln.audit(who(c), "factory.cleanup_failed", id, { error: String(err) }));
+    return c.json(result);
   });
 }

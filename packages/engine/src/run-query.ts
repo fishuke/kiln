@@ -8,6 +8,8 @@ export type RunView = Run & {
   taskStatus: ReturnType<typeof taskStatusOf>;
   source: RunSource;
   rootRunId: string;
+  /** Same as `creator`; the name the web app reads. */
+  createdBy?: string;
   taskId?: string;
   updatedAt: string;
   runTimeMs?: number;
@@ -66,6 +68,7 @@ export class RunQuery {
       taskStatus: taskStatusOf(state),
       source: run.source ?? sourceFor({ kind: run.kind, parentRunId: run.parentRunId, workItem: run.workItemId ? this.k.workflow.get(run.workItemId) : undefined }),
       rootRunId: run.rootRunId ?? run.id,
+      createdBy: run.creator,
       ...(run.workItemId ? { taskId: run.workItemId } : {}),
       updatedAt,
       ...(run.finishedAt ? { runTimeMs: new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime() } : {}),

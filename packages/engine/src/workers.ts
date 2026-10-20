@@ -33,7 +33,7 @@ export type WorkerJob = {
   idleTimeoutMinutes: number;
 };
 
-export type WorkerEvent = { type: "message" | "tool_call" | "tool_result" | "steer" | "error" | "artifact" | "pushed" | "started" | "log"; text?: string; data?: unknown };
+export type WorkerEvent = { type: "message" | "reasoning" | "tool_call" | "tool_result" | "steer" | "error" | "artifact" | "pushed" | "started" | "log"; text?: string; data?: unknown };
 
 export type WorkerResult = {
   outcome: "succeeded" | "failed" | "cancelled";

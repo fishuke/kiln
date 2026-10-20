@@ -411,8 +411,11 @@ export class RunService {
     });
     this.sessions.set(run.id, session);
     for (const text of run.steering.splice(0)) await session.steer(text);
+    // Cancelled or interrupted while the sandbox was being prepared.
+    if (this.k.stopping.has(run.id)) await session.stop();
     for await (const e of session.events) {
       if (e.type === "message") this.record(run, "message", e.text);
+      else if (e.type === "reasoning") this.record(run, "reasoning", e.text, e.durationMs !== undefined ? { durationMs: e.durationMs } : undefined);
       else if (e.type === "tool_call") this.record(run, "tool_call", e.name, e.input);
       else if (e.type === "tool_result") this.record(run, "tool_result", e.output?.slice(0, 4000), { isError: e.isError });
       else if (e.type === "steer") this.record(run, "steer", e.text);
@@ -760,15 +763,16 @@ export class RunService {
       return;
     }
     const session = this.sessions.get(runId) ?? this.remotes.get(runId);
-    if (!session) return;
+    if (!session && !this.live.has(runId)) return;
+    // A run still preparing its sandbox stops as soon as its agent starts.
     this.k.stopping.set(runId, "cancel");
-    await session.stop();
+    await session?.stop();
     this.k.audit(by, "run.cancelled", runId);
   }
 
   /** Cancel a run and every run it started that is still going. */
   async cancelTree(runId: string, by: string): Promise<string[]> {
-    const ids = [runId, ...this.descendants(runId).map((r) => r.id)].filter((id) => this.isActive(id));
+    const ids = [runId, ...this.descendants(runId).map((r) => r.id)].filter((id) => this.isActive(id) || this.live.has(id));
     for (const id of ids.reverse()) await this.cancel(id, by);
     return ids;
   }

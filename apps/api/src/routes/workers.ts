@@ -12,7 +12,7 @@ export const Connect = z.object({
   maxConcurrent: z.number().int().min(0).max(1000).default(0),
   instance: z.string().regex(/^wkr_[a-z0-9]+$/).optional(),
 });
-const Event = z.object({ type: z.enum(["message", "tool_call", "tool_result", "steer", "error", "artifact", "pushed", "started", "log"]), text: z.string().optional(), data: z.unknown().optional() });
+const Event = z.object({ type: z.enum(["message", "reasoning", "tool_call", "tool_result", "steer", "error", "artifact", "pushed", "started", "log"]), text: z.string().optional(), data: z.unknown().optional() });
 export const Events = z.object({ events: z.array(Event).max(500) });
 export const Complete = z.object({
   outcome: z.enum(["succeeded", "failed", "cancelled"]),

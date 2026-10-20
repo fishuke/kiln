@@ -78,7 +78,8 @@ export class FactoryMetricsService {
 
   /** Default range: the last 30 days. */
   range(input: { start?: string; end?: string; groupByPeriod?: Period }): Range {
-    const end = input.end ?? this.k.clock.now().toISOString();
+    // The end is exclusive; by default it includes everything up to and including now.
+    const end = input.end ?? new Date(this.k.clock.now().getTime() + 1).toISOString();
     const start = input.start ?? new Date(new Date(end).getTime() - 30 * DAY).toISOString();
     if (start >= end) throw new KilnError("invalid_request", "start_date must be before end_date");
     const r: Range = { start, end, groupByPeriod: input.groupByPeriod };

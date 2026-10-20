@@ -80,7 +80,8 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       execution(file, defaults);
       f.agentDefaults = defaults;
       usesAuto ||= defaults.model === "router:auto";
-      drop(file, f, ["codeForges", "automations", "benchmarkRepoSubstitutions", "secrets", "mcpServers", "cloudProviders", "providers", "github"]);
+      if (f.providers && !f.cloudProviders) f.cloudProviders = f.providers;
+      drop(file, f, ["codeForges", "automations", "benchmarkRepoSubstitutions", "secrets", "mcpServers", "providers", "github"]);
       out[file] = stringify(f);
     } else if (/^agents\/[^/]+\/agent\.md$/.test(file)) {
       out[file] = frontmatter(file, src, (fm) => {

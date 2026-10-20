@@ -12,6 +12,7 @@ export type Execution = {
   /** Self-hosted worker id; absent means the Kiln server runs it. */
   workerHost?: string;
   computerUseModel?: string;
+  computerUse?: boolean;
 };
 
 export type ResolvedAgent = Execution & {
@@ -52,9 +53,10 @@ type Layer = {
   mcpServers?: string[] | null;
   workerHost?: string | null;
   computerUseModel?: string | null;
+  computerUse?: boolean | null;
 };
 
-type Partial = { harness?: HarnessT; model?: string; runner?: string; secrets?: string[]; mcpServers?: string[]; workerHost?: string; computerUseModel?: string };
+type Partial = { harness?: HarnessT; model?: string; runner?: string; secrets?: string[]; mcpServers?: string[]; workerHost?: string; computerUseModel?: string; computerUse?: boolean };
 
 /**
  * Apply one layer of execution settings over another.
@@ -64,7 +66,7 @@ type Partial = { harness?: HarnessT; model?: string; runner?: string; secrets?: 
  */
 export function applyLayer(base: Partial, layer: Layer): Partial {
   const next: Partial = { ...base };
-  for (const key of ["runner", "secrets", "mcpServers", "workerHost", "computerUseModel"] as const) {
+  for (const key of ["runner", "secrets", "mcpServers", "workerHost", "computerUseModel", "computerUse"] as const) {
     if (layer[key] === null || (key === "workerHost" && layer[key] === "")) delete next[key];
     else if (layer[key] !== undefined) (next as Record<string, unknown>)[key] = layer[key];
   }
@@ -103,6 +105,7 @@ function toExecution(p: Partial): Execution {
     mcpServers: p.mcpServers ?? [],
     ...(p.workerHost ? { workerHost: p.workerHost } : {}),
     ...(p.computerUseModel ? { computerUseModel: p.computerUseModel } : {}),
+    ...(p.computerUse !== undefined ? { computerUse: p.computerUse } : {}),
   };
 }
 

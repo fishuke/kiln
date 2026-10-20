@@ -73,6 +73,7 @@ export function startWorkerJob(job: WorkerJob, deps: JobDeps): JobHandle {
       if (stopped) await session.stop();
       for await (const e of session.events) {
         if (e.type === "message" || e.type === "steer" || e.type === "error") deps.emit({ type: e.type, text: e.text });
+        else if (e.type === "reasoning") deps.emit({ type: "reasoning", text: e.text, ...(e.durationMs !== undefined ? { data: { durationMs: e.durationMs } } : {}) });
         else if (e.type === "tool_call") deps.emit({ type: "tool_call", text: e.name, data: e.input });
         else if (e.type === "tool_result") deps.emit({ type: "tool_result", text: e.output?.slice(0, 4000), data: { isError: e.isError } });
       }

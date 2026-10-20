@@ -29,7 +29,7 @@ describe("kiln import (v1alpha1 → kiln/v1)", () => {
     expect(r.parsed.benchmarks.core!.tasks["fix-typo"]!.successCriteria).toEqual(["README has no typo"]);
     expect(warnings).toEqual(
       expect.arrayContaining([
-        "factory.yaml: dropped cloudProviders (not supported by kiln/v1)",
+        "factory.yaml: dropped secrets (not supported by kiln/v1)",
         "runners/mac.yaml: macos runners are not supported; using linux",
         "routers/auto.yaml: added a complexity router to stand in for the auto model",
       ]),

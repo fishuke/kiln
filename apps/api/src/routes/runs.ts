@@ -28,6 +28,7 @@ export const Ask = z.object({
     .max(5)
     .optional(),
 });
+export const ScoreRun = z.object({ scorers: z.array(z.string().min(1)).min(1).max(100).optional() });
 export const Sharing = z.object({ publicAccess: z.enum(["VIEWER", "EDITOR"]).nullable() });
 export const DirectRun = z.object({
   factory: z.string(),
@@ -51,6 +52,7 @@ export const routes: Route[] = [
   { method: "get", path: "/api/v1/runs/{id}/transcript", summary: "Plain-text transcript", scope: "read", tag: "Runs" },
   { method: "get", path: "/api/v1/runs/{id}/scores", summary: "Every score of the run, with how it was triggered", scope: "read", tag: "Runs" },
   { method: "post", path: "/api/v1/runs/{id}/followups", summary: "Follow-up message (with attachments): steers a live run, continues a finished one", scope: "send", body: Followup, tag: "Runs" },
+  { method: "post", path: "/api/v1/runs/{id}/score", summary: "Score the run now with the scorers that cover its agent (or `scorers`); re-scoring replaces", scope: "send", body: ScoreRun, tag: "Runs" },
   { method: "post", path: "/api/v1/runs/{id}/interrupt", summary: "Stop what the agent is doing; the run waits (BLOCKED) for a follow-up", scope: "send", tag: "Runs" },
   { method: "post", path: "/api/v1/runs/{id}/spawn", summary: "Start a subagent (run token of this run, or send scope); spawnableBy decides who may start whom", scope: "send", body: SpawnAgent, tag: "Runs" },
   { method: "post", path: "/api/v1/runs/{id}/run-agents", summary: "Start several subagents at once", scope: "send", body: RunAgents, tag: "Runs" },
@@ -114,6 +116,19 @@ export function register({ app, kiln, need, who, canReadRun, canSendRun }: Route
     const attachments = body.attachments?.length ? kiln.files.resolveAttachments(body.attachments, who(c), run.factory) : undefined;
     const r = await kiln.runs.followup(run.id, { message: body.message, attachments, by: who(c), mode: body.mode });
     return c.json({ delivered: r.delivered, run: kiln.runQuery.view(r.run) }, r.delivered === "continued" ? 201 : 200);
+  });
+
+  // "Score this run" from the run page: the scorers that cover its agent, or the ones named.
+  app.post("/api/v1/runs/:id/score", async (c) => {
+    const run = sendable(c, c.req.param("id"));
+    if (c.get("run")) throw new HttpError(403, "run tokens cannot score runs");
+    const { scorers } = ScoreRun.parse(await c.req.json().catch(() => ({})));
+    const covering = Object.entries(kiln.defs.current(run.factory).parsed.scorers)
+      .filter(([, s]) => s.frontmatter.kind !== "benchmark_task_correctness" && s.frontmatter.agents.some((a) => (typeof a === "string" ? a : a.name) === run.agent))
+      .map(([slug]) => slug);
+    const slugs = scorers ?? covering;
+    if (!slugs.length) throw new HttpError(400, `no scorer covers ${run.agent}; pass scorers`);
+    return c.json({ results: await kiln.scorers.dispatch(run.factory, [run.id], slugs, who(c)), scores: kiln.scorers.runScores(run.id) });
   });
 
   app.post("/api/v1/runs/:id/interrupt", async (c) => {

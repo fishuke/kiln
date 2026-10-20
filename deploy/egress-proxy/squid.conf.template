@@ -7,3 +7,5 @@ http_access deny CONNECT !SSL_ports
 http_access allow allowed
 http_access deny all
 cache deny all
+# Close open tunnels right away on stop, so a redeploy is not held up waiting for them.
+shutdown_lifetime 1 seconds

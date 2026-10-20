@@ -6,6 +6,8 @@ name: kiln
 services:
   api:
     build: .
+    # A real init process forwards stop signals, so the container stops in a second instead of Docker's 10s timeout.
+    init: true
     restart: unless-stopped
     environment:
       KILN_PUBLIC_URL: ${KILN_PUBLIC_URL:?the API's public URL, e.g. https://api.kiln.example.com}
@@ -53,6 +55,7 @@ services:
       retries: 15
   web:
     build: { context: ., dockerfile: apps/web/Dockerfile }
+    init: true
     restart: unless-stopped
     environment:
       KILN_API_URL: http://api:4000
@@ -72,11 +75,15 @@ services:
     build: runners/images/node
     image: ${KILN_RUNNER_IMAGE:-kiln-runner-node:local}
     command: ["sleep", "infinity"]
+    init: true
+    stop_grace_period: 2s
     restart: unless-stopped
     network_mode: none
   # Sandboxes reach the internet only through this proxy, which enforces each run's allowlist.
   egress-proxy:
     build: deploy/egress-proxy
+    init: true
+    stop_grace_period: 5s
     restart: unless-stopped
     environment:
       KILN_EGRESS_ALLOW: ${KILN_EGRESS_ALLOW:-github.com,codeload.github.com,objects.githubusercontent.com,registry.npmjs.org,api.anthropic.com,api.openai.com,openrouter.ai}

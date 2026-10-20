@@ -1,0 +1,3 @@
+state: [x]
+questions: { q: { type: choice, options: [one] } }
+policy: { block: "q.one > 0.5" }

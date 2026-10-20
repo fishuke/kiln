@@ -1,0 +1,5 @@
+kind: approval
+approvers: [requester, role:po]
+evidence: [PRODUCT.md, open_questions]
+nudge: 24h
+expire: 72h -> park

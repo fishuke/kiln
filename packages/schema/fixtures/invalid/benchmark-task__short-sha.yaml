@@ -1,0 +1,4 @@
+title: t
+prompt: p
+successCriteria: [ok]
+startingRepoRefs: ["github.com:acme/x@abc123"]

@@ -1,0 +1,4 @@
+schemaVersion: kiln/v1
+name: x
+repositories: []
+agentDefaults: { model: m }

@@ -1,0 +1,5 @@
+agent: triage
+triggers:
+  - provider: schedule
+    event: cron_fired
+    schedule: { cron: "0 9 * * 1", name: weekly }

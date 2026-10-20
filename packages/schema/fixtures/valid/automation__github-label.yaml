@@ -1,0 +1,4 @@
+triggers:
+  - provider: github
+    event: issue_labeled
+    filter: { repos: [acme/web-app], labels: [kiln-ready] }

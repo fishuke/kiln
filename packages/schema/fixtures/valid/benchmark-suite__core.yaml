@@ -1,0 +1,6 @@
+name: core
+agent: implement
+configurations:
+  - { name: sonnet }
+  - { name: haiku, agents: [{ agent: implement, model: claude-haiku-5-5 }] }
+tasks: [fix-typo]

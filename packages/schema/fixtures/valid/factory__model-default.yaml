@@ -1,0 +1,4 @@
+schemaVersion: kiln/v1
+name: api
+repositories: [{ owner: acme, name: api }]
+agentDefaults: { model: claude-sonnet-5-5 }

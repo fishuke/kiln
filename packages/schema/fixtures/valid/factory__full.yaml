@@ -1,0 +1,14 @@
+schemaVersion: kiln/v1
+name: web-app
+alias: webapp
+project: customer-portal
+repositories:
+  - { forge: github, owner: acme, name: web-app }
+  - { forge: github, owner: acme, name: design-system, deferred: true }
+integrations: [slack, linear]
+agentDefaults:
+  harness: { type: claude-code, model: router:by-task }
+  runner: linux-node
+selfImprovement: { failedRunThreshold: 15, reviewers: { type: team } }
+defaultPipeline: feature
+budgets: { perWorkItemUsd: 40, monthlyUsd: 6000 }

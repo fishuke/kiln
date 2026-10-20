@@ -1,0 +1,6 @@
+schemaVersion: kiln/v1
+name: web-app
+repositories:
+  - { owner: acme, name: web-app }
+agentDefaults:
+  harness: { type: claude-code }

@@ -1,0 +1,14 @@
+schemaVersion: v1alpha1
+name: Kiln
+alias: kiln
+credentialStrategy: EXECUTOR
+codeForges:
+    - GITHUB
+repositories:
+    - owner: fishuke
+      name: klin
+integrations:
+    - type: linear
+agentDefaults:
+    model: auto-genius
+    runner: default

@@ -1,0 +1,8 @@
+stages:
+  - { id: triage,  agent: triage }
+  - { id: spec,    agent: spec, skip_if: "triage.size in ['xs','s']", gate: spec-approval }
+  - { id: build,   agent: implement, fan_out: per_user_story }
+  - { id: verify,  agent: verify, requires: [ci_green, criteria_videos], on_fail: build, max_loops: 3 }
+  - { id: preview, action: preview.deploy, gate: preview-acceptance }
+  - { id: review,  agent: review, advisory: true }
+  - { id: handoff, action: handoff }

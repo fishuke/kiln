@@ -1,0 +1,139 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`resolver > matches the resolved snapshot 1`] = `
+{
+  "agents": {
+    "foreman": {
+      "agentType": "FOREMAN",
+      "description": undefined,
+      "harness": {
+        "model": "claude-sonnet-5-5",
+        "type": "claude-code",
+      },
+      "idleTimeoutMinutes": 10,
+      "instructions": "Route work.",
+      "mcpServers": [],
+      "name": "foreman",
+      "runner": "linux-node",
+      "secrets": [
+        "NPM_TOKEN",
+      ],
+      "skills": [
+        "style",
+      ],
+      "spawnableBy": [
+        "foreman",
+      ],
+    },
+    "implement": {
+      "agentType": "IMPLEMENT",
+      "description": undefined,
+      "harness": {
+        "type": "codex",
+      },
+      "idleTimeoutMinutes": 10,
+      "instructions": "Build.",
+      "mcpServers": [],
+      "name": "implement",
+      "runner": "linux-node",
+      "secrets": [],
+      "skills": [
+        "style",
+        "testing",
+      ],
+      "spawnableBy": [
+        "foreman",
+      ],
+    },
+    "triage": {
+      "agentType": "TRIAGE",
+      "description": undefined,
+      "harness": {
+        "model": "claude-haiku-5-5",
+        "type": "claude-code",
+      },
+      "idleTimeoutMinutes": 10,
+      "instructions": "Triage.",
+      "mcpServers": [],
+      "name": "triage",
+      "runner": "linux-node",
+      "secrets": [
+        "NPM_TOKEN",
+      ],
+      "skills": [
+        "style",
+      ],
+      "spawnableBy": [
+        "foreman",
+      ],
+    },
+  },
+  "automations": {
+    "labeled": {
+      "agent": "implement",
+      "enabled": true,
+      "harness": {
+        "type": "codex",
+      },
+      "mcpServers": [],
+      "name": "labeled",
+      "prompt": "Build it.",
+      "runner": undefined,
+      "secrets": [],
+      "triggers": [
+        {
+          "event": "issue_labeled",
+          "provider": "github",
+        },
+      ],
+    },
+    "to-foreman": {
+      "agent": "foreman",
+      "enabled": true,
+      "harness": {
+        "model": "claude-opus-5-5",
+        "type": "claude-code",
+      },
+      "mcpServers": [],
+      "name": "to-foreman",
+      "prompt": "",
+      "runner": "linux-node",
+      "secrets": [
+        "NPM_TOKEN",
+      ],
+      "triggers": [
+        {
+          "event": "app_mention",
+          "provider": "slack",
+        },
+      ],
+    },
+  },
+  "factory": {
+    "agentDefaults": {
+      "harness": {
+        "model": "claude-sonnet-5-5",
+        "type": "claude-code",
+      },
+      "runner": "linux-node",
+      "secrets": [
+        "NPM_TOKEN",
+      ],
+    },
+    "alias": "webapp",
+    "defaultPipeline": "feature",
+    "integrations": [],
+    "name": "web-app",
+    "repositories": [
+      {
+        "deferred": false,
+        "forge": "github",
+        "name": "web-app",
+        "owner": "acme",
+      },
+    ],
+    "schemaVersion": "kiln/v1",
+  },
+  "sha": "f8c217c8d67152a04395a23210da624c4e0c5ed1",
+}
+`;

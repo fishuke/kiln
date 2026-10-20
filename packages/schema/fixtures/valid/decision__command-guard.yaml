@@ -1,0 +1,11 @@
+provider: jev
+state: [command, cwd, repo, branch]
+questions:
+  risk_level: { type: choice, options: [safe, risky, destructive] }
+  remote_exec: { type: probability }
+  deletes_files: { type: probability }
+policy:
+  block: "risk_level.destructive >= 0.8 or remote_exec >= 0.8"
+  ask_human: "risk_level.risky >= 0.3"
+on_error: llm
+timeout_ms: 800

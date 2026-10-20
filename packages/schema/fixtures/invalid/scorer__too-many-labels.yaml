@@ -1,0 +1,26 @@
+name: s
+agents: [a]
+passingScore: 0.5
+model: m
+labels:
+  - { value: l0, score: 0 }
+  - { value: l1, score: 0 }
+  - { value: l2, score: 0 }
+  - { value: l3, score: 0 }
+  - { value: l4, score: 0 }
+  - { value: l5, score: 0 }
+  - { value: l6, score: 0 }
+  - { value: l7, score: 0 }
+  - { value: l8, score: 0 }
+  - { value: l9, score: 0 }
+  - { value: l10, score: 0 }
+  - { value: l11, score: 0 }
+  - { value: l12, score: 0 }
+  - { value: l13, score: 0 }
+  - { value: l14, score: 0 }
+  - { value: l15, score: 0 }
+  - { value: l16, score: 0 }
+  - { value: l17, score: 0 }
+  - { value: l18, score: 0 }
+  - { value: l19, score: 0 }
+  - { value: l20, score: 0 }

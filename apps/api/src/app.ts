@@ -73,7 +73,7 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   // ---- webhooks: verified by provider signature, deduplicated by delivery id ----
   app.post("/webhooks/github", async (c) => {
     const body = await c.req.text();
-    const secret = kiln.secrets.getSecret("GITHUB_WEBHOOK_SECRET");
+    const secret = serverSecret(kiln, "GITHUB_WEBHOOK_SECRET");
     if (secret && !verifyGitHub(secret, body, c.req.header("x-hub-signature-256"))) throw new HttpError(401, "bad signature");
     const ev = normalizeGitHub(c.req.header("x-github-event") ?? "", JSON.parse(body), c.req.header("x-github-delivery"));
     return c.json(ev ? summarize(await kiln.automations.handle(ev)) : { ignored: true });
@@ -82,7 +82,7 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const body = await c.req.text();
     const payload = JSON.parse(body);
     if (payload.type === "url_verification") return c.json({ challenge: payload.challenge });
-    const secret = kiln.secrets.getSecret("SLACK_SIGNING_SECRET");
+    const secret = serverSecret(kiln, "SLACK_SIGNING_SECRET");
     if (secret && !verifySlack(secret, body, c.req.header("x-slack-request-timestamp"), c.req.header("x-slack-signature"))) throw new HttpError(401, "bad signature");
     const ev = normalizeSlack(payload);
     // Slack wants an answer within 3 s; work continues in the background.
@@ -91,13 +91,13 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   });
   app.post("/webhooks/linear", async (c) => {
     const body = await c.req.text();
-    const secret = kiln.secrets.getSecret("LINEAR_WEBHOOK_SECRET");
+    const secret = serverSecret(kiln, "LINEAR_WEBHOOK_SECRET");
     if (secret && !verifyLinear(secret, body, c.req.header("linear-signature"))) throw new HttpError(401, "bad signature");
     const ev = normalizeLinear(JSON.parse(body), c.req.header("linear-delivery"));
     return c.json(ev ? summarize(await kiln.automations.handle(ev)) : { ignored: true });
   });
   app.post("/webhooks/jira", async (c) => {
-    const secret = kiln.secrets.getSecret("JIRA_WEBHOOK_TOKEN");
+    const secret = serverSecret(kiln, "JIRA_WEBHOOK_TOKEN");
     if (secret && c.req.query("token") !== secret) throw new HttpError(401, "bad token");
     const ev = normalizeJira(await c.req.json(), c.req.header("x-atlassian-webhook-identifier"));
     return c.json(ev ? summarize(await kiln.automations.handle(ev)) : { ignored: true });
@@ -514,6 +514,20 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     return c.json({ token, record: rest }, 201);
   });
   app.get("/api/v1/scopes", (c) => c.json(SCOPES));
+  app.get("/api/v1/integrations", (c) =>
+    c.json({
+      forge: kiln.forge.name,
+      tracker: kiln.tracker?.name ?? "none",
+      chat: kiln.chat?.name ?? "none",
+      preview: kiln.preview?.name ?? "none",
+      decisions: { primary: kiln.decide.primary.name, fallback: kiln.decide.fallback?.name ?? "none" },
+      judge: kiln.judge.name,
+      sandboxes: Object.keys(kiln.sandboxes),
+      defaultBackend: kiln.options.defaultBackend ?? "local",
+      agents: kiln.options.harness ? "scripted" : "harness CLIs",
+      publicUrl: kiln.options.publicUrl,
+    }),
+  );
   app.get("/api/v1/secrets", (c) => {
     need(c, "admin", "*");
     return c.json(kiln.secrets.listSecretNames());
@@ -527,6 +541,11 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   });
 
   return app;
+}
+
+/** Server-side secrets (webhook signing keys) come from the environment or the store, never from agents. */
+function serverSecret(kiln: Kiln, name: string): string | undefined {
+  return process.env[name] ?? kiln.secrets.getSecret(name);
 }
 
 function summarize(r: { started: { id: string; factory: string }[]; continued: string[]; duplicate: boolean }) {

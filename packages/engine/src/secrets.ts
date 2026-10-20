@@ -2,6 +2,9 @@ import { createHmac, randomBytes } from "node:crypto";
 import type { Store } from "@kiln/store";
 import { C, type Clock } from "./types";
 
+/** Model-provider credentials a self-hosted install may provide through the environment (BYOK). */
+export const BYOK_ENV = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"];
+
 export type ForgeAction = "push" | "open_pr" | "comment" | "label" | "approve" | "merge";
 
 type Claims = { runId: string; repos: string[]; branchPrefix: string; actions: ForgeAction[]; exp: number };
@@ -59,11 +62,21 @@ export class SecretsBroker {
     this.store.put(C.secrets, { id: name, value, updatedAt: this.clock.now().toISOString() });
   }
 
+  /**
+   * Stored secrets first. From the server's environment only model-provider keys and
+   * KILN_SECRET_<NAME> variables are readable, so an agent definition cannot ask for the
+   * server's own credentials by name.
+   */
   getSecret(name: string): string | undefined {
-    return this.store.get<{ id: string; value: string }>(C.secrets, name)?.value ?? process.env[name];
+    const stored = this.store.get<{ id: string; value: string }>(C.secrets, name)?.value;
+    if (stored) return stored;
+    if (BYOK_ENV.includes(name)) return process.env[name];
+    return process.env[`KILN_SECRET_${name}`];
   }
 
   listSecretNames(): string[] {
-    return this.store.list<{ id: string }>(C.secrets).map((s) => s.id);
+    const stored = this.store.list<{ id: string }>(C.secrets).map((s) => s.id);
+    const fromEnv = [...BYOK_ENV.filter((n) => process.env[n]), ...Object.keys(process.env).filter((k) => k.startsWith("KILN_SECRET_")).map((k) => k.slice(12))];
+    return [...new Set([...stored, ...fromEnv])].sort();
   }
 }

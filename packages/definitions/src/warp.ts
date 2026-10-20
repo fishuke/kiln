@@ -29,7 +29,10 @@ export function importWarp(tree: DefinitionTree): { tree: DefinitionTree; warnin
     if (obj.harness && typeof obj.harness === "object") {
       const h = obj.harness as Record<string, unknown>;
       h.type = harnessMap[String(h.type)] ?? "claude-code";
-      drop(file, h, ["auth"]);
+      const auth = h.auth as { source?: string; secretName?: string } | undefined;
+      if (auth?.source === "managedSecret" && auth.secretName) h.auth = { source: "secret", secretName: auth.secretName };
+      else if (auth?.source === "workerEnvironment") h.auth = { source: "worker" };
+      else delete h.auth;
     }
     if (typeof obj.model === "string" && /^auto(-|$)/.test(obj.model)) {
       obj.model = "router:auto";

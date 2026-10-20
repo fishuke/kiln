@@ -22,6 +22,7 @@ import { ImprovementService, RuleImprover, type Improver } from "./improvement";
 import { InboxService } from "./inbox";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
+import { AccountService, EnvironmentService, McpRegistry, SecretVault, TeamService, UsageService, UserService } from "./platform";
 import { PlanningService, type Planner } from "./planning";
 import { RunQuery } from "./run-query";
 import { RunService } from "./runs";
@@ -116,6 +117,15 @@ export class Kiln {
   readonly benchmarkAdmin: BenchmarkAdmin;
   readonly wizard: FactoryWizard;
 
+  // platform: identity, teams, settings, credentials
+  readonly users: UserService;
+  readonly teams: TeamService;
+  readonly accounts: AccountService;
+  readonly vault: SecretVault;
+  readonly mcp: McpRegistry;
+  readonly environments: EnvironmentService;
+  readonly usage: UsageService;
+
   constructor(readonly options: KilnOptions) {
     this.store = options.store ?? new MemoryStore();
     this.objects = options.objects ?? new MemoryObjectStore();
@@ -155,6 +165,13 @@ export class Kiln {
     this.scorers = new ScorerAdmin(this);
     this.benchmarkAdmin = new BenchmarkAdmin(this);
     this.wizard = new FactoryWizard(this);
+    this.users = new UserService(this);
+    this.teams = new TeamService(this);
+    this.accounts = new AccountService(this);
+    this.vault = new SecretVault(this);
+    this.mcp = new McpRegistry(this);
+    this.environments = new EnvironmentService(this);
+    this.usage = new UsageService(this);
 
     // `provider: factory, event: work_item_stage_changed` automations react to stage changes in their own factory.
     this.bus.subscribe("work_item.stage_changed", async (e) => {

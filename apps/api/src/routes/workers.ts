@@ -40,8 +40,13 @@ export const routes: Route[] = [
 
 /** Self-hosted workers: registry, long-poll claims, event streaming, and Prometheus metrics. */
 export function register({ app, kiln, need, who }: RouteContext) {
-  const worker = (c: Context<Env>) => {
+  // Worker API keys (type worker) or tokens with the worker scope.
+  const needWorker = (c: Context<Env>) => {
+    if (c.get("token").type === "worker") return;
     need(c, "worker", "*");
+  };
+  const worker = (c: Context<Env>) => {
+    needWorker(c);
     const instance = c.req.param("instance")!;
     const w = kiln.workers.get(instance);
     if (!w) throw new HttpError(404, `unknown worker ${instance}; connect first`);
@@ -54,7 +59,7 @@ export function register({ app, kiln, need, who }: RouteContext) {
     return c.json({ workers: kiln.workers.connected(), queue: kiln.workers.queued() });
   });
   app.post("/api/v1/workers/connect", async (c) => {
-    need(c, "worker", "*");
+    needWorker(c);
     const body = Connect.parse(await c.req.json());
     return c.json(kiln.workers.connect({ ...body, owner: who(c) }), 201);
   });

@@ -266,13 +266,16 @@ export class ImprovementService {
     };
   }
 
-  /** A reviewer accepts: apply as a 10% canary. Paths marked for two approvals need two people. */
-  approve(id: string, by: string): Proposal {
+  /**
+   * A reviewer accepts: apply as a 10% canary. Paths marked for two approvals need two people,
+   * unless a factory Admin forces it (`force`, checked by the caller).
+   */
+  approve(id: string, by: string, opts: { force?: boolean } = {}): Proposal {
     const p = this.get(id);
     if (!p || p.state !== "open") throw new Error(`proposal ${id} is not open`);
     const approvals = new Set([...(p.approvals ?? []), by]);
     if (by.startsWith("kiln-agent") || by.startsWith("self-improvement")) throw new Error("agents cannot approve proposals");
-    if (p.needsTwoApprovals && approvals.size < 2) {
+    if (p.needsTwoApprovals && approvals.size < 2 && !opts.force) {
       const next = { ...p, approvals: [...approvals] };
       this.k.store.put(C.proposals, next);
       return next;
@@ -282,7 +285,7 @@ export class ImprovementService {
     if (!r.ok) throw new Error(`candidate no longer applies: ${r.errors[0]}`);
     const next: Proposal = { ...p, state: "merged" };
     this.k.store.put(C.proposals, { ...next, approvals: [...approvals] });
-    this.k.audit(by, "proposal.approved", id);
+    this.k.audit(by, opts.force && p.needsTwoApprovals && approvals.size < 2 ? "proposal.force_approved" : "proposal.approved", id);
     return next;
   }
 

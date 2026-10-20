@@ -2,8 +2,8 @@ import type { Kiln } from "./kiln";
 import { page, taskStage } from "./run-state";
 import { C, type GateQuestion, type InboxState, type Run, type TaskStage } from "./types";
 
-export const INBOX_KINDS = ["question", "answer_question", "spec_review", "pr_review", "blocked", "failed"] as const;
-export type InboxKind = (typeof INBOX_KINDS)[number];
+export const INBOX_ITEM_KINDS = ["question", "answer_question", "spec_review", "pr_review", "blocked", "failed"] as const;
+export type InboxKind = (typeof INBOX_ITEM_KINDS)[number];
 
 export type InboxItem = {
   id: string;

@@ -6,22 +6,112 @@ section: Developer tools
 generated: true
 ---
 
-Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>`; each route needs the scope shown for the factory it touches (`admin` grants every scope). The machine-readable document is at `/api/v1/openapi.json`, and the TypeScript SDK (`@kiln/sdk-ts`) wraps every route.
+Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a session token from login, an API key or a scoped token); each route needs the scope shown for the factory it touches (`admin` grants every scope). People's scopes come from their team and factory roles. Send `X-Kiln-Team: <team id or slug>` to act in a team other than your first. The machine-readable document is at `/api/v1/openapi.json`, and the TypeScript SDK (`@kiln/sdk-ts`) wraps every route.
 
 ## System
 
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
 | GET | `/api/v1/health` | — | Health check |
-| GET | `/api/v1/me` | — | The token's subject and grants |
 | POST | `/api/v1/guard` | — | Check a shell command against the guardrail (run token) |
+
+## Users
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/me` | — | You: user, teams, current team, role, per-factory roles and grants |
+| PATCH | `/api/v1/me` | — | Update your profile, email, appearance and notification preferences |
+| PUT | `/api/v1/me/password` | — | Change your password |
+| PUT | `/api/v1/me/avatar` | — | Upload your avatar (raw image body, at most 1 MiB) |
+| GET | `/api/v1/users/{id}/avatar` | — | A user's uploaded avatar |
+| GET | `/api/v1/me/linked-accounts` | — | Your linked accounts (identity mapping) |
+| POST | `/api/v1/me/linked-accounts` | — | Link a GitHub, Slack, Discord, Linear, Jira, Teams, GitLab or Azure DevOps identity |
+| DELETE | `/api/v1/me/linked-accounts/{provider}` | — | Unlink an identity |
+| GET | `/api/v1/api-keys` | — | Your API keys, plus the team's agent and worker keys for team admins |
+| POST | `/api/v1/api-keys` | — | Create a personal, agent or worker API key (shown once) |
+| DELETE | `/api/v1/api-keys/{id}` | — | Revoke an API key |
+
+## Auth
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/auth/providers` | — | Login methods and whether signup is open |
+| POST | `/api/v1/auth/signup` | — | Create an account (the first one owns the default team; later ones need an invite unless signup is open) |
+| POST | `/api/v1/auth/login` | — | Log in with email and password; returns a session token |
+| POST | `/api/v1/auth/logout` | — | Revoke the current session token |
+| GET | `/api/v1/auth/github/start` | — | Start GitHub login (redirects, or JSON with Accept: application/json) |
+| GET | `/api/v1/auth/github/callback` | — | GitHub login callback; returns or redirects with a session token |
+| GET | `/api/v1/invites/{token}` | — | Look at an invite link |
+| POST | `/api/v1/invites/accept` | — | Accept an invite with your account |
+
+## Teams
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/teams` | — | Your teams with your role |
+| POST | `/api/v1/teams` | — | Create a team (you become its owner) |
+| GET | `/api/v1/teams/{team}` | — | A team with its settings and factories |
+| PATCH | `/api/v1/teams/{team}` | — | Rename a team, change its slug or avatar URL (team admin) |
+| PUT | `/api/v1/teams/{team}/avatar` | — | Upload the team avatar (team admin) |
+| GET | `/api/v1/teams/{team}/avatar` | — | The team's uploaded avatar |
+| GET | `/api/v1/teams/{team}/members` | — | Team members and roles |
+| PATCH | `/api/v1/teams/{team}/members/{userId}` | — | Change a member's role (only owners grant ownership) |
+| DELETE | `/api/v1/teams/{team}/members/{userId}` | — | Remove a member, or leave the team |
+| GET | `/api/v1/teams/{team}/invites` | — | Pending invites (team admin) |
+| POST | `/api/v1/teams/{team}/invites` | — | Invite by email; the link expires in 7 days |
+| POST | `/api/v1/teams/{team}/invites/{inviteId}/resend` | — | New link and 7 more days; the old link stops working |
+| DELETE | `/api/v1/teams/{team}/invites/{inviteId}` | — | Revoke an invite |
+| GET | `/api/v1/teams/{team}/settings` | — | Spend limit, GitHub orgs, sandbox host, egress allowlist, data storage, default factory role |
+| PATCH | `/api/v1/teams/{team}/settings` | — | Change team settings (team admin) |
+| GET | `/api/v1/teams/{team}/model-keys` | — | Which team-managed model keys are set |
+| PUT | `/api/v1/teams/{team}/model-keys/{provider}` | — | Set the team's Anthropic, OpenAI, OpenRouter or Bedrock key |
+| DELETE | `/api/v1/teams/{team}/model-keys/{provider}` | — | Remove a team-managed model key |
 
 ## Factories
 
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
+| GET | `/api/v1/factories/{id}/members` | `read` | Everyone with a role on the factory and where the role comes from |
+| POST | `/api/v1/factories/{id}/members` | `admin` | Give a team member a factory role (user, editor, admin) |
+| PATCH | `/api/v1/factories/{id}/members/{userId}` | `admin` | Change a factory role |
+| DELETE | `/api/v1/factories/{id}/members/{userId}` | `admin` | Remove a factory role |
 | GET | `/api/v1/factories` | `read` | List factories you can read |
 | GET | `/api/v1/factories/{id}` | `read` | A factory with its resolved definition |
+
+## Secrets
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/managed-secrets` | — | Team secrets and your personal secrets (metadata only) |
+| POST | `/api/v1/managed-secrets` | — | Create a team or personal secret (raw, registry, ECR or harness credential) |
+| PATCH | `/api/v1/managed-secrets/{scope}/{name}` | — | Replace a secret's value or description |
+| DELETE | `/api/v1/managed-secrets/{scope}/{name}` | — | Delete a secret |
+
+## MCPs and apps
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/mcp-servers` | — | The team's MCP servers and built-in integration servers |
+| POST | `/api/v1/mcp-servers` | — | Add an MCP server (command + args + env, or url + headers) |
+| GET | `/api/v1/mcp-servers/{id}` | — | One MCP server |
+| PATCH | `/api/v1/mcp-servers/{id}` | — | Change an MCP server |
+| DELETE | `/api/v1/mcp-servers/{id}` | — | Remove an MCP server |
+
+## Environments
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/environments` | — | The team's environment templates |
+| POST | `/api/v1/environments` | — | Create an environment (image, repos, setup commands, secrets) |
+| GET | `/api/v1/environments/{id}` | — | One environment |
+| PATCH | `/api/v1/environments/{id}` | — | Change an environment |
+| DELETE | `/api/v1/environments/{id}` | — | Delete an environment |
+
+## Usage
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/usage` | — | Team usage from run costs: totals, spend limit, by day, factory, agent, model and user |
 
 ## Definitions
 
@@ -134,10 +224,11 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>`; eac
 
 ## Errors
 
-Errors are JSON: `{ "error": "message" }` with status 400 (invalid request; `issues` lists the fields), 401 (missing or invalid token), 403 (token lacks the scope), 404 (unknown resource) or 409 (wrong state).
+Errors are JSON: `{ "error": "message" }` with status 400 (invalid request; `issues` lists the fields), 401 (missing or invalid token), 402 (`{ "error": "budget_exceeded", "message": ... }`: the team's spend limit is reached and auto-stop is on), 403 (token lacks the scope), 404 (unknown resource), 409 (wrong state or already exists), 410 (expired invite) or 413 (upload too large).
 
 ## Related pages
 
 - [CLI reference](cli.md)
 - [Kiln MCP](mcp.md)
 - [Admin, RBAC and audit](../management/admin-rbac-audit.md)
+- [Teams and users](../management/teams-and-users.md)

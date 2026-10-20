@@ -25,7 +25,7 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
   };
   const harnessMap: Record<string, string> = { oz: "opencode", claude: "claude-code", "claude-code": "claude-code", codex: "codex", gemini: "gemini", pi: "pi" };
   const execution = (file: string, obj: Record<string, unknown>) => {
-    drop(file, obj, ["environmentId"]);
+    // environmentId, workerHost, computerUseModel, credentialStrategy and required_repos are kiln/v1 keys too.
     if (obj.harness && typeof obj.harness === "object") {
       const h = obj.harness as Record<string, unknown>;
       h.type = harnessMap[String(h.type)] ?? "claude-code";

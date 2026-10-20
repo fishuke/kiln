@@ -70,6 +70,8 @@ const executionShape = {
   computerUseModel: z.string().nullable().optional(),
   /** Turn computer use (screenshots, recordings of the running app) on or off. */
   computerUse: z.boolean().nullable().optional(),
+  /** A team environment template (id or name): image, repos, setup commands and secrets. */
+  environmentId: z.string().nullable().optional(),
 };
 
 export const Repository = z

@@ -47,12 +47,15 @@ export async function trackerScopes(kiln: Kiln): Promise<{ tracker: string; scop
 }
 
 /** Factory creation, learning and onboarding lookups. */
-export function register({ app, kiln, need, who }: RouteContext) {
+export function register({ app, kiln, need, who, adopt, checkOrgs }: RouteContext) {
   app.post("/api/v1/factories", async (c) => {
     need(c, "definitions:write", "*");
     const { avatar, ...body } = CreateFactory.parse(await c.req.json());
+    checkOrgs(c, body.repos);
     const files = avatar ? kiln.files.resolveAttachments([avatar], who(c), "") : [];
+    const before = new Set(kiln.defs.list().map((f) => f.id));
     const r = await kiln.wizard.create({ ...body, avatar: files[0] }, who(c));
+    if (!body.dryRun) adopt(c, before);
     return c.json(r, body.dryRun ? 200 : 201);
   });
   app.get("/api/v1/factory-templates/automations", (c) => c.json({ templates: kiln.wizard.templates() }));

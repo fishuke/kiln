@@ -34,6 +34,7 @@ export * from "./defaults/prompts";
 export * from "./defaults/skills";
 export * from "./defaults/scorers";
 export * from "./defaults/automations";
+export * from "./platform";
 export * from "./kiln";
 export * from "./fake-agents";
 export * from "./testing";

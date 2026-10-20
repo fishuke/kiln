@@ -160,9 +160,10 @@ export async function registerDiscordCommands(input: { applicationId: string; bo
 
 /** OAuth2 install link that adds the bot with the permissions Kiln uses. */
 export function discordInstallUrl(input: { applicationId: string; guildId?: string; redirectUri?: string; state?: string }) {
-  // View channels, send messages, send in threads, create public threads, read history, add reactions.
-  const permissions = (1n << 10n) | (1n << 11n) | (1n << 38n) | (1n << 35n) | (1n << 16n) | (1n << 6n);
-  const q = new URLSearchParams({ client_id: input.applicationId, scope: "bot applications.commands", permissions: permissions.toString() });
+  // View channels (1<<10), send messages (1<<11), send in threads (1<<38), create public threads (1<<35),
+  // read history (1<<16), add reactions (1<<6).
+  const permissions = "309237713984";
+  const q = new URLSearchParams({ client_id: input.applicationId, scope: "bot applications.commands", permissions });
   if (input.guildId) q.set("guild_id", input.guildId);
   if (input.redirectUri) {
     q.set("redirect_uri", input.redirectUri);

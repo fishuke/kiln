@@ -33,7 +33,7 @@ Where each task from [PLAN.md](PLAN.md) stands. `/next-task` takes the first row
 | M4-T1 | Gates engine | done | Approval, question, preview, merge, custom gates with nudges and expiry (FakeClock tests) |
 | M4-T2 | Optional pipeline graphs | done | Feature pipeline with and without spec; skip_if, fan_out, on_fail with max_loops |
 | M4-T3 | Inbox | done | Same result from Slack and web; MCP list_inbox/decide_gate; web inbox |
-| M4-T4 | PO workspace | partial | Idea board, spec review, preview gallery and conversation in the web app. The pilot-PO usability test has not happened |
+| M4-T4 | PO workspace | deferred | The first web workspace was removed until the design is settled; product owners work through chat, trackers and the inbox. Next design: [chat with a fast preview](../ideas/po-chat-fast-preview.md) |
 | M4-T5 | Preview environments | done | Fake, Vercel and Kubernetes namespace providers; preview URL posted on the PR |
 | M4-T6 | Home composer and navigation | done | "New run" composer with factory picker; Warp-style sidebar |
 | M5-T1 | Scorer service | done | ~25% sampling and labels match a labeled set |
@@ -54,4 +54,4 @@ Where each task from [PLAN.md](PLAN.md) stands. `/next-task` takes the first row
 | M7-T4 | Docs site v1 | done | docs/site (Markdown, generated CLI/API/MCP/definition references, llms.txt) served at /docs in the web app; Astro Starlight not used |
 | M7-T5 | Release 1.0 | pending | Needs a fresh install from the docs with real accounts, timed to first PR |
 
-49 tasks: 41 done, 6 partial, 2 pending.
+49 tasks: 41 done, 5 partial, 1 deferred, 2 pending.

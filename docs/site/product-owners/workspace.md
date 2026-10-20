@@ -1,5 +1,5 @@
 ---
-title: Product owner workspace
+title: Working as a product owner
 description: How a product owner works with a Kiln factory, from sending an idea to approving the spec, accepting the preview and planning a roadmap.
 owner: docs
 section: Product owners

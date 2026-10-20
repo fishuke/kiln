@@ -161,8 +161,9 @@ Each trigger has a `provider`, an `event`, and an optional `filter`. Schedule tr
 | `jira` | `issue_created`, `issue_assigned`, `issue_mentioned` |
 | `schedule` | any event name you choose, such as `cron_fired` |
 | `webhook` | `received` |
+| `factory` | `work_item_stage_changed` |
 
-The schema also accepts the providers `gitlab`, `factory` and `kiln`. Kiln does not produce events for them yet.
+The schema also accepts the providers `gitlab` and `kiln`. Kiln does not produce events for them yet.
 
 A Slack `app_mention` trigger without a `mentioned` filter only fires for the factory whose alias is mentioned, or for every factory when the message only mentions the bot.
 
@@ -193,6 +194,25 @@ Fields you can filter on:
 
 `mentioned` holds the lowercased `@handles` found in the text.
 
+## Stage changes
+
+A `factory` trigger reacts when a work item in the same factory changes state. Its event carries `from`, `to` and `workItemId`, so you can filter on them:
+
+```markdown
+---
+agent: notifier
+triggers:
+  - provider: factory
+    event: work_item_stage_changed
+    filter: { to: [handed_off] }
+---
+Summarize the handed-off work for the release notes.
+```
+
+- Only automations of the factory where the change happened fire. Other factories never see it.
+- The new work item's title is the original title followed by `→ <state>`, and its body is the original body.
+- Work started this way has the automation name `stage:<name>` as its source. Its own state changes do not trigger stage automations again, so there are no loops.
+
 ## Schedules
 
 ```yaml
@@ -215,9 +235,9 @@ To accept events from any other system, add a webhook file and an automation tha
 ```yaml
 # webhooks/sentry.yaml
 authMode: signature
-signatureScheme: standard_webhooks
+signatureScheme: sentry
 secretName: SENTRY_WEBHOOK_SECRET
-deliveryIdHeader: webhook-id
+deliveryIdHeader: request-id
 ```
 
 ```markdown
@@ -237,7 +257,14 @@ The endpoint is `POST /webhooks/<factory>/<webhook-name>`. The secret is read fr
 | --- | --- |
 | `token` (default) | `Authorization: Bearer <secret>` |
 | `url_token` | `?token=<secret>` in the URL |
-| `signature` | A signature header. `signatureScheme: github` checks `X-Hub-Signature-256`. Other schemes check Standard Webhooks headers (`webhook-id`, `webhook-timestamp`, `webhook-signature`). |
+| `signature` | A signature header, checked by `signatureScheme`. See below. |
+
+| `signatureScheme` | Header and check |
+| --- | --- |
+| `github` | `X-Hub-Signature-256: sha256=<hex HMAC-SHA256 of the body>` |
+| `standard_webhooks` | `webhook-id`, `webhook-timestamp` and `webhook-signature` (`v1,<base64 HMAC>` over `<id>.<timestamp>.<body>`). A `whsec_` secret prefix is accepted. |
+| `stripe` | `Stripe-Signature: t=<time>,v1=<hex HMAC-SHA256 of "<time>.<body>">`. Signatures older than five minutes are refused. |
+| `sentry` | `Sentry-Hook-Signature: <hex HMAC-SHA256 of the body>` |
 
 `signatureScheme` is required when `authMode` is `signature`. The work item's title comes from the payload's `title` or `summary` field, and the body is the payload. A `webhook` trigger without `filter.webhook` naming a file in `webhooks/` fails validation.
 
@@ -249,7 +276,19 @@ Before it starts new work, Kiln checks whether the event belongs to a work item 
 
 - "approve", "approved", "lgtm", "ship it" or "accept" approves an open spec or preview gate.
 - "reject", "changes:" or "request changes" rejects it, with the rest of the message as feedback.
-- Other text answers an open question, or is added to the conversation for the next agent run.
+- Other text answers an open question. If there is none and an agent is running on the work item, the text steers that run. Otherwise it is added to the conversation for the next agent run.
+
+### Who may decide from a reply
+
+Text in a thread or comment is content, not authority. A reply approves, rejects or answers a gate only when its author is one of the gate's assignees, or the gate has no assignees. Otherwise the reply is treated like any other message.
+
+Gate assignees are people, such as `po@acme.test`, while Slack and the forges report their own user IDs. The server option `identities` maps one to the other, keyed by `<provider>:<user>`:
+
+```json
+{ "slack:U024BE7LH": "po@acme.test", "github:alice": "alice@acme.test" }
+```
+
+A mapped reply is recorded under the person's name. An unmapped reply is recorded under the provider's user ID.
 
 Labeled events never continue existing work. A merged pull request completes its work item.
 
@@ -498,7 +537,7 @@ Kiln stores each tree by its definition SHA, a 40-character hash of every path a
 - **Valid tree.** Kiln stores it, makes it the applied definition, keeps the previous SHA, and records who applied it and the diff in the audit log. New work items use it. Work items already in flight keep the SHA they started with.
 - **Invalid tree.** Kiln records the attempt and the errors, and the previous definition stays active. The factory shows the first error as its last error.
 
-`kiln diff --against applied` shows what would change, by resource:
+`kiln diff --against applied` asks the server what would change compared with the applied definition, by resource:
 
 ```text
 + agent/docs
@@ -527,13 +566,15 @@ A factory can live in a GitHub repository, called its config repo. Use the layou
 
 **Sync on push.** When Kiln receives a GitHub `push` webhook for the config repo's branch, it reads the tree again and applies it. A push that breaks validation is recorded and rejected; the last valid definition stays active. You can also trigger a sync by hand.
 
+One exception: when the pushed tree is exactly the candidate of an open self-improvement proposal, which is what merging that proposal's pull request produces, Kiln applies it as a canary (10% by default) and marks the proposal merged. See [Self-improvement](../measure-and-improve/self-improvement.md#reviewing-a-proposal).
+
 **Changes from Kiln.** When Kiln itself proposes a definition change, such as a self-improvement, an accepted memory, an installed skill or a router from benchmarks, it commits to a `kiln/*` branch of the config repo and opens a pull request. A person merges it, and the push applies it.
 
 Protect the config repo's default branch so that every change needs a review and a passing validation check.
 
 ### Validate pull requests with GitHub Actions
 
-This workflow checks out Kiln and the config repo side by side, installs Kiln, and runs `pnpm kiln validate` on the definition. `pnpm kiln` runs from the Kiln checkout, so the path to the definition is relative to it.
+This workflow checks out the config repo inside a Kiln checkout, installs Kiln, and runs `pnpm kiln validate .` from the config repo's directory. The CLI resolves paths against the directory you ran `pnpm` from, so `.` is the config repo.
 
 ```yaml
 # .github/workflows/validate.yml
@@ -556,7 +597,7 @@ jobs:
       - name: Check out the definition
         uses: actions/checkout@v4
         with:
-          path: definition
+          path: kiln/definition
 
       - uses: pnpm/action-setup@v4
         with:
@@ -573,8 +614,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate
-        working-directory: kiln
-        run: pnpm kiln validate ../definition
+        working-directory: kiln/definition
+        run: pnpm kiln validate .
 ```
 
 The command prints `ok <name> (<sha>): <n> agents, <n> automations` on success, prints each error as `file:line: message` and exits 1 on failure. Make the `validate` job a required status check in the branch protection rules. The workflow file itself is outside the definition layout, so validation lists it as an `unknown-file` warning.
@@ -919,7 +960,7 @@ stages:
 | `requires` | Any of `ci_green`, `criteria_videos`, `tests_pass`. |
 | `on_fail` | An earlier stage's `id` to go back to when this stage fails. |
 | `max_loops` | 1–10. Default 3. |
-| `advisory` | Accepted by the schema. It does not change behavior yet. |
+| `advisory` | For review stages. When `true`, review findings never park the work item. See below. |
 
 ### What each stage does
 
@@ -931,7 +972,7 @@ A stage's behavior comes from its agent's `agentType` or its action:
 | `SPEC` | Writes the spec as a draft pull request, checks each criterion with the `spec-check` decision, rewrites failing criteria once, then opens the stage's gate. |
 | `IMPLEMENT` or `CUSTOM` | Builds the change. Two failed attempts open a `build-failed` question and park the item. |
 | `VERIFY` | Runs the verify agent and checks `requires`. |
-| `REVIEW` | Reviews the pull request. `changes_requested` with findings loops back with `on_fail`. |
+| `REVIEW` | Reviews the pull request. `changes_requested` with findings loops back with `on_fail`. For an advisory stage without `on_fail`, or with its loops used up, Kiln posts the findings on the pull request as "Advisory review findings:" and moves on. `needs_human` posts the findings for a person and moves on. |
 | `preview.deploy` | Deploys a preview, posts a card to the pull request and opens the stage's gate. Skipped when no preview provider is set or there is no pull request. |
 | `handoff` | Marks the pull request ready, labels it and opens the merge gate. |
 
@@ -943,7 +984,7 @@ A stage's behavior comes from its agent's `agentType` or its action:
 | `criteria_videos` | Every acceptance criterion in the spec has a passing Playwright test with a video. |
 | `tests_pass` | The verify agent's result file says `"testsPassed": true`. |
 
-When a stage fails, Kiln goes back to `on_fail`. After `max_loops` failures, or when the stage has no `on_fail`, Kiln opens a `<stage>-stuck` question and parks the item as `blocked`. Answering the question resets the loop counters and retries the stage that stopped; rejecting it cancels the item.
+When a stage fails, Kiln goes back to `on_fail`. After `max_loops` failures, or when the stage has no `on_fail`, Kiln opens a `<stage>-stuck` question and parks the item as `blocked`. The exception is a review stage with `advisory: true`: it posts its findings on the pull request and continues to hand-off instead of parking. Answering the question resets the loop counters and retries the stage that stopped; rejecting it cancels the item.
 
 ### Expressions in `skip_if`
 
@@ -992,7 +1033,7 @@ The foreman's default path uses `spec-approval` and `preview-acceptance`. Hand-o
 
 ### Deciding a gate
 
-A gate can be approved or rejected from the [inbox](../management/inbox.md), a reply in the source thread, the API or the Kiln MCP. All of them use the same code path and record who decided and through which surface. Only question gates take free-text answers.
+A gate can be approved or rejected from the [inbox](../management/inbox.md), a reply in the source thread, the API or the Kiln MCP. All of them use the same code path and record who decided and through which surface. A reply in a Slack thread or on an issue or pull request decides a gate only when its author is one of the gate's assignees, or the gate has none. See [Who may decide from a reply](automations.md#who-may-decide-from-a-reply). Only question gates take free-text answers.
 
 | Decision | Spec gate | Preview gate | Question gate | Merge gate |
 | --- | --- | --- | --- | --- |
@@ -1035,7 +1076,7 @@ A factory can have several policy files. Kiln combines the lists from all of the
 | `twoApprovalPaths` | Yes | A self-improvement proposal that changes a matching path needs approvals from two different people before Kiln applies it. |
 | `deniedActions` | Not yet | Accepted by the schema. |
 | `allowedTriggerers` | Not yet | Accepted by the schema. |
-| `maxUsdPerWorkItem` | Not yet | Accepted by the schema. Use `budgets.perWorkItemUsd` instead. |
+| `maxUsdPerWorkItem` | Yes | A spending cap per work item. See [Budgets](#budgets). |
 | `description` | Not applicable | |
 
 Patterns are paths relative to the definition root. `*` matches within one directory level and `**` matches across levels.
@@ -1062,10 +1103,15 @@ budgets:
 
 | Key | Enforced today | What it does |
 | --- | --- | --- |
-| `perWorkItemUsd` | Yes | Before each agent run, Kiln compares the work item's spend with its budget. When spend has reached the budget, the item stops as `blocked` with the reason "budget of $40 reached ($41.20 spent)". |
-| `monthlyUsd` | Not yet | Accepted by the schema. |
+| `perWorkItemUsd` | Yes | The default budget of each new work item. |
+| `monthlyUsd` | Yes | The most the factory may spend on runs in a calendar month. |
 
-A work item created through the API can set its own budget, which replaces `perWorkItemUsd` for that item. A pipeline's `budget.maxUsd` is accepted but not enforced yet.
+Before each agent run, Kiln checks two limits:
+
+- **Per work item.** The cap is the lowest of the work item's budget and every policy's `maxUsdPerWorkItem`. A work item's budget is `perWorkItemUsd`, unless the work item was created through the API with its own budget, which replaces it. When the item's spend has reached the cap, it stops as `blocked` with the reason "budget of $40 reached ($41.20 spent)".
+- **Per month.** Kiln adds up the cost of all the factory's runs since the 1st of the month (UTC). When that has reached `monthlyUsd`, the item stops as `blocked` with the reason "monthly budget of $6000 for webapp reached ($6012.40 spent)".
+
+A pipeline's `budget.maxUsd` is accepted but not enforced yet.
 
 Cost comes from each run's harness. Claude Code and OpenCode report cost directly. Codex reports tokens, and Kiln estimates the cost from them.
 
@@ -1540,12 +1586,11 @@ setupCommands:
   - corepack enable
   - pnpm install --frozen-lockfile
 egress:
-  - github.com
   - registry.npmjs.org
   - llm-gateway.internal.acme.com
 ```
 
-Only these hosts are reachable. See [Sandboxes](../infrastructure/sandboxes.md).
+Only these hosts and the hosts of the cloned repositories, here `github.com`, are reachable. See [Sandboxes](../infrastructure/sandboxes.md).
 
 ## 6. A stricter command guard
 
@@ -1675,7 +1720,7 @@ budgets: { perWorkItemUsd: 30, monthlyUsd: 3000 }
 | Part | What it does |
 | --- | --- |
 | Agents | `foreman`, `triage`, `spec`, `implement`, `verify`, `review`, plus `planner` (`PLAN`), `po-assistant` (`PO_ASSISTANT`) and `improver` (`CUSTOM`) |
-| `pipelines/feature.yaml` | Triage, spec (skipped for `xs` and `s`), build per user story, verify with CI and a video per criterion (up to 3 loops), preview, review, hand-off |
+| `pipelines/feature.yaml` | Triage, spec (skipped for `xs` and `s`), build per user story, verify with CI and a video per criterion (up to 3 loops), preview, an advisory review whose findings are posted on the pull request, hand-off |
 | `gates/` | Spec approval and preview acceptance by the requester or the `po` role, nudged after 24h, parked after 72h |
 | `routers/by-task.yaml` | A complexity router: Haiku for easy, Sonnet for medium and by default, Opus for hard |
 | `runners/linux-node.yaml` | `node:22-bookworm` on Docker, 4 vCPUs and 8 GB, `pnpm install`, egress to the npm registry, `github.com` and `api.github.com` |
@@ -1683,7 +1728,7 @@ budgets: { perWorkItemUsd: 30, monthlyUsd: 3000 }
 | `decisions/command-guard.yaml` | The command guard with the standard thresholds |
 | `automations/` | `ready` (GitHub `issue_labeled` with `kiln-ready`), `review-comments` (review submitted) and `slack` (mentions) |
 
-The `ready` automation filters on `repos: [fishuke/klin]`. Kiln's GitHub events carry the repository as `repo`, so that key must be `repo` for the automation to fire.
+The `ready` automation filters on `repos: [fishuke/klin]`, the same Warp-style key Kiln's GitHub events carry.
 
 ## The rules it works under
 
@@ -1719,7 +1764,7 @@ What Kiln enforces from these today:
 - A self-improvement change to a two-approval path needs two different people.
 - Kiln never opens a self-improvement proposal without a replay report, and agents cannot approve proposals.
 
-Self-improvement changes definition files. Code changes to `packages/` and `apps/` arrive as ordinary pull requests from work items, so the protected code paths there also need branch protection and code owners in the repository. The `deniedActions` and `maxUsdPerWorkItem` keys in these policies are accepted but not enforced yet; the per-item budget comes from `budgets.perWorkItemUsd`.
+Self-improvement changes definition files. Code changes to `packages/` and `apps/` arrive as ordinary pull requests from work items, so the protected code paths there also need branch protection and code owners in the repository. Spending is capped at the lowest of `budgets.perWorkItemUsd` (30) and the policies' `maxUsdPerWorkItem` (40 and 30), so $30 per work item, and at `monthlyUsd` (3000) per month. The `deniedActions` keys are accepted but not enforced yet.
 
 ## Scorers
 
@@ -1826,13 +1871,13 @@ Kiln opens a pull request titled "Self-improvement: implement (instructions)" or
 
 Then either:
 
-- **Merge it.** The push applies it to all new work items.
-- **Approve it in Kiln instead.** Kiln applies it as a 10% canary first. This needs `definitions:write` on the factory. The pull request stays open; merging it later applies the change to everyone.
+- **Merge it.** If you merge it unchanged, the push applies it as a 10% canary and marks the proposal merged. If you edited the branch first, the push applies it to all new work items.
+- **Approve it in Kiln instead.** Kiln applies it as a 10% canary without merging. This needs `definitions:write` on the factory. The pull request stays open; merging it later applies the change to everyone.
 - **Reject it, with a reason.** The improver will not repeat a rejected lesson.
 
 ## 7. Watch the canary
 
-If you approved in Kiln, compare the candidate with the applied definition in the per-definition metrics. After 7 days, Kiln promotes the candidate if its pass rate is within 2 points of the applied one, and rolls it back otherwise. You can promote or roll back sooner. See [Replay and canary](../measure-and-improve/replay-and-canary.md).
+Compare the candidate with the applied definition in the per-definition metrics. After 7 days, Kiln promotes the candidate if its pass rate is within 2 points of the applied one, and rolls it back otherwise. You can promote or roll back sooner. See [Replay and canary](../measure-and-improve/replay-and-canary.md).
 
 ## 8. Keep the loop honest
 
@@ -1900,7 +1945,7 @@ The [command guard](../configuration/decisions.md#command-guard) rates shell com
 
 ### Network is closed by default
 
-A runner with no `egress` hosts gets no network. With hosts listed, traffic goes through Kiln's egress proxy, which allows only those hosts. On Kubernetes, a NetworkPolicy allows only DNS and the proxy.
+Traffic from a sandbox goes through Kiln's egress proxy, which allows only the hosts of the run's repositories and the runner's `egress` list. Everything else is unreachable. On Kubernetes, a NetworkPolicy allows only DNS and the proxy.
 
 ### Sandboxes are locked down
 
@@ -1920,11 +1965,26 @@ Self-improvement cannot change `policies/` or `gates/`, drops changes to any `pr
 
 ### Content is not a source of permissions
 
-Text in issues, tickets and Slack messages becomes the work item's request, never its permissions. What an agent may do comes from the definition, the run token and the gates.
+Text in issues, tickets and Slack messages becomes the work item's request, never its permissions. What an agent may do comes from the definition, the run token and the gates. A reply in a thread or comment decides a gate only when its author is one of the gate's assignees, matched through the server's `identities` map.
 
 ### Everything is audited
 
 Definition applies and rejections, gate decisions, steering, cancellations, pauses, proposals, canary changes, token issues and secret changes are written to the audit log with the actor.
+
+## Design records
+
+The decisions behind this architecture are written down as ADRs in `docs/adr/`:
+
+- [0001 TypeScript monorepo](../../adr/0001-typescript-monorepo.md)
+- [0002 Orchestration](../../adr/0002-orchestration.md)
+- [0003 Definition format](../../adr/0003-definition-format.md)
+- [0004 Harness adapters](../../adr/0004-harness-adapters.md)
+- [0005 Storage](../../adr/0005-storage.md)
+- [0006 Decision layer](../../adr/0006-decision-layer.md)
+- [0007 Open source and bring your own keys](../../adr/0007-open-source-byok.md)
+- [0008 Humans merge](../../adr/0008-humans-merge.md)
+
+The [threat model](../../security/threat-model.md) lists the threats these controls answer.
 
 ## Data sent to model providers
 
@@ -1937,6 +1997,8 @@ Harnesses send the prompt, instructions, skills and the code they read to the mo
 - [Self-hosting](self-hosting.md)
 - [Typed decisions](../configuration/decisions.md)
 - [Admin, RBAC and audit](../management/admin-rbac-audit.md)
+- [Threat model](../../security/threat-model.md)
+- [Architecture decision records](../../adr/README.md)
 
 ---
 
@@ -2042,9 +2104,9 @@ Steering sends a message to a running agent.
 | Codex | Queued. When the current turn ends, Kiln resumes the session (`codex exec resume --last`) with the message. |
 | OpenCode | Queued. When the current turn ends, Kiln continues the session (`opencode run --continue`) with the message. |
 
-You can steer from the run page, the API or the Kiln MCP. Each steering message is saved on the run, counted as a human touch on the work item, and written to the audit log. Steering a run that has finished fails.
+You can steer from the run page, the API, the Kiln MCP, or by replying where the work started: a Slack thread, a Linear or Jira issue, or a GitHub issue or pull request. A reply steers the running agent when it does not decide a gate or answer an open question. When no agent is running, the reply is added to the conversation instead, and the next agent run sees it under "Messages from people".
 
-Messages posted in a work item's Slack thread or issue while an agent runs do not steer that run. They are added to the conversation, and the next agent run sees them under "Messages from people".
+Each steering message is kept on the run record, counted as a human touch on the work item, and written to the audit log. A resumed run gets the steering messages so far. Steering a run that has finished fails.
 
 ## Related pages
 
@@ -2084,7 +2146,7 @@ egress:
 | `backend` | `docker` | `docker`, `kubernetes` or `local`. |
 | `shape` | none | `vcpus` and `memoryGb`. Sets CPU and memory limits. |
 | `setupCommands` | `[]` | Run in order after the repositories are cloned. A failing command fails the run. |
-| `egress` | `[]` | Host names the sandbox may reach. Empty means no network. |
+| `egress` | `[]` | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed. |
 | `description` | none | |
 
 An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses `node:22-bookworm` on the server's default backend, which is `local` unless the server sets another.
@@ -2102,9 +2164,7 @@ Each run is a container started with `sleep infinity` and `/workspace` as its wo
 - labels `kiln.sandbox=1`, `kiln.dev/run` and `kiln.dev/factory`,
 - `--cpus` and `--memory` from `shape`,
 - `--security-opt no-new-privileges` and `--cap-drop ALL`,
-- no network when `egress` is empty, or the `kiln-egress` network with `HTTPS_PROXY` and `HTTP_PROXY` set to `http://kiln-egress-proxy:3128` and `KILN_EGRESS_ALLOW` set to the host list.
-
-Repositories are cloned inside the container, so include your forge (for example `github.com`) and your package registries in `egress`.
+- the `kiln-egress` network with `HTTPS_PROXY` and `HTTP_PROXY` set to `http://kiln-egress-proxy:3128` and `KILN_EGRESS_ALLOW` set to the allowed hosts: the runner's `egress` list plus the hosts of the cloned repositories. With no hosts at all, the container gets `--network none`.
 
 ### Kubernetes with gVisor
 
@@ -2116,7 +2176,7 @@ Each run is a pod in the `kiln-sandboxes` namespace, plus a NetworkPolicy for th
 - requests and limits from `shape`,
 - an `emptyDir` volume at `/workspace`.
 
-The NetworkPolicy blocks all ingress. With `egress` empty, it blocks all egress too. Otherwise it allows only DNS (UDP 53 to `kube-dns`) and TCP 3128 to the pod labeled `app.kubernetes.io/name: kiln-egress-proxy`, which enforces the host list.
+The NetworkPolicy blocks all ingress. When there are no allowed hosts at all, it blocks all egress too. Otherwise it allows only DNS (UDP 53 to `kube-dns`) and TCP 3128 to the pod labeled `app.kubernetes.io/name: kiln-egress-proxy`, which enforces the host list.
 
 Kiln waits up to 120 seconds for the pod to be ready. Your cluster needs a `gvisor` RuntimeClass and the egress proxy deployed.
 
@@ -2124,7 +2184,8 @@ Kiln waits up to 120 seconds for the pod to be ready. Your cluster needs a `gvis
 
 Agents need the network to clone, install packages and call model APIs. Kiln keeps that surface small:
 
-- List each host the run needs in `egress`. Nothing else is reachable.
+- The hosts of the repositories the run clones, such as `github.com`, are always allowed.
+- List every other host the run needs in `egress`, such as `registry.npmjs.org`. Nothing else is reachable.
 - The proxy enforces host names, so you do not have to track IP addresses.
 - Keep model traffic going to your model gateway, and list only the gateway.
 
@@ -2252,6 +2313,10 @@ Admins can set secrets through the API; values are never returned, only names. S
 
 Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscription token from `claude setup-token`) or `ANTHROPIC_API_KEY` for Claude Code, `OPENAI_API_KEY` or `CODEX_API_KEY` for Codex, and the keys OpenCode's providers need. You can store them as Kiln secrets or set them as plain environment variables on the server. Agents can also name their own secret with `harness.auth`. See [Harnesses](harnesses.md#credentials).
 
+### Identities
+
+Gate assignees are people, such as `po@acme.test`. To let replies in Slack or on issues decide gates, map provider users to people with the server option `identities`, keyed by `<provider>:<user>`, for example `slack:U024BE7LH` → `po@acme.test`. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
+
 ### Roles
 
 Gates name approvers by role, such as `role:po` or `role:code-owners`. Kiln's server configuration maps each role to people. Kiln uses these roles:
@@ -2295,7 +2360,7 @@ Kiln runs a timer pass that:
 | A definition push did not apply | The factory's last error shows the first validation error. Run `kiln validate`. |
 | An automation never fires | The trigger's `provider` and `event` match the event name exactly, and every filter key matches (GitHub events carry both `repo` and `repos`). |
 | A work item is `blocked` | Its blocked reason says why: an expired gate, a stage that failed too often, the budget, or an error. Answer the open question to resume. |
-| A run fails at clone or install | The runner's `egress` list is missing the forge or package registry. |
+| A run fails at install | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed. |
 | Verify waits forever | CI checks on the branch are still pending. Kiln checks again on each timer pass. |
 | Every command is blocked | The Claude Code hook cannot reach the public URL, so it blocks by design. |
 | Webhooks return 401 | The secret in Kiln does not match the provider's. |
@@ -2372,7 +2437,7 @@ A comment that mentions the factory's alias, such as `@webapp please take this`,
 
 - **Merge.** When a person merges the pull request, the `pull_request` webhook completes the work item and closes its open gates.
 - **Review comments.** A submitted review that is not an approval sends the work item back to build, with the review text as findings.
-- **Comments.** Comments on the source issue or the pull request are added to the work item's conversation, or answer an open question.
+- **Comments.** Comments on the source issue or the pull request decide an open spec or preview gate, answer an open question, steer a running agent, or are added to the work item's conversation. Map GitHub logins to people with the server's `identities` option (`github:<login>`). Replies decide a gate only when their author is one of its assignees; see [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 
 ## Config repos
 
@@ -2428,7 +2493,7 @@ The issue key, such as `KIL-42`, links the work item to the issue.
 ## What Kiln does in Jira
 
 - **Updates.** Gate requests, reminders, "Ready to merge" and "Done" are posted as comments.
-- **Replies.** Comments on the issue continue the work item, decide an open spec or preview gate, or answer an open question. See [Automations](../configuration/automations.md#dedupe-and-follow-ups).
+- **Replies.** Comments on the issue continue the work item. They decide an open spec or preview gate, answer an open question, steer a running agent, or are added to the conversation. Map Jira users to people with the server's `identities` option (`jira:<user>`). Replies decide a gate only when their author is one of its assignees; see [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 - **States.** At hand-off, Kiln moves the issue through the first transition into the "In Progress" status category. On completion, it uses the first transition into the "Done" category.
 - **Duplicates.** Triage reads the project's 20 most recently created issues to spot duplicates.
 - **Text.** Kiln writes descriptions and comments in Atlassian Document Format, one paragraph per blank-line-separated block.
@@ -2484,13 +2549,13 @@ A comment that mentions the factory's alias starts foreman work in a factory wit
 ## What Kiln does in Linear
 
 - **Updates.** Gate requests, reminders, "Ready to merge" and "Done" are posted as comments on the issue.
-- **Replies.** Comments on the issue continue the work item. A comment starting with `approve` or `reject` decides an open spec or preview gate, and other text answers an open question. See [Automations](../configuration/automations.md#dedupe-and-follow-ups).
+- **Replies.** Comments on the issue continue the work item. A comment starting with `approve` or `reject` decides an open spec or preview gate, and other text answers an open question, steers a running agent, or is added to the conversation. Map Linear users to people with the server's `identities` option (`linear:<user>`). Replies decide a gate only when their author is one of its assignees; see [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 - **States.** At hand-off, Kiln moves the issue to the team's first `started` state. When the work completes, it moves it to the first `completed` state.
 - **Duplicates.** Triage reads the team's 20 most recent issues to spot duplicates.
 
 ## Planning
 
-The [planning agent](../product-owners/planning.md) creates its roadmap in Linear: one issue per epic, with a sub-issue for each piece of work. Each sub-issue has an "Acceptance criteria" checklist and a "Factory: @<alias>" line. The Linear adapter does not set labels yet.
+The [planning agent](../product-owners/planning.md) creates its roadmap in Linear: one issue per epic, with a sub-issue for each piece of work. The epic is labeled `epic`. Each sub-issue has an "Acceptance criteria" checklist, a `factory:<alias>` label and a "Factory: @<alias>" line. Kiln looks labels up by name and creates any that are missing on the team.
 
 ## Related pages
 
@@ -2634,11 +2699,13 @@ Reply in the thread to act on the work item:
 | --- | --- |
 | `approve`, `approved`, `lgtm`, `ship it` or `accept` | Approves the open spec or preview gate. |
 | `reject`, `changes:` or `request changes` | Rejects it. The rest of your message is the feedback. |
-| Anything else | Answers an open question, or is added to the conversation for the next agent run. |
+| Anything else | Answers an open question. If there is none and an agent is running on the work item, it steers that agent. Otherwise it is added to the conversation for the next agent run. |
 
-Decisions from Slack are recorded with your Slack user and `slack` as the surface, exactly like decisions from the web.
+Approve, reject and answer only count when you are one of the gate's assignees, or the gate has none. Kiln matches your Slack user to a person through the server's `identities` map, for example `slack:U024BE7LH` to `po@acme.test`. Without a mapping, your Slack user ID must itself be an assignee. Replies that cannot decide the gate are handled like other text. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 
-A reply does not steer an agent that is already running. To steer a running agent, use the run page, the API or the Kiln MCP. See [Harnesses](../infrastructure/harnesses.md#steering).
+Decisions from Slack are recorded with your person (or Slack user ID) and `slack` as the surface, exactly like decisions from the web.
+
+Steering from the thread works like steering from the run page. See [Harnesses](../infrastructure/harnesses.md#steering).
 
 ## Related pages
 
@@ -2782,6 +2849,8 @@ The inbox, Slack and issue replies, the API and the Kiln MCP all call the same d
 - when.
 
 The decision is added to the work item's conversation and counted as a human touch, and the audit log gets an entry. Deciding a gate that is already closed changes nothing.
+
+A reply in Slack or on an issue or pull request decides a gate only when its author is one of the gate's assignees, or the gate has none. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 
 Only question gates take free-text answers. To decide through the inbox, the API or the MCP, your token needs the matching scope for the factory:
 
@@ -3073,7 +3142,7 @@ Kiln also decides on its own after 7 days:
 
 If the applied definition has no scores, a candidate with scores is promoted.
 
-Approving a self-improvement proposal in Kiln starts a 10% canary in the same way.
+Approving a self-improvement proposal in Kiln, or merging its pull request unchanged in a config repo, starts a 10% canary in the same way.
 
 ## Related pages
 
@@ -3202,7 +3271,7 @@ The failures in the proposal are marked reviewed, so they do not trigger another
 
 ## Reviewing a proposal
 
-For a factory with a [config repo](../configuration/definitions-as-code.md#config-repos-on-github), Kiln commits the change to a `kiln/self-improve-<agent>-<id>` branch and opens a pull request titled "Self-improvement: <agent> (<category>)", labeled `kiln:self-improvement`. Merging it applies the new definition through the normal push sync, to all new work items at once; a merge does not start a canary.
+For a factory with a [config repo](../configuration/definitions-as-code.md#config-repos-on-github), Kiln commits the change to a `kiln/self-improve-<agent>-<id>` branch and opens a pull request titled "Self-improvement: <agent> (<category>)", labeled `kiln:self-improvement`. Merging it ships the change as a [canary](replay-and-canary.md): when the pushed tree is exactly the proposal's candidate, the push sync applies it to 10% of new work items (the server's default share) and marks the proposal merged. If the branch was edited before the merge, the tree no longer matches and the push applies it to all new work items, like any other change.
 
 In Kiln, you can approve or reject any proposal:
 
@@ -3321,7 +3390,7 @@ When the factory has no pipeline, or the work item names none, the foreman build
 3. **Build.** The `IMPLEMENT` agent makes the change on a `kiln/<id>-<title>` branch.
 4. **Verify.** The `VERIFY` agent checks the change, and Kiln waits for CI to pass. A failure loops back to build, up to 3 times.
 5. **Preview.** If a preview provider is configured, Kiln deploys the branch and asks for preview acceptance.
-6. **Review.** The `REVIEW` agent reviews the pull request. `changes_requested` with findings loops back to build, up to 2 times.
+6. **Review.** The `REVIEW` agent reviews the pull request. The review is advisory: `changes_requested` with findings loops back to build, up to 2 times. After that, Kiln posts the remaining findings on the pull request as "Advisory review findings:" and goes on to hand-off.
 7. **Hand-off.** Kiln marks the pull request ready, labels it `factory:<alias>`, posts "Ready to merge" to the source thread, and opens a merge gate.
 
 Spec and review are left out when the factory has no `SPEC` or `REVIEW` agent. Without a `VERIFY` agent, the verify stage only waits for CI. Build falls back to a `CUSTOM` agent, then to the foreman. A [pipeline](../configuration/pipelines-and-gates.md) replaces this path with stages you list.
@@ -3468,9 +3537,8 @@ Every change that drops something is reported as a warning.
 
 ## Check after converting
 
-- **GitHub filters on `repos`.** Warp automations often filter on `repos: [owner/name]`. Kiln's GitHub events carry the repository as `repo`, so rename the key to `repo` or the trigger will not match.
 - **Models.** Warp model names such as `gpt-6-sol-high` pass through unchanged. Make sure your model gateway serves them, or change them.
-- **Runners.** Add `egress` hosts to each runner. A runner with no egress gets no network. See [Sandboxes](../infrastructure/sandboxes.md).
+- **Runners.** Warp runners have no egress list. Kiln always allows the hosts of the repositories a run clones; add every other host the run needs, such as package registries and your model gateway, to `egress`. See [Sandboxes](../infrastructure/sandboxes.md).
 - **Self-improvement threshold.** Kiln's `failedRunThreshold` must be between 1 and 50.
 - **Validate.** Run `kiln validate` on the converted tree. It reports `file:line: message` for every problem.
 
@@ -3625,7 +3693,7 @@ All surfaces record the same decision, with who decided and through which surfac
 
 | Surface | How |
 | --- | --- |
-| Slack thread, or a comment on the Linear, Jira or GitHub issue | Reply starting with `approve`, `approved`, `lgtm`, `ship it` or `accept`. To reject, start with `reject`, `changes:` or `request changes`, followed by your feedback. |
+| Slack thread, or a comment on the Linear, Jira or GitHub issue | Reply starting with `approve`, `approved`, `lgtm`, `ship it` or `accept`. To reject, start with `reject`, `changes:` or `request changes`, followed by your feedback. This works only when you are one of the gate's assignees; ask your admin to map your Slack or tracker user to you. |
 | Inbox | Open the gate and approve or reject. |
 | API or Kiln MCP | `decide_gate`, with a token that has `decide:spec` or `decide:preview` for the factory. See the [MCP reference](../developer-tools/mcp.md). |
 
@@ -3699,13 +3767,13 @@ When a tracker is connected, Kiln creates:
 
 In Linear the child issues are sub-issues of the epic. In Jira the epic is a Task and the items are Sub-tasks.
 
-Jira gets the labels. The Linear adapter does not set labels yet, so in Linear the "Factory: @<alias>" line is what names the factory.
+In Linear, Kiln creates any missing labels on the team.
 
 The roadmap is saved on the project with links to every issue.
 
 ## From roadmap to work
 
-Each issue names its factory, so it can flow into that factory's automations. For example, in Jira an automation that triggers on `issue_created` with a `labels: [factory:webapp]` filter turns each new issue into a work item for `webapp`. In Linear, start work with an agent session on the issue, or mention the factory's alias in a comment. You can also hold issues back and send them when you are ready.
+Each issue names its factory, so it can flow into that factory's automations. For example, an automation that triggers on `issue_created` with a `labels: [factory:webapp]` filter turns each new issue into a work item for `webapp`. You can also hold issues back, and start work later with a Linear agent session or by mentioning the factory's alias in a comment.
 
 ## Weekly digest
 
@@ -3721,7 +3789,7 @@ Kiln can produce a digest per person of the decisions waiting on them, oldest fi
 
 ---
 
-# Product owner workspace
+# Working as a product owner
 
 Source: https://github.com/fishuke/klin/blob/main/docs/site/product-owners/workspace.md
 

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Attachment } from "@kiln/sdk-ts";
+import type { Attachment, SpecRetryOptions } from "@kiln/sdk-ts";
 import { api } from "@/lib/kiln";
 
 export type ActionResult<T = object> = ({ ok: true } & T) | { ok: false; error: string };
@@ -125,6 +125,24 @@ export async function scoreThisRun(id: string): Promise<ActionResult> {
 export async function decide(input: { gateId: string; decision: "approve" | "reject" | "answer"; answer?: string; path?: string }): Promise<ActionResult> {
   try {
     await api.decide(input.gateId, input.decision, input.answer || undefined, "web");
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: msg(err) };
+  }
+}
+
+export async function specRetryOptions(gateId: string): Promise<ActionResult<{ options: SpecRetryOptions }>> {
+  try {
+    return { ok: true, options: await api.retryOptions(gateId) };
+  } catch (err) {
+    return { ok: false, error: msg(err) };
+  }
+}
+
+export async function retrySpec(input: { gateId: string; model?: string }): Promise<ActionResult> {
+  try {
+    await api.retrySpec(input.gateId, input.model || undefined, "web");
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (err) {

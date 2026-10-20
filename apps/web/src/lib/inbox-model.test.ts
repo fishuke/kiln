@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInbox, filterInbox, gateEntry, INBOX_KINDS, primaryAction, questionOptions, questionPrompt, type GateLike } from "./inbox-model";
+import { buildInbox, canRetrySpec, filterInbox, gateEntry, INBOX_KINDS, primaryAction, questionOptions, questionPrompt, retryModel, type GateLike } from "./inbox-model";
 
 const gate = (over: Partial<GateLike> = {}): GateLike => ({ id: "g1", workItemId: "wi_1", factory: "kiln", kind: "spec", title: "Approve the spec", state: "open", evidence: [], openedAt: "2026-10-20T10:00:00Z", assignees: [], ...over });
 
@@ -53,5 +53,21 @@ describe("buildInbox", () => {
     expect(primaryAction(gateEntry(gate()))).toBe("Approve spec");
     expect(primaryAction(gateEntry(gate({ kind: "preview" })))).toBe("Accept preview");
     expect(primaryAction(gateEntry(gate({ kind: "question" })))).toBe("Answer");
+  });
+});
+
+describe("spec retry", () => {
+  it("is offered on open spec reviews and on a failed spec's question", () => {
+    expect(canRetrySpec(gate())).toBe(true);
+    expect(canRetrySpec(gate({ kind: "question", name: "spec-failed" }))).toBe(true);
+    expect(canRetrySpec(gate({ kind: "question", name: "clarify" }))).toBe(false);
+    expect(canRetrySpec(gate({ kind: "preview" }))).toBe(false);
+    expect(canRetrySpec(gate({ state: "approved" }))).toBe(false);
+  });
+
+  it("sends a model only when it differs from the agent's", () => {
+    expect(retryModel("claude-haiku-5-5", "claude-sonnet-5-5")).toBe("claude-haiku-5-5");
+    expect(retryModel("claude-sonnet-5-5", "claude-sonnet-5-5")).toBeUndefined();
+    expect(retryModel("", "claude-sonnet-5-5")).toBeUndefined();
   });
 });

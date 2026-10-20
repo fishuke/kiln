@@ -497,3 +497,108 @@ describe("spec stage failures", () => {
     expect(gates.find((g) => g.name === "spec-failed")!.question).toContain("setup command failed");
   });
 });
+
+describe("retrying a spec", () => {
+  type K = ReturnType<typeof createTestKiln>["kiln"];
+  const specRuns = (kiln: K, id: string) => kiln.runs.list().filter((r) => r.workItemId === id && r.stage === "spec");
+  const openSpecGate = (kiln: K, id: string) => kiln.gates.list({ workItemId: id, state: "open" }).find((g) => g.kind === "spec");
+  /** Waits for a spec gate other than `previous` to open. */
+  const nextSpecGate = async (kiln: K, id: string, previous?: string) => {
+    const start = Date.now();
+    for (;;) {
+      const g = openSpecGate(kiln, id);
+      if (g && g.id !== previous) return g;
+      if (Date.now() - start > 15_000)
+        throw new Error(`timed out waiting for a new spec gate; state is ${kiln.workflow.get(id)?.state} (${kiln.workflow.get(id)?.blockedReason ?? ""})`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  };
+  const billing = (kiln: K) =>
+    kiln.workflow.create({
+      factory: "webapp",
+      title: "Redesign the billing page",
+      body: "- show invoices\n- show plan",
+      source: { provider: "api" },
+      requester: "a@acme.test",
+    });
+
+  it("writes the spec again from scratch on the chosen model, for that run only", async () => {
+    const { kiln } = createTestKiln({ preview: false });
+    const wi = await billing(kiln);
+    const seen = new Set<string>();
+    /** The spec runs since the last call: one, or two when the criteria were rewritten. */
+    const newRuns = () => {
+      const runs = specRuns(kiln, wi.id).filter((r) => !seen.has(r.id));
+      for (const r of runs) seen.add(r.id);
+      return runs;
+    };
+    void kiln.workflow.advance(wi.id);
+    const first = await nextSpecGate(kiln, wi.id);
+    newRuns();
+    await kiln.gates.decide(first.id, { decision: "reject", answer: "Cover refunds too", by: "a@acme.test", via: "web" });
+    const before = await nextSpecGate(kiln, wi.id, first.id);
+    expect(newRuns().map((r) => r.startState.prompt)).toEqual([expect.stringContaining("Requested changes: Cover refunds too")]);
+
+    await kiln.workflow.retrySpec(before.id, { by: "a@acme.test", via: "web", model: "claude-haiku-5-5" });
+    expect(kiln.gates.get(before.id)).toMatchObject({ state: "expired", decision: "retry", decidedBy: "a@acme.test" });
+    const gate = await nextSpecGate(kiln, wi.id, before.id);
+    const retried = newRuns();
+    expect(retried.length).toBeGreaterThan(0);
+    for (const r of retried) {
+      expect(r.model).toBe("claude-haiku-5-5");
+      expect(r.startState.prompt).not.toContain("Requested changes");
+      expect(r.startState.prompt).not.toContain("Cover refunds too");
+    }
+    expect(gate.question).toContain("Written by spec (claude-haiku-5-5)");
+    const item = kiln.workflow.get(wi.id)!;
+    expect(item.spec!.model).toBe("claude-haiku-5-5");
+    expect(item.conversation.some((m) => m.text === "spec retried by a@acme.test (claude-haiku-5-5)")).toBe(true);
+
+    await kiln.gates.decide(gate.id, { decision: "reject", answer: "Shorter", by: "a@acme.test", via: "web" });
+    await nextSpecGate(kiln, wi.id, gate.id);
+    const [after, ...more] = newRuns();
+    expect(more).toHaveLength(0);
+    expect(after!.model).toBe("claude-sonnet-5-5");
+    expect(after!.startState.prompt).toContain("Requested changes: Shorter");
+    expect(after!.startState.prompt).not.toContain("Cover refunds too");
+  });
+
+  it("retries from the question a failed spec run left, once the cause is fixed", async () => {
+    const agents = fakeAgents();
+    let specRuns = 0;
+    const failing = new FakeHarness(async () => {
+      throw new Error("setup command failed: corepack could not download pnpm");
+    });
+    const { kiln } = createTestKiln({
+      preview: false,
+      harness: (type, agentType) => (agentType === "SPEC" && ++specRuns <= 2 ? failing : agents(type, agentType)),
+    });
+    const wi = await billing(kiln);
+    void kiln.workflow.advance(wi.id);
+    await waitFor(kiln, wi.id, ["blocked"]);
+    const question = kiln.gates.list({ workItemId: wi.id, state: "open" }).find((g) => g.name === "spec-failed")!;
+    expect(kiln.inbox.list({ user: "a@acme.test", scope: "team" }).items.find((i) => i.gateId === question.id)!.actions).toEqual(["answer", "reject", "retry"]);
+    await kiln.workflow.retrySpec(question.id, { by: "a@acme.test", via: "web" });
+    expect(kiln.gates.get(question.id)).toMatchObject({ state: "expired", decision: "retry" });
+    const gate = await nextSpecGate(kiln, wi.id);
+    expect(gate.question).toContain("Written by spec");
+    expect(kiln.workflow.get(wi.id)!.state).toBe("awaiting_spec");
+  });
+
+  it("only retries an open spec gate, and only on a router the factory defines", async () => {
+    const { kiln } = createTestKiln({ preview: false });
+    const wi = await billing(kiln);
+    void kiln.workflow.advance(wi.id);
+    const gate = await nextSpecGate(kiln, wi.id);
+    expect(kiln.workflow.retryOptions(gate.id)).toMatchObject({ agent: "spec", harness: "claude-code", routers: [] });
+    expect(kiln.inbox.list({ user: "a@acme.test", scope: "team" }).items.find((i) => i.gateId === gate.id)!.actions).toEqual([
+      "approve",
+      "request_changes",
+      "retry",
+    ]);
+    await expect(kiln.workflow.retrySpec(gate.id, { by: "a@acme.test", via: "web", model: "router:nope" })).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(kiln.workflow.retrySpec("gate_missing", { by: "a@acme.test", via: "web" })).rejects.toMatchObject({ code: "resource_not_found" });
+    await kiln.gates.decide(gate.id, { decision: "approve", by: "a@acme.test", via: "web" });
+    await expect(kiln.workflow.retrySpec(gate.id, { by: "a@acme.test", via: "web" })).rejects.toMatchObject({ code: "conflict" });
+  });
+});

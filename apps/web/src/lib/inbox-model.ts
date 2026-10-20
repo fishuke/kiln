@@ -21,6 +21,7 @@ export type GateLike = {
   workItemId: string;
   factory: string;
   kind: string;
+  name?: string;
   title: string;
   question?: string;
   state: string;
@@ -88,6 +89,16 @@ export function questionOptions(g: Pick<GateLike, "options" | "question">): Ques
 function parseOption(text: string): QuestionOption {
   const rec = /\s*[([]\s*recommended\s*[)\]]\s*$|\s*[-–—]\s*recommended\s*$|\s*\*\*recommended\*\*\s*$/i;
   return rec.test(text) ? { label: text.replace(rec, "").trim(), recommended: true } : { label: text.trim() };
+}
+
+/** Retry (write the spec again from scratch) applies to an open spec review or the question a failed spec run left. */
+export function canRetrySpec(g: { kind: string; name?: string; state: string }): boolean {
+  return g.state === "open" && (g.kind === "spec" || g.name === "spec-failed");
+}
+
+/** The model to send with a retry: none when the pick is the agent's own model. */
+export function retryModel(picked: string, configured?: string): string | undefined {
+  return picked && picked !== configured ? picked : undefined;
 }
 
 /** Question text without the option list, for the pane body. */

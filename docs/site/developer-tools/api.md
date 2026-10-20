@@ -270,6 +270,8 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/inbox/unread` | — | Mark items unread |
 | POST | `/api/v1/inbox/resolve` | — | Resolve (hide) items for you |
 | POST | `/api/v1/inbox/unresolve` | — | Undo a resolve |
+| GET | `/api/v1/gates/{id}/retry` | `decide:spec` | What a spec retry can run on: the spec agent's harness and model, the factory's routers and the model that wrote the spec |
+| POST | `/api/v1/gates/{id}/retry` | `decide:spec` | Write the spec again from scratch (a spec review or a failed spec), optionally on another model for that run |
 | GET | `/api/v1/factories/{id}/definition-changes` | `read` | Proposed definition changes (?state=open|merged|changes_requested|rejected) |
 | POST | `/api/v1/factories/{id}/definition-changes` | `send` | Propose a definition change for review (agents and people) |
 | GET | `/api/v1/definition-changes/{id}` | `read` | A proposed change with its diff and comments |

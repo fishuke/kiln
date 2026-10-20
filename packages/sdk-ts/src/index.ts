@@ -239,6 +239,8 @@ export type FactoryDetail = {
 export type WorkItemListRow = Omit<WorkItem, "conversation"> & { messages: number };
 export type WorkItemDetail = WorkItem & { runs: Run[]; gates: Gate[]; decisions: { decision: string; action: string; provider: string; at: string }[] };
 /** A row of GET /api/v1/inbox: an open gate and its work item. */
+/** What a spec retry can run on: the spec agent's harness and configured model, the factory's routers and the model that wrote the spec. */
+export type SpecRetryOptions = { gateId: string; agent: string; harness: string; model?: string; routers: string[]; writtenWith?: string };
 export type GateInboxItem = Gate & { workItem?: Pick<WorkItem, "id" | "title" | "state" | "factory" | "pr" | "previewUrl" | "spec"> };
 export type Portfolio = {
   projects: { project: Project; factories: FactoryMetrics[]; totals: { prsOpened: number; prsMerged: number; costUsd: number; activeWorkItems: number; pendingDecisions: number } }[];
@@ -414,6 +416,9 @@ export class KilnClient {
   rejectDefinitionChange = (id: string) => this.request<DefinitionChange>("POST", `/api/v1/definition-changes/${id}/reject`);
   gate = (id: string) => this.request<Gate & { workItem?: WorkItem }>("GET", `/api/v1/gates/${id}`);
   decide = (id: string, decision: "approve" | "reject" | "answer", answer?: string, via?: string) => this.request<Gate>("POST", `/api/v1/gates/${id}/decide`, { decision, answer, via });
+  retryOptions = (id: string) => this.request<SpecRetryOptions>("GET", `/api/v1/gates/${id}/retry`);
+  /** Write the spec again from scratch, optionally on another model for that one run. */
+  retrySpec = (id: string, model?: string, via?: string) => this.request<Gate>("POST", `/api/v1/gates/${id}/retry`, { model, via });
 
   projects = () => this.request<Project[]>("GET", "/api/v1/projects");
   project = (id: string) => this.request<Project & { roadmap?: Roadmap; workItems: WorkItem[] }>("GET", `/api/v1/projects/${id}`);

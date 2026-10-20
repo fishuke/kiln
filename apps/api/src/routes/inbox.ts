@@ -19,6 +19,10 @@ export const InboxQuery = z
   .passthrough();
 export const Ids = z.object({ ids: z.array(z.string().min(1)).min(1).max(100) });
 export const ProposeChange = z.object({ title: z.string().min(1).max(200), message: z.string().optional(), files: z.record(z.string().min(1), z.string().nullable()).refine((f) => Object.keys(f).length > 0, "change at least one file") });
+export const RetrySpec = z.object({
+  model: z.string().trim().max(120).regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/, "a model id such as claude-sonnet-5-5, or router:<name>").optional(),
+  via: z.string().optional(),
+});
 export const Comment = z.object({ text: z.string().min(1), path: z.string().optional(), line: z.number().int().positive().optional() });
 
 export const routes: Route[] = [
@@ -27,6 +31,8 @@ export const routes: Route[] = [
   { method: "post", path: "/api/v1/inbox/unread", summary: "Mark items unread", body: Ids, tag: "Inbox" },
   { method: "post", path: "/api/v1/inbox/resolve", summary: "Resolve (hide) items for you", body: Ids, tag: "Inbox" },
   { method: "post", path: "/api/v1/inbox/unresolve", summary: "Undo a resolve", body: Ids, tag: "Inbox" },
+  { method: "get", path: "/api/v1/gates/{id}/retry", summary: "What a spec retry can run on: the spec agent's harness and model, the factory's routers and the model that wrote the spec", scope: "decide:spec", tag: "Inbox" },
+  { method: "post", path: "/api/v1/gates/{id}/retry", summary: "Write the spec again from scratch (a spec review or a failed spec), optionally on another model for that run", scope: "decide:spec", body: RetrySpec, tag: "Inbox" },
   { method: "get", path: "/api/v1/factories/{id}/definition-changes", summary: "Proposed definition changes (?state=open|merged|changes_requested|rejected)", scope: "read", tag: "Inbox" },
   { method: "post", path: "/api/v1/factories/{id}/definition-changes", summary: "Propose a definition change for review (agents and people)", scope: "send", body: ProposeChange, tag: "Inbox" },
   { method: "get", path: "/api/v1/definition-changes/{id}", summary: "A proposed change with its diff and comments", scope: "read", tag: "Inbox" },
@@ -54,6 +60,19 @@ export function register({ app, kiln, need, who, visible, options }: RouteContex
       return c.json({ results });
     });
   }
+
+  const specGate = (c: Parameters<typeof need>[0], id: string) => {
+    const g = kiln.gates.get(id);
+    if (!g) throw new HttpError(404, "unknown gate");
+    need(c, "decide:spec", g.factory);
+    return g;
+  };
+  app.get("/api/v1/gates/:id/retry", (c) => c.json(kiln.workflow.retryOptions(specGate(c, c.req.param("id")).id)));
+  app.post("/api/v1/gates/:id/retry", async (c) => {
+    const g = specGate(c, c.req.param("id"));
+    const body = RetrySpec.parse(await c.req.json());
+    return c.json(await kiln.workflow.retrySpec(g.id, { by: who(c), via: body.via ?? "web", model: body.model || undefined }));
+  });
 
   const change = (id: string) => {
     const ch = kiln.definitionChanges.get(id);

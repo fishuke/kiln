@@ -311,17 +311,19 @@ export class Workflow {
     return wi.branch ?? `kiln/${wi.id.replace(/^wi_/, "")}-${wi.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32)}`;
   }
 
-  private briefing(wi: Item, extra: string[] = []): string {
+  /** `since` skips people's messages before that conversation index (a spec retry starts from scratch). */
+  private briefing(wi: Item, extra: string[] = [], since = 0): string {
     const lines = [`# ${wi.title}`, "", wi.body];
     if (wi.triage) lines.push("", `Triage: ${wi.triage.kind}, size ${wi.triage.size}. ${wi.triage.summary ?? ""}`);
     if (wi.spec) lines.push("", "Acceptance criteria:", ...wi.spec.criteria.map((c) => `- ${c}`));
     if (wi.review?.findings.length) lines.push("", "Review findings to address:", ...wi.review.findings.map((f) => `- ${f}`));
-    const humans = wi.conversation.filter((c) => c.role === "human").slice(1);
+    const first = wi.conversation.findIndex((c) => c.role === "human");
+    const humans = wi.conversation.filter((c, i) => c.role === "human" && i > first && i >= since);
     if (humans.length) lines.push("", "Messages from people:", ...humans.map((c) => `- ${c.from}: ${c.text}`));
     return [...lines, ...extra].join("\n");
   }
 
-  private async agentRun(wi: Item, agent: string, stage: string, prompt: string, opts: { push?: boolean; collect?: Parameters<Kiln["runs"]["execute"]>[0]["collect"]; mode?: RunMode } = {}): Promise<Run> {
+  private async agentRun(wi: Item, agent: string, stage: string, prompt: string, opts: { push?: boolean; collect?: Parameters<Kiln["runs"]["execute"]>[0]["collect"]; mode?: RunMode; model?: string } = {}): Promise<Run> {
     const r = this.resolved(wi);
     const caps = [wi.budgetUsd, ...Object.values(r.parsed.policies).map((p) => p.maxUsdPerWorkItem)].filter((n): n is number => typeof n === "number");
     const cap = caps.length ? Math.min(...caps) : undefined;
@@ -349,7 +351,7 @@ export class Workflow {
       push: opts.push ?? true,
       collect: opts.collect,
       mode,
-      overrides: wi.execution,
+      overrides: opts.model ? { ...wi.execution, model: opts.model } : wi.execution,
     });
     const fresh = this.get(wi.id)!;
     fresh.costUsd += run.costUsd;
@@ -602,26 +604,28 @@ export class Workflow {
     wi = this.move(wi, "planning", "writing the spec");
     const feedback = this.k.gates
       .list({ workItemId: wi.id })
-      .filter((g) => g.kind === "spec" && g.state === "rejected" && g.answer)
+      .filter((g) => g.kind === "spec" && g.state === "rejected" && g.answer && !wi.specRetry?.ignoreGates.includes(g.id))
       .map((g) => `Requested changes: ${g.answer}`);
+    const model = wi.specRetry?.model;
     const planOnly = this.resolved(wi).agents[stage.agent!]?.agentType !== "SPEC";
     let run = await this.agentRun(
       wi,
       stage.agent!,
       "spec",
-      this.briefing(wi, ["", planOnly ? "Write the plan for this change." : "Write the spec with numbered, testable acceptance criteria (AC1, AC2, …) and user stories.", ...feedback]),
-      planOnly ? { mode: "plan", push: false } : {},
+      this.briefing(wi, ["", planOnly ? "Write the plan for this change." : "Write the spec with numbered, testable acceptance criteria (AC1, AC2, …) and user stories.", ...feedback], wi.specRetry?.messagesFrom),
+      planOnly ? { mode: "plan", push: false, model } : { model },
     );
     if (run.status !== "succeeded") return this.specFailed(wi, stage, run);
     let res = (run.result ?? {}) as { specPath?: string; criteria?: string[]; stories?: string[]; openQuestions?: string[]; plan?: string };
     const failing = await this.checkCriteria(wi, res.criteria ?? []);
     if (failing.length && (wi.loops.spec ?? 0) < 1 && !planOnly) {
       wi.loops.spec = (wi.loops.spec ?? 0) + 1;
-      run = await this.agentRun(wi, stage.agent!, "spec", this.briefing(wi, ["", "These acceptance criteria are not testable or are ambiguous; rewrite them:", ...failing.map((c) => `- ${c}`)]));
+      run = await this.agentRun(wi, stage.agent!, "spec", this.briefing(wi, ["", "These acceptance criteria are not testable or are ambiguous; rewrite them:", ...failing.map((c) => `- ${c}`)], wi.specRetry?.messagesFrom), { model });
       if (run.status !== "succeeded") return this.specFailed(wi, stage, run);
       res = (run.result ?? res) as typeof res;
     }
-    wi.spec = { path: res.specPath ?? `docs/specs/${wi.id}.md`, criteria: res.criteria ?? [], stories: res.stories ?? [], openQuestions: res.openQuestions ?? [] };
+    wi.spec = { path: res.specPath ?? `docs/specs/${wi.id}.md`, criteria: res.criteria ?? [], stories: res.stories ?? [], openQuestions: res.openQuestions ?? [], ...(run.model ? { model: run.model } : {}) };
+    if (wi.specRetry) delete wi.specRetry.model;
     const stillFailing = await this.checkCriteria(wi, wi.spec.criteria);
     const pr = await this.ensurePullRequest(wi, true);
     if (pr) this.k.runs.addArtifact(run.id, { kind: "pr", name: `${pr.repo}#${pr.number} (draft)`, url: pr.url });
@@ -640,6 +644,8 @@ export class Workflow {
         ...wi.spec.criteria.map((c) => `- ${c}`),
         ...(wi.spec.openQuestions.length ? ["Open questions:", ...wi.spec.openQuestions.map((q) => `- ${q}`)] : []),
         ...(stillFailing.length ? ["Not yet testable:", ...stillFailing.map((c) => `- ${c}`)] : []),
+        "",
+        `Written by ${stage.agent}${run.model ? ` (${run.model})` : ""}`,
       ].join("\n"),
       evidence: pr ? [{ label: "Spec PR", url: pr.url }] : [],
     });
@@ -929,6 +935,70 @@ export class Workflow {
     return this.complete(wi.id, { by: "merge", ref: `${repo}#${number}${by ? ` by ${by}` : ""}` });
   }
 
+  /** What a spec retry can run on: the spec agent, its harness and configured model, the factory's routers and the model that wrote the spec. */
+  retryOptions(gateId: string) {
+    const { gate, wi } = this.specGate(gateId);
+    const r = this.resolved(wi);
+    const name = wi.plan?.stages.find((s) => s.kind === "spec")?.agent;
+    const agent = name ? r.agents[name] : undefined;
+    if (!agent) throw new KilnError("conflict", `work item ${wi.id} has no spec stage`);
+    return {
+      gateId: gate.id,
+      agent: agent.name,
+      harness: wi.execution?.harness ?? agent.harness.type,
+      model: wi.execution?.model ?? agent.harness.model,
+      routers: Object.keys(r.parsed.routers),
+      writtenWith: wi.spec?.model,
+    };
+  }
+
+  /** Throw the spec away and write it again from scratch, ignoring earlier notes; `model` applies to that one spec run. */
+  async retrySpec(gateId: string, input: { by: string; via: string; model?: string }): Promise<Gate> {
+    const { gate, wi } = this.specGate(gateId);
+    if (gate.state !== "open") throw new KilnError("conflict", `gate ${gateId} is ${gate.state}`);
+    const router = input.model?.startsWith("router:") ? input.model.slice(7) : undefined;
+    if (router !== undefined && !this.resolved(wi).parsed.routers[router]) throw new KilnError("invalid_request", `unknown model router ${router}`);
+    const idx = wi.plan?.stages.findIndex((s) => s.kind === "spec") ?? -1;
+    if (idx < 0) throw new KilnError("conflict", `work item ${wi.id} has no spec stage`);
+    const decided: Gate = {
+      ...gate,
+      state: "expired",
+      decision: "retry",
+      decidedBy: input.by,
+      decidedVia: input.via,
+      decidedAt: this.k.clock.now().toISOString(),
+    };
+    this.k.store.put(C.gates, decided);
+    wi.plan!.cursor = idx;
+    delete wi.spec;
+    wi.loops.spec = 0;
+    wi.loops["spec-errors"] = 0;
+    wi.specRetry = {
+      ignoreGates: this.k.gates
+        .list({ workItemId: wi.id })
+        .filter((g) => g.kind === "spec")
+        .map((g) => g.id),
+      messagesFrom: wi.conversation.length,
+      ...(input.model ? { model: input.model } : {}),
+    };
+    this.save(wi);
+    this.touch(wi.id, input.by, `spec retried by ${input.by}${input.model ? ` (${input.model})` : ""}`);
+    this.k.bus.publish("gate.decided", { gateId, workItemId: wi.id, decision: "retry", by: input.by });
+    this.k.audit(input.by, "gate.retry", gateId, { via: input.via, model: input.model });
+    this.move(this.get(wi.id)!, "planning", "spec retried");
+    void this.advance(wi.id);
+    return decided;
+  }
+
+  private specGate(gateId: string): { gate: Gate; wi: Item } {
+    const gate = this.k.gates.get(gateId);
+    if (!gate) throw new KilnError("resource_not_found", `unknown gate ${gateId}`);
+    if (!isSpecGate(gate)) throw new KilnError("conflict", `gate ${gateId} is not a spec review or a failed spec`);
+    const wi = this.get(gate.workItemId);
+    if (!wi) throw new KilnError("resource_not_found", `unknown work item ${gate.workItemId}`);
+    return { gate, wi };
+  }
+
   /** New review comments on a handed-off PR send the work back to implementation. */
   async onReviewSubmitted(repo: string, number: number, text: string, by: string, body = text) {
     const wi = this.list().find((w) => w.pr?.repo === repo && w.pr.number === number);
@@ -948,6 +1018,11 @@ export class Workflow {
     this.move(fresh, "building", `review from ${by}`);
     await this.advance(wi.id);
   }
+}
+
+/** Gates a spec retry applies to: a spec review, or the question a failed spec run left. */
+export function isSpecGate(g: Pick<Gate, "kind" | "name">): boolean {
+  return g.kind === "spec" || g.name === "spec-failed";
 }
 
 /** Which of the factory's repositories a work item belongs to; the options are the repositories themselves. */

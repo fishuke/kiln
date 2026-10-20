@@ -1,0 +1,8 @@
+name: quality
+agents: [implement]
+labels:
+  - { value: good, score: 1 }
+  - { value: bad, score: 0 }
+passingScore: 0.7
+model: claude-haiku-5-5
+selfImprovement: true

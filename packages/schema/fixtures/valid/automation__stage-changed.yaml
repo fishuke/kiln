@@ -1,0 +1,4 @@
+triggers:
+  - provider: factory
+    event: work_item_stage_changed
+    filter: { to: [reviewing] }

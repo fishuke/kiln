@@ -1,0 +1,2 @@
+stages:
+  - { id: build, agent: implement }

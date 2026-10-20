@@ -1,0 +1,2 @@
+triggers:
+  - { provider: schedule, event: cron_fired }

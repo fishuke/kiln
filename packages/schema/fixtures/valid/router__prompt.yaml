@@ -1,0 +1,4 @@
+type: prompt
+default: claude-sonnet-5-5
+routing:
+  - { description: front-end styling, model: claude-haiku-5-5 }

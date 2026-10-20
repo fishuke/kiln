@@ -1,0 +1,3 @@
+protectedPaths: [packages/definitions/validator*, apps/api/auth/**]
+twoApprovalPaths: [policies/**]
+deniedActions: [merge, approve]

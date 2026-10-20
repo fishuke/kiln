@@ -1,0 +1,5 @@
+name: s
+agents: [a]
+passingScore: 1.5
+model: m
+labels: [{ value: a, score: 1 }]

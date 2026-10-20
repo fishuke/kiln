@@ -1,0 +1,5 @@
+agentType: IMPLEMENT
+harness: { type: codex, model: gpt-6 }
+runner: linux-node
+spawnableBy: [foreman]
+idleTimeoutMinutes: 30

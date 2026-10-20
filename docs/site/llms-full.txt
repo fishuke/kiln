@@ -4009,6 +4009,14 @@ integrations:
 
 A factory uses Linear or Jira, not both.
 
+To limit who can start work from Linear, list people by Linear user id, email or name. `allowUsers` lets only them in, and `blockUsers` keeps them out. Without either list, everyone in the factory's teams can. When someone who is not allowed delegates or mentions the factory in an agent session, no work starts and the session tells them why:
+
+```yaml
+integrations:
+  - type: linear
+    linear: { teams: [Engineering], allowUsers: [ann@acme.com, Bob Smith] }
+```
+
 For the tracker features below (comments, states, planning), Kiln also reads `LINEAR_API_KEY` and `LINEAR_TEAM_ID`.
 
 ## Starting work

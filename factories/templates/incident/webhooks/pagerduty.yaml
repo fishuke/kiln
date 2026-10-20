@@ -1,0 +1,4 @@
+authMode: signature
+signatureScheme: standard_webhooks
+secretName: PAGERDUTY_WEBHOOK_SECRET
+deliveryIdHeader: webhook-id

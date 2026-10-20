@@ -1,0 +1,14 @@
+schemaVersion: kiln/v1
+name: Kiln
+alias: kiln
+description: The factory that builds Kiln. Issues labeled kiln-ready in fishuke/klin come here.
+project: kiln
+repositories:
+  - { owner: fishuke, name: klin }
+integrations: [github, linear]
+agentDefaults:
+  harness: { type: claude-code, model: router:by-task }
+  runner: linux-node
+selfImprovement: { failedRunThreshold: 10, reviewers: { type: admins } }
+defaultPipeline: feature
+budgets: { perWorkItemUsd: 30, monthlyUsd: 3000 }

@@ -1,0 +1,16 @@
+description: The kiln-self factory may not weaken the checks that review it
+protectedPaths:
+  - packages/definitions/src/validate*
+  - apps/api/src/app.ts
+  - packages/auth/**
+  - policies/**
+  - gates/**
+  - packages/engine/src/gates.ts
+  - packages/engine/src/state.ts
+  - .github/workflows/**
+  - factories/kiln-self/policies/**
+twoApprovalPaths:
+  - packages/definitions/**
+  - packages/engine/src/improvement.ts
+deniedActions: [merge, approve, deploy]
+maxUsdPerWorkItem: 30

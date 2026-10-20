@@ -1,0 +1,8 @@
+description: Linux sandbox with Node 22 and pnpm
+image: node:22-bookworm
+backend: docker
+shape: { vcpus: 4, memoryGb: 8 }
+setupCommands:
+  - corepack enable
+  - pnpm install --frozen-lockfile || npm ci
+egress: [registry.npmjs.org, github.com, api.github.com]

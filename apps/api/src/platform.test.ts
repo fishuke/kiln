@@ -10,8 +10,8 @@ import { createApp, type AppOptions } from "./app";
 
 const pw = "correct horse battery";
 
-function setup(opts: AppOptions & { harnessCost?: number } = {}) {
-  const t = createTestKiln({ preview: false, webUrl: "http://web.test", publicUrl: "http://kiln.test", ...(opts.harnessCost !== undefined ? { harness: () => new FakeHarness(async () => ({ summary: "ok", costUsd: opts.harnessCost })) } : {}) });
+function setup(opts: AppOptions & { harnessCost?: number; serverAdmins?: string[] } = {}) {
+  const t = createTestKiln({ preview: false, webUrl: "http://web.test", publicUrl: "http://kiln.test", serverAdmins: opts.serverAdmins, ...(opts.harnessCost !== undefined ? { harness: () => new FakeHarness(async () => ({ summary: "ok", costUsd: opts.harnessCost })) } : {}) });
   let app: ReturnType<typeof createApp>;
   const inProcess = async (input: string | URL | Request, init?: RequestInit) => app.fetch(new Request(input as string, init));
   app = createApp(t.kiln, { mcp: createMcpHandler("http://kiln.test", inProcess), ...opts });

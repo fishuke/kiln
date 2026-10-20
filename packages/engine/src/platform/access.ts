@@ -8,8 +8,13 @@ export type Access = {
   user?: User;
   team?: Team;
   teamRole?: TeamRole;
-  /** A token with explicit `admin` on every factory (the bootstrap admin, dev auth). */
+  /** A token with explicit `admin` on every factory (the bootstrap admin, dev auth), or a server admin. */
   superuser: boolean;
+  /**
+   * Sees every team's audit log, tokens and server secrets: a scoped token with `admin` on `*`
+   * (the bootstrap admin), dev auth, or a user listed in KILN_ADMIN_EMAILS.
+   */
+  serverAdmin: boolean;
   /** Whether listings should be limited to the current team. */
   teamScoped: boolean;
 };
@@ -21,9 +26,13 @@ export type Access = {
  * user's first team.
  */
 export function resolveAccess(k: Kiln, token: ApiToken, teamHeader?: string): Access {
-  const superuser = can(token, "admin", "*");
   const user = token.userId ? k.users.get(token.userId) : undefined;
   if (token.userId && !user) throw new PlatformError(401, "the user behind this token no longer exists");
+  const listed = Boolean(user && (k.options.serverAdmins ?? []).map((e) => e.trim().toLowerCase()).includes(user.email) && (token.type === "session" || token.type === "personal"));
+  const explicitAdmin = can(token, "admin", "*");
+  const serverAdmin = listed || (explicitAdmin && (token.type ?? "scoped") !== "agent" && token.type !== "worker");
+  const superuser = explicitAdmin || listed;
+  if (listed) token = { ...token, grants: [...token.grants, { scope: "admin", factory: "*" }] };
 
   let team: Team | undefined;
   if (teamHeader) {
@@ -48,5 +57,5 @@ export function resolveAccess(k: Kiln, token: ApiToken, teamHeader?: string): Ac
   const teamRole = team && user ? k.teams.role(team.id, user.id) : superuser ? "owner" : undefined;
   // A user token always speaks for the user's current email, even after an email change.
   const subject = user && (token.type === "session" || token.type === "personal") ? user.email : token.subject;
-  return { token: { ...token, subject, grants }, user, team, teamRole, superuser, teamScoped: Boolean(user) || Boolean(teamHeader) || token.type === "agent" };
+  return { token: { ...token, subject, grants }, user, team, teamRole, superuser, serverAdmin, teamScoped: Boolean(user) || Boolean(teamHeader) || token.type === "agent" };
 }

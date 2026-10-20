@@ -1,0 +1,17 @@
+schemaVersion: v1alpha1
+name: Kiln
+description: Self-improving software factory platform. Builds Kiln from docs/plan/PLAN.md.
+alias: kiln
+repositories:
+  - owner: fishuke
+    name: klin
+codeForges:
+  - GITHUB
+integrations:
+  - type: linear
+selfImprovement:
+  failedRunThreshold: 25
+  reviewerType: admins
+agentDefaults:
+  model: auto
+  runner: linux-node

@@ -165,6 +165,8 @@ export type EnvironmentTemplate = {
   repos: { owner: string; name: string }[];
   setupCommands: string[];
   secrets: string[];
+  /** A team secret (docker_registry or aws_ecr) for pulling `image`. */
+  registryCredentialSecretName?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

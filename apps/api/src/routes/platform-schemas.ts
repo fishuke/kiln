@@ -74,6 +74,7 @@ const envShape = {
   repos: z.array(z.object({ owner: z.string().min(1), name: z.string().min(1) }).strict()).optional(),
   setupCommands: z.array(z.string().min(1)).optional(),
   secrets: z.array(z.string().min(1)).optional(),
+  registryCredentialSecretName: z.string().min(1).optional(),
 };
 export const CreateEnvironment = z.object({ name: z.string().trim().min(1).max(100), ...envShape }).strict();
 export const UpdateEnvironment = z.object({ name: z.string().trim().min(1).max(100).optional(), ...envShape }).strict();

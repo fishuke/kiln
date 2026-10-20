@@ -19,7 +19,7 @@ import { GateService } from "./gates";
 import { ImprovementService, RuleImprover, type Improver } from "./improvement";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
-import { AccountService, EnvironmentService, McpRegistry, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
+import { AccountService, EnvironmentService, McpRegistry, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
 import { PlanningService, type Planner } from "./planning";
 import { RunService } from "./runs";
 import { DecisionJudge, ScoringService, type Judge } from "./scoring";
@@ -59,6 +59,8 @@ export type KilnOptions = {
   secretKey?: string;
   /** Server admins (KILN_ADMIN_EMAILS): users who see every team's audit log, tokens and server secrets. */
   serverAdmins?: string[];
+  /** ECR pull passwords for aws_ecr registry credentials (default: the AWS CLI). */
+  ecr?: EcrTokenProvider;
   /** Root folder for teams' local storage folders (default .data/storage). */
   storageRoot?: string;
   /** Token used when Kiln itself commits to config repos (GitHub App installation token). */

@@ -7,6 +7,7 @@ import { hashDir, type Sandbox, type SandboxProvider, type SnapshotRef } from "@
 import type { HarnessType, Runner } from "@kiln/schema";
 import type { Kiln } from "./kiln";
 import { cloudProviderEnv } from "./cloud";
+import { registryAuthFor } from "./platform/registry";
 import { C, newId, type Artifact, type Attachment, type ExecutionOverrides, type Run, type RunEvent, type RunKind, type WorkItem } from "./types";
 
 const MEDIA: Record<string, [Artifact["kind"], string]> = {
@@ -195,6 +196,9 @@ export class RunService {
     const factoryRepos = input.repos ?? resolved.factory.repositories.filter((r) => !r.deferred || required.has(repoKey(r)));
     const repos = [...factoryRepos, ...(input.repos ? [] : (environment?.repos ?? []).filter((e) => !factoryRepos.some((r) => r.owner === e.owner && r.name === e.name)))];
     const now = this.k.clock.now().toISOString();
+    // A private image: the runner's (or else the environment's) registry credential, checked against the image's registry.
+    const registrySecret = declared?.platform?.linux?.registryCredentialSecretName ?? (declared ? undefined : environment?.registryCredentialSecretName);
+    const registryAuth = registrySecret ? await registryAuthFor(this.k, team, registrySecret, runner.image) : undefined;
     const run: Run = {
       id: newId("run"),
       kind: input.kind ?? "work",
@@ -228,6 +232,7 @@ export class RunService {
     // Setup commands target the runner's image; when Kiln falls back to the host they are skipped.
     const effective: Runner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [] };
     const sandbox = await provider.create({
+      registryAuth,
       runner: effective,
       repos: repos.map((r) => ({ name: r.name, url: this.k.forge.cloneUrl(r, token) })),
       env: { KILN_RUN_ID: run.id },

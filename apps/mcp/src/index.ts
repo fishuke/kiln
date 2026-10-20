@@ -333,13 +333,22 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
   return server;
 }
 
-/** Stateless streamable-HTTP handler: one server per request, authenticated by the caller's bearer token. */
-export function createMcpHandler(apiBaseUrl: string, fetchImpl?: typeof fetch) {
+/**
+ * Stateless streamable-HTTP handler: one server per request, authenticated by the caller's bearer token.
+ * With `resourceMetadata`, a missing or rejected token gets a 401 that points MCP clients at Kiln's
+ * OAuth server, so they can sign the person in through the browser.
+ */
+export function createMcpHandler(apiBaseUrl: string, fetchImpl?: typeof fetch, opts: { resourceMetadata?: string } = {}) {
+  const unauthorized = (error: string) =>
+    new Response(JSON.stringify({ error }), { status: 401, headers: { "content-type": "application/json", ...(opts.resourceMetadata ? { "www-authenticate": `Bearer resource_metadata="${opts.resourceMetadata}"` } : {}) } });
   return async (req: Request): Promise<Response> => {
     const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-    if (!token) return new Response(JSON.stringify({ error: "a bearer token is required" }), { status: 401, headers: { "content-type": "application/json" } });
+    if (!token) return unauthorized("a bearer token is required");
     // X-Kiln-Team on the MCP connection picks the team the tools act in.
-    const server = createKilnMcpServer(new KilnClient({ baseUrl: apiBaseUrl, token, fetch: fetchImpl, team: req.headers.get("x-kiln-team") ?? undefined }));
+    const client = new KilnClient({ baseUrl: apiBaseUrl, token, fetch: fetchImpl, team: req.headers.get("x-kiln-team") ?? undefined });
+    // Expired or revoked tokens answer 401 at the HTTP level, so clients sign in again.
+    if (opts.resourceMetadata && req.method === "POST" && !(await client.me().then(() => true, (e: { status?: number }) => e.status !== 401))) return unauthorized("the token is invalid or expired");
+    const server = createKilnMcpServer(client);
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
     return transport.handleRequest(req);

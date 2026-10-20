@@ -17,6 +17,7 @@ import { BenchmarkAdmin } from "./benchmark-admin";
 import { BenchmarkService } from "./benchmarks";
 import { DedupeService } from "./dedupe";
 import { GitHubAppService } from "./github-app";
+import { OAuthService } from "./oauth";
 import { DefinitionChangeService } from "./definition-changes";
 import { DefinitionService } from "./definitions";
 import { DefinitionEditor } from "./editing";
@@ -66,6 +67,11 @@ export type KilnOptions = {
   defaultBackend?: "local" | "docker" | "kubernetes";
   /** Image for agents without a runner (KILN_RUNNER_IMAGE); it should carry the harness CLIs. */
   defaultImage?: string;
+  /**
+   * Computer use: the browser MCP server Claude Code agents get (Playwright MCP). `false` turns it
+   * off. Default: `npx -y @playwright/mcp@0.0.83`; the sandbox image has `playwright-mcp` installed.
+   */
+  browserMcp?: { command: string; args?: string[] } | false;
   /** GitHub App manifest conversion (default: api.github.com). */
   githubManifests?: GitHubManifestClient;
   /** Called when an admin creates Kiln's GitHub App, so the server can switch its forge to it. */
@@ -156,6 +162,7 @@ export class Kiln {
   readonly vault: SecretVault;
   readonly credentialPool: CredentialPool;
   readonly githubApp: GitHubAppService;
+  readonly oauth: OAuthService;
   readonly mcp: McpRegistry;
   readonly environments: EnvironmentService;
   readonly usage: UsageService;
@@ -210,6 +217,7 @@ export class Kiln {
     this.vault = new SecretVault(this);
     this.credentialPool = new CredentialPool(this);
     this.githubApp = new GitHubAppService(this);
+    this.oauth = new OAuthService(this);
     this.mcp = new McpRegistry(this);
     this.environments = new EnvironmentService(this);
     this.usage = new UsageService(this);

@@ -30,6 +30,7 @@ export * from "./files";
 export * from "./tasks";
 export * from "./dedupe";
 export * from "./github-app";
+export * from "./oauth";
 export * from "./inbox";
 export * from "./editing";
 export * from "./definition-changes";

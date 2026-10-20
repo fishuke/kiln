@@ -1,3 +1,5 @@
+import { parseFrontmatter } from "@/lib/frontmatter";
+
 /** Suggested automations. The API serves the catalogue at /api/v1/automation-templates; this is the built-in fallback. */
 
 export type TemplateCategory = "suggested" | "incidents" | "implementation" | "code-review" | "security";
@@ -212,17 +214,21 @@ export function normalizeTemplate(raw: unknown): AutomationTemplate | null {
   const slug = String(o.slug ?? o.id ?? "");
   const title = String(o.title ?? o.name ?? "");
   if (!slug || !title) return null;
-  const cats = Array.isArray(o.categories) ? (o.categories as string[]) : o.category ? [String(o.category)] : ["suggested"];
+  // API templates carry their automation file; triggers and prompt come from it.
+  const md = o.files && typeof o.files === "object" ? Object.entries(o.files as Record<string, string>).find(([p]) => /^automations\/[^/]+\/automation\.md$/.test(p))?.[1] : undefined;
+  const fm = md ? parseFrontmatter(md) : undefined;
+  const triggers = (Array.isArray(o.triggers) ? o.triggers : Array.isArray(fm?.data.triggers) ? fm.data.triggers : []) as AutomationTemplate["triggers"];
+  const cats = (Array.isArray(o.categories) ? (o.categories as string[]) : o.category ? [String(o.category)] : []).filter((c): c is TemplateCategory => TEMPLATE_CATEGORIES.some((x) => x.id === c));
   return {
     slug,
     title,
     description: String(o.description ?? ""),
-    categories: cats.filter((c): c is TemplateCategory => TEMPLATE_CATEGORIES.some((x) => x.id === c)),
-    source: String(o.source ?? (Array.isArray(o.triggers) ? ((o.triggers[0] as { provider?: string })?.provider ?? "github") : "github")),
+    categories: cats.length ? cats : ["suggested"],
+    source: String(o.source ?? triggers[0]?.provider ?? "github"),
     target: String(o.target ?? "github"),
-    triggers: Array.isArray(o.triggers) ? (o.triggers as AutomationTemplate["triggers"]) : [],
+    triggers,
     agentType: o.agentType ? String(o.agentType) : undefined,
-    prompt: String(o.prompt ?? ""),
+    prompt: String(o.prompt ?? fm?.body.trim() ?? ""),
     variants: Array.isArray(o.variants) ? (o.variants as string[]) : undefined,
   };
 }

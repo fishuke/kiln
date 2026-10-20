@@ -333,7 +333,7 @@ export function AutomationEditor(p: EditorProps) {
           <RunsTable rows={p.runs} empty={isNew ? "Save this automation to see its runs." : "This automation has not started any runs yet."} />
         )}
       </div>
-      {!isNew && <TestFilterDialog factory={p.factory} name={p.original!} trigger={testing === null ? null : (model.triggers[testing] ?? null)} onClose={() => setTesting(null)} />}
+      {!isNew && <TestFilterDialog factory={p.factory} name={p.original!} trigger={testing === null ? null : (model.triggers[testing] ?? null)} index={testing ?? undefined} onClose={() => setTesting(null)} />}
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>

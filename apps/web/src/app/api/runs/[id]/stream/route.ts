@@ -1,14 +1,14 @@
-import { authHeaders, KILN_API_URL } from "@/lib/api/raw";
+import { API_BASE, apiHeaders } from "@/lib/proxy";
 
 export const dynamic = "force-dynamic";
 
-/** Live run events for the browser: proxies the API's SSE stream with the server token. */
+/** Live run events for the browser: proxies the API's SSE stream as the signed-in user. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const after = new URL(req.url).searchParams.get("after") ?? "0";
   try {
-    const res = await fetch(`${KILN_API_URL}/api/v1/runs/${encodeURIComponent(id)}/stream?after=${encodeURIComponent(after)}`, {
-      headers: authHeaders({ accept: "text/event-stream" }),
+    const res = await fetch(`${API_BASE}/api/v1/runs/${encodeURIComponent(id)}/stream?after=${encodeURIComponent(after)}`, {
+      headers: await apiHeaders({ accept: "text/event-stream" }),
       cache: "no-store",
       signal: req.signal,
     });

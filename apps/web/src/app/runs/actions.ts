@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { Attachment } from "@kiln/sdk-ts";
 import { api } from "@/lib/kiln";
-import { createWorkItem, followup, scoreRun, type Attachment } from "@/lib/api/runs";
 
 export type ActionResult<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -22,10 +22,9 @@ export async function startRun(input: { factory: string; text: string; attachmen
   const title = first!.trim().slice(0, 200) || "New run";
   const body = rest.join("\n").trim();
   try {
-    const wi = await createWorkItem({ factory: input.factory, title, body, attachments: input.attachments });
-    const kept = (wi as { attachments?: unknown[] }).attachments?.length ?? 0;
-    // Until the API stores attachments on work items, keep them reachable as links in the message.
-    if (input.attachments.length && kept === 0) await api.message(wi.id, withAttachmentLinks("", input.attachments)).catch(() => undefined);
+    const wi = await api.send({ factory: input.factory, title, body, attachments: input.attachments, via: "kiln" });
+    // A server that drops attachments still gets them as links in the conversation.
+    if (input.attachments.length && !wi.attachments?.length) await api.message(wi.id, withAttachmentLinks("", input.attachments)).catch(() => undefined);
     revalidatePath("/runs");
     return { ok: true, id: wi.id };
   } catch (err) {
@@ -35,17 +34,19 @@ export async function startRun(input: { factory: string; text: string; attachmen
 
 /**
  * Follow-up from the run composer. Root foreman runs (work items) get a message; agent runs use
- * POST /runs/:id/followups and fall back to steering the live run.
+ * POST /runs/:id/followups and fall back to steering the live run (attachments become links).
  */
 export async function sendFollowup(input: { id: string; isWorkItem: boolean; text: string; attachments: Attachment[] }): Promise<ActionResult> {
   const text = input.text.trim();
   if (!text && !input.attachments.length) return { ok: false, error: "Write a message first" };
+  // The API needs message text; files sent alone get a short one.
+  const message = text || "Attached files";
   try {
     if (input.isWorkItem) {
-      await api.message(input.id, withAttachmentLinks(text, input.attachments));
+      await api.message(input.id, message, input.attachments);
     } else {
       try {
-        await followup(input.id, text, input.attachments);
+        await api.followup(input.id, message, { attachments: input.attachments });
       } catch {
         await api.steer(input.id, withAttachmentLinks(text, input.attachments));
       }
@@ -113,7 +114,7 @@ export async function saveAsBenchmark(input: { id: string; suite: string; slug: 
 
 export async function scoreThisRun(id: string): Promise<ActionResult> {
   try {
-    await scoreRun(id);
+    await api.scoreRunNow(id);
     revalidatePath(`/runs/${id}`);
     return { ok: true };
   } catch (err) {

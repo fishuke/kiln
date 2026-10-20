@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "Automations" };
 
 export default async function Automations({ params }: { params: Promise<{ factory: string }> }) {
   const { factory } = await params;
-  const [f, def, templates, last] = await Promise.all([safe(() => api.factory(factory), null), safe(() => api.definition(factory), null), automationTemplates(), lastRuns(factory)]);
+  const [f, def, templates, last] = await Promise.all([safe(() => api.factory(factory), null), safe(() => api.definition(factory), null), automationTemplates(factory), lastRuns(factory)]);
   if (!f) notFound();
   const tree = def?.tree ?? {};
   const fromTree = automationNames(tree);

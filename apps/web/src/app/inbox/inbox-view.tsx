@@ -25,7 +25,7 @@ const READ_KEY = "kiln.inbox.read";
 
 const KIND_ICON: Record<InboxKind, React.ComponentType<{ className?: string }>> = {
   question: CircleHelp,
-  answered_question: MessageSquareReply,
+  answer_question: MessageSquareReply,
   spec_review: FileText,
   pr_review: GitPullRequest,
   blocked: Square,
@@ -33,7 +33,7 @@ const KIND_ICON: Record<InboxKind, React.ComponentType<{ className?: string }>> 
 };
 const KIND_TONE: Record<InboxKind, string> = {
   question: "text-violet-600 dark:text-violet-400",
-  answered_question: "text-muted-foreground",
+  answer_question: "text-muted-foreground",
   spec_review: "text-amber-600 dark:text-amber-400",
   pr_review: "text-emerald-600 dark:text-emerald-400",
   blocked: "text-orange-600 dark:text-orange-400",

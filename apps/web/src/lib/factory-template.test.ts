@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { AUTOMATION_TEMPLATES, availableTemplates, buildFactoryTree, MODEL_PRESETS, type WizardInput } from "./factory-template";
+import { AUTOMATION_TEMPLATES, availableTemplates, buildFactoryTree, MODEL_PRESETS, toCreateFactoryInput, type WizardInput } from "./factory-template";
 import { parseFrontmatter } from "./frontmatter";
 
 const base: WizardInput = {
@@ -48,5 +48,33 @@ describe("buildFactoryTree", () => {
   it("filters templates by integrations", () => {
     expect(availableTemplates(AUTOMATION_TEMPLATES, ["github"]).map((t) => t.provider)).not.toContain("linear");
     expect(availableTemplates(AUTOMATION_TEMPLATES, ["github", "linear"]).length).toBe(AUTOMATION_TEMPLATES.length);
+  });
+});
+
+describe("toCreateFactoryInput", () => {
+  const plain: WizardInput = { ...base, chat: [{ type: "slack", channels: [] }], tracker: { type: "linear", keys: ["ENG"] }, models: { ...MODEL_PRESETS.quality } };
+
+  it("maps the wizard to the API's create-factory body", () => {
+    expect(toCreateFactoryInput({ ...plain, preset: "cost", models: { ...MODEL_PRESETS.cost }, avatarKey: "uploads/a.png" })).toEqual({
+      name: "Web App",
+      alias: "webapp",
+      description: "The storefront",
+      avatar: "uploads/a.png",
+      repos: [{ owner: "acme", name: "web", forge: "github" }],
+      agents: { triage: true, spec: false, implement: true, review: true },
+      communications: { slack: true },
+      tracker: { type: "linear", scopes: ["ENG"] },
+      costPreset: "efficient",
+      selfImprovement: true,
+      automationTemplates: ["github-issues", "ci-failures", "unknown"],
+    });
+  });
+
+  it("returns null for what only the local template can express", () => {
+    expect(toCreateFactoryInput(base)).toBeNull(); // Slack channels
+    expect(toCreateFactoryInput({ ...plain, forge: "bitbucket" })).toBeNull();
+    expect(toCreateFactoryInput({ ...plain, repositories: [] })).toBeNull();
+    expect(toCreateFactoryInput({ ...plain, chat: [{ type: "discord", channels: [] }] })).toBeNull();
+    expect(toCreateFactoryInput({ ...plain, models: { ...MODEL_PRESETS.quality, implement: "gpt-6" } })).toBeNull();
   });
 });

@@ -17,7 +17,7 @@ export async function loadEditorContext(factory: string) {
     f,
     tree: def?.tree ?? {},
     resources,
-    webhooks: hooks.webhooks.map((w) => ({ uid: w.uid, name: w.name })),
+    webhooks: hooks.webhooks.map((w) => ({ uid: w.id, name: w.name })),
     connected: [...connected],
     alias: f.factory.alias,
     repoBacked: Boolean(f.factory.definitionRepo),

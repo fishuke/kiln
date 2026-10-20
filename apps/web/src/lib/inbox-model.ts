@@ -3,11 +3,11 @@
  * primary action the side pane offers. Pure functions shared by the page and the tests.
  */
 
-export type InboxKind = "question" | "answered_question" | "spec_review" | "pr_review" | "blocked" | "failed";
-export const INBOX_KINDS: InboxKind[] = ["question", "answered_question", "spec_review", "pr_review", "blocked", "failed"];
+export type InboxKind = "question" | "answer_question" | "spec_review" | "pr_review" | "blocked" | "failed";
+export const INBOX_KINDS: InboxKind[] = ["question", "answer_question", "spec_review", "pr_review", "blocked", "failed"];
 export const INBOX_KIND_LABEL: Record<InboxKind, string> = {
   question: "Asked question",
-  answered_question: "Answered question",
+  answer_question: "Answered question",
   spec_review: "Spec review",
   pr_review: "PR review",
   blocked: "Blocked",
@@ -42,6 +42,7 @@ export type GateLike = {
 export type StuckWorkItem = { id: string; factory: string; title: string; state: string; blockedReason?: string; updatedAt: string; pr?: { url: string; repo: string; number: number }; read?: boolean };
 
 export type InboxEntry = {
+  /** The API's inbox item id (bare gate id for open gates), so read and resolve reach the API. */
   id: string;
   /** Gate id when the entry is a decision; absent for blocked/failed work. */
   gateId?: string;
@@ -64,7 +65,7 @@ export type InboxEntry = {
 };
 
 export function gateInboxKind(g: Pick<GateLike, "kind" | "state">): InboxKind {
-  if (g.kind === "question") return g.state === "answered" ? "answered_question" : "question";
+  if (g.kind === "question") return g.state === "answered" ? "answer_question" : "question";
   if (g.kind === "spec") return "spec_review";
   return "pr_review";
 }
@@ -103,7 +104,7 @@ export function questionPrompt(question: string | undefined): string {
 export function gateEntry(g: GateLike): InboxEntry {
   const kind = gateInboxKind(g);
   return {
-    id: g.id,
+    id: kind === "answer_question" ? `answer:${g.id}` : g.id,
     gateId: g.id,
     kind,
     title: g.title,
@@ -130,9 +131,10 @@ export function buildInbox(gates: GateLike[], stuck: StuckWorkItem[]): InboxEntr
   const withGate = new Set(entries.map((e) => e.workItemId));
   for (const w of stuck) {
     if (withGate.has(w.id) || (w.state !== "blocked" && w.state !== "failed")) continue;
+    const kind = w.state === "failed" ? "failed" : "blocked";
     entries.push({
-      id: `wi:${w.id}`,
-      kind: w.state === "failed" ? "failed" : "blocked",
+      id: `task:${w.id}:${kind}`,
+      kind,
       title: w.title,
       body: w.blockedReason,
       factory: w.factory,

@@ -1,99 +1,69 @@
 import "server-only";
+import { api, safe } from "@/lib/kiln";
 
 /**
- * Raw fetchers for endpoints the SDK does not have yet (factory admin, platform registries, metrics).
- * Every call degrades to `null` when the endpoint is missing so pages render empty states.
+ * Platform registries and factory admin reads for the settings, agent and create pages. Every call
+ * acts as the signed-in user and degrades to an empty value so pages render empty states.
  */
-const base = () => (process.env.KILN_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
-const headers = (json = false): Record<string, string> => ({
-  accept: "application/json",
-  ...(json ? { "content-type": "application/json" } : {}),
-  ...(process.env.KILN_TOKEN ? { authorization: `Bearer ${process.env.KILN_TOKEN}` } : {}),
-});
-
-export async function getJson<T>(path: string): Promise<T | null> {
-  try {
-    const res = await fetch(`${base()}${path}`, { headers: headers(), cache: "no-store" });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
-}
-
-export type SendResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string };
-
-export async function sendJson<T>(method: string, path: string, body?: unknown): Promise<SendResult<T>> {
-  try {
-    const res = await fetch(`${base()}${path}`, { method, headers: headers(body !== undefined), body: body === undefined ? undefined : JSON.stringify(body), cache: "no-store" });
-    const text = await res.text();
-    const data = text ? (JSON.parse(text) as unknown) : undefined;
-    if (!res.ok) return { ok: false, status: res.status, error: (data as { error?: string } | undefined)?.error ?? `${method} ${path} returned ${res.status}` };
-    return { ok: true, data: data as T };
-  } catch (e) {
-    return { ok: false, status: 0, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-const unwrap = <T>(v: T[] | { items?: T[]; data?: T[] } | null): T[] => (Array.isArray(v) ? v : (v?.items ?? v?.data ?? []));
 
 /* ---------- Platform registries ---------- */
 
-export type Connection = { id: string; provider: string; name?: string; account?: string; status?: string; scopes?: Record<string, { id: string; name: string }[]> };
-export type McpServer = { id?: string; name: string; description?: string; transport?: string; url?: string; command?: string; managed?: boolean };
+/** A connected workspace provider. Connections are keyed by provider, so `id` is the provider. */
+export type Connection = { id: string; provider: string; name?: string; account?: string; status: string };
 export type TeamSecret = { name: string; description?: string; type?: string; scope?: string; updatedAt?: string };
-export type Worker = { id: string; name?: string; status?: string; backend?: string; lastSeenAt?: string };
-export type AutomationTemplate = { id: string; name: string; description: string; provider: string; requires?: string[]; agent?: string };
 export type ChannelOption = { id: string; name: string };
+export type OptionKind = "channels" | "teams" | "projects" | "repositories" | "orgs";
 
-export const listConnections = async () => unwrap(await getJson<Connection[] | { items: Connection[] }>("/api/v1/connections"));
-export const listMcpServers = async () => unwrap(await getJson<McpServer[] | { items: McpServer[] }>("/api/v1/mcp-servers"));
-export const listWorkers = async () => unwrap(await getJson<Worker[] | { items: Worker[] }>("/api/v1/workers"));
-export const listAutomationTemplates = async () => unwrap(await getJson<AutomationTemplate[] | { items: AutomationTemplate[] }>("/api/v1/automation-templates"));
-
-/** `GET /api/v1/secrets` returns names today and objects later. */
-export async function listSecrets(): Promise<TeamSecret[]> {
-  const raw = unwrap(await getJson<(string | TeamSecret)[] | { items: TeamSecret[] }>("/api/v1/secrets"));
-  return raw.map((s) => (typeof s === "string" ? { name: s } : s));
+export async function listConnections(): Promise<Connection[]> {
+  const rows = await safe(() => api.connections(), []);
+  return rows.flatMap((r) =>
+    r.connection?.status === "connected"
+      ? [{ id: r.provider, provider: r.provider, name: r.label, account: r.connection.account?.name, status: r.connection.status }]
+      : [],
+  );
 }
 
-/** Channels, teams or projects a connection exposes, e.g. `GET /api/v1/connections/:id/channels`. */
-export const listConnectionOptions = async (id: string, kind: "channels" | "teams" | "projects" | "repositories" | "orgs") =>
-  unwrap(await getJson<ChannelOption[] | { items: ChannelOption[] }>(`/api/v1/connections/${encodeURIComponent(id)}/${kind}`));
+export const listMcpServers = async () => (await safe(() => api.mcpServers(), null))?.servers ?? [];
+export const listWorkers = async () => (await safe(() => api.workers(), null))?.workers ?? [];
+
+/** Team secrets: managed ones with their metadata, plus names only from `GET /api/v1/secrets`. */
+export async function listSecrets(): Promise<TeamSecret[]> {
+  const [managed, names] = await Promise.all([safe(() => api.managedSecrets(), []), safe(() => api.secrets(), [])]);
+  const out = new Map<string, TeamSecret>(
+    managed.map((s) => [s.name, { name: s.name, description: s.description, type: s.type, scope: s.scope, updatedAt: s.updatedAt }]),
+  );
+  for (const n of names) if (!out.has(n)) out.set(n, { name: n });
+  return [...out.values()];
+}
+
+/**
+ * Picker options a connection offers: repositories and their owners from the forge, teams or
+ * projects from the tracker, else the names the connection's directory knows (channels, teams, …).
+ */
+export async function connectionOptions(provider: string, kind: OptionKind): Promise<ChannelOption[]> {
+  if (kind === "repositories" || kind === "orgs") {
+    const r = await safe(() => api.forgeRepositories(), null);
+    const full = (r?.repositories ?? []).filter((x) => x.forge === provider || r?.forge === provider).map((x) => `${x.owner}/${x.name}`);
+    const names = kind === "orgs" ? [...new Set(full.map((n) => n.split("/")[0]!))] : full;
+    return names.map((n) => ({ id: n, name: n }));
+  }
+  if (kind === "teams" || kind === "projects") {
+    const t = await safe(() => api.trackerScopes(), null);
+    if (t?.tracker === provider && t.scopes.length) return t.scopes;
+  }
+  const rows = await safe(() => api.connections(), []);
+  const dir = rows.find((c) => c.provider === provider)?.connection?.directory?.[kind] ?? {};
+  return Object.entries(dir).map(([name, id]) => ({ id, name }));
+}
 
 /* ---------- Factory admin ---------- */
 
 /** True when the server has the per-file definition API (repo-backed factories can then be edited through PRs). */
 export async function filesApiAvailable(factory: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${base()}/api/v1/factories/${encodeURIComponent(factory)}/files/factory.yaml`, { headers: headers(), cache: "no-store" });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  return safe(async () => Boolean(await api.readFile(factory, "factory.yaml")), false);
 }
 
-export const deleteFactory = (id: string) => sendJson<{ ok: true }>("DELETE", `/api/v1/factories/${encodeURIComponent(id)}`);
-export const migrateFactoryToGithub = (id: string, input: { owner: string; name: string }) =>
-  sendJson<{ repo: string; url?: string; pullRequest?: string }>("POST", `/api/v1/factories/${encodeURIComponent(id)}/migrate`, input);
-
-export type CreateFactoryInput = {
-  name: string;
-  alias: string;
-  description?: string;
-  avatarKey?: string;
-  forge: string | null;
-  repositories: { forge: string; owner: string; name: string }[];
-  agents: string[];
-  integrations: { type: string; settings?: Record<string, unknown> }[];
-  selfImprovement: boolean;
-  modelPreset: "quality" | "cost";
-  models: Record<string, string>;
-  automations: string[];
-};
-export const createFactory = (input: CreateFactoryInput) => sendJson<{ id: string; factory?: string }>("POST", "/api/v1/factories", input);
-
-/* ---------- Metrics (coming; shapes assumed) ---------- */
+/* ---------- Metrics ---------- */
 
 export type PerPrCost = {
   pr: { repo: string; number: number; url: string; title: string; state: "open" | "merged" | "closed" };
@@ -108,5 +78,24 @@ export type PerPrCost = {
   components?: string[];
 };
 
-export const topPrCosts = (factory: string, start: string, end: string) =>
-  getJson<PerPrCost[] | { items: PerPrCost[] }>(`/api/v1/factories/${encodeURIComponent(factory)}/costs/per-pr/top?start_date=${start}&end_date=${end}&limit=20`).then((v) => (v ? unwrap(v) : null));
+type TopPr = { repo: string; number: number; url: string; title: string; state: string; dollars: { total: number }; additions?: number; deletions?: number };
+
+/** Size bucket by changed lines, as the API's cost-by-size report counts them. */
+export function prSize(additions?: number, deletions?: number): PerPrCost["size"] {
+  if (additions === undefined) return undefined;
+  const lines = additions + (deletions ?? 0);
+  return lines < 100 ? "S" : lines < 500 ? "M" : lines < 1000 ? "L" : "XL";
+}
+
+/** The most expensive PRs in a date range (`YYYY-MM-DD`); null when the report is unavailable. */
+export async function topPrCosts(factory: string, start: string, end: string): Promise<PerPrCost[] | null> {
+  const r = await safe(() => api.topPrCosts(factory, { startDate: start, endDate: end, limit: 20 }), null);
+  if (!r) return null;
+  return ((r.prs ?? []) as TopPr[]).map((p) => ({
+    pr: { repo: p.repo, number: p.number, url: p.url, title: p.title, state: p.state === "merged" || p.state === "closed" ? p.state : "open" },
+    additions: p.additions,
+    deletions: p.deletions,
+    costUsd: p.dollars.total,
+    size: prSize(p.additions, p.deletions),
+  }));
+}

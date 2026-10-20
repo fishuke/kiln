@@ -2,17 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { KilnApiError } from "@kiln/sdk-ts";
-import { createFactory, listConnections, sendJson } from "@/lib/api/factory-admin";
+import { listConnections } from "@/lib/api/factory-admin";
+import { isMissingEndpoint } from "@/lib/api/missing";
 import { validateAlias } from "@/lib/alias";
-import { buildFactoryTree, type WizardInput } from "@/lib/factory-template";
-import { api } from "@/lib/kiln";
+import { buildFactoryTree, toCreateFactoryInput, type WizardInput } from "@/lib/factory-template";
+import { api, errorMessage } from "@/lib/kiln";
 
 export type CreateResult = { ok: true; factory: string; workItem?: string } | { ok: false; error: string; errors?: string[] };
 
 /**
- * Creates the factory with `POST /api/v1/factories` (coming). Until that exists, builds the definition
- * tree here and applies it with `POST /api/v1/definitions/apply`. Then optionally starts the learning
- * run and the first task.
+ * Creates the factory with `POST /api/v1/factories` when its wizard can express the input; otherwise
+ * (or on servers without it) builds the definition tree here and applies it with
+ * `POST /api/v1/definitions/apply`. Then optionally starts the learning run and the first task.
  */
 export async function createFactoryFromWizard(input: WizardInput, opts: { enableLearning: boolean; firstTask?: string }): Promise<CreateResult> {
   const taken = await api.factories().then((fs) => fs.map((f) => f.alias)).catch(() => [] as string[]);
@@ -21,22 +22,20 @@ export async function createFactoryFromWizard(input: WizardInput, opts: { enable
   if (!input.name.trim()) return { ok: false, error: "Enter a factory name." };
 
   let factory: string | undefined;
-  const created = await createFactory({
-    name: input.name,
-    alias: input.alias,
-    description: input.description,
-    avatarKey: input.avatarKey,
-    forge: input.forge,
-    repositories: input.repositories.map((r) => ({ forge: input.forge ?? "github", ...r })),
-    agents: ["foreman", ...input.agents],
-    integrations: [...input.chat.map((c) => ({ type: c.type, settings: { channels: c.channels } })), ...(input.tracker ? [{ type: input.tracker.type, settings: { keys: input.tracker.keys } }] : [])],
-    selfImprovement: input.selfImprovement,
-    modelPreset: input.preset,
-    models: input.models,
-    automations: input.automations,
-  });
-  if (created.ok) factory = created.data.id ?? created.data.factory;
-  else if (created.status === 404 || created.status === 405) {
+  let local = true;
+  const create = toCreateFactoryInput(input);
+  if (create) {
+    try {
+      factory = (await api.createFactory(create)).factory?.id;
+      local = false;
+    } catch (e) {
+      if (!isMissingEndpoint(e)) {
+        const b = e instanceof KilnApiError ? (e.body as { errors?: string[] } | undefined) : undefined;
+        return { ok: false, error: errorMessage(e), errors: b?.errors };
+      }
+    }
+  }
+  if (local) {
     try {
       const r = await api.apply(buildFactoryTree(input));
       if (!r.ok) return { ok: false, error: r.errors[0] ?? "The generated definition is not valid", errors: r.errors };
@@ -45,7 +44,7 @@ export async function createFactoryFromWizard(input: WizardInput, opts: { enable
       const body = e instanceof KilnApiError ? (e.body as { errors?: string[]; error?: string } | undefined) : undefined;
       return { ok: false, error: body?.errors?.[0] ?? body?.error ?? (e instanceof Error ? e.message : String(e)), errors: body?.errors };
     }
-  } else return { ok: false, error: created.error };
+  }
   factory ??= input.alias;
 
   let workItem: string | undefined;
@@ -72,7 +71,7 @@ export async function createFactoryFromWizard(input: WizardInput, opts: { enable
 
 export type ConnectionCheck = { type: string; label: string; status: "ok" | "missing" | "failed"; detail?: string };
 
-/** Checks every selected integration: a workspace connection exists and (when supported) `POST /api/v1/connections/:id/test` passes. */
+/** Checks every selected integration: a workspace connection exists and `POST /api/v1/connections/:provider/test` passes. */
 export async function testConnections(types: string[]): Promise<ConnectionCheck[]> {
   const conns = await listConnections();
   const out: ConnectionCheck[] = [];
@@ -83,10 +82,12 @@ export async function testConnections(types: string[]): Promise<ConnectionCheck[
       out.push({ type, label, status: "missing", detail: "Not connected in this workspace yet." });
       continue;
     }
-    const r = await sendJson<{ ok: boolean; error?: string }>("POST", `/api/v1/connections/${encodeURIComponent(conn.id)}/test`);
-    if (!r.ok && r.status === 404) out.push({ type, label, status: "ok", detail: conn.account ?? conn.name });
-    else if (!r.ok || !r.data.ok) out.push({ type, label, status: "failed", detail: r.ok ? r.data.error : r.error });
-    else out.push({ type, label, status: "ok", detail: conn.account ?? conn.name });
+    try {
+      const r = await api.testConnection(conn.provider);
+      out.push(r.ok ? { type, label, status: "ok", detail: conn.account ?? conn.name } : { type, label, status: "failed", detail: r.message });
+    } catch (e) {
+      out.push({ type, label, status: "failed", detail: errorMessage(e) });
+    }
   }
   return out;
 }

@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/kiln/ui";
-import { connections } from "@/lib/api/connections";
 import { INTEGRATIONS, integrationState } from "@/lib/integration-catalog";
 import { api, safe } from "@/lib/kiln";
 import { IntegrationsList, type Row } from "./integrations-list";
@@ -8,7 +7,7 @@ import { IntegrationsList, type Row } from "./integrations-list";
 export const metadata: Metadata = { title: "Integrations" };
 
 export default async function Integrations() {
-  const [conns, legacy, me] = await Promise.all([safe(() => connections(), null), safe(() => api.integrations(), undefined), safe(() => api.me(), null)]);
+  const [conns, legacy, me] = await Promise.all([safe(() => api.connections(), null), safe(() => api.integrations(), undefined), safe(() => api.me(), null)]);
   const byProvider = new Map((conns ?? []).map((c) => [c.provider, c]));
   const rows: Row[] = INTEGRATIONS.map((spec) => {
     const c = spec.connection ? byProvider.get(spec.connection) : undefined;

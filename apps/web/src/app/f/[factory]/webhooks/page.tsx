@@ -5,7 +5,7 @@ import { Zap } from "lucide-react";
 import { PageHeader } from "@/components/kiln/ui";
 import { buttonVariants } from "@/components/ui/button";
 import { loadResources } from "@/lib/api/resources";
-import { ingressUrl, listWebhooks, publicUrl } from "@/lib/api/webhooks";
+import { listWebhooks, publicUrl } from "@/lib/api/webhooks";
 import { api, safe } from "@/lib/kiln";
 import { fileWebhooks, webhookUsage } from "@/lib/webhook-files";
 import { AreaTabs } from "../automations/_components/area-tabs";
@@ -23,7 +23,7 @@ export default async function Webhooks({ params }: { params: Promise<{ factory: 
   const usage = webhookUsage(tree);
   const fromApi = new Set(hooks.webhooks.map((w) => w.name));
   const rows: WebhookRow[] = [
-    ...hooks.webhooks.map((w) => ({ uid: w.uid, name: w.name, authMode: w.authMode, signatureScheme: w.signatureScheme, enabled: w.enabled, url: ingressUrl(w, origin), source: w.source ?? ("api" as const), lastDeliveryAt: w.lastDeliveryAt, automations: (usage[w.uid] ?? 0) + (w.uid !== w.name ? (usage[w.name] ?? 0) : 0) })),
+    ...hooks.webhooks.map((w) => ({ uid: w.id, name: w.name, authMode: w.authMode, signatureScheme: w.signatureScheme, enabled: w.enabled, url: w.url, source: w.origin === "file" ? ("file" as const) : ("api" as const), automations: (usage[w.id] ?? 0) + (usage[w.name] ?? 0) })),
     ...fileWebhooks(tree)
       .filter((w) => !fromApi.has(w.name))
       .map((w) => ({ ...w, url: "", automations: usage[w.uid] ?? 0 })),

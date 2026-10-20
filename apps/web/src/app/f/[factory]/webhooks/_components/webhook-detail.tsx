@@ -13,7 +13,7 @@ import type { Delivery } from "@/lib/api/webhooks";
 import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { authLabel } from "@/lib/webhook-files";
-import { removeWebhook, rotateWebhookSecret, setWebhookEnabled } from "../actions";
+import { loadDeliveryPayload, removeWebhook, rotateWebhookSecret, setWebhookEnabled } from "../actions";
 import { UrlBox } from "./add-webhook";
 
 const STATUS: Record<string, { label: string; tone: string }> = {
@@ -38,6 +38,13 @@ export function WebhookDetail({ factory, webhook, deliveries, automations }: { f
   const [secret, setSecret] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"rotate" | "delete" | null>(null);
   const [openRow, setOpenRow] = useState<string | null>(null);
+  const [payloads, setPayloads] = useState<Record<string, unknown>>({});
+  const expand = (d: Delivery) => {
+    if (openRow === d.id) return setOpenRow(null);
+    setOpenRow(d.id);
+    if (d.payload !== undefined || d.id in payloads) return;
+    void loadDeliveryPayload(webhook.uid, d.id).then((r) => (r.ok ? setPayloads((p) => ({ ...p, [d.id]: r.payload })) : toast.error(r.error)));
+  };
   const file = webhook.source === "file";
   const rows: [string, React.ReactNode][] = [
     ["Authentication", authLabel(webhook.authMode, webhook.signatureScheme)],
@@ -50,7 +57,7 @@ export function WebhookDetail({ factory, webhook, deliveries, automations }: { f
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-[28px] leading-tight font-semibold tracking-tight">{webhook.name}</h1>
-          {file && <p className="mt-1 text-sm text-muted-foreground">Defined in webhooks/{webhook.uid}.yaml. Edit it in the factory definition.</p>}
+          {file && <p className="mt-1 text-sm text-muted-foreground">Defined in webhooks/{webhook.name}.yaml. Edit it in the factory definition.</p>}
         </div>
         <label className="flex items-center gap-2 text-sm">
           <Switch
@@ -73,7 +80,7 @@ export function WebhookDetail({ factory, webhook, deliveries, automations }: { f
         </label>
       </div>
 
-      {!file && <UrlBox url={webhook.url} />}
+      {webhook.url && <UrlBox url={webhook.url} />}
       {secret && (
         <div className="space-y-2 rounded-lg border p-3">
           <p className="text-sm font-medium">New secret</p>
@@ -134,23 +141,23 @@ export function WebhookDetail({ factory, webhook, deliveries, automations }: { f
             <tbody>
               {deliveries.map((d) => {
                 const s = STATUS[d.status] ?? { label: d.status, tone: "bg-muted" };
-                const canExpand = d.status === "accepted" && d.payload !== undefined;
+                const canExpand = d.status === "accepted" && (d.hasPayload || d.payload !== undefined);
                 const open = openRow === d.id;
                 return (
                   <Fragment key={d.id}>
-                    <tr className={cn("border-b last:border-0", canExpand && "cursor-pointer hover:bg-muted/40")} onClick={() => canExpand && setOpenRow(open ? null : d.id)}>
+                    <tr className={cn("border-b last:border-0", canExpand && "cursor-pointer hover:bg-muted/40")} onClick={() => canExpand && expand(d)}>
                       <td className="px-2 py-3 text-muted-foreground">{canExpand && <ChevronRight className={cn("size-4 transition-transform", open && "rotate-90")} />}</td>
                       <td className="px-2 py-3">
                         <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", s.tone)}>{s.label}</span>
                       </td>
-                      <td className="max-w-60 truncate px-4 py-3 font-mono text-xs">{d.deliveryId ?? d.id}</td>
+                      <td className="max-w-60 truncate px-4 py-3 font-mono text-xs">{d.deliveryId || d.id}</td>
                       <td className="px-4 py-3 text-muted-foreground">{size(d.size)}</td>
                       <td className="px-4 py-3 text-right text-muted-foreground">{timeAgo(d.receivedAt)}</td>
                     </tr>
                     {open && (
                       <tr className="border-b bg-muted/30">
                         <td colSpan={5} className="px-4 py-3">
-                          <pre className="max-h-96 overflow-auto rounded-lg bg-background p-3 font-mono text-xs">{JSON.stringify(d.payload, null, 2)}</pre>
+                          <pre className="max-h-96 overflow-auto rounded-lg bg-background p-3 font-mono text-xs">{d.id in payloads || d.payload !== undefined ? JSON.stringify(d.payload ?? payloads[d.id], null, 2) : "Loading…"}</pre>
                         </td>
                       </tr>
                     )}
@@ -207,7 +214,7 @@ export function WebhookDetail({ factory, webhook, deliveries, automations }: { f
                     toast.success("Secret rotated");
                     router.refresh();
                   } else {
-                    const r = await removeWebhook(factory, webhook.uid, file);
+                    const r = await removeWebhook(factory, webhook, file);
                     if (!r.ok) return void toast.error(r.error);
                     toast.success("Webhook deleted");
                     router.push(`/f/${factory}/webhooks`);

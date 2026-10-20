@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { SecretOption } from "./resource-pickers";
 
-export type RunnerFile = { description?: string; image?: string; platform?: string; registryCredentialSecretName?: string; setupCommands?: string[]; failureSessionRetentionMinutes?: number; shape?: { vcpus: number; memoryGb: number } };
+export type RunnerFile = { description?: string; image?: string; platform?: { os?: RunnerInput["os"]; linux?: { dockerImage?: string; registryCredentialSecretName?: string } }; registryCredentialSecretName?: string; setupCommands?: string[]; failureSessionRetentionMinutes?: number; shape?: { vcpus: number; memoryGb: number } };
 
 const VCPUS = [1, 2, 4, 8, 16, 32];
 const MEMORY = [1, 2, 4, 8, 16, 32, 64];
@@ -45,9 +45,9 @@ export function RunnerDialog({ factory, open, onOpenChange, name, runner, isDefa
   const initial = (): RunnerInput => ({
     name: name ?? "",
     description: runner?.description ?? "",
-    os: (runner?.platform as RunnerInput["os"]) ?? "linux",
+    os: runner?.platform?.os ?? "linux",
     image: runner?.image ?? (isNew ? "" : DEFAULT_IMAGE),
-    registryCredentialSecretName: runner?.registryCredentialSecretName ?? "",
+    registryCredentialSecretName: runner?.registryCredentialSecretName ?? runner?.platform?.linux?.registryCredentialSecretName ?? "",
     setupCommands: runner?.setupCommands?.length ? runner.setupCommands : isNew ? [""] : [],
     keepSessionAfterFailure: !!runner?.failureSessionRetentionMinutes,
     vcpus: runner?.shape?.vcpus,

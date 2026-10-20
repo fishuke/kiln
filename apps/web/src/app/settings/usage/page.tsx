@@ -3,6 +3,8 @@ import Link from "next/link";
 import { ApiDown } from "@/components/kiln/ui";
 import { SettingsColumn } from "@/components/kiln/settings-blocks";
 import { api, safe } from "@/lib/kiln";
+import type { PoolEntry } from "@kiln/sdk-ts";
+import { byHeadroom, resetsIn, tokenStatus } from "@/lib/claude-tokens";
 import { barPercent, fillDays, formatUsd, monthLabel, usageTone, usedFraction, withShares, type BreakdownRow } from "@/lib/usage";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +29,7 @@ export default async function UsagePage({ searchParams }: { searchParams: Promis
   const period = PERIODS.some((p) => p.id === sp.period) ? sp.period! : "month";
   const [usage, me] = await Promise.all([safe(() => api.usage({ ...range(period), factory: sp.factory }), null), safe(() => api.me(), null)]);
   if (!usage) return <ApiDown />;
+  const pool = me?.currentTeam ? await safe(() => api.claudeTokens(me.currentTeam!.id), []) : [];
   const { limit } = usage;
   const tone = usageTone(limit);
   const used = usedFraction(limit);
@@ -37,10 +40,13 @@ export default async function UsagePage({ searchParams }: { searchParams: Promis
   const admin = me?.role === "owner" || me?.role === "admin";
   return (
     <SettingsColumn title="Usage and limits">
+      <ClaudePlanUsage pool={pool} admin={me?.role === "owner" || me?.role === "admin"} />
+
+      <h2 className="mt-10 mb-3 text-lg font-medium text-foreground/70">Kiln spend</h2>
       <div className="rounded-xl border p-6">
         <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
           <span className={cn("size-2 rounded-full", tone === "ok" ? "bg-blue-500" : tone === "warn" ? "bg-amber-500" : "bg-red-500")} />
-          Team usage{me?.currentTeam ? ` · ${me.currentTeam.name}` : ""}
+          Team spend{me?.currentTeam ? ` · ${me.currentTeam.name}` : ""}
         </div>
         <div className="mt-3 flex flex-wrap items-baseline gap-x-2">
           <span className="text-3xl font-semibold tracking-tight tabular-nums">{formatUsd(limit.spentThisMonthUsd)}</span>
@@ -155,6 +161,64 @@ function BreakdownCard({ title, rows }: { title: string; rows: BreakdownRow[] })
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+/** Like `claude /usage`: each Claude subscription token's current session (5 hours) and current week (7 days). */
+function ClaudePlanUsage({ pool, admin }: { pool: PoolEntry[]; admin: boolean }) {
+  return (
+    <div className="rounded-xl border p-6">
+      <div className="flex items-center justify-between gap-4">
+        <div className="text-sm font-medium text-muted-foreground">Claude subscription limits</div>
+        {admin && (
+          <Link href="/team#model-keys" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+            Manage tokens
+          </Link>
+        )}
+      </div>
+      {pool.length === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">No Claude subscription tokens yet. Add one under Team settings → Model keys (from <code className="font-mono text-xs">claude setup-token</code>) to see its session and weekly limits here.</p>
+      ) : (
+        <div className="mt-4 space-y-6">
+          {byHeadroom(pool).map((t) => {
+            const s = tokenStatus(t);
+            return (
+              <div key={`${t.scope}:${t.name}`}>
+                <div className="mb-3 flex items-center gap-2">
+                  <code className="font-mono text-sm">{t.name}</code>
+                  <span className={cn("rounded-full border px-2 py-0.5 text-xs", s.tone === "green" && "border-green-600/25 text-green-700 dark:text-green-400", s.tone === "amber" && "border-amber-600/25 text-amber-700 dark:text-amber-400", s.tone === "red" && "border-red-600/25 text-red-700 dark:text-red-400", s.tone === "grey" && "text-muted-foreground")}>{s.label}</span>
+                </div>
+                <LimitBar label="Current session" hint="5-hour window" window={t.fiveHour} />
+                <LimitBar label="Current week" hint="7-day window" window={t.sevenDay} />
+                {!t.fiveHour && !t.sevenDay && <p className="text-xs text-muted-foreground">Limits appear after the token&apos;s first run or a Check now.</p>}
+                {t.status === "invalid" && t.error && <p className="mt-1 text-xs text-red-700 dark:text-red-400">{t.error}</p>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {pool.some((t) => t.checkedAt) && <p className="mt-5 text-xs text-muted-foreground">Updated after every run that uses a token, as Claude Code reports it.</p>}
+    </div>
+  );
+}
+
+function LimitBar({ label, hint, window }: { label: string; hint: string; window: PoolEntry["fiveHour"] }) {
+  if (!window) return null;
+  const pct = Math.min(100, Math.round(window.utilization * 100));
+  const reset = resetsIn(window.resetsAt);
+  return (
+    <div className="mb-3">
+      <div className="mb-1.5 flex items-baseline justify-between gap-2 text-sm">
+        <span>
+          {label} <span className="text-xs text-muted-foreground">{hint}</span>
+        </span>
+        <span className="tabular-nums text-muted-foreground">{pct}% used</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={`${label} used`}>
+        <div className={cn("h-full rounded-full", pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-foreground")} style={{ width: `${pct}%` }} />
+      </div>
+      {reset && <div className="mt-1 text-xs text-muted-foreground">Resets {reset}</div>}
     </div>
   );
 }

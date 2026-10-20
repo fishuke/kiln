@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -19,6 +21,12 @@ export default function Home() {
         <p className="text-muted-foreground text-sm">
           Repository: <code className="font-mono">{factory.repository}</code>
         </p>
+        <Link
+          href="/todo"
+          className="text-foreground hover:bg-muted focus-visible:ring-ring/50 mt-2 inline-flex w-fit items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium outline-none focus-visible:ring-3"
+        >
+          Open to-do list <ArrowRight aria-hidden="true" className="size-4" />
+        </Link>
       </header>
 
       <Card>

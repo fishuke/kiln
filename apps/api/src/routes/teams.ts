@@ -122,6 +122,15 @@ export function teamRoutes(ctx: RouteContext) {
     const { value } = PS.ModelKey.parse(await c.req.json());
     return c.json(kiln.vault.setModelKey(team.id, provider(c.req.param("provider")), value, ctx.who(c)));
   });
+  // pooled Claude subscription tokens: health and usage per token (values are never returned)
+  app.get("/api/v1/teams/:team/claude-tokens", (c) => {
+    const { team } = teamFor(ctx, c, c.req.param("team"));
+    return c.json(kiln.credentialPool.list(team.id));
+  });
+  app.post("/api/v1/teams/:team/claude-tokens/:name/check", async (c) => {
+    const { team } = teamFor(ctx, c, c.req.param("team"), "admin");
+    return c.json(await kiln.credentialPool.check({ teamId: team.id }, c.req.param("name")));
+  });
   app.delete("/api/v1/teams/:team/model-keys/:provider", (c) => {
     const { team } = teamFor(ctx, c, c.req.param("team"), "admin");
     kiln.vault.delete("team", team.id, MODEL_KEYS[provider(c.req.param("provider"))].name, ctx.who(c));

@@ -9,7 +9,11 @@ export type HarnessEvent =
   | { type: "tool_result"; name?: string; output?: string; isError?: boolean }
   | { type: "steer"; text: string }
   | { type: "cost"; usd: number }
+  /** Subscription usage (Claude Code with a `claude setup-token` token): share of each window used, 0..1. */
+  | { type: "rate_limit"; status: string; fiveHour?: UsageWindow; sevenDay?: UsageWindow }
   | { type: "error"; text: string };
+
+export type UsageWindow = { utilization: number; resetsAt?: string };
 
 export type HarnessResult = { outcome: "succeeded" | "failed" | "cancelled"; summary: string; costUsd: number; turns: number };
 
@@ -257,6 +261,13 @@ class ClaudeSession extends CliSession {
           this.emit({ type: "tool_result", output, isError: Boolean(c.is_error) });
         }
       }
+    } else if (msg.type === "rate_limit_event" && msg.rate_limit_info) {
+      const info = msg.rate_limit_info;
+      const window = (w: { utilization?: number; resetsAt?: number } | undefined): UsageWindow | undefined =>
+        typeof w?.utilization === "number" ? { utilization: w.utilization, ...(w.resetsAt ? { resetsAt: new Date(w.resetsAt * 1000).toISOString() } : {}) } : undefined;
+      const fiveHour = window(info.unifiedWindows?.five_hour);
+      const sevenDay = window(info.unifiedWindows?.seven_day);
+      this.emit({ type: "rate_limit", status: String(info.status ?? "allowed"), ...(fiveHour ? { fiveHour } : {}), ...(sevenDay ? { sevenDay } : {}) });
     } else if (msg.type === "result") {
       this.costUsd = Number(msg.total_cost_usd ?? 0);
       this.summary = String(msg.result ?? "");

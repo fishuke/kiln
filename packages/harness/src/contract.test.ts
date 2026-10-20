@@ -15,6 +15,8 @@ const emulators: Record<string, Emulator> = {
       io.out({ type: "result", subtype: "error_during_execution", is_error: true, result: "boom", total_cost_usd: 0.01 });
       return io.end(0);
     }
+    // The shape Claude Code streams for subscription tokens.
+    io.out({ type: "rate_limit_event", rate_limit_info: { status: "allowed", resetsAt: 1792530600, rateLimitType: "five_hour", unifiedWindows: { five_hour: { utilization: 0.02, resetsAt: 1792530600 }, seven_day: { utilization: 0.19, resetsAt: 1792987200 } } } });
     io.out({ type: "assistant", message: { content: [{ type: "text", text: `working on ${first.message.content[0].text}` }, { type: "tool_use", name: "Bash", input: { command: "pnpm test" } }] } });
     io.out({ type: "user", message: { content: [{ type: "tool_result", content: [{ type: "text", text: "ok" }] }] } });
     const next = await Promise.race([it.next(), sleep(50).then(() => undefined)]);
@@ -140,6 +142,19 @@ describe.each(adapters)("harness contract: %s", (_name, adapter, skillPath) => {
 });
 
 describe("claude code specifics", () => {
+  it("reports subscription usage windows from rate_limit_event", async () => {
+    const { sandbox } = scriptedSandbox();
+    const session = await new ClaudeCodeAdapter().start({ ...base, sandbox });
+    const events: HarnessEvent[] = [];
+    for await (const e of session.events) events.push(e);
+    expect(events.find((e) => e.type === "rate_limit")).toEqual({
+      type: "rate_limit",
+      status: "allowed",
+      fiveHour: { utilization: 0.02, resetsAt: "2026-10-20T21:10:00.000Z" },
+      sevenDay: { utilization: 0.19, resetsAt: "2026-10-26T04:00:00.000Z" },
+    });
+  });
+
   it("keeps the guard hook and MCP config (with the run token) in the git-excluded .kiln/ folder", async () => {
     const { sandbox, files, spawned } = scriptedSandbox();
     const session = await new ClaudeCodeAdapter().start({

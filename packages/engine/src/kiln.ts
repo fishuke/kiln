@@ -26,7 +26,7 @@ import { ImprovementService, RuleImprover, type Improver } from "./improvement";
 import { InboxService } from "./inbox";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
-import { AccountService, EnvironmentService, McpRegistry, NotificationService, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
+import { AccountService, CredentialPool, EnvironmentService, McpRegistry, NotificationService, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
 import { PlanningService, type Planner } from "./planning";
 import { RunQuery } from "./run-query";
 import { RunService } from "./runs";
@@ -149,6 +149,7 @@ export class Kiln {
   readonly teams: TeamService;
   readonly accounts: AccountService;
   readonly vault: SecretVault;
+  readonly credentialPool: CredentialPool;
   readonly mcp: McpRegistry;
   readonly environments: EnvironmentService;
   readonly usage: UsageService;
@@ -201,6 +202,7 @@ export class Kiln {
     this.teams = new TeamService(this);
     this.accounts = new AccountService(this);
     this.vault = new SecretVault(this);
+    this.credentialPool = new CredentialPool(this);
     this.mcp = new McpRegistry(this);
     this.environments = new EnvironmentService(this);
     this.usage = new UsageService(this);

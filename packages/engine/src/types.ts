@@ -224,6 +224,8 @@ export type Run = {
   environmentId?: string;
   /** Object key of the run's event transcript (JSON lines), stored per the team's transcript storage. */
   transcriptKey?: string;
+  /** The pooled Claude subscription token (secret name) this run used. */
+  credential?: string;
   startedAt: string;
   finishedAt?: string;
 };

@@ -122,15 +122,74 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>`; eac
 | POST | `/api/v1/tokens` | `admin` | Issue a scoped token |
 | PUT | `/api/v1/secrets/{name}` | `admin` | Set a managed secret |
 
+## Integrations
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/connections` | `admin` | Workspace connections to every provider, with status |
+| POST | `/api/v1/connections/{provider}/start` | `admin` | Start connecting: an OAuth/install URL and setup steps |
+| POST | `/api/v1/connections/{provider}/complete` | `admin` | Finish connecting (OAuth code + state, or manual fields) |
+| POST | `/api/v1/connections/{provider}/test` | `admin` | Test a connection's credentials |
+| DELETE | `/api/v1/connections/{provider}` | `admin` | Disconnect and delete stored credentials |
+| PUT | `/api/v1/connections/{provider}/directory` | `admin` | Set the names → ids used to resolve alias filters |
+| GET | `/api/v1/connections/{provider}/approval-links` | `admin` | Approval links sent to someone else |
+| POST | `/api/v1/connections/{provider}/approval-links` | `admin` | Send an approval link to an admin (expires in 7 days) |
+| POST | `/api/v1/approval-links/{id}/resend` | `admin` | Resend an approval link (new token, 7 more days) |
+| DELETE | `/api/v1/approval-links/{id}` | `admin` | Revoke an approval link |
+| GET | `/api/v1/identity-links` | — | Your linked provider accounts (all with ?all=1 for admins) |
+| POST | `/api/v1/identity-links/claim` | — | Link a chat account from a sign-in token |
+| POST | `/api/v1/identity-links/github/start` | — | Start linking your GitHub account (OAuth URL) |
+| DELETE | `/api/v1/identity-links/{id}` | — | Unlink a provider account |
+| GET | `/api/v1/factories/{id}/integrations` | `read` | A factory's integrations, settings and connection status |
+| PUT | `/api/v1/factories/{id}/integrations` | `definitions:write` | Opt a Kiln-managed factory into integrations (applies factory.yaml) |
+| GET | `/api/v1/notification-routes` | — | Where a factory can notify a person (?factory, ?workItem, ?subject) |
+| GET | `/api/v1/integrations/teams/app-package` | `admin` | Microsoft Teams app package (manifest and icons, zip) |
+| POST | `/api/v1/integrations/discord/commands` | `admin` | Register the /kiln Discord command (global or one server) |
+
+## Automations
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/automation-templates` | — | Default and suggested automation files (?factory fills them in) |
+| POST | `/api/v1/factories/{id}/automations/from-template` | `definitions:write` | Add a template to a Kiln-managed factory |
+| GET | `/api/v1/automation-catalog` | — | Every trigger provider, event and filter key |
+| GET | `/api/v1/deliveries` | `admin` | Recent provider deliveries |
+| POST | `/api/v1/factories/{id}/automations/{name}/test-filter` | `read` | Test an automation's triggers against a stored delivery |
+
+## Custom webhooks
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/factories/{id}/webhooks` | `read` | A factory's custom webhooks (managed and file) |
+| POST | `/api/v1/factories/{id}/webhooks` | `definitions:write` | Create a webhook; the secret is shown once |
+| GET | `/api/v1/webhooks/{uid}` | `read` | A webhook with its ingress URL |
+| PATCH | `/api/v1/webhooks/{uid}` | `definitions:write` | Enable, disable or set the delivery id header |
+| DELETE | `/api/v1/webhooks/{uid}` | `definitions:write` | Delete a webhook (automations stay but stop firing) |
+| POST | `/api/v1/webhooks/{uid}/rotate` | `definitions:write` | Rotate the secret immediately |
+| POST | `/api/v1/webhooks/{uid}/finish` | `definitions:write` | Finish setup with the provider's secret and enable |
+| GET | `/api/v1/webhooks/{uid}/deliveries` | `read` | Recent deliveries and their status |
+| GET | `/api/v1/webhooks/{uid}/deliveries/{delivery}` | `read` | One delivery with its stored payload |
+
 ## Webhooks
 
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
-| POST | `/webhooks/github` | — | GitHub webhook (X-Hub-Signature-256) |
+| POST | `/webhooks/github` | — | GitHub App webhook (X-Hub-Signature-256) |
+| POST | `/webhooks/gitlab` | — | GitLab group webhook (X-Gitlab-Token) |
+| POST | `/webhooks/azure-devops` | — | Azure DevOps service hooks (basic auth) |
+| POST | `/webhooks/bitbucket` | — | Bitbucket Cloud webhook (X-Hub-Signature) |
 | POST | `/webhooks/slack` | — | Slack Events API (signing secret) |
+| POST | `/webhooks/teams` | — | Microsoft Teams Bot Framework activities (JWT) |
+| POST | `/webhooks/discord` | — | Discord interactions (Ed25519) |
+| POST | `/webhooks/discord/events` | — | Discord gateway events from a bridge (bearer token) |
 | POST | `/webhooks/linear` | — | Linear webhook (Linear-Signature) |
 | POST | `/webhooks/jira` | — | Jira webhook (?token=) |
-| POST | `/webhooks/{factory}/{name}` | — | A factory's custom webhook from webhooks/<name>.yaml |
+| POST | `/webhooks/w/{uid}` | — | Custom webhook ingress: 202 {delivery_id} |
+| POST | `/webhooks/w/{uid}/{token}` | — | Custom webhook ingress with a URL token |
+| POST | `/webhooks/{factory}/{name}` | — | A factory's file webhook by name (older URL) |
+| GET | `/oauth/{provider}/callback` | — | OAuth / app install callback (browser redirect) |
+| GET | `/connect/approve/{token}` | — | Open an approval link (browser redirect) |
+| GET | `/oauth/github-user/callback` | — | GitHub account linking callback (browser redirect) |
 
 ## Errors
 

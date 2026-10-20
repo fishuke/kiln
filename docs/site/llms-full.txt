@@ -118,11 +118,155 @@ See [Harnesses](../infrastructure/harnesses.md#the-result-file) for each role's 
 
 ---
 
+# Automation triggers
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/configuration/automation-triggers.md
+
+Generated from `packages/schema/src/triggers.ts`. A trigger names a `provider` and an `event`; its `filter` accepts only the keys listed for that pair. Every key must match (AND); any value in a list matches (OR). See [Automations](automations.md) for the matcher grammar, alias resolution and bot policy.
+
+## azure_devops
+
+| Event | Filter keys |
+| --- | --- |
+| `pull_request_closed` | `base_branches` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `source_repos` (list or `{in, not_in}`) |
+| `pull_request_commented` | `base_branches` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `source_repos` (list or `{in, not_in}`) |
+| `pull_request_created` | `base_branches` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `source_repos` (list or `{in, not_in}`) |
+| `pull_request_merged` | `base_branches` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `source_repos` (list or `{in, not_in}`) |
+| `pull_request_updated` | `base_branches` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `source_repos` (list or `{in, not_in}`) |
+| `pull_request_mentioned` | `mentioned` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`) |
+| `push` | `branches` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`) |
+| `work_item_assigned` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `work_item_types` (list or `{in, not_in}`) |
+| `work_item_created` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `work_item_types` (list or `{in, not_in}`) |
+| `work_item_labeled` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `work_item_types` (list or `{in, not_in}`) |
+| `work_item_mentioned` | `mentioned` (list or `{in, not_in}`) |
+
+## bitbucket
+
+| Event | Filter keys |
+| --- | --- |
+| `pull_request_created` | `repos` (list or `{in, not_in}`), `base_branches` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`) |
+| `pull_request_commented` | `repos` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`), `mentioned` (list or `{in, not_in}`) |
+| `push` | `repos` (list or `{in, not_in}`), `branches` (list or `{in, not_in}`) |
+
+## discord
+
+| Event | Filter keys |
+| --- | --- |
+| `app_mention` | `guild_ids` (list or `{in, not_in}`), `channel_ids` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`) |
+| `slash_command` | `guild_ids` (list or `{in, not_in}`), `channel_ids` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`) |
+| `message_posted` | `guild_ids` (list or `{in, not_in}`), `channel_ids` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`) |
+| `reaction_added` | `guild_ids` (list or `{in, not_in}`), `channel_ids` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`), `emojis` (list or `{in, not_in}`) |
+
+## factory
+
+| Event | Filter keys |
+| --- | --- |
+| `work_item_stage_changed` | `stages` (list or `{in, not_in}`) |
+
+## github
+
+| Event | Filter keys |
+| --- | --- |
+| `check_run_rerequested` | `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `check_suite_rerequested` | `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `check_suite_completed` | `authors` (list or `{in, not_in}`), `branches` (list or `{in, not_in}`), `conclusions` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `commit_status` | `contexts` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`), `states` (list or `{in, not_in}`) |
+| `issue_assigned` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `pull_request_assigned` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `issue_commented` | `authors` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `pull_request_commented` | `authors` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `issue_created` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `issue_labeled` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `issue_mentioned` | `authors` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `mentioned` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `pull_request_mentioned` | `authors` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `mentioned` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `pull_request_closed` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `baseBranches` (list or `{in, not_in}`), `base_branches` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `paths` (list or `{in, not_in}`), `prNumbers` (list of integers or `{in, not_in}`), `pr_numbers` (list of integers or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `pull_request_dequeued` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `baseBranches` (list or `{in, not_in}`), `base_branches` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `paths` (list or `{in, not_in}`), `prNumbers` (list of integers or `{in, not_in}`), `pr_numbers` (list of integers or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `pull_request_enqueued` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `baseBranches` (list or `{in, not_in}`), `base_branches` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `paths` (list or `{in, not_in}`), `prNumbers` (list of integers or `{in, not_in}`), `pr_numbers` (list of integers or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `pull_request_labeled` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `baseBranches` (list or `{in, not_in}`), `base_branches` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `paths` (list or `{in, not_in}`), `prNumbers` (list of integers or `{in, not_in}`), `pr_numbers` (list of integers or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `pull_request_merged` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `baseBranches` (list or `{in, not_in}`), `base_branches` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `paths` (list or `{in, not_in}`), `prNumbers` (list of integers or `{in, not_in}`), `pr_numbers` (list of integers or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `pull_request_synchronized` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `baseBranches` (list or `{in, not_in}`), `base_branches` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `paths` (list or `{in, not_in}`), `prNumbers` (list of integers or `{in, not_in}`), `pr_numbers` (list of integers or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `pull_request_opened` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `baseBranches` (list or `{in, not_in}`), `base_branches` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `paths` (list or `{in, not_in}`), `prNumbers` (list of integers or `{in, not_in}`), `pr_numbers` (list of integers or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`), `keywords` (list or `{in, not_in}`) |
+| `pull_request_ready` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `baseBranches` (list or `{in, not_in}`), `base_branches` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `paths` (list or `{in, not_in}`), `prNumbers` (list of integers or `{in, not_in}`), `pr_numbers` (list of integers or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`), `keywords` (list or `{in, not_in}`) |
+| `pull_request_reopened` | `assignees` (list or `{in, not_in}`), `authors` (list or `{in, not_in}`), `baseBranches` (list or `{in, not_in}`), `base_branches` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `paths` (list or `{in, not_in}`), `prNumbers` (list of integers or `{in, not_in}`), `pr_numbers` (list of integers or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`), `keywords` (list or `{in, not_in}`) |
+| `pull_request_review_requested` | `authors` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `reviewer_teams` (list or `{in, not_in}`), `reviewers` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `pull_request_review_submitted` | `authors` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `mentioned` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `review_states` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `push` | `branches` (list or `{in, not_in}`), `paths` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`) |
+| `workflow_run_completed` | `authors` (list or `{in, not_in}`), `branches` (list or `{in, not_in}`), `conclusions` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`), `skip_bots` (`all` \| `self` \| `none`), `workflows` (list or `{in, not_in}`) |
+
+## gitlab
+
+| Event | Filter keys |
+| --- | --- |
+| `bot_mentioned` | `mentioned` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`) |
+| `merge_request` | `actions` (list or `{in, not_in}`), `base_branches` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`) |
+| `push` | `branches` (list or `{in, not_in}`), `repos` (list or `{in, not_in}`) |
+
+## jira
+
+| Event | Filter keys |
+| --- | --- |
+| `agent_session_created` | `keywords` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `project_keys` (list or `{in, not_in}`) |
+| `issue_created` | `labels` (list or `{in, not_in}`), `project_keys` (list or `{in, not_in}`) |
+| `issue_labeled` | `labels` (list or `{in, not_in}`), `project_keys` (list or `{in, not_in}`) |
+| `status_changed` | `project_keys` (list or `{in, not_in}`), `status_ids` (list or `{in, not_in}`) |
+
+## linear
+
+| Event | Filter keys |
+| --- | --- |
+| `agent_session_created` | `creator_ids` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `project_ids` (list or `{in, not_in}`), `projects` (list of names (resolved on apply)), `team_ids` (list or `{in, not_in}`), `teams` (list of names (resolved on apply)) |
+| `comment_created` | `creator_ids` (list or `{in, not_in}`), `issue_ids` (list or `{in, not_in}`), `issues` (list of numbers (resolved on apply)), `labels` (list or `{in, not_in}`), `mentioned_user_ids` (list or `{in, not_in}`), `project_ids` (list or `{in, not_in}`), `projects` (list of names (resolved on apply)), `state_ids` (list or `{in, not_in}`), `states` (list of names (resolved on apply)), `team_ids` (list or `{in, not_in}`), `teams` (list of names (resolved on apply)) |
+| `issue_assigned` | `assignee_ids` (list or `{in, not_in}`), `creator_ids` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `mentioned_user_ids` (list or `{in, not_in}`), `project_ids` (list or `{in, not_in}`), `projects` (list of names (resolved on apply)), `state_ids` (list or `{in, not_in}`), `states` (list of names (resolved on apply)), `team_ids` (list or `{in, not_in}`), `teams` (list of names (resolved on apply)) |
+| `issue_created` | `assignee_ids` (list or `{in, not_in}`), `creator_ids` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `mentioned_user_ids` (list or `{in, not_in}`), `project_ids` (list or `{in, not_in}`), `projects` (list of names (resolved on apply)), `state_ids` (list or `{in, not_in}`), `states` (list of names (resolved on apply)), `team_ids` (list or `{in, not_in}`), `teams` (list of names (resolved on apply)) |
+| `issue_labeled` | `assignee_ids` (list or `{in, not_in}`), `creator_ids` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `mentioned_user_ids` (list or `{in, not_in}`), `project_ids` (list or `{in, not_in}`), `projects` (list of names (resolved on apply)), `state_ids` (list or `{in, not_in}`), `states` (list of names (resolved on apply)), `team_ids` (list or `{in, not_in}`), `teams` (list of names (resolved on apply)) |
+| `issue_state_changed` | `assignee_ids` (list or `{in, not_in}`), `creator_ids` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `mentioned_user_ids` (list or `{in, not_in}`), `project_ids` (list or `{in, not_in}`), `projects` (list of names (resolved on apply)), `state_ids` (list or `{in, not_in}`), `states` (list of names (resolved on apply)), `team_ids` (list or `{in, not_in}`), `teams` (list of names (resolved on apply)) |
+
+## schedule
+
+| Event | Filter keys |
+| --- | --- |
+| `cron_fired` | `schedule_ids` (list or `{in}`) |
+
+## slack
+
+| Event | Filter keys |
+| --- | --- |
+| `app_mention` | `channel_ids` (list or `{in, not_in}`), `channels` (list of names (resolved on apply)), `keywords` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`), `users` (list of names (resolved on apply)) |
+| `message_dm` | `channel_ids` (list or `{in, not_in}`), `channels` (list of names (resolved on apply)), `keywords` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`), `users` (list of names (resolved on apply)) |
+| `message_im` | `channel_ids` (list or `{in, not_in}`), `channels` (list of names (resolved on apply)), `keywords` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`), `users` (list of names (resolved on apply)) |
+| `message_mpim` | `channel_ids` (list or `{in, not_in}`), `channels` (list of names (resolved on apply)), `keywords` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`), `users` (list of names (resolved on apply)) |
+| `message_posted` | `channel_ids` (list or `{in, not_in}`), `channels` (list of names (resolved on apply)), `keywords` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`), `users` (list of names (resolved on apply)) |
+| `member_joined_channel` | `channel_ids` (list or `{in, not_in}`), `channels` (list of names (resolved on apply)), `user_ids` (list or `{in, not_in}`), `users` (list of names (resolved on apply)) |
+| `reaction_added` | `channel_ids` (list or `{in, not_in}`), `channels` (list of names (resolved on apply)), `emojis` (list or `{in, not_in}`), `itemUsers` (list of names (resolved on apply)), `item_user_ids` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`), `users` (list of names (resolved on apply)) |
+
+## teams
+
+| Event | Filter keys |
+| --- | --- |
+| `app_mention` | `team_ids` (list or `{in}`), `channel_ids` (list or `{in}`), `keywords` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`) |
+| `message_posted` | `team_ids` (list or `{in}`), `channel_ids` (list or `{in}`), `keywords` (list or `{in, not_in}`), `user_ids` (list or `{in, not_in}`) |
+
+## webhook
+
+| Event | Filter keys |
+| --- | --- |
+| `received` | `webhook_ids` (exactly one webhook), `payload` (payload pattern) |
+
+Server-managed keys are rejected in definitions: GitLab `bot_mentioned` fills `mentioned` with the factory's bot, and `schedule_ids` is set from each inline schedule.
+
+## Related pages
+
+- [Automations](automations.md)
+- [Custom webhooks](../integrations/custom-webhooks.md)
+- [Connections](../integrations/connections.md)
+
+---
+
 # Automations
 
 Source: https://github.com/fishuke/klin/blob/main/docs/site/configuration/automations.md
 
-An automation is a file at `automations/<name>/automation.md` that starts a work item when one of its triggers matches an incoming event.
+An automation is a file at `automations/<name>/automation.md` (or `automations/<name>.md`) that starts a work item when one of its triggers matches an incoming event.
 
 ## An automation file
 
@@ -133,7 +277,7 @@ triggers:
   - provider: github
     event: issue_labeled
     filter:
-      repo: [acme/web]
+      repos: [acme/web]
       labels: [kiln-ready]
 ---
 Take the labeled issue through the factory.
@@ -147,56 +291,83 @@ The body is the automation's prompt. Kiln appends it to the work item's body as 
 | `agent` | the foreman | When this is the `FOREMAN` agent, the work item takes the foreman's path. Any other agent runs directly on the work item. |
 | `displayName` | none | |
 | `triggers` | required | At least one. |
-| `harness`, `model`, `runner`, `secrets`, `mcpServers` | inherited from the agent | Override settings for work this automation starts. See [Inheritance](agents.md#inheritance). |
+
+### Execution overrides
+
+These apply to every run of work this automation starts, over the agent's own settings.
+
+| Key | Effect |
+| --- | --- |
+| `harness`, `model` | Set one: `harness` replaces the agent's harness and model, `model` keeps the harness. See [Inheritance](agents.md#inheritance). |
+| `runner` | A file in `runners/`. |
+| `secrets` | Extra secret names, added to the agent's own. |
+| `mcpServers` | MCP server names, passed to the run as `KILN_MCP_SERVERS`. |
+| `environmentId` | Passed to the run as `KILN_ENVIRONMENT_ID`. |
+| `workerHost` | A self-hosted worker, passed as `KILN_WORKER_HOST`. |
+| `computerUseModel` | Accepted for compatibility. |
+| `idleTimeoutMinutes` | 1–60, passed as `KILN_IDLE_TIMEOUT_MINUTES`. |
+| `required_repos` | `owner/name` repositories prepared for every run, even when `deferred` in `factory.yaml`. |
 
 ## Triggers
 
-Each trigger has a `provider`, an `event`, and an optional `filter`. Schedule triggers also need `schedule`.
+Each trigger has a `provider`, an `event` and an optional `filter`. The providers are `github`, `gitlab`, `azure_devops`, `bitbucket`, `slack`, `teams`, `discord`, `linear`, `jira`, `webhook`, `schedule` and `factory`. Each event accepts its own filter keys, and validation rejects unknown events and keys. The full list is in [Automation triggers](automation-triggers.md).
 
-| Provider | Events Kiln produces |
-| --- | --- |
-| `github` | `issue_opened`, `issue_labeled`, `issue_assigned`, `issue_mentioned`, `pull_request_mentioned`, `pull_request_opened`, `pull_request_labeled`, `pull_request_review_submitted`, `pull_request_merged`, `pull_request_closed`, `check_suite_completed`, `push` |
-| `slack` | `app_mention`, `direct_message`, `thread_reply`, `reaction_added` |
-| `linear` | `issue_created`, `issue_assigned`, `issue_mentioned`, `agent_session_created` |
-| `jira` | `issue_created`, `issue_assigned`, `issue_mentioned` |
-| `schedule` | any event name you choose, such as `cron_fired` |
-| `webhook` | `received` |
-| `factory` | `work_item_stage_changed` |
+- One event can match several automations; each starts its own work item.
+- An automation fires at most once per delivery, even when several of its triggers match. A GitHub comment with a mention is both `issue_commented` and `issue_mentioned`, but starts one work item per automation.
+- Two automations can still both fire for one action: an app mention plus a channel message on the same channel, or a Linear session plus `comment_created`. Pick one.
 
-The schema also accepts the providers `gitlab` and `kiln`. Kiln does not produce events for them yet.
-
-A Slack `app_mention` trigger without a `mentioned` filter only fires for the factory whose alias is mentioned, or for every factory when the message only mentions the bot.
+Ready-made automations for every connected tool, and suggestions such as auto-fixing CI failures, auto-reviewing pull requests or auditing dependencies, are listed by `GET /api/v1/automation-templates` (`?factory=<id>` fills in the alias, Linear teams and Jira projects). `POST /api/v1/factories/<id>/automations/from-template` adds one to a Kiln-managed factory.
 
 ## Filters
 
-A filter compares its keys with fields of the event. Matching ignores case.
-
 ```yaml
 filter:
-  labels: [kiln-ready, bug]          # the event has at least one of these
-  in: { team_ids: [TEAM-UUID] }      # explicit form of the same rule
-  not_in: { labels: [wontfix] }      # the event has none of these
+  repos: [acme/web]                       # bare list: any of these
+  labels: { in: [bug], not_in: [wontfix] }
+  base_branches: [main, "release/*"]
+  skip_bots: self
 ```
 
-- A plain key matches when the event's value, or any item of it, is in the list. An empty list matches anything.
-- `in` holds keys with the same "at least one" rule.
-- `not_in` holds keys whose values must all be absent.
-- Every key must match.
+- Every key must match (AND). Within a key, any listed value matches (OR).
+- A bare list means `in`. `{ in, not_in }` adds exclusions: `not_in` fails when any of its values is present.
+- A missing or empty list adds no restriction, but provider defaults still apply.
+- Matching ignores case. `keywords` matches text in the title, body or message. `paths`, `branches` and `base_branches` accept globs (`api/**`, `release/*`).
+- Teams `team_ids` and `channel_ids` take only `in`.
+- camelCase `baseBranches` and `prNumbers` are accepted, but not next to their snake_case twins.
+- Filters decide what starts work. They do not control access.
 
-Fields you can filter on:
+### Bots
 
-| Provider | Fields |
+`skip_bots` is `all`, `self` or `none`.
+
+| Value | Skips |
 | --- | --- |
-| GitHub | `repo` (`owner/name`), `repos` (the same, as a list; GitHub events carry both `repo` and `repos`), `number`, `labels`, `label` (the label just added), `mentioned`, `author`, `assignee`, `head` (branch), `state` (review state), `conclusion` |
-| Slack | `channel`, `mentioned`, `author`, `reaction` |
-| Linear | `team_ids`, `labels`, `mentioned`, `assignee` |
-| Jira | `project`, `labels`, `mentioned`, `assignee` |
+| `all` | Events from any bot. The default for GitHub. |
+| `self` | Only events from Kiln's own apps. The default everywhere else. |
+| `none` | Nothing. Admitting Kiln's own events can cause loops. |
 
-`mentioned` holds the lowercased `@handles` found in the text.
+### Alias filters
+
+`teams`, `projects`, `states`, `channels`, `users` and `itemUsers` take plain names instead of IDs, and `issues` takes Linear issue numbers:
+
+```yaml
+filter: { teams: [Engineering], states: [Todo] }
+```
+
+Kiln resolves the names against the connected provider's directory when you apply the definition, and the apply fails on a name it can't resolve, so connect the provider first. A name list and its ID key (`teams` and `team_ids`) can't be used together. See [Connections](../integrations/connections.md#alias-directory).
 
 ## Stage changes
 
-A `factory` trigger reacts when a work item in the same factory changes state. Its event carries `from`, `to` and `workItemId`, so you can filter on them:
+A `factory` trigger reacts when a work item in the same factory changes stage. Filter on `stages`, with task stages or Kiln's states:
+
+| Stage | States |
+| --- | --- |
+| `TRIAGE` | `received`, `triaging` |
+| `SPEC` | `planning`, `awaiting_spec` |
+| `IMPLEMENT` | `building`, `awaiting_preview` |
+| `REVIEW` | `reviewing`, `handed_off` |
+| `COMPLETE` | `complete` |
+| `CANCELLED` | `cancelled`, `failed` |
 
 ```markdown
 ---
@@ -204,7 +375,7 @@ agent: notifier
 triggers:
   - provider: factory
     event: work_item_stage_changed
-    filter: { to: [handed_off] }
+    filter: { stages: [handed_off] }
 ---
 Summarize the handed-off work for the release notes.
 ```
@@ -222,57 +393,40 @@ triggers:
     schedule: { cron: "0 9 * * 1", name: weekly }
 ```
 
-- `cron` takes five fields (minute, hour, day of month, month, day of week) in UTC, or one of `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`.
+- `cron` takes five fields (minute, hour, day of month, month, day of week), one of `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`, or `@every <duration>` such as `@every 5m` or `@every 1h30m` (at least one minute).
+- Schedules are always UTC. A `CRON_TZ=` or `TZ=` prefix and six-field (seconds) expressions are rejected.
 - Fields accept `*`, numbers, ranges (`1-5`), lists (`1,15`) and steps (`*/15`). Day of week runs 0–6 from Sunday; 7 also means Sunday.
-- Kiln checks schedules on each timer tick. A schedule fires once when it is due, even if several due times passed since the last check.
-- The first due time is counted from when Kiln first saw the schedule, not from the past.
-- `name` identifies the schedule. Keep it stable, or Kiln treats the schedule as new.
+- `schedule` is only valid on `schedule`/`cron_fired` triggers. At most one schedule per automation may omit `name`.
+- `name` is the schedule's identity (`<factory>/<automation>/<name>`). Changing only `cron` keeps it and its last fire time; changing `name` makes a new schedule. `schedule_ids` is managed by Kiln and can't be set in a definition.
+- Kiln checks schedules on each timer tick. A schedule fires once when it is due, even if several due times passed since the last check. The first due time is counted from when Kiln first saw the schedule.
 
 ## Webhooks
 
-To accept events from any other system, add a webhook file and an automation that names it.
-
-```yaml
-# webhooks/sentry.yaml
-authMode: signature
-signatureScheme: sentry
-secretName: SENTRY_WEBHOOK_SECRET
-deliveryIdHeader: request-id
-```
+To accept events from any other system, add a webhook and an automation that names it in `webhook_ids` (exactly one: a file name, a managed webhook's name, or its UID), with an optional `payload` filter on the body:
 
 ```markdown
 ---
-agent: foreman
 triggers:
   - provider: webhook
     event: received
-    filter: { webhook: sentry }
+    filter:
+      webhook_ids: [sentry]
+      payload: { data: { issue: { level: [fatal] } } }
 ---
 Investigate the alert in the payload.
 ```
 
-The endpoint is `POST /webhooks/<factory>/<webhook-name>`. The secret is read from Kiln's secrets store by `secretName`, or from the server's environment variable `KILN_SECRET_<secretName>`. A missing secret rejects every call.
+The older `filter: { webhook: sentry }` is still accepted. Authentication, delivery rules and the payload filter reference are on [Custom webhooks](../integrations/custom-webhooks.md).
 
-| `authMode` | The caller sends |
-| --- | --- |
-| `token` (default) | `Authorization: Bearer <secret>` |
-| `url_token` | `?token=<secret>` in the URL |
-| `signature` | A signature header, checked by `signatureScheme`. See below. |
+## Test filter
 
-| `signatureScheme` | Header and check |
-| --- | --- |
-| `github` | `X-Hub-Signature-256: sha256=<hex HMAC-SHA256 of the body>` |
-| `standard_webhooks` | `webhook-id`, `webhook-timestamp` and `webhook-signature` (`v1,<base64 HMAC>` over `<id>.<timestamp>.<body>`). A `whsec_` secret prefix is accepted. |
-| `stripe` | `Stripe-Signature: t=<time>,v1=<hex HMAC-SHA256 of "<time>.<body>">`. Signatures older than five minutes are refused. |
-| `sentry` | `Sentry-Hook-Signature: <hex HMAC-SHA256 of the body>` |
-
-`signatureScheme` is required when `authMode` is `signature`. The work item's title comes from the payload's `title` or `summary` field, and the body is the payload. A `webhook` trigger without `filter.webhook` naming a file in `webhooks/` fails validation.
+Kiln keeps a log of recent provider deliveries (`GET /api/v1/deliveries`, admins) and of custom webhook deliveries. `POST /api/v1/factories/<id>/automations/<name>/test-filter` with `{ "deliveryId": "<id>" }` evaluates the automation's triggers against one of them and returns `wouldTrigger` with every check's outcome.
 
 ## Dedupe and follow-ups
 
-Providers retry deliveries. Kiln remembers each delivery ID (GitHub's `X-GitHub-Delivery`, Slack's `event_id`, Linear's `Linear-Delivery`, Jira's `X-Atlassian-Webhook-Identifier`, or your webhook's `deliveryIdHeader`) for 24 hours and ignores repeats.
+Providers retry deliveries. Kiln remembers each delivery ID (GitHub's `X-GitHub-Delivery`, Slack's `event_id`, Linear's `Linear-Delivery`, Jira's `X-Atlassian-Webhook-Identifier`, GitLab's `X-Gitlab-Event-UUID`, and so on) for 7 days and ignores repeats, across restarts.
 
-Before it starts new work, Kiln checks whether the event belongs to a work item in flight: the same Slack thread, the same Linear or Jira issue, or the same GitHub issue or pull request. If so, the event continues that item:
+Before it starts new work, Kiln checks whether a comment, reply or session message belongs to a work item in flight: the same Slack, Teams or Discord thread, the same Linear session or issue, the same Jira issue, or the same issue or pull request on any forge. If so, the event continues that item. In chat, a plain thread reply continues the work only while the factory's `autoRespondToThreadReplies` is on (the default); otherwise it needs a mention.
 
 - "approve", "approved", "lgtm", "ship it" or "accept" approves an open spec or preview gate.
 - "reject", "changes:" or "request changes" rejects it, with the rest of the message as feedback.
@@ -282,7 +436,7 @@ Before it starts new work, Kiln checks whether the event belongs to a work item 
 
 Text in a thread or comment is content, not authority. A reply approves, rejects or answers a gate only when its author is one of the gate's assignees, or the gate has no assignees. Otherwise the reply is treated like any other message.
 
-Gate assignees are people, such as `po@acme.test`, while Slack and the forges report their own user IDs. The server option `identities` maps one to the other, keyed by `<provider>:<user>`:
+Gate assignees are people, such as `po@acme.test`, while chat tools and forges report their own user IDs. [Linked accounts](../integrations/connections.md#linked-accounts) map them, and so does the server option `identities`, keyed by `<provider>:<user>`:
 
 ```json
 { "slack:U024BE7LH": "po@acme.test", "github:alice": "alice@acme.test" }
@@ -290,13 +444,16 @@ Gate assignees are people, such as `po@acme.test`, while Slack and the forges re
 
 A mapped reply is recorded under the person's name. An unmapped reply is recorded under the provider's user ID.
 
-Labeled events never continue existing work. A merged pull request completes its work item.
+Labels, pushes and state changes never continue existing work. A merged pull request, on any forge, completes its work item.
 
-A factory with no automations still answers mentions of its alias in Slack, GitHub, Linear and Jira by starting foreman work.
+A factory with no automations still answers direct mentions of its alias by starting foreman work.
 
 ## Related pages
 
 - [Factory agents](agents.md)
+- [Automation triggers](automation-triggers.md)
+- [Custom webhooks](../integrations/custom-webhooks.md)
+- [Connections](../integrations/connections.md)
 - [GitHub](../integrations/github.md)
 - [Slack](../integrations/slack.md)
 - [Linear](../integrations/linear.md)
@@ -450,7 +607,7 @@ A factory is defined by a tree of files rooted at `factory.yaml`, which Kiln val
 factory.yaml
 agents/<name>/agent.md                    # frontmatter + instructions
 agents/<name>/skills/<skill>/SKILL.md
-automations/<name>/automation.md          # triggers + prompt
+automations/<name>/automation.md          # triggers + prompt (or automations/<name>.md)
 pipelines/<name>.yaml                     # optional stage graph
 gates/<name>.yaml                         # gate rules
 policies/<name>.yaml                      # protected paths, approvals
@@ -479,7 +636,13 @@ project: customer-portal
 repositories:
   - { forge: github, owner: acme, name: web-app }
   - { forge: github, owner: acme, name: design-system, deferred: true }
-integrations: [slack, linear]
+integrations:
+  - type: slack
+    slack: { autoRespondToThreadReplies: true }
+  - linear
+github: { factoryConfigChecks: main }
+cloudProviders:
+  aws: { roleArn: arn:aws:iam::123456789012:role/kiln-runs }
 agentDefaults:
   harness: { type: claude-code, model: router:by-task }
   runner: linux-node
@@ -494,12 +657,36 @@ budgets: { perWorkItemUsd: 40, monthlyUsd: 6000 }
 | `name` | 1–100 characters. |
 | `alias` | Lowercase letters, digits and dashes, 1–60 characters. Also the factory's ID in Kiln. When missing, the ID is `name` turned into a slug. |
 | `description`, `project` | Optional. |
-| `repositories` | At least one. `forge` is `github` (default) or `gitlab`. Agents work in the first repository. `deferred: true` repositories are not cloned into sandboxes. |
-| `integrations` | Any of `github`, `gitlab`, `slack`, `linear`, `jira`. |
+| `repositories` | At least one. `forge` is `github` (default), `gitlab`, `azure_devops` or `bitbucket`. Agents work in the first repository. `deferred: true` repositories are not cloned into sandboxes unless an automation's `required_repos` names them. |
+| `integrations` | The workspace integrations this factory opts into: `slack`, `microsoft-teams`, `discord`, `linear`, `jira`, as names or as `{ type, <type>: settings }` objects. Linear and Jira are exclusive. Forges come from `repositories`. See [Connections](../integrations/connections.md#per-factory-opt-in). |
+| `github` | `factoryConfigChecks`: `main` (default) or `all`. See [GitHub](../integrations/github.md#the-kilnfactory-config-check). |
+| `automations` | `githubOnboardingNotices` (default `true`): once your workspace links GitHub accounts, a person who mentions `@kiln-factory` without a linked account gets one comment saying how to link it. Work still starts. `false` turns the comment off for this factory's repositories. |
+| `cloudProviders` | Cloud identity federation for runs. `providers` is accepted as its older name. See below. |
 | `agentDefaults` | Execution settings every agent inherits. Must set `harness` or `model`. |
 | `selfImprovement` | `failedRunThreshold` 1–50 (default 25), `maxAgeDays` 1–90 (default 7), `reviewers.type` `admins` (default), `team`, `custom` or `none`, and `reviewers.emails` for `custom`. |
 | `defaultPipeline` | A file name in `pipelines/`. |
 | `budgets` | `perWorkItemUsd`, `monthlyUsd`. See [Policies and budgets](policies-and-budgets.md). |
+
+### Cloud identity federation
+
+```yaml
+cloudProviders:
+  aws: { roleArn: arn:aws:iam::123456789012:role/kiln-runs }
+  gcp:
+    projectNumber: "123456789012"        # quote it
+    workloadIdentityFederationPoolId: kiln
+    workloadIdentityFederationProviderId: kiln-runs
+    serviceAccountEmail: runs@acme.iam.gserviceaccount.com   # optional
+```
+
+Runs get these environment variables:
+
+| Setting | Variables |
+| --- | --- |
+| `aws.roleArn` | `AWS_ROLE_ARN`, `AWS_ROLE_SESSION_NAME` (`kiln-run`) |
+| `gcp` | `GCP_PROJECT_NUMBER`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER` (the full `projects/…/providers/…` name), `GCP_SERVICE_ACCOUNT_EMAIL` |
+
+Set `cloudProviders` or the older `providers`, not both.
 
 The other file kinds are covered on their own pages: [agents](agents.md), [skills](skills.md), [automations](automations.md), [pipelines and gates](pipelines-and-gates.md), [policies](policies-and-budgets.md), [decisions](decisions.md), [runners](../infrastructure/sandboxes.md#runner-files), [scorers](../measure-and-improve/scorers.md) and [benchmarks](../measure-and-improve/benchmarks.md). The full key reference is generated from the schema.
 
@@ -648,11 +835,31 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `description` | string |  |  |
 | `project` | string |  |  |
 | `repositories` | list of object | yes |  |
-| `repositories[].forge` | `github` \| `gitlab` |  | default `"github"` |
+| `repositories[].forge` | `github` \| `gitlab` \| `azure_devops` \| `bitbucket` |  | default `"github"` |
 | `repositories[].owner` | string | yes |  |
 | `repositories[].name` | string | yes |  |
 | `repositories[].deferred` | boolean |  | default `false` |
-| `integrations` | list of `github` \| `gitlab` \| `slack` \| `linear` \| `jira` |  | default `[]` |
+| `integrations` | list of `github` \| `gitlab` \| `slack` \| `linear` \| `jira` \| `discord` \| `microsoft-teams` \| `teams` \| `azure_devops` \| `bitbucket` \| object |  | default `[]` |
+| `github` | object |  |  |
+| `github.factoryConfigChecks` | `main` \| `all` |  | default `"main"` |
+| `automations` | object |  |  |
+| `automations.githubOnboardingNotices` | boolean |  | default `true` |
+| `cloudProviders` | object |  |  |
+| `cloudProviders.aws` | object |  |  |
+| `cloudProviders.aws.roleArn` | string | yes | pattern `^arn:aws[a-z-]*:iam::\d{12}:role\/.+` |
+| `cloudProviders.gcp` | object |  |  |
+| `cloudProviders.gcp.projectNumber` | string | yes | pattern `^\d+$` |
+| `cloudProviders.gcp.workloadIdentityFederationPoolId` | string | yes |  |
+| `cloudProviders.gcp.workloadIdentityFederationProviderId` | string | yes |  |
+| `cloudProviders.gcp.serviceAccountEmail` | string |  | pattern `^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$` |
+| `providers` | object |  |  |
+| `providers.aws` | object |  |  |
+| `providers.aws.roleArn` | string | yes | pattern `^arn:aws[a-z-]*:iam::\d{12}:role\/.+` |
+| `providers.gcp` | object |  |  |
+| `providers.gcp.projectNumber` | string | yes | pattern `^\d+$` |
+| `providers.gcp.workloadIdentityFederationPoolId` | string | yes |  |
+| `providers.gcp.workloadIdentityFederationProviderId` | string | yes |  |
+| `providers.gcp.serviceAccountEmail` | string |  | pattern `^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$` |
 | `agentDefaults` | object | yes |  |
 | `agentDefaults.harness` | object \| null |  |  |
 | `agentDefaults.harness.type` | `claude-code` \| `codex` \| `opencode` | yes |  |
@@ -710,9 +917,9 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `agent` | string |  |  |
 | `displayName` | string \| null |  |  |
 | `triggers` | list of object | yes |  |
-| `triggers[].provider` | `github` \| `gitlab` \| `linear` \| `jira` \| `slack` \| `factory` \| `schedule` \| `webhook` \| `kiln` | yes |  |
+| `triggers[].provider` | `azure_devops` \| `bitbucket` \| `discord` \| `factory` \| `github` \| `gitlab` \| `jira` \| `kiln` \| `linear` \| `schedule` \| `slack` \| `teams` \| `webhook` | yes |  |
 | `triggers[].event` | string | yes |  |
-| `triggers[].filter` | object |  |  |
+| `triggers[].filter` | object \| null |  |  |
 | `triggers[].schedule` | object |  |  |
 | `triggers[].schedule.cron` | string | yes |  |
 | `triggers[].schedule.name` | string |  |  |
@@ -728,6 +935,11 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `runner` | string \| null |  |  |
 | `secrets` | list of string \| null |  |  |
 | `mcpServers` | list of string \| null |  |  |
+| `environmentId` | string \| null |  |  |
+| `workerHost` | string \| null |  |  |
+| `computerUseModel` | string \| null |  |  |
+| `idleTimeoutMinutes` | integer |  | min 1, max 60 |
+| `required_repos` | list of string |  |  |
 
 ## pipeline
 
@@ -879,9 +1091,9 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | --- | --- | --- | --- |
 | `enabled` | boolean |  | default `true` |
 | `authMode` | `token` \| `url_token` \| `signature` |  | default `"token"` |
-| `signatureScheme` | `github` \| `standard_webhooks` \| `stripe` \| `sentry` |  |  |
+| `signatureScheme` | `github` \| `pagerduty` \| `sentry` \| `standard_webhooks` \| `stripe` \| `vercel` |  |  |
 | `secretName` | string | yes |  |
-| `deliveryIdHeader` | string |  |  |
+| `deliveryIdHeader` | string |  | pattern `^[A-Za-z0-9!#$%&'*+.^_`|~-]+$` |
 
 ## decision
 
@@ -1335,15 +1547,74 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>`; eac
 | POST | `/api/v1/tokens` | `admin` | Issue a scoped token |
 | PUT | `/api/v1/secrets/{name}` | `admin` | Set a managed secret |
 
+## Integrations
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/connections` | `admin` | Workspace connections to every provider, with status |
+| POST | `/api/v1/connections/{provider}/start` | `admin` | Start connecting: an OAuth/install URL and setup steps |
+| POST | `/api/v1/connections/{provider}/complete` | `admin` | Finish connecting (OAuth code + state, or manual fields) |
+| POST | `/api/v1/connections/{provider}/test` | `admin` | Test a connection's credentials |
+| DELETE | `/api/v1/connections/{provider}` | `admin` | Disconnect and delete stored credentials |
+| PUT | `/api/v1/connections/{provider}/directory` | `admin` | Set the names → ids used to resolve alias filters |
+| GET | `/api/v1/connections/{provider}/approval-links` | `admin` | Approval links sent to someone else |
+| POST | `/api/v1/connections/{provider}/approval-links` | `admin` | Send an approval link to an admin (expires in 7 days) |
+| POST | `/api/v1/approval-links/{id}/resend` | `admin` | Resend an approval link (new token, 7 more days) |
+| DELETE | `/api/v1/approval-links/{id}` | `admin` | Revoke an approval link |
+| GET | `/api/v1/identity-links` | — | Your linked provider accounts (all with ?all=1 for admins) |
+| POST | `/api/v1/identity-links/claim` | — | Link a chat account from a sign-in token |
+| POST | `/api/v1/identity-links/github/start` | — | Start linking your GitHub account (OAuth URL) |
+| DELETE | `/api/v1/identity-links/{id}` | — | Unlink a provider account |
+| GET | `/api/v1/factories/{id}/integrations` | `read` | A factory's integrations, settings and connection status |
+| PUT | `/api/v1/factories/{id}/integrations` | `definitions:write` | Opt a Kiln-managed factory into integrations (applies factory.yaml) |
+| GET | `/api/v1/notification-routes` | — | Where a factory can notify a person (?factory, ?workItem, ?subject) |
+| GET | `/api/v1/integrations/teams/app-package` | `admin` | Microsoft Teams app package (manifest and icons, zip) |
+| POST | `/api/v1/integrations/discord/commands` | `admin` | Register the /kiln Discord command (global or one server) |
+
+## Automations
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/automation-templates` | — | Default and suggested automation files (?factory fills them in) |
+| POST | `/api/v1/factories/{id}/automations/from-template` | `definitions:write` | Add a template to a Kiln-managed factory |
+| GET | `/api/v1/automation-catalog` | — | Every trigger provider, event and filter key |
+| GET | `/api/v1/deliveries` | `admin` | Recent provider deliveries |
+| POST | `/api/v1/factories/{id}/automations/{name}/test-filter` | `read` | Test an automation's triggers against a stored delivery |
+
+## Custom webhooks
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/factories/{id}/webhooks` | `read` | A factory's custom webhooks (managed and file) |
+| POST | `/api/v1/factories/{id}/webhooks` | `definitions:write` | Create a webhook; the secret is shown once |
+| GET | `/api/v1/webhooks/{uid}` | `read` | A webhook with its ingress URL |
+| PATCH | `/api/v1/webhooks/{uid}` | `definitions:write` | Enable, disable or set the delivery id header |
+| DELETE | `/api/v1/webhooks/{uid}` | `definitions:write` | Delete a webhook (automations stay but stop firing) |
+| POST | `/api/v1/webhooks/{uid}/rotate` | `definitions:write` | Rotate the secret immediately |
+| POST | `/api/v1/webhooks/{uid}/finish` | `definitions:write` | Finish setup with the provider's secret and enable |
+| GET | `/api/v1/webhooks/{uid}/deliveries` | `read` | Recent deliveries and their status |
+| GET | `/api/v1/webhooks/{uid}/deliveries/{delivery}` | `read` | One delivery with its stored payload |
+
 ## Webhooks
 
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
-| POST | `/webhooks/github` | — | GitHub webhook (X-Hub-Signature-256) |
+| POST | `/webhooks/github` | — | GitHub App webhook (X-Hub-Signature-256) |
+| POST | `/webhooks/gitlab` | — | GitLab group webhook (X-Gitlab-Token) |
+| POST | `/webhooks/azure-devops` | — | Azure DevOps service hooks (basic auth) |
+| POST | `/webhooks/bitbucket` | — | Bitbucket Cloud webhook (X-Hub-Signature) |
 | POST | `/webhooks/slack` | — | Slack Events API (signing secret) |
+| POST | `/webhooks/teams` | — | Microsoft Teams Bot Framework activities (JWT) |
+| POST | `/webhooks/discord` | — | Discord interactions (Ed25519) |
+| POST | `/webhooks/discord/events` | — | Discord gateway events from a bridge (bearer token) |
 | POST | `/webhooks/linear` | — | Linear webhook (Linear-Signature) |
 | POST | `/webhooks/jira` | — | Jira webhook (?token=) |
-| POST | `/webhooks/{factory}/{name}` | — | A factory's custom webhook from webhooks/<name>.yaml |
+| POST | `/webhooks/w/{uid}` | — | Custom webhook ingress: 202 {delivery_id} |
+| POST | `/webhooks/w/{uid}/{token}` | — | Custom webhook ingress with a URL token |
+| POST | `/webhooks/{factory}/{name}` | — | A factory's file webhook by name (older URL) |
+| GET | `/oauth/{provider}/callback` | — | OAuth / app install callback (browser redirect) |
+| GET | `/connect/approve/{token}` | — | Open an approval link (browser redirect) |
+| GET | `/oauth/github-user/callback` | — | GitHub account linking callback (browser redirect) |
 
 ## Errors
 
@@ -1635,7 +1906,7 @@ deliveryIdHeader: webhook-id
 triggers:
   - provider: webhook
     event: received
-    filter: { webhook: alerts }
+    filter: { webhook_ids: [alerts] }
 ---
 An alert fired. Find the cause, then fix it with a regression test.
 ```
@@ -2295,17 +2566,25 @@ Kiln needs two URLs:
 
 ### Webhooks and secrets
 
-Point each provider's webhooks at Kiln and set the matching secret. For the four provider endpoints, Kiln reads the server environment variable with the secret's name (for example `GITHUB_WEBHOOK_SECRET`) first, then its secrets store, then `KILN_SECRET_<NAME>`. A custom webhook's secret comes from the secrets store or `KILN_SECRET_<secretName>`.
+Point each provider's webhooks at Kiln and set the matching secret. For the provider endpoints, Kiln reads the server environment variable with the secret's name (for example `GITHUB_WEBHOOK_SECRET`) first, then its secrets store, then `KILN_SECRET_<NAME>`, then the provider's [connection](../integrations/connections.md). A custom webhook's secret comes from the secrets store or `KILN_SECRET_<secretName>`.
 
 | Provider | Endpoint | Secret |
 | --- | --- | --- |
 | GitHub | `POST /webhooks/github` | `GITHUB_WEBHOOK_SECRET` |
+| GitLab | `POST /webhooks/gitlab` | `GITLAB_WEBHOOK_TOKEN` (`X-Gitlab-Token`) |
+| Azure DevOps | `POST /webhooks/azure-devops` | `AZURE_DEVOPS_WEBHOOK_PASSWORD` (basic auth) |
+| Bitbucket | `POST /webhooks/bitbucket` | `BITBUCKET_WEBHOOK_SECRET` |
 | Slack | `POST /webhooks/slack` | `SLACK_SIGNING_SECRET` |
+| Microsoft Teams | `POST /webhooks/teams` | Bot Framework token for `TEAMS_APP_ID` |
+| Discord | `POST /webhooks/discord` | Ed25519 with `DISCORD_PUBLIC_KEY` |
+| Discord bridge | `POST /webhooks/discord/events` | `DISCORD_EVENTS_TOKEN` (bearer) |
 | Linear | `POST /webhooks/linear` | `LINEAR_WEBHOOK_SECRET` |
 | Jira | `POST /webhooks/jira?token=<token>` | `JIRA_WEBHOOK_TOKEN` |
-| Custom | `POST /webhooks/<factory>/<name>` | The webhook file's `secretName` |
+| Custom | `POST /webhooks/w/<uid>` (or `/webhooks/<factory>/<name>`) | The webhook's secret |
 
-When a provider secret is not set, Kiln accepts that provider's webhooks without checking signatures. Set every secret before you expose Kiln to the internet.
+GitLab, Azure DevOps, Bitbucket, Teams and Discord refuse every call until their secret is set. For GitHub, Slack, Linear and Jira, Kiln accepts webhooks without checking signatures when the secret is not set. Set every secret before you expose Kiln to the internet.
+
+OAuth providers redirect to `GET /oauth/<provider>/callback` on the public URL; register that URL in each OAuth app. Every provider's variables are listed on [Connections](../integrations/connections.md#environment-variables).
 
 Admins can set secrets through the API; values are never returned, only names. See the [API overview](../developer-tools/api.md).
 
@@ -2333,9 +2612,13 @@ Gates name approvers by role, such as `role:po` or `role:code-owners`. Kiln's se
 - **Kubernetes:** create the `kiln-sandboxes` namespace, install gVisor with a RuntimeClass named `gvisor`, and deploy the egress proxy with the label `app.kubernetes.io/name: kiln-egress-proxy` on port 3128.
 - Build runner images with the harness programs (`claude`, `codex`, `opencode`), git and your toolchain installed.
 
+### Cloud identity federation
+
+When a factory sets `cloudProviders` in `factory.yaml`, its runs get the federation settings as environment variables and exchange their own identity token for short-lived cloud credentials. Kiln never holds long-lived cloud keys. See [Definitions as code](../configuration/definitions-as-code.md#cloud-identity-federation).
+
 ### Forge identity
 
-Kiln talks to GitHub with a token, for example a GitHub App installation token. It needs to read repositories, push `kiln/*` branches, open and update pull requests, comment, add labels and read check runs. Do not give it a branch-protection bypass. Agents never see this token; each run gets its own short-lived run token instead.
+Kiln talks to GitHub as a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`), minting a short-lived installation token for each call, or with a plain `GITHUB_TOKEN`. GitLab, Azure DevOps and Bitbucket use the tokens on their pages. It needs to read repositories, push `kiln/*` branches, open and update pull requests, comment, add labels and read check runs. Do not give it a branch-protection bypass. Agents never see this token; each run gets its own short-lived run token instead.
 
 ## Timers
 
@@ -2363,7 +2646,8 @@ Kiln runs a timer pass that:
 | A run fails at install | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed. |
 | Verify waits forever | CI checks on the branch are still pending. Kiln checks again on each timer pass. |
 | Every command is blocked | The Claude Code hook cannot reach the public URL, so it blocks by design. |
-| Webhooks return 401 | The secret in Kiln does not match the provider's. |
+| Webhooks return 401 | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set. |
+| An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory). |
 
 ## Related pages
 
@@ -2375,6 +2659,431 @@ Kiln runs a timer pass that:
 
 ---
 
+# Azure DevOps
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/azure-devops.md
+
+Azure DevOps Services (`dev.azure.com`) works as a forge for Azure Repos and as a source of work from pull requests and Boards work items.
+
+## Set up
+
+1. Create an identity for the factory: a service principal with Basic access, or a user. Give it Contribute on the repositories the factory works on.
+2. Create a personal access token for it with Code (read and write), Work items (read and write) and Pull request threads. Set `AZURE_DEVOPS_ORG` to your organization and `AZURE_DEVOPS_TOKEN` to the token.
+3. In Project settings → Service hooks, add Web Hooks subscriptions to `POST /webhooks/azure-devops` for: pull request created, updated, merged and commented on; code pushed; work item created, updated and commented on. Use basic authentication with any user name and a password you choose, and set that password as `AZURE_DEVOPS_WEBHOOK_PASSWORD`. To check the user name too, set `AZURE_DEVOPS_WEBHOOK_USER`.
+4. Set `AZURE_DEVOPS_IDENTITIES` (comma-separated) to the factory identity's display name, email or ID. Mentions of and assignments to these identities start work.
+5. List the repositories in `factory.yaml` with `forge: azure_devops`. `owner` is the project:
+
+```yaml
+repositories:
+  - { forge: azure_devops, owner: Shop, name: api }
+```
+
+You can also connect Azure DevOps from the API with the organization, token and identity; see [Connections](connections.md).
+
+## Starting work
+
+| Event | Fires when | Filters |
+| --- | --- | --- |
+| `pull_request_created` | A pull request is created. | `base_branches`, `repos`, `source_repos` |
+| `pull_request_updated` | A pull request is updated. | the same |
+| `pull_request_merged` | A pull request completes. | the same |
+| `pull_request_closed` | A pull request is abandoned. | the same |
+| `pull_request_commented` | Someone comments on a pull request. | the same |
+| `pull_request_mentioned` | A comment mentions the factory identity. | `mentioned`, `repos` |
+| `push` | Code is pushed. | `branches`, `repos` |
+| `work_item_created` | A work item is created. | `assignees`, `authors`, `labels`, `work_item_types` |
+| `work_item_assigned` | A work item is assigned (or created assigned) to someone. | the same |
+| `work_item_labeled` | A work item's tags change. | the same |
+| `work_item_mentioned` | A work item comment mentions the factory identity. | `mentioned` |
+
+`repos` are `project/repo`. Tags are the work item's `labels`. See [Automation triggers](../configuration/automation-triggers.md).
+
+The default templates cover pull request mentions, work item mentions and work item assignment:
+
+```markdown
+---
+triggers:
+  - provider: azure_devops
+    event: work_item_assigned
+    filter: { work_item_types: [Bug] }
+---
+Fix the assigned bug.
+```
+
+If mention autocomplete does not offer the factory identity, assign it to a work item once.
+
+## What Kiln does in Azure DevOps
+
+- Opens pull requests from `kiln/*` branches (as drafts until ready) with labels, and comments in new threads.
+- Reads commit statuses for CI.
+- Creates and reads work items for the forge's issue features.
+- A completed pull request completes its work item. Kiln never completes or approves pull requests.
+
+Azure DevOps Server is not supported directly; clone it with runner setup commands instead.
+
+## Related pages
+
+- [Connections](connections.md)
+- [Automations](../configuration/automations.md)
+- [GitHub](github.md)
+
+---
+
+# Bitbucket
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/bitbucket.md
+
+Bitbucket Cloud works as a forge (branches, pull requests, comments) and can start work from pull request events.
+
+## Set up
+
+1. Create a workspace or repository access token with Repositories: write and Pull requests: write, and set it as `BITBUCKET_TOKEN`. With an app password instead, also set `BITBUCKET_USERNAME`.
+2. Add a webhook to `POST /webhooks/bitbucket` with a secret, for Pull request created, Pull request comment created and Repository push. Set the secret as `BITBUCKET_WEBHOOK_SECRET`. Kiln checks the `X-Hub-Signature` header.
+3. Set `BITBUCKET_BOT_ACCOUNTS` (comma-separated) to the accounts Kiln posts as, so their own activity is recognized.
+4. List the repositories in `factory.yaml` with `forge: bitbucket`. `owner` is the workspace.
+
+## Starting work
+
+| Event | Fires when | Filters |
+| --- | --- | --- |
+| `pull_request_created` | A pull request is created. | `repos`, `base_branches`, `authors`, `keywords` |
+| `pull_request_commented` | Someone comments on a pull request. | `repos`, `authors`, `keywords`, `mentioned` |
+| `push` | A branch is pushed. | `repos`, `branches` |
+
+```markdown
+---
+triggers:
+  - provider: bitbucket
+    event: pull_request_commented
+    filter: { mentioned: [kiln] }
+---
+```
+
+Bitbucket pull requests have no labels, so label filters and routing labels do not apply.
+
+## Related pages
+
+- [Connections](connections.md)
+- [Automations](../configuration/automations.md)
+- [Automation triggers](../configuration/automation-triggers.md)
+
+---
+
+# Connections
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/connections.md
+
+Kiln connects to each external system once for the whole workspace. Each factory then opts in to the systems it uses in `factory.yaml`, with its own settings.
+
+## Workspace connections
+
+A connection holds a provider's account details, scopes and credentials. Credentials are stored as encrypted Kiln secrets named `KILN_CONN_<PROVIDER>_<KEY>` and are never returned by the API.
+
+| Provider | How it connects |
+| --- | --- |
+| `github` | GitHub App installation. See [GitHub](github.md). |
+| `gitlab` | Group manager token. See [GitLab](gitlab.md). |
+| `azure_devops` | Organization and personal access token. See [Azure DevOps](azure-devops.md). |
+| `bitbucket` | Workspace and access token. See [Bitbucket](bitbucket.md). |
+| `slack` | "Add to Slack" OAuth, or a pasted bot token. See [Slack](slack.md). |
+| `microsoft-teams` | Bot app id and client secret. See [Microsoft Teams](microsoft-teams.md). |
+| `discord` | Application id, public key and bot token. See [Discord](discord.md). |
+| `linear` | OAuth app. See [Linear](linear.md). |
+| `jira` | OAuth 2.0 (3LO), optionally approved by a site admin. See [Jira](jira.md). |
+
+A connection's status is `connected`, `pending_approval` (an approval link is out) or `error` (the last test or completion failed, with the message).
+
+Admins manage connections through the API:
+
+| Call | Does |
+| --- | --- |
+| `GET /api/v1/connections` | Every provider, whether it is available on this server, and its connection. |
+| `POST /api/v1/connections/<provider>/start` | Returns a `state`, the setup steps, and an OAuth or install `url` when the provider has one, or the `fields` to fill in. |
+| `POST /api/v1/connections/<provider>/complete` | Finishes with `{ code, state }` from OAuth, or `{ params }` with the fields. |
+| `POST /api/v1/connections/<provider>/test` | Calls the provider with the stored credentials. |
+| `DELETE /api/v1/connections/<provider>` | Disconnects and deletes the stored credentials. |
+
+OAuth providers send the browser back to `GET /oauth/<provider>/callback`, which finishes the connection and redirects to the web app's integrations page. The `state` expires after 30 minutes and works once.
+
+Kiln builds adapters from a connection's credentials as soon as it is connected, so you do not restart the server. Providers configured with environment variables work the same way and take precedence.
+
+### Approval links
+
+Some connections need an admin of the other system, such as a Jira site admin. Send them an approval link instead of connecting yourself:
+
+| Call | Does |
+| --- | --- |
+| `POST /api/v1/connections/<provider>/approval-links` | Creates a link, optionally for an `email`. Returns its `url`. The connection shows `pending_approval`. |
+| `GET /api/v1/connections/<provider>/approval-links` | Lists links and their state: `open`, `used` or `revoked`. |
+| `POST /api/v1/approval-links/<id>/resend` | Issues a new token and another 7 days. The old URL stops working. |
+| `DELETE /api/v1/approval-links/<id>` | Revokes the link. |
+
+A link expires 7 days after it is created or resent. The approver opens `/connect/approve/<token>`, which starts the provider's flow. When they finish, the connection is recorded as made by the person who created the link, and the link is used.
+
+## Per-factory opt-in
+
+List the integrations a factory uses in `factory.yaml`. Bare names still work; objects carry settings under a key named after the type.
+
+```yaml
+integrations:
+  - type: slack
+    slack: { autoRespondToThreadReplies: true, channels: [C0123ABCD] }
+  - type: microsoft-teams
+    microsoft-teams:
+      autoRespondToThreadReplies: false
+      teams:
+        - { teamId: 6b1f…, channelIds: ["19:abc@thread.tacv2"] }
+  - type: discord
+    discord: { guildIds: ["123"], channelIds: ["456"] }
+  - type: linear
+    linear: { teams: [Engineering] }
+```
+
+| Setting | Notes |
+| --- | --- |
+| `autoRespondToThreadReplies` | Slack, Teams, Discord. Default `true`: plain replies in a factory's thread continue the work. When `false`, a reply must mention the app. |
+| `slack.channels` | Channel IDs the factory listens in. DMs always reach it. |
+| `discord.guildIds`, `discord.channelIds` | Servers and channels the factory listens in. |
+| `microsoft-teams.teams` | Teams and at least one standard channel per team. |
+| `linear.teams`, `jira.projects` | The teams or projects the factory works in. Default automation templates use them. |
+
+- A factory can use Linear or Jira, not both. Validation fails otherwise.
+- GitHub, GitLab, Azure DevOps and Bitbucket come from `repositories`, not from `integrations`.
+- Once a provider is connected for the workspace, its events reach only factories that list it. Providers configured only through environment variables reach every factory.
+
+For factories managed in Kiln (not in a config repo), `PUT /api/v1/factories/<id>/integrations` with `{ integrations: [...] }` rewrites `factory.yaml` and applies it. `GET /api/v1/factories/<id>/integrations` returns the settings, the forges, `cloudProviders`, the `github` settings and each provider's connection status.
+
+## Linked accounts
+
+Gate assignees are people. Kiln maps provider users to people in three ways:
+
+- **Chat sign-in.** `sign in` replies with a one-hour link: `@Kiln sign in` in Teams, a mention of the app or a DM saying `sign in` in Slack, and `/kiln prompt: sign in` in Discord (only you see the reply). Opening it and calling `POST /api/v1/identity-links/claim` with the token links the chat account to the signed-in person.
+- **GitHub.** `POST /api/v1/identity-links/github/start` returns a GitHub OAuth URL (needs `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`). The callback `/oauth/github-user/callback` links the GitHub login.
+- **Email.** Linear and Jira users that report an email address map to the person with that email.
+
+`GET /api/v1/identity-links` lists your links (admins add `?all=1`). `DELETE /api/v1/identity-links/<id>` unlinks one. The server's static `identities` map still works as a fallback.
+
+## Notification routes
+
+`GET /api/v1/notification-routes` lists where a factory can reach a person, with `available` and a `reason` when it cannot. Query with `factory`, `workItem` and `subject` (admins only for someone else).
+
+| Route | Needs |
+| --- | --- |
+| `slack_dm`, `discord_dm` | The chat connected and the person's account linked. |
+| `slack_thread`, `discord_thread`, `teams_thread` | Work that started in that thread. Teams bots cannot send DMs. |
+| `linear_issue`, `linear_session`, `jira_issue` | Work that started from that issue or session. |
+| `github_comment`, `gitlab_comment`, `azure_devops_comment`, `bitbucket_comment` | A source issue or the work item's pull request on that forge. |
+
+## Alias directory
+
+Automation filters can name teams, projects, states, channels and users instead of IDs. Kiln resolves the names when you apply a definition, using each connection's directory, and rejects names it cannot resolve. See [Automations](../configuration/automations.md#alias-filters).
+
+Kiln refreshes the Linear (teams, projects, states, users) and Jira (projects) directories when you connect or test. Set any directory yourself with `PUT /api/v1/connections/<provider>/directory`, for example `{ "channels": { "eng": "C0123ABCD" }, "users": { "ann": "U024BE7LH" } }`.
+
+## Environment variables
+
+| Provider | Variables |
+| --- | --- |
+| GitHub | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_SLUG`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, or `GITHUB_TOKEN` |
+| GitLab | `GITLAB_TOKEN`, `GITLAB_BASE_URL`, `GITLAB_WEBHOOK_TOKEN`, `GITLAB_BOT_USERNAMES` |
+| Azure DevOps | `AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_TOKEN`, `AZURE_DEVOPS_WEBHOOK_PASSWORD`, `AZURE_DEVOPS_WEBHOOK_USER`, `AZURE_DEVOPS_IDENTITIES` |
+| Bitbucket | `BITBUCKET_TOKEN`, `BITBUCKET_USERNAME`, `BITBUCKET_WEBHOOK_SECRET`, `BITBUCKET_BOT_ACCOUNTS` |
+| Slack | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `KILN_FACTORY_AVATAR_URL` |
+| Microsoft Teams | `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_TENANT_ID` |
+| Discord | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN`, `DISCORD_EVENTS_TOKEN`, `DISCORD_BOT_USER_ID` |
+| Linear | `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, `LINEAR_WEBHOOK_SECRET`, `LINEAR_ACCESS_TOKEN` |
+| Jira | `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET`, `JIRA_WEBHOOK_TOKEN`, `JIRA_BOT_ACCOUNT_ID`, `JIRA_CLOUD_ID`, `JIRA_ACCESS_TOKEN` |
+
+Webhook secrets are read from the environment first, then from Kiln secrets, then from the connection.
+
+## Related pages
+
+- [Automations](../configuration/automations.md)
+- [Custom webhooks](custom-webhooks.md)
+- [Self-hosting](../infrastructure/self-hosting.md)
+- [Admin, RBAC and audit](../management/admin-rbac-audit.md)
+
+---
+
+# Custom webhooks
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/custom-webhooks.md
+
+A custom webhook gives any system a URL that starts factory work: alerting tools, deploy platforms, payment providers or your own services.
+
+## Two kinds
+
+- **Managed webhooks** are created through the API (or the web app). Kiln generates their secret and stores it.
+- **File webhooks** are `webhooks/<name>.yaml` files in the definition. Their secret is a Kiln secret you create first; Kiln never generates one for them.
+
+```yaml
+# webhooks/sentry.yaml
+authMode: signature
+signatureScheme: sentry
+secretName: SENTRY_WEBHOOK_SECRET
+deliveryIdHeader: request-id
+enabled: true
+```
+
+A factory can have at most 20 webhooks, both kinds together. Each has a UID (`wh_…`) and the ingress URL `POST /webhooks/w/<uid>`. File webhooks keep the older URL `POST /webhooks/<factory>/<name>` too.
+
+## Authentication
+
+| `authMode` | The caller sends |
+| --- | --- |
+| `token` (default) | `Authorization: Bearer <secret>` |
+| `url_token` | The secret as the last path segment: `/webhooks/w/<uid>/<secret>`. The URL is the credential. On the older URL, use `?token=<secret>`. |
+| `signature` | The provider's signature, checked by `signatureScheme`. |
+
+| `signatureScheme` | Header and check |
+| --- | --- |
+| `github` | `X-Hub-Signature-256: sha256=<hex HMAC-SHA256 of the body>` |
+| `pagerduty` | `X-PagerDuty-Signature: v1=<hex HMAC-SHA256>`, several comma-separated during rotation |
+| `sentry` | `Sentry-Hook-Signature: <hex HMAC-SHA256 of the body>` |
+| `standard_webhooks` | `webhook-id`, `webhook-timestamp`, `webhook-signature` (`v1,<base64 HMAC>` over `<id>.<timestamp>.<body>`). Svix headers are accepted. Older than five minutes is refused. |
+| `stripe` | `Stripe-Signature: t=<time>,v1=<hex HMAC>`. Older than five minutes is refused. |
+| `vercel` | `x-vercel-signature: <hex HMAC-SHA1 of the body>` |
+
+The auth mode and scheme can't change after creation.
+
+## Managing webhooks
+
+| Call | Does |
+| --- | --- |
+| `GET /api/v1/factories/<id>/webhooks` | Managed and file webhooks with their URLs. |
+| `POST /api/v1/factories/<id>/webhooks` | Creates one: `name`, `authMode`, `signatureScheme`, `secret`, `deliveryIdHeader`. Returns the webhook, its URL and the generated `secret`, shown once. |
+| `PATCH /api/v1/webhooks/<uid>` | `enabled` and `deliveryIdHeader`. A disabled webhook answers 404. |
+| `POST /api/v1/webhooks/<uid>/rotate` | Replaces the secret at once, with no overlap. For a second secret during a migration, create a second webhook. |
+| `POST /api/v1/webhooks/<uid>/finish` | Stores the provider's secret and enables the webhook. |
+| `DELETE /api/v1/webhooks/<uid>` | Deletes it. Automations that name it stay but stop firing. |
+| `GET /api/v1/webhooks/<uid>/deliveries` | Recent deliveries. |
+| `GET /api/v1/webhooks/<uid>/deliveries/<id>` | One delivery with its stored payload. |
+
+Generated secrets start with `whsec_`. For `token` and `url_token` webhooks Kiln always generates the secret. For `standard_webhooks`, leave the secret blank and Kiln generates one to give the sender.
+
+Stripe, Vercel, PagerDuty and other providers issue their secret only after they know the URL. Create the webhook without a secret ("create and get URL"): it starts disabled. Give the URL to the provider, then call `finish` with the secret it shows. File webhooks change only through the definition.
+
+## Delivery rules
+
+- `POST` only (other methods get 405). The body must be JSON (object, array or scalar), at most 256 KB. `Content-Type` is not checked.
+- `202 {"delivery_id": "..."}` when accepted, even when no automation matches.
+- `401` for failed authentication, `400` for invalid JSON, `404` for an unknown, disabled or deleted webhook, `413` for a body over 256 KB.
+- `429` with `Retry-After` above 60 accepted deliveries a minute per webhook. Failed authentication has its own, lower budget.
+
+Kiln identifies a delivery, in order, by: the webhook's `deliveryIdHeader`; the provider's own delivery header for signed webhooks (`X-GitHub-Delivery`, `webhook-id`, `X-Webhook-Id`, `Request-ID`, `x-vercel-id`); `X-Kiln-Delivery-Id`; or a hash of the body. A repeated delivery returns 202 with `duplicate: true` and starts nothing. Deliveries have no order guarantee, and each starts new work or none; they never continue a work item.
+
+`deliveryIdHeader` must be a valid header name of at most 64 characters, and not one that can carry a credential, such as `Authorization` or a signature header.
+
+## Deliveries log
+
+Each delivery is logged with its delivery ID, size, time and status: `accepted`, `duplicate`, `rejected_auth`, `rejected_invalid_json` or `rejected_too_large`. Kiln stores the payload of accepted deliveries only. It keeps at least the last 50 deliveries and everything from the last 7 days.
+
+## What the run receives
+
+The work item's title comes from the payload's `title`, `summary` or `message`, or is `<name> webhook`. The body is the automation prompt plus an envelope with the webhook name, UID and delivery ID. The request body is attached as `event-payload.json` and marked as untrusted: agents read it as data and never follow instructions inside it.
+
+## Triggering automations
+
+Name the webhook in `webhook_ids` by file name, managed name or UID, and filter on the body with `payload`:
+
+```markdown
+---
+triggers:
+  - provider: webhook
+    event: received
+    filter:
+      webhook_ids: [sentry]
+      payload:
+        data:
+          issue:
+            level: [fatal, error]
+            environment: { not_in: [staging] }
+---
+Investigate the error and open a fix.
+```
+
+Webhook events only reach the factory that owns the webhook. The older `filter: { webhook: sentry }` still works.
+
+### Payload filters
+
+- Keys mirror the JSON body and combine with AND. Nested objects nest.
+- A bare list means `in`. An operator object takes `in`, `not_in` and `exists`. Any other object nests further.
+- Strings match exactly and case-sensitively. Numbers match numerically, so `1` equals `1.0`. Booleans and `null` can be matched.
+- A missing key fails `in` and passes `not_in`. A nested pattern needs its key to exist.
+- In an array of objects, any element may match. In an array of scalars, `in` means any overlap and `not_in` means none.
+- Limits: at most 10 levels deep, 64 leaf fields and 32 values per list. The same value in `in` and `not_in`, or `exists: false` with a non-empty `in`, is rejected.
+- A pattern that breaks these rules never matches.
+
+### Test filter
+
+`POST /api/v1/factories/<id>/automations/<name>/test-filter` with `{ "deliveryId": "<id>" }` evaluates the automation's triggers against a stored delivery. It returns `wouldTrigger` and, per trigger, each check (`webhook_ids`, `payload`, …) with whether it passed.
+
+## Related pages
+
+- [Automations](../configuration/automations.md)
+- [Connections](connections.md)
+- [Incident-response factory](../guides/incident-response-factory.md)
+
+---
+
+# Discord
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/discord.md
+
+In Discord, you run `/kiln` or mention the bot to start work, and the factory continues in a thread on that message.
+
+## Set up
+
+1. Create an application at the Discord developer portal and add a bot. Copy the application ID, the public key and the bot token.
+2. Set the Interactions Endpoint URL to `POST /webhooks/discord`. Discord checks it with a signed ping, which Kiln answers.
+3. Give Kiln `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY` and `DISCORD_BOT_TOKEN`, or connect Discord from the API with the same values; see [Connections](connections.md).
+4. Register the command: `POST /api/v1/integrations/discord/commands` (admin). Pass `{ "guildId": "<server id>" }` to register it in one server right away; global registration can take up to an hour.
+5. Add the bot to your server with the install link the connection returns. It asks for: view channels, send messages, send messages in threads, create public threads, read message history and add reactions.
+6. Add `discord` to the factory's `integrations`, optionally limited to servers and channels:
+
+```yaml
+integrations:
+  - type: discord
+    discord: { guildIds: ["1180000000000000000"], channelIds: ["1180000000000000001"] }
+```
+
+Kiln verifies the `X-Signature-Ed25519` signature over `X-Signature-Timestamp` and the body, and refuses timestamps more than five minutes old.
+
+## Starting work
+
+```text
+/kiln prompt: Fix the flaky checkout test  factory: webapp
+```
+
+`factory` is optional; use it when several factories listen in the channel. Kiln replies "On it: …" right away, starts the work, and opens a thread on its reply where the work continues. When no factory picks it up, it says so.
+
+| Event | Fires when |
+| --- | --- |
+| `slash_command` | Someone runs `/kiln`. |
+| `app_mention` | A message mentions the bot (gateway bridge). |
+| `message_posted` | Another message in a channel the bot reads (gateway bridge). |
+| `reaction_added` | Someone adds a reaction (gateway bridge). |
+
+Filters: `guild_ids`, `channel_ids`, `user_ids`, `keywords`, and `emojis` for reactions. See [Automation triggers](../configuration/automation-triggers.md).
+
+## Mentions, messages and reactions
+
+Discord only sends slash commands to an interactions endpoint. For mentions, messages and reactions, run a small bridge on the Discord gateway that forwards `MESSAGE_CREATE` and `MESSAGE_REACTION_ADD` dispatches (`{ "t": ..., "d": ... }`) to `POST /webhooks/discord/events` with `Authorization: Bearer <DISCORD_EVENTS_TOKEN>`. Set `DISCORD_BOT_USER_ID` (or connect Discord) so Kiln can tell mentions of the bot apart. Kiln reacts with 👀 and starts a thread on a mention that starts work.
+
+Replies in the work's thread continue it. With `autoRespondToThreadReplies: false`, a reply must mention the bot.
+
+## Decisions
+
+Buttons with the custom IDs `kiln:approve:<gate id>` and `kiln:reject:<gate id>` decide a gate. Only the gate's assignees can use them. Run `/kiln prompt: sign in` to link your Discord account so Kiln knows who you are.
+
+## Related pages
+
+- [Connections](connections.md)
+- [Slack](slack.md)
+- [Automations](../configuration/automations.md)
+
+---
+
 # GitHub
 
 Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/github.md
@@ -2383,17 +3092,52 @@ GitHub is both a source of work and the place where Kiln delivers it: issues and
 
 ## Set up
 
-1. Give Kiln a GitHub token, for example from a GitHub App, that can read the factory's repositories, push branches, open and update pull requests, comment, add labels and read check runs. See [Self-hosting](../infrastructure/self-hosting.md#forge-identity).
-2. Add a webhook to each repository (or the organization) pointing at `POST /webhooks/github`, with content type `application/json` and a secret. Store the secret in Kiln as `GITHUB_WEBHOOK_SECRET`.
-3. Send these events: Issues, Issue comments, Pull requests, Pull request reviews, Check suites and Pushes.
+1. Create a GitHub App (Settings → Developer settings → GitHub Apps) with these repository permissions: Contents, Issues, Pull requests and Checks read and write, Metadata read.
+2. Set its webhook URL to `POST /webhooks/github` with a secret, and subscribe to Issues, Issue comment, Pull request, Pull request review, Pull request review comment, Check suite, Check run, Status, Workflow run and Push.
+3. Give Kiln the app's credentials and install the app on your organization:
+
+| Variable | Notes |
+| --- | --- |
+| `GITHUB_APP_ID` | The app's ID. |
+| `GITHUB_APP_PRIVATE_KEY` | The app's private key, as PEM (`\n` escapes are fine) or base64. |
+| `GITHUB_APP_INSTALLATION_ID` | The installation on your organization. Kiln mints a short-lived installation token for each call. |
+| `GITHUB_APP_SLUG` | Lets Kiln link to the install page and recognize its own `<slug>[bot]` events. |
+| `GITHUB_WEBHOOK_SECRET` | The webhook secret. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The app's OAuth credentials, for people to link their GitHub accounts. |
+
+A plain `GITHUB_TOKEN` still works instead of an app. You can also connect GitHub from the API; see [Connections](connections.md).
+
 4. List the repositories in `factory.yaml` under `repositories`.
 5. Protect `main`: require reviews and status checks, and do not let Kiln's identity bypass them.
 
 Kiln verifies `X-Hub-Signature-256` on every call and ignores repeated `X-GitHub-Delivery` IDs.
 
+## Mention the factory
+
+Mention `@kiln-factory` in a new issue, pull request, comment or review. Edits and mentions inside code blocks are ignored.
+
+- **With a `factory:<alias>` label**, the mention goes to that factory.
+- **Without a label**, Kiln looks for factories whose `repositories` include the repo. With exactly one, it adds that factory's label and starts the work. With several, it comments asking you to add one of their labels and mention `@kiln-factory` again. With none, it comments that no factory works on the repo yet.
+
+Kiln creates the `factory:<alias>` label on the factory's repositories whenever its definition is applied.
+
+The default mentions template routes on both, and you can change the handle or label it filters on:
+
+```markdown
+---
+triggers:
+  - provider: github
+    event: issue_mentioned
+    filter: { mentioned: [kiln-factory], labels: ["factory:webapp"] }
+  - provider: github
+    event: issue_assigned
+    filter: { assignees: [kiln-factory], labels: ["factory:webapp"] }
+---
+```
+
 ## Starting work
 
-Add an automation for the events you want. A common one:
+Add an automation for the events you want:
 
 ```markdown
 ---
@@ -2401,26 +3145,17 @@ triggers:
   - provider: github
     event: issue_labeled
     filter:
-      repo: [acme/web]
+      repos: [acme/web]
       labels: [kiln-ready]
 ---
 Take the labeled issue through the factory.
 ```
 
-| Event | Fires when |
-| --- | --- |
-| `issue_opened` | An issue is opened. `mentioned` holds the `@handles` in its body. |
-| `issue_labeled` | A label is added. `label` is the new label; `labels` is all labels. |
-| `issue_assigned` | Someone is assigned. |
-| `issue_mentioned` | A comment is added to an issue. |
-| `pull_request_mentioned` | A comment is added to a pull request. |
-| `pull_request_opened`, `pull_request_labeled` | A pull request is opened or labeled. |
-| `pull_request_review_submitted` | A review is submitted. |
-| `pull_request_merged`, `pull_request_closed` | A pull request is merged, or closed without merging. |
-| `check_suite_completed` | A check suite finishes. |
-| `push` | A branch is pushed. `head` is the branch name. |
+GitHub triggers cover issues (`issue_created`, `issue_labeled`, `issue_assigned`, `issue_commented`, `issue_mentioned`), pull requests (`pull_request_opened`, `_ready`, `_reopened`, `_labeled`, `_assigned`, `_synchronized`, `_enqueued`, `_dequeued`, `_review_requested`, `_review_submitted`, `_commented`, `_mentioned`, `_merged`, `_closed`), CI (`check_suite_completed`, `check_suite_rerequested`, `check_run_rerequested`, `commit_status`, `workflow_run_completed`) and `push`. The full list of events and filter keys is in [Automation triggers](../configuration/automation-triggers.md).
 
-A comment that mentions the factory's alias, such as `@webapp please take this`, starts foreman work in a factory with no automations. See [Automations](../configuration/automations.md).
+- One delivery can produce several events. A comment with a mention is both `issue_commented` and `issue_mentioned`; an automation that listens to both still fires once.
+- `skip_bots` defaults to `all`: events from bots never start work. Use `self` to skip only Kiln's own app, or `none`. Admitting Kiln's own events can cause loops.
+- On check suite and workflow run events, `number` is the linked pull request.
 
 ## What Kiln does on GitHub
 
@@ -2431,6 +3166,7 @@ A comment that mentions the factory's alias, such as `@webapp please take this`,
 - **Preview card.** With a preview provider, Kiln comments a card with the preview URL, test counts and one video link per acceptance criterion.
 - **Review findings.** Findings that need a person's judgment are posted as a comment.
 - **Ready for review.** When the build stage succeeds, Kiln opens the pull request, or takes the spec pull request out of draft.
+- **Attribution.** When Kiln opens a pull request, it comments which factory opened it, for whom, from where, and links the work item.
 - **Hand-off.** Kiln adds the label `factory:<alias>` and posts "Ready to merge" with the pull request link where the work started, for example on the source issue.
 
 ## After hand-off
@@ -2441,15 +3177,91 @@ A comment that mentions the factory's alias, such as `@webapp please take this`,
 
 ## Config repos
 
-A factory's definition can live in a GitHub repository. Merges to its branch apply the new definition when Kiln receives the `push` webhook, so install the webhook on the config repo too. See [Definitions as code](../configuration/definitions-as-code.md#config-repos-on-github).
+A factory's definition can live in a GitHub repository. Merges to its branch apply the new definition when Kiln receives the `push` webhook, so install the app on the config repo too. See [Definitions as code](../configuration/definitions-as-code.md#config-repos-on-github).
+
+### The kiln/factory-config check
+
+On pull requests to a config repo, Kiln reads the head commit, validates it and dry-runs the apply: missing runners and routers, schema errors and alias names that do not resolve all fail the check. The summary counts what would be created, updated and deleted. When nothing in the definition changed, the check passes right away.
+
+- The check is named `kiln/factory-config`, or `kiln/factory-config (<dir>)` when the definition lives in a subdirectory.
+- Require it in branch protection to block broken definitions.
+- `github.factoryConfigChecks` in `factory.yaml` chooses which pull requests get it: `main` (default) checks only pull requests to the production branch, `all` checks every base branch.
 
 ## Related pages
 
 - [Automations](../configuration/automations.md)
+- [Automation triggers](../configuration/automation-triggers.md)
+- [Connections](connections.md)
 - [How Kiln works](../overview/how-kiln-works.md)
 - [Previews](previews.md)
 - [Definitions as code](../configuration/definitions-as-code.md)
 - [Architecture and security](../infrastructure/architecture-and-security.md)
+
+---
+
+# GitLab
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/gitlab.md
+
+GitLab works as a forge (branches, merge requests, labels, comments) and as a source of work: mention the factory's bot in a merge request comment and the factory replies in that discussion.
+
+## Set up
+
+1. Create a group access token or service account token with the Owner role and the `api` scope on your top-level group. This manager token maintains the group webhook and does the factory's forge work. Set it as `GITLAB_TOKEN`.
+2. For self-managed GitLab, set `GITLAB_BASE_URL`, such as `https://gitlab.acme.test`. The default is `https://gitlab.com`.
+3. Create a bot service account for each factory, named for example `webapp-kiln-ab12`, with the Developer role on the projects it works on. List the bot usernames in `GITLAB_BOT_USERNAMES` (comma-separated). Mentions of these usernames start work, and their own activity never triggers automations.
+4. Add a group webhook to `POST /webhooks/gitlab` with a secret token, for Note (comments), Merge request and Push events. Set the same token as `GITLAB_WEBHOOK_TOKEN`. Kiln refuses calls whose `X-Gitlab-Token` does not match.
+5. List the projects in `factory.yaml` with `forge: gitlab`. `owner` is the group path, which may include subgroups:
+
+```yaml
+repositories:
+  - { forge: gitlab, owner: acme/platform, name: api }
+```
+
+You can also connect GitLab from the API with the group path and manager token; see [Connections](connections.md). Per-factory bot tokens are not used yet: forge work uses the one manager token.
+
+## Starting work
+
+| Event | Fires when |
+| --- | --- |
+| `bot_mentioned` | A new comment on a merge request or issue mentions a factory bot. Edits never fire. |
+| `merge_request` | A merge request is opened, updated, closed, reopened, merged or approved. `action` holds which. |
+| `push` | A branch is pushed. |
+
+| Event | Filters |
+| --- | --- |
+| `bot_mentioned` | `repos`. The bot username is managed by Kiln; a definition that sets `mentioned` is rejected. |
+| `merge_request` | `actions`, `base_branches`, `repos` |
+| `push` | `branches`, `repos` |
+
+```markdown
+---
+triggers:
+  - provider: gitlab
+    event: merge_request
+    filter: { actions: [open], base_branches: [main] }
+---
+Review the merge request.
+```
+
+The `gitlab-bot-mentions` template starts work from every bot mention. See [Automation triggers](../configuration/automation-triggers.md).
+
+## What Kiln does on GitLab
+
+- **Replies** go to the discussion where the bot was mentioned, or as a note on the merge request.
+- **Merge requests** are opened from `kiln/*` branches, as drafts (`Draft: ` prefix) until the work is ready, with the factory's labels.
+- **Labels.** Kiln creates the `factory:<alias>` label on the factory's projects.
+- **Checks.** CI status comes from the project's pipelines. The `kiln/factory-config` check is reported as a commit status.
+- **Merges.** A merged merge request completes its work item. Kiln never merges or approves.
+
+GitLab is not supported as a config repo for factory definitions.
+
+## Related pages
+
+- [Connections](connections.md)
+- [Automations](../configuration/automations.md)
+- [GitHub](github.md)
+- [Self-hosting](../infrastructure/self-hosting.md)
 
 ---
 
@@ -2461,39 +3273,51 @@ Jira works like Linear in Kiln: issues and comments start or continue work items
 
 ## Set up
 
-1. Create a Jira API token for a service account. Give Kiln the site URL, the account's email, the token and the project key. Kiln calls Jira's REST API v3 with basic auth.
-2. Add a Jira webhook pointing at `POST /webhooks/jira?token=<token>` for issue created, issue updated and comment created events.
-3. Store the same token in Kiln as `JIRA_WEBHOOK_TOKEN`. Once it is set, Kiln refuses calls that do not carry it. Kiln also ignores repeated `X-Atlassian-Webhook-Identifier` values.
-4. Add `jira` to the factory's `integrations`.
+Jira Cloud only.
+
+1. Create an OAuth 2.0 (3LO) app in the Atlassian developer console with the callback URL `<public URL>/oauth/jira/callback` and the scopes `read:jira-work`, `write:jira-work`, `read:jira-user`, `manage:jira-webhook` and `offline_access`. Set `JIRA_CLIENT_ID` and `JIRA_CLIENT_SECRET`.
+2. Connect Jira for the workspace. A Jira site admin approves the app. If that is someone else, send them an approval link: it expires in 7 days, and you can resend or revoke it. See [Connections](connections.md#approval-links).
+3. Add a Jira webhook pointing at `POST /webhooks/jira?token=<token>` for issue created, issue updated and comment created events, and store the token as `JIRA_WEBHOOK_TOKEN`. Once it is set, Kiln refuses calls that do not carry it. Kiln also ignores repeated `X-Atlassian-Webhook-Identifier` values.
+4. Set `JIRA_BOT_ACCOUNT_ID` to the Atlassian account ID that represents the factory. Assigning it, or mentioning it, starts an agent session.
+5. Add `jira` to the factory's `integrations`, with its projects. A factory uses Linear or Jira, not both:
+
+```yaml
+integrations:
+  - type: jira
+    jira: { projects: [ENG] }
+```
+
+For the tracker features below (comments, states, planning), Kiln reads `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` and `JIRA_PROJECT_KEY` and calls Jira's REST API v3 with basic auth. With `JIRA_CLOUD_ID` and `JIRA_ACCESS_TOKEN` (or the OAuth connection), Kiln can also comment, transition and change labels through the Atlassian API.
 
 ## Starting work
 
 | Event | Fires when |
 | --- | --- |
+| `agent_session_created` | Someone assigns the factory's account, or mentions it in an issue or comment. |
 | `issue_created` | An issue is created. |
-| `issue_assigned` | An issue is updated and its assignee changed. Other updates are ignored. |
-| `issue_mentioned` | A comment is added. `mentioned` holds the `@handles` in it. |
+| `issue_labeled` | Labels are added. |
+| `status_changed` | An issue changes status. `status_id` is the new status. |
 
-Filter on `project`, `labels`, `mentioned` or `assignee`:
+Filter on `project_keys` and `labels`; sessions also take `keywords` (case-insensitive), and `status_changed` takes `status_ids`. See [Automation triggers](../configuration/automation-triggers.md).
 
 ```markdown
 ---
-agent: foreman
 triggers:
   - provider: jira
-    event: issue_created
+    event: agent_session_created
     filter:
-      project: [KIL]
-      labels: [kiln]
+      project_keys: [ENG]
+      keywords: [investigate, fix]
 ---
 ```
 
-The issue key, such as `KIL-42`, links the work item to the issue.
+The issue key, such as `ENG-42`, links the work item to the issue. Other comments on that issue continue the work item. Jira events reach every factory that opted in to Jira, so filter on `project_keys`.
 
 ## What Kiln does in Jira
 
 - **Updates.** Gate requests, reminders, "Ready to merge" and "Done" are posted as comments.
-- **Replies.** Comments on the issue continue the work item. They decide an open spec or preview gate, answer an open question, steer a running agent, or are added to the conversation. Map Jira users to people with the server's `identities` option (`jira:<user>`). Replies decide a gate only when their author is one of its assignees; see [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
+- **Actions.** Through the Atlassian API Kiln can post comments, transition an issue by status name, and add or remove labels.
+- **Replies.** Comments on the issue continue the work item. They decide an open spec or preview gate, answer an open question, steer a running agent, or are added to the conversation. Jira users with an email map to the person with that email; the server's `identities` option (`jira:<user>`) also works. Replies decide a gate only when their author is one of its assignees; see [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 - **States.** At hand-off, Kiln moves the issue through the first transition into the "In Progress" status category. On completion, it uses the first transition into the "Done" category.
 - **Duplicates.** Triage reads the project's 20 most recently created issues to spot duplicates.
 - **Text.** Kiln writes descriptions and comments in Atlassian Document Format, one paragraph per blank-line-separated block.
@@ -2505,6 +3329,7 @@ The [planning agent](../product-owners/planning.md) can create its roadmap in th
 ## Related pages
 
 - [Automations](../configuration/automations.md)
+- [Connections](connections.md)
 - [Linear](linear.md)
 - [Planning](../product-owners/planning.md)
 - [How Kiln works](../overview/how-kiln-works.md)
@@ -2519,37 +3344,61 @@ Linear can start work items, receives the factory's updates as comments on the i
 
 ## Set up
 
-1. Create a Linear API key and note the ID of the team the factory works with. Kiln uses the key for comments, state changes, recent issues and new issues.
-2. Add a webhook in Linear pointing at `POST /webhooks/linear` for Issue and Comment events, and for agent session events if you use Linear's agent features.
-3. Store the webhook's signing secret in Kiln as `LINEAR_WEBHOOK_SECRET`. Kiln checks the `Linear-Signature` header and ignores repeated `Linear-Delivery` IDs.
-4. Add `linear` to the factory's `integrations`.
+1. Create an OAuth application in Linear (Settings → API) with the redirect URL `<public URL>/oauth/linear/callback` and set `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET`. Kiln asks for `actor=app`, so the factory appears in Linear as an app you can assign, mention and delegate to.
+2. Enable the app's webhook to `POST /webhooks/linear` for Issues, Comments and Agent session events, and store its signing secret as `LINEAR_WEBHOOK_SECRET`. Kiln checks the `Linear-Signature` header and ignores repeated `Linear-Delivery` IDs.
+3. Connect Linear once for the workspace. See [Connections](connections.md). Instead of the OAuth flow you can set `LINEAR_ACCESS_TOKEN` to an app token.
+4. Add `linear` to the factory's `integrations`, with the teams it works in:
+
+```yaml
+integrations:
+  - type: linear
+    linear: { teams: [Engineering] }
+```
+
+A factory uses Linear or Jira, not both.
+
+For the tracker features below (comments, states, planning), Kiln also reads `LINEAR_API_KEY` and `LINEAR_TEAM_ID`.
 
 ## Starting work
 
 | Event | Fires when |
 | --- | --- |
+| `agent_session_created` | Someone assigns, mentions or delegates to the factory's app. |
 | `issue_created` | An issue is created. |
-| `issue_assigned` | An issue's assignee changes. |
-| `issue_mentioned` | A comment is added. `mentioned` holds the `@handles` in it. |
-| `agent_session_created` | Someone starts an agent session on an issue, for example by assigning or mentioning the factory's agent. |
+| `issue_assigned` | An issue gets an assignee. |
+| `issue_labeled` | A label is added. |
+| `issue_state_changed` | An issue moves to another workflow state. |
+| `comment_created` | A comment is added. |
 
-Filter on `team_ids`, `labels`, `mentioned` or `assignee`:
+Filter on `team_ids`, `project_ids`, `state_ids`, `assignee_ids`, `creator_ids`, `labels`, `mentioned_user_ids`, `keywords` (sessions) and `issue_ids` (comments). `teams`, `projects`, `states` and `issues` take names (or issue numbers) instead of IDs; Kiln resolves them when you apply the definition and rejects names it does not know. See [Automation triggers](../configuration/automation-triggers.md).
 
 ```markdown
 ---
 triggers:
   - provider: linear
     event: agent_session_created
-    filter: { team_ids: [391c8fd6-4bb1-4493-ae5d-02b01ce045e2] }
+    filter: { teams: [Engineering] }
 ---
 ```
 
-A comment that mentions the factory's alias starts foreman work in a factory with no automations.
+The factory's own activity in Linear never triggers automations.
+
+Listening to both `agent_session_created` and `comment_created` can start two runs for one mention. Use sessions for routing and comments for follow-ups.
+
+## Agent sessions
+
+When work starts from a session, Kiln keeps the session up to date:
+
+- a thought right after the session is created, and one each time the work moves to another stage,
+- the factory's messages (questions, gate requests, "Ready to merge") as responses,
+- an action and an attachment on the issue when the pull request opens.
+
+Replies in the session continue the same work item.
 
 ## What Kiln does in Linear
 
 - **Updates.** Gate requests, reminders, "Ready to merge" and "Done" are posted as comments on the issue.
-- **Replies.** Comments on the issue continue the work item. A comment starting with `approve` or `reject` decides an open spec or preview gate, and other text answers an open question, steers a running agent, or is added to the conversation. Map Linear users to people with the server's `identities` option (`linear:<user>`). Replies decide a gate only when their author is one of its assignees; see [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
+- **Replies.** Comments on the issue continue the work item. A comment starting with `approve` or `reject` decides an open spec or preview gate, and other text answers an open question, steers a running agent, or is added to the conversation. Linear users with an email map to the person with that email; the server's `identities` option (`linear:<user>`) also works. Replies decide a gate only when their author is one of its assignees; see [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 - **States.** At hand-off, Kiln moves the issue to the team's first `started` state. When the work completes, it moves it to the first `completed` state.
 - **Duplicates.** Triage reads the team's 20 most recent issues to spot duplicates.
 
@@ -2560,9 +3409,79 @@ The [planning agent](../product-owners/planning.md) creates its roadmap in Linea
 ## Related pages
 
 - [Automations](../configuration/automations.md)
+- [Connections](connections.md)
 - [Planning](../product-owners/planning.md)
 - [Jira](jira.md)
 - [How Kiln works](../overview/how-kiln-works.md)
+
+---
+
+# Microsoft Teams
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/integrations/microsoft-teams.md
+
+In Microsoft Teams, you mention the Kiln bot in a connected channel to start work, and the work item lives in that thread.
+
+## Set up
+
+Three people are usually involved: a Kiln admin connects the bot, a Teams admin or team owner uploads and approves the app, and a factory editor picks the teams and channels.
+
+1. Register a bot in Azure (an Azure Bot resource, single or multi tenant) and create a client secret.
+2. Set its messaging endpoint to `POST /webhooks/teams` and enable the Microsoft Teams channel.
+3. Give Kiln `TEAMS_APP_ID` (the bot's app ID) and `TEAMS_APP_PASSWORD` (the client secret). For a single-tenant bot, also set `TEAMS_TENANT_ID`. Or connect it from the API; see [Connections](connections.md).
+4. Download the app package: `GET /api/v1/integrations/teams/app-package` (admin). It is a zip with `manifest.json` and two icons, `color.png` (192×192) and `outline.png` (32×32), and no executables. Query `name`, `developer`, `website` and `color` to customize it.
+5. In the Teams admin center, choose Teams apps → Manage apps → Upload new app, upload the zip, and approve it.
+6. Add the app to each team (Apps → Built for your org).
+7. In each factory, select the teams and at least one standard channel per team:
+
+```yaml
+integrations:
+  - type: microsoft-teams
+    microsoft-teams:
+      autoRespondToThreadReplies: true
+      teams:
+        - { teamId: 6b1f0000-0000-0000-0000-000000000001, channelIds: ["19:abc@thread.tacv2"] }
+```
+
+Kiln validates every call's Bot Framework token: the signature against Microsoft's published keys, the issuer, the audience (your app ID), the expiry, and that the token's service URL matches the activity.
+
+## Starting work
+
+Mention the bot with your request:
+
+```text
+@Kiln the export button times out on large reports
+```
+
+| Event | Fires when |
+| --- | --- |
+| `app_mention` | The bot is mentioned in a connected channel. |
+| `message_posted` | Another message the bot can see in that channel. |
+
+Filters: `team_ids` (exactly one Teams team ID), `channel_ids` (at least one `19:…@thread.tacv2` ID), `keywords` and `user_ids`. `team_ids` and `channel_ids` take only `in`. See [Automation triggers](../configuration/automation-triggers.md).
+
+Replies in the thread continue the work. With `autoRespondToThreadReplies: false`, a reply must mention the bot.
+
+If a channel isn't connected to any factory, the bot answers: "This Microsoft Teams channel isn't connected to a Kiln factory. Connect this team to a factory, then mention this bot again."
+
+## Commands
+
+| Message | Does |
+| --- | --- |
+| `@Kiln sign in` | Replies with a one-hour link that connects your Teams account to your Kiln account, so your replies can decide gates. |
+| `@Kiln sign out` | Unlinks your account from every factory in that Microsoft organization. |
+| `@Kiln help` | Explains how to use the bot and lists the factories connected to the channel. |
+
+## Scope and limits
+
+- Standard and shared channels only: no private channels and no DMs. Add shared channels by channel ID in `factory.yaml`.
+- The bot replies in the thread where the work started and can post top-level messages. It cannot DM people, react to messages or upload files.
+
+## Related pages
+
+- [Connections](connections.md)
+- [Slack](slack.md)
+- [Automations](../configuration/automations.md)
 
 ---
 
@@ -2644,11 +3563,14 @@ In Slack, you mention a factory's alias to start work, and the whole work item t
 
 ## Set up
 
-1. Create a Slack app with a bot user and the `chat:write` scope. Give Kiln the bot token.
+1. Create a Slack app with a bot user and these bot scopes: `app_mentions:read`, `channels:history`, `channels:read`, `chat:write`, `chat:write.customize`, `groups:history`, `im:history`, `im:write`, `mpim:history`, `reactions:read`, `reactions:write`, `users:read`, `users:read.email`.
 2. Turn on Event Subscriptions with the request URL `POST /webhooks/slack`. Kiln answers Slack's URL verification challenge.
-3. Subscribe to the bot events `app_mention`, `message.channels`, `message.im` and `reaction_added`.
+3. Subscribe to the bot events `app_mention`, `message.channels`, `message.groups`, `message.im`, `message.mpim`, `member_joined_channel`, `reaction_added` and `app_home_opened`, and enable the Home tab.
 4. Store the app's signing secret in Kiln as `SLACK_SIGNING_SECRET`.
-5. Add `slack` to the factory's `integrations` and invite the bot to the channels you use.
+5. Install the app:
+   - **Add to Slack.** Set `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`, add `<public URL>/oauth/slack/callback` as a redirect URL, and start the connection. If your workspace requires admin approval, an admin approves the request first. See [Connections](connections.md).
+   - **Or a token.** Install the app yourself and set `SLACK_BOT_TOKEN`, or paste the token and signing secret when you connect.
+6. Add `slack` to the factory's `integrations` and invite the bot to the channels you use. Private channels always need an invite.
 
 Kiln checks Slack's signature and refuses requests whose timestamp is more than five minutes old. It answers Slack right away and does the work in the background. Retries with the same `event_id` are ignored.
 
@@ -2660,7 +3582,7 @@ Mention the factory's alias:
 @webapp the footer link to /pricing is broken
 ```
 
-The first line becomes the work item's title, and the rest becomes its body. A list of bulleted requirements in the body helps triage size the request.
+The first line becomes the work item's title, and the rest becomes its body. Kiln reacts with 👀 to the message that started or continued work.
 
 A factory with no automations answers mentions of its alias. To control it, add an automation:
 
@@ -2669,20 +3591,41 @@ A factory with no automations answers mentions of its alias. To control it, add 
 triggers:
   - provider: slack
     event: app_mention
-    filter: { channel: [C0123ABCD] }
+    filter: { channel_ids: [C0123ABCD], keywords: [bug] }
 ---
 ```
 
-Without a `mentioned` filter, an `app_mention` trigger fires only for the factory named in the message, or for every factory when the message only mentions the bot.
+When a message names a factory's alias, only that factory gets it. A message that only mentions the bot reaches every factory listening in that channel.
 
 | Event | Fires when |
 | --- | --- |
 | `app_mention` | The bot is mentioned. |
-| `direct_message` | Someone sends the bot a direct message. |
-| `thread_reply` | Someone replies in a thread. |
-| `reaction_added` | Someone adds a reaction. `reaction` holds its name. |
+| `message_dm`, `message_im` | Someone sends the bot a direct message. Both fire for the same message. |
+| `message_mpim` | A message in a group DM the bot is in. |
+| `message_posted` | A message in a channel the bot is in, including thread replies. |
+| `member_joined_channel` | Someone joins a channel. |
+| `reaction_added` | Someone adds a reaction. `emoji` holds its name. |
 
-Messages from bots are ignored.
+Filters: `channel_ids`, `user_ids`, `keywords`, and for reactions `emojis` and `item_user_ids` (who wrote the message). `channels`, `users` and `itemUsers` take names instead of IDs and are resolved when you apply the definition. See [Automation triggers](../configuration/automation-triggers.md).
+
+Messages from bots are ignored. An app mention in a channel where you also listen to `message_posted` produces two events; Kiln continues work once, but two automations can both fire.
+
+## Factory settings
+
+```yaml
+integrations:
+  - type: slack
+    slack: { autoRespondToThreadReplies: false, channels: [C0123ABCD] }
+```
+
+- `autoRespondToThreadReplies` (default `true`): plain replies in a factory's thread continue the work. When `false`, replies must mention the app. DMs are unchanged.
+- `channels`: the channel IDs this factory listens in. DMs always reach it.
+
+Kiln posts as the factory, using its name. Set `KILN_FACTORY_AVATAR_URL` to a URL template with `{alias}`, such as `https://cdn.acme.test/factories/{alias}.png`, to give each factory its own avatar.
+
+## Home tab
+
+Opening the app's Home tab shows the work you asked for, grouped by stage (Triage, Planning, Building, Reviewing, Complete, Cancelled), newest first, with links to the web app.
 
 ## Working in the thread
 
@@ -2701,7 +3644,7 @@ Reply in the thread to act on the work item:
 | `reject`, `changes:` or `request changes` | Rejects it. The rest of your message is the feedback. |
 | Anything else | Answers an open question. If there is none and an agent is running on the work item, it steers that agent. Otherwise it is added to the conversation for the next agent run. |
 
-Approve, reject and answer only count when you are one of the gate's assignees, or the gate has none. Kiln matches your Slack user to a person through the server's `identities` map, for example `slack:U024BE7LH` to `po@acme.test`. Without a mapping, your Slack user ID must itself be an assignee. Replies that cannot decide the gate are handled like other text. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
+Approve, reject and answer only count when you are one of the gate's assignees, or the gate has none. Kiln matches your Slack user to a person through a [linked account](connections.md#linked-accounts) (mention the app with `sign in`, or DM it `sign in`) or the server's `identities` map, for example `slack:U024BE7LH` to `po@acme.test`. Without a mapping, your Slack user ID must itself be an assignee. Replies that cannot decide the gate are handled like other text. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 
 Decisions from Slack are recorded with your person (or Slack user ID) and `slack` as the surface, exactly like decisions from the web.
 
@@ -2710,6 +3653,7 @@ Steering from the thread works like steering from the run page. See [Harnesses](
 ## Related pages
 
 - [Automations](../configuration/automations.md)
+- [Connections](connections.md)
 - [Approving specs and previews](../product-owners/approving-specs-and-previews.md)
 - [Inbox](../management/inbox.md)
 - [How Kiln works](../overview/how-kiln-works.md)

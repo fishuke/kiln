@@ -18,7 +18,8 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 ## Factory configuration
 
 - [Factory agents](configuration/agents.md): Define the roles in a factory with agents/<name>/agent.md, choose a harness and model, and understand how settings are inherited.
-- [Automations](configuration/automations.md): Start work from GitHub, Slack, Linear, Jira, schedules and webhooks with automation files, filters and delivery dedupe.
+- [Automation triggers](configuration/automation-triggers.md): Every trigger provider, event and filter key, generated from the trigger catalogue.
+- [Automations](configuration/automations.md): Start work from forges, chat, trackers, schedules and webhooks with automation files, filters, execution overrides and delivery dedupe.
 - [Typed decisions](configuration/decisions.md): Configure the small, repeated decisions a factory makes, such as the command guard, triage and routing, with typed questions, thresholds and an LLM fallback.
 - [Definitions as code](configuration/definitions-as-code.md): Lay out a factory as a versioned tree rooted at factory.yaml, validate it, apply it atomically or as a canary, and keep it in a GitHub config repo.
 - [Definition file reference](configuration/definitions-reference.md): Every key of every definition file, generated from the schemas (kiln/v1).
@@ -35,9 +36,16 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 
 ## Code forges and integrations
 
+- [Azure DevOps](integrations/azure-devops.md): Use Azure DevOps repositories and boards with a factory, and start work from pull request and work item mentions and assignments.
+- [Bitbucket](integrations/bitbucket.md): Use Bitbucket Cloud repositories as a factory's forge and start work from pull request comments.
+- [Connections](integrations/connections.md): Connect each external system once for the workspace, opt factories in from factory.yaml, link people's accounts, and see where a factory can reach someone.
+- [Custom webhooks](integrations/custom-webhooks.md): Accept events from any system with managed or file webhooks, with signatures, a strict delivery contract, deduplication and a deliveries log.
+- [Discord](integrations/discord.md): Send work to a factory with the /kiln slash command or a mention in Discord, and follow it in a thread.
 - [GitHub](integrations/github.md): Start work from GitHub issues and comments, get pull requests with evidence back, and complete work items on merge.
-- [Jira](integrations/jira.md): Start work from Jira issues and comments, post updates back to the issue, and create roadmap issues in a Jira project.
-- [Linear](integrations/linear.md): Start work from Linear issues and agent sessions, get updates as comments, and let the planning agent create issues with acceptance criteria.
+- [GitLab](integrations/gitlab.md): Use GitLab.com or self-managed GitLab as a factory's forge, and start work by mentioning the factory's bot in merge request comments.
+- [Jira](integrations/jira.md): Connect Jira Cloud with OAuth, start agent sessions by assigning or mentioning the factory, react to issue events, and create roadmap issues.
+- [Linear](integrations/linear.md): Start work from Linear agent sessions and issue events, report progress in the session, and let the planning agent create issues with acceptance criteria.
+- [Microsoft Teams](integrations/microsoft-teams.md): Mention the Kiln bot in a Teams channel to start work, follow it in the thread, and link your account with sign in.
 - [Previews](integrations/previews.md): Deploy each factory pull request to a preview environment on Vercel or Kubernetes, post a card with videos, and ask a person to accept it.
 - [Slack](integrations/slack.md): Send work to a factory by mentioning its alias in Slack, follow progress in the thread, and approve specs and previews with a reply.
 

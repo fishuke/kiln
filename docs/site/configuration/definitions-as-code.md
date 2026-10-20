@@ -13,7 +13,7 @@ A factory is defined by a tree of files rooted at `factory.yaml`, which Kiln val
 factory.yaml
 agents/<name>/agent.md                    # frontmatter + instructions
 agents/<name>/skills/<skill>/SKILL.md
-automations/<name>/automation.md          # triggers + prompt
+automations/<name>/automation.md          # triggers + prompt (or automations/<name>.md)
 pipelines/<name>.yaml                     # optional stage graph
 gates/<name>.yaml                         # gate rules
 policies/<name>.yaml                      # protected paths, approvals
@@ -42,7 +42,13 @@ project: customer-portal
 repositories:
   - { forge: github, owner: acme, name: web-app }
   - { forge: github, owner: acme, name: design-system, deferred: true }
-integrations: [slack, linear]
+integrations:
+  - type: slack
+    slack: { autoRespondToThreadReplies: true }
+  - linear
+github: { factoryConfigChecks: main }
+cloudProviders:
+  aws: { roleArn: arn:aws:iam::123456789012:role/kiln-runs }
 agentDefaults:
   harness: { type: claude-code, model: router:by-task }
   runner: linux-node
@@ -57,12 +63,36 @@ budgets: { perWorkItemUsd: 40, monthlyUsd: 6000 }
 | `name` | 1–100 characters. |
 | `alias` | Lowercase letters, digits and dashes, 1–60 characters. Also the factory's ID in Kiln. When missing, the ID is `name` turned into a slug. |
 | `description`, `project` | Optional. |
-| `repositories` | At least one. `forge` is `github` (default) or `gitlab`. Agents work in the first repository. `deferred: true` repositories are not cloned into sandboxes. |
-| `integrations` | Any of `github`, `gitlab`, `slack`, `linear`, `jira`. |
+| `repositories` | At least one. `forge` is `github` (default), `gitlab`, `azure_devops` or `bitbucket`. Agents work in the first repository. `deferred: true` repositories are not cloned into sandboxes unless an automation's `required_repos` names them. |
+| `integrations` | The workspace integrations this factory opts into: `slack`, `microsoft-teams`, `discord`, `linear`, `jira`, as names or as `{ type, <type>: settings }` objects. Linear and Jira are exclusive. Forges come from `repositories`. See [Connections](../integrations/connections.md#per-factory-opt-in). |
+| `github` | `factoryConfigChecks`: `main` (default) or `all`. See [GitHub](../integrations/github.md#the-kilnfactory-config-check). |
+| `automations` | `githubOnboardingNotices` (default `true`): once your workspace links GitHub accounts, a person who mentions `@kiln-factory` without a linked account gets one comment saying how to link it. Work still starts. `false` turns the comment off for this factory's repositories. |
+| `cloudProviders` | Cloud identity federation for runs. `providers` is accepted as its older name. See below. |
 | `agentDefaults` | Execution settings every agent inherits. Must set `harness` or `model`. |
 | `selfImprovement` | `failedRunThreshold` 1–50 (default 25), `maxAgeDays` 1–90 (default 7), `reviewers.type` `admins` (default), `team`, `custom` or `none`, and `reviewers.emails` for `custom`. |
 | `defaultPipeline` | A file name in `pipelines/`. |
 | `budgets` | `perWorkItemUsd`, `monthlyUsd`. See [Policies and budgets](policies-and-budgets.md). |
+
+### Cloud identity federation
+
+```yaml
+cloudProviders:
+  aws: { roleArn: arn:aws:iam::123456789012:role/kiln-runs }
+  gcp:
+    projectNumber: "123456789012"        # quote it
+    workloadIdentityFederationPoolId: kiln
+    workloadIdentityFederationProviderId: kiln-runs
+    serviceAccountEmail: runs@acme.iam.gserviceaccount.com   # optional
+```
+
+Runs get these environment variables:
+
+| Setting | Variables |
+| --- | --- |
+| `aws.roleArn` | `AWS_ROLE_ARN`, `AWS_ROLE_SESSION_NAME` (`kiln-run`) |
+| `gcp` | `GCP_PROJECT_NUMBER`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER` (the full `projects/…/providers/…` name), `GCP_SERVICE_ACCOUNT_EMAIL` |
+
+Set `cloudProviders` or the older `providers`, not both.
 
 The other file kinds are covered on their own pages: [agents](agents.md), [skills](skills.md), [automations](automations.md), [pipelines and gates](pipelines-and-gates.md), [policies](policies-and-budgets.md), [decisions](decisions.md), [runners](../infrastructure/sandboxes.md#runner-files), [scorers](../measure-and-improve/scorers.md) and [benchmarks](../measure-and-improve/benchmarks.md). The full key reference is generated from the schema.
 

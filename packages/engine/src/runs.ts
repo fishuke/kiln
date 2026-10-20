@@ -6,7 +6,32 @@ import { repoKey, type RepoRef } from "@kiln/integrations";
 import { hashDir, type Sandbox, type SandboxProvider, type SnapshotRef } from "@kiln/sandbox";
 import type { HarnessType, Runner } from "@kiln/schema";
 import type { Kiln } from "./kiln";
-import { C, newId, type Run, type RunEvent, type RunKind, type WorkItem } from "./types";
+import { C, newId, type Artifact, type Attachment, type Run, type RunEvent, type RunKind, type WorkItem } from "./types";
+
+const MEDIA: Record<string, [Artifact["kind"], string]> = {
+  png: ["image", "image/png"],
+  jpg: ["image", "image/jpeg"],
+  jpeg: ["image", "image/jpeg"],
+  gif: ["image", "image/gif"],
+  webp: ["image", "image/webp"],
+  svg: ["image", "image/svg+xml"],
+  webm: ["video", "video/webm"],
+  mp4: ["video", "video/mp4"],
+  mov: ["video", "video/quicktime"],
+  pdf: ["file", "application/pdf"],
+  json: ["report", "application/json"],
+  html: ["report", "text/html"],
+  md: ["report", "text/markdown"],
+  txt: ["file", "text/plain"],
+};
+
+export function mediaOf(name: string): { kind: Artifact["kind"]; contentType: string } {
+  const [kind, contentType] = MEDIA[name.split(".").pop()?.toLowerCase() ?? ""] ?? ["file", "application/octet-stream"];
+  return { kind, contentType };
+}
+
+/** Where people open a stored object: the web app proxies /files/<key> to the API. */
+export const fileUrl = (key: string) => `/files/${key.split("/").map(encodeURIComponent).join("/")}`;
 
 export type ExecuteInput = {
   factory: string;
@@ -28,6 +53,10 @@ export type ExecuteInput = {
   collect?: (sandbox: Sandbox, cwd: string, run: Run) => Promise<void>;
   extraInstructions?: string;
   files?: Record<string, string>;
+  /** Uploaded files placed in the workspace under .kiln/attachments/. */
+  attachments?: Attachment[];
+  /** Set when this run is a subagent of another run. */
+  parentRunId?: string;
   backend?: "local" | "docker" | "kubernetes";
 };
 
@@ -51,6 +80,8 @@ export function resultProtocol(agentType: string): string {
     shape,
     "```",
     "Commit your changes on the current branch. Do not push, open pull requests or merge: Kiln pushes your branch with a scoped token and a human merges.",
+    "Save screenshots (PNG) and screen recordings (WebM or MP4) that show your work in `.kiln/artifacts/`; reviewers see them next to the pull request.",
+    "Files people attached to the request are in `.kiln/attachments/`.",
   ].join("\n");
 }
 
@@ -137,6 +168,8 @@ export class RunService {
       definitionSha: resolved.sha,
       startState: { prompt: input.prompt, instructions: "", skills: agent.skills, repos: [] },
       replayOf: input.replayOf,
+      parentRunId: input.parentRunId,
+      artifacts: [],
       traceId: randomBytes(16).toString("hex"),
       status: "running",
       costUsd: 0,
@@ -181,6 +214,15 @@ export class RunService {
         run.startState.repos.push({ name: r.name, url: repoKey(r), branch: input.branch, sha: head });
       }
       for (const [path, content] of Object.entries(input.files ?? {})) await sandbox.writeFile(path, content);
+      const attachments = [...(input.workItem?.attachments ?? []), ...(input.attachments ?? [])].filter((a, i, all) => all.findIndex((b) => b.key === a.key) === i);
+      for (const a of attachments) {
+        const bytes = await this.k.objects.get(a.key);
+        if (bytes) await sandbox.writeBytes(`${cwd ? `${cwd}/` : ""}.kiln/attachments/${a.name}`, bytes);
+      }
+      if (attachments.length) {
+        input = { ...input, prompt: `${input.prompt}\n\nAttached files:\n${attachments.map((a) => `- .kiln/attachments/${a.name} (${a.contentType}, ${Math.ceil(a.size / 1024)} KB)`).join("\n")}` };
+        run.startState.prompt = input.prompt;
+      }
       if (sandbox.provider === "local") run.startState.workspaceSha = hashDir(sandbox.workdir);
 
       const memories = input.workItem || input.kind === "work" ? this.k.memories.promptBlock(input.factory, `${input.prompt}`) : "";
@@ -236,6 +278,7 @@ export class RunService {
         }
       }
       if (input.collect && cwd) await input.collect(sandbox, cwd, run);
+      await this.collectArtifacts(run, sandbox, cwd);
       if (this.k.stopping.has(run.id)) {
         run.status = this.k.stopping.get(run.id) === "pause" ? "paused" : "cancelled";
       } else {
@@ -298,6 +341,62 @@ export class RunService {
       }
     }
     return env;
+  }
+
+  /** Upload what the agent saved in .kiln/artifacts/ (and lists in result.artifacts) for reviewers. */
+  private async collectArtifacts(run: Run, sandbox: Sandbox, cwd: string | undefined) {
+    const base = cwd ? `${cwd}/` : "";
+    const listed = (await sandbox.exec(`[ -d ${base}.kiln/artifacts ] && cd ${base}.kiln/artifacts && find . -type f -size -50M | sed 's|^./||' || true`, { trusted: true })).stdout.split("\n").filter(Boolean);
+    const extra = ((run.result?.artifacts as string[] | undefined) ?? []).filter((p) => typeof p === "string" && !p.includes(".."));
+    const paths = [...listed.map((p) => `.kiln/artifacts/${p}`), ...extra];
+    for (const rel of [...new Set(paths)].slice(0, 50)) {
+      const bytes = await sandbox.readBytes(`${base}${rel}`);
+      if (!bytes) continue;
+      const name = rel.split("/").pop()!;
+      const { kind, contentType } = mediaOf(name);
+      const key = `runs/${run.id}/${name}`;
+      await this.k.objects.put(key, bytes, contentType);
+      run.artifacts.push({ kind, name, key, url: fileUrl(key), contentType, size: bytes.length });
+      this.record(run, "artifact", `${kind}: ${name}`);
+    }
+  }
+
+  addArtifact(runId: string, artifact: Artifact) {
+    const run = this.live.get(runId) ?? this.get(runId);
+    if (!run) return;
+    run.artifacts = [...(run.artifacts ?? []), artifact];
+    this.save(run);
+  }
+
+  /**
+   * Subagents: a running agent starts another agent of its factory for part of the work. The child
+   * shares the work item and branch; `spawnableBy` on the child decides which agents may start it.
+   */
+  async spawn(parentRunId: string, input: { agent: string; prompt: string; attachments?: Attachment[] }): Promise<Run> {
+    const parent = this.live.get(parentRunId) ?? this.get(parentRunId);
+    if (!parent) throw new Error(`unknown run ${parentRunId}`);
+    const resolved = this.k.defs.resolved(parent.definitionSha);
+    const child = resolved.agents[input.agent];
+    if (!child) throw new Error(`factory ${parent.factory} has no agent ${input.agent}`);
+    const parentAgent = resolved.agents[parent.agent];
+    const allowed = child.spawnableBy.includes(parent.agent) || (parentAgent?.agentType === "FOREMAN" && child.spawnableBy.includes("foreman"));
+    if (!allowed) throw new Error(`${parent.agent} may not spawn ${input.agent} (spawnableBy: ${child.spawnableBy.join(", ") || "none"})`);
+    const depth = (id: string | undefined, n = 0): number => (id ? depth(this.get(id)?.parentRunId, n + 1) : n);
+    if (depth(parentRunId) > 4) throw new Error("subagents can nest at most 5 levels deep");
+    this.record(parent, "spawn", `${input.agent}: ${input.prompt.split("\n")[0]!.slice(0, 120)}`);
+    return this.execute({
+      factory: parent.factory,
+      sha: parent.definitionSha,
+      agent: input.agent,
+      prompt: input.prompt,
+      kind: parent.kind,
+      stage: parent.stage,
+      workItem: parent.workItemId ? this.k.workflow.get(parent.workItemId) : undefined,
+      branch: parent.startState.repos[0]?.branch,
+      parentRunId,
+      attachments: input.attachments,
+      push: parent.kind === "work" && Boolean(parent.startState.repos[0]?.branch),
+    });
   }
 
   /** Commit leftovers and push `branch` with the run's scoped token. Never touches main. */

@@ -166,7 +166,7 @@ describe("scorer service", () => {
     let scored = 0;
     for (let i = 0; i < 200; i++) {
       const summary = i % 3 === 0 ? "bad" : "good";
-      const run: Run = { id: `run_fixture_${i}`, kind: "work", factory: "webapp", agent: "implement", agentType: "IMPLEMENT", harness: "claude-code", definitionSha: sha, startState: { prompt: "", instructions: "", skills: [], repos: [] }, traceId: "t", status: "succeeded", summary, costUsd: 0, eventCount: 0, steering: [], startedAt: new Date().toISOString() };
+      const run: Run = { id: `run_fixture_${i}`, kind: "work", factory: "webapp", agent: "implement", agentType: "IMPLEMENT", harness: "claude-code", definitionSha: sha, startState: { prompt: "", instructions: "", skills: [], repos: [] }, traceId: "t", status: "succeeded", summary, costUsd: 0, eventCount: 0, steering: [], artifacts: [], startedAt: new Date().toISOString() };
       kiln.store.put("runs", run);
       labeled[run.id] = summary === "good" ? "meets" : "misses";
       const scores = await kiln.scoring.scoreRun(run.id);

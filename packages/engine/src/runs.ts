@@ -270,7 +270,7 @@ export class RunService {
     const teamSettings = team ? this.k.teams.settings(team) : undefined;
     const host = teamSettings?.defaultSandboxHost;
     const teamBackend = host === "local" || host === "docker" || host === "kubernetes" ? host : undefined;
-    const base: Runner = declared ?? { ...DEFAULT_RUNNER(teamBackend ?? this.k.options.defaultBackend ?? "local"), image: environment?.image ?? "node:22-bookworm" };
+    const base: Runner = declared ?? { ...DEFAULT_RUNNER(teamBackend ?? this.k.options.defaultBackend ?? "local"), image: environment?.image ?? this.k.options.defaultImage ?? "node:22-bookworm" };
     const policy = agent.networkPolicy;
     // Environment setup commands run after the runner's own; the team's egress allowlist and the agent's allowed hosts add to the runner's.
     const runner: Runner = {

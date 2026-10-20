@@ -29,7 +29,11 @@ export class AccountService {
   }
 
   private mayCreate(email: string, input: { invite?: string; openSignup?: boolean }) {
-    if (this.needsOwner()) return true;
+    if (this.needsOwner()) {
+      const owner = this.k.options.ownerEmail?.trim().toLowerCase();
+      if (owner && owner !== email.trim().toLowerCase()) throw new PlatformError(403, "this server is waiting for its owner to sign up");
+      return true;
+    }
     if (input.invite) {
       const inv = this.k.teams.findInvite(input.invite);
       if (inv.email !== email.trim().toLowerCase()) throw new PlatformError(403, `this invite is for ${inv.email}`);

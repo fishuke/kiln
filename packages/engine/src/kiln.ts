@@ -63,6 +63,10 @@ export type KilnOptions = {
   identities?: Record<string, string>;
   askHumanTimeoutMs?: number;
   defaultBackend?: "local" | "docker" | "kubernetes";
+  /** Image for agents without a runner (KILN_RUNNER_IMAGE); it should carry the harness CLIs. */
+  defaultImage?: string;
+  /** Only this email may sign up as a fresh server's first owner (KILN_OWNER_EMAIL). */
+  ownerEmail?: string;
   scoreAllRuns?: boolean;
   autoScore?: boolean;
   replayLimit?: number;

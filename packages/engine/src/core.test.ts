@@ -1,4 +1,5 @@
 import { FakeHarness, type HarnessAdapter } from "@kiln/harness";
+import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
 import { describe, expect, it } from "vitest";
 import { classifyError, KilnError } from "./errors";
 import { fakeAgentScript } from "./fake-agents";
@@ -42,6 +43,17 @@ describe("errors and retries", () => {
     const run = await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "foreman", prompt: "x", push: false });
     expect(run).toMatchObject({ status: "failed", attempt: 1, error: { code: "insufficient_credits", retryable: false } });
     expect(runState(run)).toBe("FAILED");
+  });
+});
+
+describe("default runner image", () => {
+  it("uses KILN_RUNNER_IMAGE for agents without a runner, on the configured backend", async () => {
+    const images: string[] = [];
+    const local = new LocalSandboxProvider();
+    const recording: SandboxProvider = { name: "docker", create: (spec) => (images.push(spec.runner.image), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })), resume: (ref, spec, store) => local.resume(ref, spec, store) };
+    const { kiln } = createTestKiln({ sandboxes: { local, docker: recording }, defaultBackend: "docker", defaultImage: "ghcr.io/acme/kiln-runner:1" });
+    await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "foreman", prompt: "route this", push: false });
+    expect(images).toEqual(["ghcr.io/acme/kiln-runner:1"]);
   });
 });
 

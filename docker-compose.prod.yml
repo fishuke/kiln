@@ -1,0 +1,89 @@
+# Kiln for a server: Coolify, or any Docker host. See docs/site/infrastructure/self-hosting.md.
+# Coolify: add a "Docker Compose" resource from this repo with this file, give `web` and `api`
+# their domains, and fill in the variables it lists. Elsewhere: copy .env.example to .env and run
+#   docker compose -f docker-compose.prod.yml --profile proxy up -d --build
+name: kiln
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      KILN_PUBLIC_URL: ${KILN_PUBLIC_URL:?the API's public URL, e.g. https://api.kiln.example.com}
+      KILN_WEB_URL: ${KILN_WEB_URL:?the web app's public URL, e.g. https://kiln.example.com}
+      KILN_OWNER_EMAIL: ${KILN_OWNER_EMAIL:?your email, the only one that can create the first account}
+      KILN_SECRET_KEY: ${KILN_SECRET_KEY:?a long random value, e.g. openssl rand -hex 32}
+      KILN_ADMIN_EMAILS: ${KILN_ADMIN_EMAILS:-}
+      KILN_OPEN_SIGNUP: ${KILN_OPEN_SIGNUP:-0}
+      KILN_DEMO: ${KILN_DEMO:-0}
+      KILN_AGENTS: ${KILN_AGENTS:-real}
+      KILN_SANDBOX: ${KILN_SANDBOX:-docker}
+      KILN_RUNNER_IMAGE: ${KILN_RUNNER_IMAGE:-kiln-runner-node:local}
+      KILN_EGRESS_NETWORK: ${KILN_EGRESS_NETWORK:-kiln-egress}
+      KILN_EGRESS_PROXY: http://kiln-egress-proxy:3128
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      LINEAR_API_KEY: ${LINEAR_API_KEY:-}
+      LINEAR_WEBHOOK_SECRET: ${LINEAR_WEBHOOK_SECRET:-}
+      KILN_SMTP_URL: ${KILN_SMTP_URL:-}
+    volumes:
+      - kiln-data:/data
+      # Sandboxes are sibling containers. Access to this socket is root on the host: run Kiln on a host you trust it with.
+      - /var/run/docker.sock:/var/run/docker.sock
+    expose: ["4000"]
+    depends_on:
+      runner-image: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      retries: 6
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+    restart: unless-stopped
+    environment:
+      KILN_API_URL: http://api:4000
+      KILN_PUBLIC_URL: ${KILN_PUBLIC_URL}
+    expose: ["3000"]
+    depends_on:
+      api: { condition: service_healthy }
+  # Builds the sandbox image (Node, git, Playwright and the agent CLIs) on this host; it only idles.
+  runner-image:
+    build: runners/images/node
+    image: ${KILN_RUNNER_IMAGE:-kiln-runner-node:local}
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+    network_mode: none
+  # Sandboxes reach the internet only through this proxy, which enforces each run's allowlist.
+  egress-proxy:
+    build: deploy/egress-proxy
+    restart: unless-stopped
+    environment:
+      KILN_EGRESS_ALLOW: ${KILN_EGRESS_ALLOW:-github.com,codeload.github.com,objects.githubusercontent.com,registry.npmjs.org,api.anthropic.com,api.openai.com,openrouter.ai}
+    networks:
+      default: {}
+      egress:
+        aliases: [kiln-egress-proxy]
+  # Not needed on Coolify (its proxy serves the domains). Elsewhere: HTTPS for both domains with --profile proxy.
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: [proxy]
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c", "printf '%s {\\n  reverse_proxy web:3000\\n}\\n%s {\\n  reverse_proxy api:4000\\n}\\n' \"$${KILN_WEB_URL#*://}\" \"$${KILN_PUBLIC_URL#*://}\" > /etc/caddy/Caddyfile && exec caddy run --config /etc/caddy/Caddyfile"]
+    environment:
+      KILN_WEB_URL: ${KILN_WEB_URL}
+      KILN_PUBLIC_URL: ${KILN_PUBLIC_URL}
+    ports: ["80:80", "443:443"]
+    volumes: [caddy-data:/data]
+    depends_on: [web, api]
+networks:
+  egress:
+    name: ${KILN_EGRESS_NETWORK:-kiln-egress}
+    internal: true
+volumes:
+  kiln-data:
+  caddy-data:

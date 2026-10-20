@@ -252,7 +252,11 @@ export function egressAllowlist(spec: SandboxSpec): string[] {
 }
 
 /** Docker CLI arguments for a runner: resources, egress and labels. Exported for tests and docs. */
-export function dockerRunArgs(name: string, spec: SandboxSpec): string[] {
+/** Where sandboxes with an allowlist reach the network: an internal Docker network and the proxy on it. */
+export type EgressRoute = { network: string; proxy: string };
+export const DEFAULT_EGRESS: EgressRoute = { network: "kiln-egress", proxy: "http://kiln-egress-proxy:3128" };
+
+export function dockerRunArgs(name: string, spec: SandboxSpec, egress: EgressRoute = DEFAULT_EGRESS): string[] {
   const args = ["run", "-d", "--name", name, "--label", "kiln.sandbox=1", "-w", "/workspace"];
   for (const [k, v] of Object.entries(spec.labels ?? {})) args.push("--label", `${k}=${v}`);
   if (spec.runner.shape) args.push("--cpus", String(spec.runner.shape.vcpus), "--memory", `${spec.runner.shape.memoryGb}g`);
@@ -261,8 +265,8 @@ export function dockerRunArgs(name: string, spec: SandboxSpec): string[] {
   const allow = egressAllowlist(spec);
   if (allow.length === 0) args.push("--network", "none");
   else {
-    args.push("--network", "kiln-egress");
-    args.push("-e", "HTTPS_PROXY=http://kiln-egress-proxy:3128", "-e", "HTTP_PROXY=http://kiln-egress-proxy:3128");
+    args.push("--network", egress.network);
+    args.push("-e", `HTTPS_PROXY=${egress.proxy}`, "-e", `HTTP_PROXY=${egress.proxy}`);
     args.push("-e", `KILN_EGRESS_ALLOW=${allow.join(",")}`);
     if (spec.deniedHosts?.length) args.push("-e", `KILN_EGRESS_DENY=${spec.deniedHosts.join(",")}`);
   }
@@ -278,7 +282,7 @@ export class DockerSandboxProvider implements SandboxProvider {
 
   constructor(
     private readonly runner: CommandRunner = new NodeCommandRunner(),
-    private readonly options: { checkpoint?: boolean; hostTmp?: string; volumes?: string[]; pullPolicy?: "Always" | "IfNotPresent" | "Never" } = {},
+    private readonly options: { checkpoint?: boolean; hostTmp?: string; volumes?: string[]; pullPolicy?: "Always" | "IfNotPresent" | "Never"; egress?: EgressRoute } = {},
   ) {}
 
   private async must(args: string[], stdin?: string, env?: Record<string, string>): Promise<ExecResult> {
@@ -307,7 +311,7 @@ export class DockerSandboxProvider implements SandboxProvider {
     const cached = policy === "Always" ? { code: 1 } : await this.runner.run("docker", ["image", "inspect", spec.runner.image]);
     // A private image is always pulled with its credential, so access is checked on every run.
     if (policy !== "Never" && (cached.code !== 0 || spec.registryAuth)) await this.pull(spec);
-    const args = dockerRunArgs(name, spec);
+    const args = dockerRunArgs(name, spec, this.options.egress);
     // Host volumes from the worker's configuration (`kiln worker --volumes HOST:CONTAINER[:ro]`).
     for (const v of this.options.volumes ?? []) args.splice(args.indexOf(spec.runner.image), 0, "-v", v);
     await this.must(args);
@@ -333,7 +337,7 @@ export class DockerSandboxProvider implements SandboxProvider {
     const host = mkdtempSync(join(this.options.hostTmp ?? tmpdir(), "kiln-resume-"));
     const archive = join(host, "snap.tgz");
     writeFileSync(archive, body);
-    await this.must(dockerRunArgs(name, spec));
+    await this.must(dockerRunArgs(name, spec, this.options.egress));
     await this.must(["cp", archive, `${name}:/tmp/snap.tgz`]);
     await this.must(["exec", name, "tar", "-xzf", "/tmp/snap.tgz", "-C", "/workspace"]);
     rmSync(host, { recursive: true, force: true });

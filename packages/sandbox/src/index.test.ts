@@ -92,6 +92,8 @@ describe("docker sandbox", () => {
     expect(dockerRunArgs("kiln-y", { ...spec, repos: [], runner: { ...spec.runner, egress: [] } })).toEqual(expect.arrayContaining(["--network", "none"]));
     // repos are cloned inside the container, so their host is reachable even with no egress list
     expect(dockerRunArgs("kiln-z", { ...spec, runner: { ...spec.runner, egress: [] } })).toContain("KILN_EGRESS_ALLOW=example.test");
+    const custom = dockerRunArgs("kiln-c", spec, { network: "coolify-egress", proxy: "http://egress:3128" });
+    expect(custom).toEqual(expect.arrayContaining(["--network", "coolify-egress", "HTTPS_PROXY=http://egress:3128"]));
   });
 
   it("uses a cached image, clones, runs setup and destroys", async () => {

@@ -19,7 +19,7 @@ import { GateService } from "./gates";
 import { ImprovementService, RuleImprover, type Improver } from "./improvement";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
-import { AccountService, EnvironmentService, McpRegistry, SecretVault, TeamService, UsageService, UserService } from "./platform";
+import { AccountService, EnvironmentService, McpRegistry, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
 import { PlanningService, type Planner } from "./planning";
 import { RunService } from "./runs";
 import { DecisionJudge, ScoringService, type Judge } from "./scoring";
@@ -59,6 +59,8 @@ export type KilnOptions = {
   secretKey?: string;
   /** Server admins (KILN_ADMIN_EMAILS): users who see every team's audit log, tokens and server secrets. */
   serverAdmins?: string[];
+  /** Root folder for teams' local storage folders (default .data/storage). */
+  storageRoot?: string;
   /** Token used when Kiln itself commits to config repos (GitHub App installation token). */
   forgeToken?: string;
   /** Workspace connections Kiln can make (GitHub, GitLab, Slack, Teams, Discord, Linear, Jira…). */
@@ -110,10 +112,13 @@ export class Kiln {
   readonly mcp: McpRegistry;
   readonly environments: EnvironmentService;
   readonly usage: UsageService;
+  /** Routes artifacts, transcripts and attachments to each team's storage; `objects` is this router. */
+  readonly storage: StorageRouter;
 
   constructor(readonly options: KilnOptions) {
     this.store = options.store ?? new MemoryStore();
-    this.objects = options.objects ?? new MemoryObjectStore();
+    this.storage = new StorageRouter(this, options.objects ?? new MemoryObjectStore());
+    this.objects = this.storage;
     this.clock = options.clock ?? systemClock;
     this.bus = new InMemoryEventBus(() => this.clock.now());
     this.forge = options.forge;

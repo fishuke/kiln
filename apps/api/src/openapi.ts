@@ -42,6 +42,7 @@ export const ROUTES: Route[] = [
   { method: "delete", path: "/api/v1/teams/{team}/invites/{inviteId}", summary: "Revoke an invite", tag: "Teams" },
   { method: "get", path: "/api/v1/teams/{team}/settings", summary: "Spend limit, GitHub orgs, sandbox host, egress allowlist, data storage, default factory role", tag: "Teams" },
   { method: "patch", path: "/api/v1/teams/{team}/settings", summary: "Change team settings (team admin)", body: PS.TeamSettingsPatch, tag: "Teams" },
+  { method: "post", path: "/api/v1/teams/{team}/storage/{category}/test", summary: "Check a storage target (artifacts, transcripts, attachments) by writing and reading an object", tag: "Teams" },
   { method: "get", path: "/api/v1/teams/{team}/model-keys", summary: "Which team-managed model keys are set", tag: "Teams" },
   { method: "put", path: "/api/v1/teams/{team}/model-keys/{provider}", summary: "Set the team's Anthropic, OpenAI, OpenRouter or Bedrock key", body: PS.ModelKey, tag: "Teams" },
   { method: "delete", path: "/api/v1/teams/{team}/model-keys/{provider}", summary: "Remove a team-managed model key", tag: "Teams" },

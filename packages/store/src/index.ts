@@ -128,3 +128,6 @@ export class FileObjectStore implements ObjectStore {
     return out.sort();
   }
 }
+
+export * from "./s3";
+export * from "./fake-s3";

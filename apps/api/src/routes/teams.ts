@@ -1,4 +1,4 @@
-import { avatarContentType, MODEL_KEYS, type ModelKeyProvider, type Team } from "@kiln/engine";
+import { avatarContentType, MODEL_KEYS, STORAGE_CATEGORIES, type ModelKeyProvider, type StorageCategory, type Team } from "@kiln/engine";
 import { HttpError, type RouteContext } from "../app";
 import { actor, readImage, serveObject, teamFor } from "./platform-helpers";
 import * as PS from "./platform-schemas";
@@ -98,6 +98,14 @@ export function teamRoutes(ctx: RouteContext) {
     const { team } = teamFor(ctx, c, c.req.param("team"), "admin");
     const body = PS.TeamSettingsPatch.parse(await c.req.json());
     return c.json(kiln.teams.updateSettings(team.id, body, ctx.who(c)));
+  });
+
+  // storage check: write and read back a small object in the category's target
+  app.post("/api/v1/teams/:team/storage/:category/test", async (c) => {
+    const { team } = teamFor(ctx, c, c.req.param("team"), "admin");
+    const category = c.req.param("category");
+    if (!(STORAGE_CATEGORIES as readonly string[]).includes(category)) throw new HttpError(404, `unknown storage category ${category}; use ${STORAGE_CATEGORIES.join(", ")}`);
+    return c.json(await kiln.storage.test(team.id, category as StorageCategory));
   });
 
   // team-managed model keys (stored as team secrets; values are never returned)

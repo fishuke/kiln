@@ -389,8 +389,18 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     return c.json(await kiln.gates.decide(g.id, { ...body, by: who(c), via: body.via ?? "web" }));
   });
 
-  // projects, planning, portfolio
-  app.get("/api/v1/projects", (c) => c.json(kiln.planning.projects()));
+  /** The team listings are limited to: the current team for people, agent keys and explicit X-Kiln-Team; none for server-wide tokens. */
+  const scopeTeam = (c: Context<Env>) => {
+    const a = access(c);
+    return a.teamScoped && a.team ? a.team.id : undefined;
+  };
+  const inScope = (c: Context<Env>, team: string | undefined) => {
+    const t = scopeTeam(c);
+    return !t || team === t;
+  };
+
+  // projects, planning, portfolio (per team)
+  app.get("/api/v1/projects", (c) => c.json(kiln.planning.projects(scopeTeam(c))));
   app.post("/api/v1/projects", async (c) => {
     const body = S.Project.parse(await c.req.json());
     for (const f of body.factories) need(c, "send", f);
@@ -398,19 +408,19 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   });
   app.get("/api/v1/projects/:id", (c) => {
     const p = kiln.planning.project(c.req.param("id"));
-    if (!p) throw new HttpError(404, "unknown project");
+    if (!p || !inScope(c, kiln.planning.projectTeam(p))) throw new HttpError(404, "unknown project");
     return c.json({ ...p, roadmap: p.roadmapId ? kiln.planning.roadmap(p.roadmapId) : undefined, workItems: kiln.workflow.list({ projectId: p.id }) });
   });
   app.post("/api/v1/projects/:id/plan", async (c) => {
     const p = kiln.planning.project(c.req.param("id"));
-    if (!p) throw new HttpError(404, "unknown project");
+    if (!p || !inScope(c, kiln.planning.projectTeam(p))) throw new HttpError(404, "unknown project");
     for (const f of p.factories) need(c, "send", f);
     const body = S.Plan.parse(await c.req.json());
     return c.json(await kiln.planning.plan(p.id, { ...body, by: who(c) }));
   });
-  app.get("/api/v1/portfolio", (c) => c.json(kiln.planning.portfolio(c.req.query("since"))));
+  app.get("/api/v1/portfolio", (c) => c.json(kiln.planning.portfolio(c.req.query("since"), scopeTeam(c))));
   app.get("/api/v1/digest", (c) => {
-    const all = kiln.planning.digest();
+    const all = kiln.planning.digest(scopeTeam(c));
     return c.json(c.req.query("all") || options.devAuth ? all : all.filter((d) => d.person === who(c)));
   });
 
@@ -488,7 +498,7 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     kiln.memories.reject(m.id, who(c));
     return c.json({ ok: true });
   });
-  app.get("/api/v1/skills", (c) => c.json({ catalog: kiln.skills.catalog(), listings: kiln.skills.listings() }));
+  app.get("/api/v1/skills", (c) => c.json({ catalog: kiln.skills.catalog(scopeTeam(c)), listings: kiln.skills.listings(scopeTeam(c)) }));
   app.post("/api/v1/skills/publish", async (c) => {
     const body = S.Publish.parse(await c.req.json());
     need(c, "definitions:write", body.factory);
@@ -497,6 +507,8 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   app.post("/api/v1/skills/:id/install", async (c) => {
     const { factory } = S.Install.parse(await c.req.json());
     need(c, "definitions:write", factory);
+    const listing = kiln.skills.listings().find((l) => l.id === c.req.param("id"));
+    if (!listing || !inScope(c, kiln.skills.listingTeam(listing))) throw new HttpError(404, "unknown skill");
     return c.json(await kiln.skills.install(c.req.param("id"), factory, who(c)));
   });
 
@@ -512,9 +524,16 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const teamId = teamAdminScope(c);
     return c.json(kiln.auditLog(Number(c.req.query("limit") ?? 200), teamId));
   });
+  // Decision logs of work and runs you can see; logs tied to neither are for server admins.
   app.get("/api/v1/decisions", (c) => {
     const wi = c.req.query("workItem");
-    return c.json(kiln.store.list("decision_logs", (d: { id: string; workItemId?: string }) => !wi || d.workItemId === wi).slice(-500));
+    const a = access(c);
+    const factoryOf = (d: { workItemId?: string; runId?: string }) => (d.workItemId ? kiln.workflow.get(d.workItemId)?.factory : d.runId ? kiln.runs.get(d.runId)?.factory : undefined);
+    const maySee = (d: { workItemId?: string; runId?: string }) => {
+      const f = factoryOf(d);
+      return f ? visible(c, f) : a.serverAdmin;
+    };
+    return c.json(kiln.store.list("decision_logs", (d: { id: string; workItemId?: string; runId?: string }) => (!wi || d.workItemId === wi) && maySee(d)).slice(-500));
   });
   app.get("/api/v1/tokens", (c) => {
     const teamId = teamAdminScope(c);

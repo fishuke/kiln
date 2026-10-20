@@ -1,4 +1,5 @@
 import type { Kiln } from "./kiln";
+import { PlatformError } from "./platform/types";
 import type { FactoryMetrics } from "./metrics";
 import { C, newId, type Epic, type Gate, type Project, type Roadmap } from "./types";
 
@@ -93,8 +94,13 @@ export class AgentPlanner implements Planner {
 export class PlanningService {
   constructor(private readonly k: Kiln) {}
 
-  projects(): Project[] {
-    return this.k.store.list<Project>(C.projects).sort((a, b) => a.name.localeCompare(b.name));
+  /** Projects, or only one team's: its own, or older ones whose factories are in it. */
+  projects(team?: string): Project[] {
+    return this.k.store.list<Project>(C.projects, (p) => !team || this.projectTeam(p) === team).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  projectTeam(p: Project): string | undefined {
+    return p.team ?? (p.factories[0] ? this.k.teams.factoryTeam(p.factories[0]) : undefined);
   }
 
   project(id: string) {
@@ -102,7 +108,9 @@ export class PlanningService {
   }
 
   createProject(input: { name: string; owner: string; factories: string[] }): Project {
-    const p: Project = { id: newId("proj"), name: input.name, owner: input.owner, factories: input.factories, createdAt: this.k.clock.now().toISOString() };
+    const teams = [...new Set(input.factories.map((f) => this.k.teams.factoryTeam(f)).filter(Boolean))];
+    if (teams.length > 1) throw new PlatformError(400, "a project's factories must belong to one team");
+    const p: Project = { id: newId("proj"), name: input.name, owner: input.owner, factories: input.factories, createdAt: this.k.clock.now().toISOString(), team: teams[0] };
     this.k.store.put(C.projects, p);
     for (const f of input.factories) {
       const b = this.k.defs.get(f);
@@ -148,11 +156,11 @@ export class PlanningService {
   }
 
   /** Cross-factory rollup for the portfolio view. */
-  portfolio(since?: string) {
-    const factories = this.k.defs.list();
+  portfolio(since?: string, team?: string) {
+    const factories = this.k.defs.list().filter((f) => !team || this.k.teams.factoryTeam(f) === team);
     const metrics = Object.fromEntries(factories.map((f) => [f.id, this.k.metrics.factory(f.id, { since })])) as Record<string, FactoryMetrics>;
     const sum = (ids: string[], pick: (m: FactoryMetrics) => number) => Math.round(ids.reduce((s, id) => s + (metrics[id] ? pick(metrics[id]!) : 0), 0) * 100) / 100;
-    const projects = this.projects().map((p) => ({
+    const projects = this.projects(team).map((p) => ({
       project: p,
       factories: p.factories.map((f) => metrics[f]).filter(Boolean),
       totals: {
@@ -168,10 +176,10 @@ export class PlanningService {
   }
 
   /** Weekly digest per person: the decisions waiting on them, with deep links. */
-  digest(): { person: string; items: { gateId: string; title: string; ageHours: number; link: string; kind: Gate["kind"] }[]; text: string }[] {
+  digest(team?: string): { person: string; items: { gateId: string; title: string; ageHours: number; link: string; kind: Gate["kind"] }[]; text: string }[] {
     const now = this.k.clock.now().getTime();
     const byPerson = new Map<string, Gate[]>();
-    for (const g of this.k.gates.list({ state: "open" })) for (const p of g.assignees) byPerson.set(p, [...(byPerson.get(p) ?? []), g]);
+    for (const g of this.k.gates.list({ state: "open" }).filter((x) => !team || this.k.teams.factoryTeam(x.factory) === team)) for (const p of g.assignees) byPerson.set(p, [...(byPerson.get(p) ?? []), g]);
     return [...byPerson.entries()].map(([person, gates]) => {
       const items = gates
         .sort((a, b) => a.openedAt.localeCompare(b.openedAt))

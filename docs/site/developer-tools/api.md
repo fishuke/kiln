@@ -181,7 +181,8 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/projects/{id}` | — | A project with its roadmap and work items |
 | POST | `/api/v1/projects/{id}/plan` | `send` | Goal or PRD to roadmap and tracker issues |
 | GET | `/api/v1/portfolio` | — | Cross-factory rollup |
-| GET | `/api/v1/digest` | — | Pending decisions per person |
+| GET | `/api/v1/digest` | — | Pending decisions per person (current team) |
+| GET | `/api/v1/decisions` | — | Typed decision logs for work and runs you can see (optionally one work item) |
 
 ## Measure
 

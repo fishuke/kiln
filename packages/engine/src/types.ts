@@ -223,7 +223,7 @@ export type DefinitionRecord = {
   errors?: string[];
 };
 
-export type Project = { id: string; name: string; owner: string; factories: string[]; roadmapId?: string; createdAt: string };
+export type Project = { id: string; name: string; owner: string; factories: string[]; roadmapId?: string; createdAt: string; /** The team the project's factories belong to. */ team?: string };
 
 export type RoadmapIssue = { title: string; body: string; criteria: string[]; factory: string; trackerKey?: string; url?: string };
 export type Epic = { id: string; title: string; milestone: string; dependsOn: string[]; trackerKey?: string; url?: string; issues: RoadmapIssue[] };
@@ -267,6 +267,8 @@ export type SkillListing = {
   installs: { factory: string; at: string; prUrl?: string }[];
   usage: number;
   publishedAt: string;
+  /** The team of the source factory; the catalog is per team. */
+  team?: string;
 };
 
 export type Proposal = {

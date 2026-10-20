@@ -26,6 +26,44 @@ async function twoTeams(serverAdmins: string[] = []) {
   return { ...t, client, o, p, pay, olga, pete, admin: client(bootstrap) };
 }
 
+describe("multi-team isolation: planning, skills and decisions", () => {
+  it("projects and the portfolio are per team", async () => {
+    const { o, pay, admin } = await twoTeams();
+    const mine = await o.createProject({ name: "Portal", factories: ["webapp"] });
+    const theirs = await pay.createProject({ name: "Payouts", factories: ["pay"] });
+    expect((await o.projects()).map((p) => p.name)).toEqual(["Portal"]);
+    expect((await pay.projects()).map((p) => p.name)).toEqual(["Payouts"]);
+    await expect(o.project(theirs.id)).rejects.toMatchObject({ status: 404 });
+    await expect(o.plan(theirs.id, { goal: "x" })).rejects.toMatchObject({ status: 404 });
+    expect((await o.project(mine.id)).name).toBe("Portal");
+    const portfolio = await o.portfolio();
+    expect(portfolio.totals.factories).toBe(1);
+    expect(portfolio.projects.map((p) => p.project.name)).toEqual(["Portal"]);
+    expect((await admin.portfolio()).totals.factories).toBe(2);
+    await expect(admin.createProject({ name: "Both", factories: ["webapp", "pay"] })).rejects.toMatchObject({ status: 400, message: "a project's factories must belong to one team" });
+  });
+
+  it("the skills catalog is per team, and skills install only within a team", async () => {
+    const { o, pay, admin } = await twoTeams();
+    const listing = await pay.publishSkill("pay", "house-style");
+    expect((await pay.skills()).listings.map((l) => l.id)).toEqual([listing.id]);
+    const ours = await o.skills();
+    expect(ours.listings).toEqual([]);
+    expect(ours.catalog.flatMap((r) => r.factories)).toEqual(["webapp"]);
+    await expect(o.installSkill(listing.id, "webapp")).rejects.toMatchObject({ status: 404 });
+    expect((await admin.skills()).listings).toHaveLength(1);
+  });
+
+  it("decision logs follow the factories you can see", async () => {
+    const { o, pay, kiln } = await twoTeams();
+    const wi = await pay.send({ factory: "pay", title: "Fix typo" });
+    for (let i = 0; i < 100 && !kiln.store.list<{ id: string; workItemId?: string }>("decision_logs").some((d) => d.workItemId === wi.id); i++) await new Promise((r) => setTimeout(r, 30));
+    expect((await pay.decisions(wi.id)).length).toBeGreaterThan(0);
+    expect(await o.decisions(wi.id)).toEqual([]);
+    expect((await o.decisions()).some((d) => d.workItemId === wi.id)).toBe(false);
+  });
+});
+
 describe("multi-team isolation", () => {
   it("team admins see only their own team's audit log", async () => {
     const { o, pay, admin } = await twoTeams();

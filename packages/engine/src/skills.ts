@@ -17,18 +17,23 @@ export class SkillService {
     }
   }
 
-  listings(): SkillListing[] {
-    return this.k.store.list<SkillListing>(C.skills).sort((a, b) => a.name.localeCompare(b.name));
+  /** Published skills, or one team's (listings carry the source factory's team). */
+  listings(team?: string): SkillListing[] {
+    return this.k.store.list<SkillListing>(C.skills, (l) => !team || this.listingTeam(l) === team).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  listingTeam(l: SkillListing): string | undefined {
+    return l.team ?? this.k.teams.factoryTeam(l.sourceFactory);
   }
 
   /** Every skill visible in the org: published listings and skills that live in factory trees. */
-  catalog() {
+  catalog(team?: string) {
     const rows: { name: string; description: string; owner: string; version: string; factories: string[]; usage: number; listingId?: string }[] = [];
-    for (const l of this.listings()) {
+    for (const l of this.listings(team)) {
       rows.push({ name: l.name, description: l.description, owner: l.owner, version: l.version, factories: [l.sourceFactory, ...l.installs.map((i) => i.factory)], usage: l.usage, listingId: l.id });
     }
     for (const f of this.k.defs.list()) {
-      if (!f.appliedSha) continue;
+      if (!f.appliedSha || (team && this.k.teams.factoryTeam(f) !== team)) continue;
       for (const [name, s] of Object.entries(this.k.defs.resolved(f.appliedSha).parsed.skills)) {
         const row = rows.find((r) => r.name === name);
         if (row) {
@@ -57,6 +62,7 @@ export class SkillService {
       installs: existing?.installs ?? [],
       usage: existing?.usage ?? 0,
       publishedAt: this.k.clock.now().toISOString(),
+      team: this.k.teams.factoryTeam(factory),
     };
     this.k.store.put(C.skills, listing);
     this.k.audit(by, "skill.published", listing.id, { factory, name });
@@ -68,6 +74,7 @@ export class SkillService {
     const l = this.k.store.get<SkillListing>(C.skills, listingId);
     if (!l) throw new Error(`unknown skill ${listingId}`);
     const b = this.k.defs.require(factory);
+    if (this.listingTeam(l) !== this.k.teams.factoryTeam(b)) throw new Error(`unknown skill ${listingId}`);
     const file = `skills/${l.name}/SKILL.md`;
     const content = `---\n${stringify({ name: l.name, description: l.description, owner: l.owner, version: l.version }).trimEnd()}\n---\n${l.body}\n`;
     let out: { prUrl?: string; sha?: string };

@@ -1612,7 +1612,8 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/projects/{id}` | — | A project with its roadmap and work items |
 | POST | `/api/v1/projects/{id}/plan` | `send` | Goal or PRD to roadmap and tracker issues |
 | GET | `/api/v1/portfolio` | — | Cross-factory rollup |
-| GET | `/api/v1/digest` | — | Pending decisions per person |
+| GET | `/api/v1/digest` | — | Pending decisions per person (current team) |
+| GET | `/api/v1/decisions` | — | Typed decision logs for work and runs you can see (optionally one work item) |
 
 ## Measure
 
@@ -3980,7 +3981,7 @@ The digest groups open gates by person, oldest first, with each one's age in hou
 
 Source: https://github.com/fishuke/klin/blob/main/docs/site/management/portfolio.md
 
-A project groups the factories that serve one product or goal, and the portfolio rolls up their work, cost and pending decisions across every project.
+A project groups the factories that serve one product or goal, and the portfolio rolls up their work, cost and pending decisions across every project. Projects and the portfolio are per team: a project's factories belong to one team, and you see the current team's projects. See [Teams and users](teams-and-users.md#current-team).
 
 ## Projects
 
@@ -4200,7 +4201,7 @@ Anyone with an account can create a team (`POST /api/v1/teams`) and becomes its 
 
 ### Current team
 
-Requests act in one team at a time. Send `X-Kiln-Team: <team id or slug>` to choose it. Without the header, Kiln uses your first team. Factory lists, secrets, MCP servers, environments and usage show the current team only. Agent and worker keys always act in their own team.
+Requests act in one team at a time. Send `X-Kiln-Team: <team id or slug>` to choose it. Without the header, Kiln uses your first team. Factory lists, projects, the portfolio, the digest, the skills catalog, decision logs, secrets, MCP servers, environments and usage show the current team only. A project's factories must all belong to one team, and skills install only into factories of the publishing factory's team. Agent and worker keys always act in their own team.
 
 The SDK sets the header with `client.withTeam("payments")`.
 

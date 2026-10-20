@@ -41,7 +41,7 @@ budgets: { perWorkItemUsd: 30, monthlyUsd: 3000 }
 | `runners/linux-node.yaml` | Kiln's runner image on Docker, 4 vCPUs and 8 GB, `pnpm install`, egress to the npm registry, `github.com` and `api.github.com` |
 | `skills/repository-conventions` | Named exports, zod at every boundary, one behavior per test |
 | `decisions/command-guard.yaml` | The command guard with the standard thresholds |
-| `automations/` | `ready` (GitHub `issue_labeled` with `kiln-ready`), `review-comments` (review submitted) and `slack` (mentions) |
+| `automations/` | `ready` (GitHub `issue_labeled` with `kiln-ready`) and `review-comments` (review submitted on a fishuke/kiln pull request) |
 
 The `ready` automation filters on `repos: [fishuke/kiln]`. GitHub events carry both `repo` and `repos`.
 

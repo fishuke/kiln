@@ -63,6 +63,16 @@ export const listConnectionOptions = async (id: string, kind: "channels" | "team
 
 /* ---------- Factory admin ---------- */
 
+/** True when the server has the per-file definition API (repo-backed factories can then be edited through PRs). */
+export async function filesApiAvailable(factory: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${base()}/api/v1/factories/${encodeURIComponent(factory)}/files/factory.yaml`, { headers: headers(), cache: "no-store" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export const deleteFactory = (id: string) => sendJson<{ ok: true }>("DELETE", `/api/v1/factories/${encodeURIComponent(id)}`);
 export const migrateFactoryToGithub = (id: string, input: { owner: string; name: string }) =>
   sendJson<{ repo: string; url?: string; pullRequest?: string }>("POST", `/api/v1/factories/${encodeURIComponent(id)}/migrate`, input);

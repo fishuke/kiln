@@ -294,6 +294,11 @@ describe("linear", () => {
     expect(normalizeLinearEvents({ type: "AgentSessionEvent", action: "created", agentSession: { id: "as1", issue } })[0]).toMatchObject({ event: "agent_session_created", data: { sessionId: "as1" } });
     expect(normalizeLinearEvents({ type: "Issue", action: "create", data: issue, actor: { id: "app-user" } }, "d", { appUserId: "app-user" })[0]!.data.authorIsSelf).toBe(true);
   });
+  it("says who sent each event by id, email and name", () => {
+    const session = { id: "as1", issue: { id: "i1", teamId: "t1" }, creator: { id: "u1", name: "Ann", email: "ann@acme.test" } };
+    expect(normalizeLinearEvents({ type: "AgentSessionEvent", action: "created", agentSession: session, actor: { id: "u1", name: "Ann", email: "ann@acme.test" } })[0]!.data.user_keys).toEqual(["u1", "ann@acme.test", "Ann"]);
+    expect(normalizeLinearEvents({ type: "Comment", action: "create", data: { id: "c1", body: "hi", issueId: "i1", userId: "u2", issue: { id: "i1" } }, actor: { id: "u2", name: "Bob" } })[0]!.data.user_keys).toEqual(["u2", "Bob"]);
+  });
   it("posts agent activities and attaches pull requests", async () => {
     const seen: Seen[] = [];
     const api = new HttpLinearAgentApi({ token: "oauth-token", fetch: fakeFetch({ "POST graphql": { data: { agentActivityCreate: { success: true } } } }, seen) });

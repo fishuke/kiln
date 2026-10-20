@@ -315,7 +315,7 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
       case "files": {
         if (positionals[0] !== "validate") throw new Error("usage: kiln files validate [path]");
         const tree = loadTree(path(positionals[1]));
-        const c = new KilnClient({ baseUrl: str("url") ?? config(io).url, token: config(io).token });
+        const c = io.client ?? new KilnClient({ baseUrl: str("url") ?? config(io).url, token: config(io).token });
         let r;
         try {
           r = await c.validateFiles(Object.entries(tree).map(([p, content]) => ({ path: p, content })));

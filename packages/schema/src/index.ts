@@ -215,6 +215,20 @@ export const Factory = z
     /** Default judge model for scorers and benchmarks. */
     scoring: z.object({ defaultModel: z.string().optional() }).strict().optional(),
     blueprint: Blueprint.optional(),
+    /**
+     * One task per incident. A report that matches an open task by identity (alert fingerprint,
+     * tracker issue, URL), or from another source by content, joins that task instead.
+     */
+    deduplication: z
+      .object({
+        enabled: z.boolean().default(true),
+        /** How far back open tasks are compared (by last activity). */
+        windowHours: z.number().int().min(1).max(720).default(24),
+        /** Share of salient words (service names, error codes, hosts) two reports must have in common. */
+        threshold: z.number().min(0.2).max(1).default(0.5),
+      })
+      .strict()
+      .optional(),
     /** Free-form switches for features that are still being tried out. */
     experimental: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
     selfImprovement: z

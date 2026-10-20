@@ -304,7 +304,8 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const attachments = keys?.length ? kiln.files.resolveAttachments(keys, who(c), body.factory) : undefined;
     const wi = await kiln.workflow.create({ ...body, attachments, mode, source: { provider: body.via ?? "api" }, requester: who(c) });
     void kiln.workflow.advance(wi.id);
-    return c.json(wi, 201);
+    // 200 with `deduplicated` when the report joined an open task for the same incident.
+    return c.json(wi, wi.deduplicated ? 200 : 201);
   });
   app.get("/api/v1/work-items/:id", (c) => {
     const wi = kiln.workflow.get(c.req.param("id"));

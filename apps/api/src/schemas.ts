@@ -20,6 +20,10 @@ export const CreateWorkItem = z.object({
   via: z.enum(["api", "kiln", "mcp", "cli"]).optional(),
   attachments: Attachments.optional(),
   mode: RunMode.optional(),
+  /** Same key, same task: an alert fingerprint or incident id. */
+  correlationKey: z.string().min(1).max(200).optional(),
+  /** false always starts a new task, even when an open one looks like the same work. */
+  dedupe: z.boolean().optional(),
 });
 export const Message = z.object({ text: z.string().min(1), attachments: Attachments.optional() });
 

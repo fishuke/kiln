@@ -245,7 +245,7 @@ export class TaskService {
   /** Factory dispatch: a prompt to the foreman, with an optional ticket reference and branch. */
   async dispatch(
     factory: string,
-    input: { prompt: string; title?: string; ticketRef?: string; ticketUrl?: string; branch?: string; mode?: RunMode; attachments?: Attachment[]; by: string; via?: Source["provider"]; pipeline?: string; budgetUsd?: number },
+    input: { prompt: string; title?: string; ticketRef?: string; ticketUrl?: string; branch?: string; mode?: RunMode; attachments?: Attachment[]; by: string; via?: Source["provider"]; pipeline?: string; budgetUsd?: number; correlationKey?: string; dedupe?: boolean },
   ) {
     const resolved = this.k.defs.current(factory);
     const foreman = Object.values(resolved.agents).find((a) => a.agentType === "FOREMAN")?.name;
@@ -264,6 +264,8 @@ export class TaskService {
       branch: input.branch,
       pipeline: input.pipeline,
       budgetUsd: input.budgetUsd,
+      correlationKey: input.correlationKey,
+      dedupe: input.dedupe,
     });
     void this.k.workflow.advance(wi.id);
     const deadline = Date.now() + 1500;
@@ -281,6 +283,7 @@ export class TaskService {
       foremanAgent: foreman,
       ticketRef: input.ticketRef,
       configSource: { sha: wi.definitionSha },
+      ...(wi.deduplicated ? { deduplicated: wi.deduplicated } : {}),
     };
   }
 }

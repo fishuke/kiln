@@ -317,7 +317,7 @@ export class KilnClient {
 
   workItems = (filter: { factory?: string; state?: string; project?: string } = {}) => this.request<WorkItemListRow[]>("GET", `/api/v1/work-items${this.q(filter)}`);
   workItem = (id: string) => this.request<WorkItemDetail>("GET", `/api/v1/work-items/${id}`);
-  send = (input: { factory: string; title: string; body?: string; projectId?: string; pipeline?: string; budgetUsd?: number; via?: "api" | "kiln" | "mcp" | "cli"; attachments?: (string | Attachment)[]; mode?: RunMode }) =>
+  send = (input: { factory: string; title: string; body?: string; projectId?: string; pipeline?: string; budgetUsd?: number; via?: "api" | "kiln" | "mcp" | "cli"; attachments?: (string | Attachment)[]; mode?: RunMode; correlationKey?: string; dedupe?: boolean }) =>
     this.request<WorkItem>("POST", "/api/v1/work-items", input);
   message = (id: string, text: string, attachments?: (string | Attachment)[]) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/messages`, { text, ...(attachments?.length ? { attachments } : {}) });
   cancel = (id: string) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/cancel`);
@@ -366,8 +366,8 @@ export class KilnClient {
   };
 
   // tasks
-  dispatch = (factory: string, input: { prompt: string; title?: string; ticket_ref?: string; ticket_url?: string; branch?: string; mode?: RunMode; attachments?: (string | Attachment)[] }) =>
-    this.request<{ taskId: string; runId?: string; runUrl: string; state: RunState; factory: string; foremanAgent?: string; ticketRef?: string; configSource: { sha: string } }>("POST", `${this.f(factory)}/runs`, input);
+  dispatch = (factory: string, input: { prompt: string; title?: string; ticket_ref?: string; ticket_url?: string; branch?: string; mode?: RunMode; attachments?: (string | Attachment)[]; correlation_key?: string; dedupe?: boolean }) =>
+    this.request<{ taskId: string; runId?: string; runUrl: string; state: RunState; factory: string; foremanAgent?: string; ticketRef?: string; configSource: { sha: string }; deduplicated?: { into: string; reason: string; score: number } }>("POST", `${this.f(factory)}/runs`, input);
   private taskQ = (o: TaskFilterOpts) =>
     this.q({ stage: o.stage, created_by: o.createdBy, q: o.q, created_after: o.createdAfter, created_before: o.createdBefore, updated_after: o.updatedAfter, updated_before: o.updatedBefore, sort_by: o.sortBy, sort_order: o.sortOrder, limit: o.limit, cursor: o.cursor, include_current_run: o.includeCurrentRun ? "true" : undefined });
   tasks = (factory: string, filter: TaskFilterOpts = {}) => this.request<TaskPage>("GET", `${this.f(factory)}/tasks${this.taskQ(filter)}`);

@@ -17,6 +17,12 @@ curl -X POST "$KILN_URL/api/v1/factories/webapp/runs" -H "authorization: Bearer 
 
 The reply has `taskId`, the first `runId` when one started, `runUrl`, `state` and `foremanAgent`. `ticket_ref` is `<source>:<id>` (`linear:`, `jira:`, `github:owner/repo#12`, or anything else, kept as is). `branch` makes the task work on that branch.
 
+**One task per incident**: a report that matches an open task joins it instead of starting new work. The match is by identity first: `correlation_key` (an incident id or alert fingerprint), alert payload fields such as `fingerprint`, `dedup_key` or `incident_id`, the tracker issue, the source URL or the pull request. Reports from a different source (an alert and a Slack message) also match by content when they share enough salient words such as service names, hosts and error codes. The reply then carries `deduplicated: { into, reason, score }` (`POST /api/v1/work-items` answers 200 instead of 201), the report and its files are added to the task, and every place it was reported hears the updates. Pass `"dedupe": false` to always start a new task. The triage agent can also fold a task into an open one it recognises as the same work. Tune it per factory:
+
+```yaml
+deduplication: { enabled: true, windowHours: 24, threshold: 0.5 }
+```
+
 **Modes**: `normal`; `plan` (the factory always writes a plan or spec first and waits for a person to approve it before anything is built); `orchestrate` (the foreman and implement agents are told to split the work across subagents).
 
 ## Task stages

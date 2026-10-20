@@ -160,12 +160,13 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
         task_id: z.string().optional(),
         branch: z.string().optional(),
         pr_url: z.string().optional(),
+        correlation_key: z.string().optional().describe("An incident id or alert fingerprint: reports with the same key join one task"),
       },
     },
     async (a) => {
       if (a.task_id) return json(await client.handbackTask(a.task_id, { note: a.note ?? a.body ?? "Handed back", branch: a.branch, prUrl: a.pr_url }));
       if (!a.factory || !a.title) throw new Error("pass factory and title for new work, or task_id to hand a task back");
-      return json(await client.send({ factory: a.factory, title: a.title, body: a.note ?? a.body, via: "mcp", attachments: a.attachments, mode: a.mode }));
+      return json(await client.send({ factory: a.factory, title: a.title, body: a.note ?? a.body, via: "mcp", attachments: a.attachments, mode: a.mode, correlationKey: a.correlation_key }));
     },
   );
 

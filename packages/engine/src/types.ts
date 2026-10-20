@@ -87,6 +87,14 @@ export type WorkItem = {
   conversationId?: string;
   deletedAt?: string;
   deletedBy?: string;
+  /** Identity keys (alert fingerprint, issue, URL) used to recognise the same incident again. */
+  correlationKeys?: string[];
+  /** Other places the same work was reported; updates go to each of them. */
+  linkedSources?: Source[];
+  /** Reports folded into this task. */
+  duplicates?: { at: string; requester: string; source: Source; title: string; reason: "key" | "similarity" | "triage"; score?: number; workItemId?: string }[];
+  /** Set on a task that was folded into another one. */
+  duplicateOf?: string;
   stage?: string;
   pipeline?: string;
   definitionSha: string;

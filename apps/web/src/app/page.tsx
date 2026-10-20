@@ -1,116 +1,79 @@
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { agents, factory, milestones, sideStates, workItemStates } from "@/lib/factory";
+import Link from "next/link";
+import { ArrowUp, Info, Plus } from "lucide-react";
+import { sendTask } from "@/app/actions";
+import { SubmitButton } from "@/components/kiln/submit-button";
+import { ApiDown, PageHeader, StateBadge } from "@/components/kiln/ui";
+import { api, safe } from "@/lib/kiln";
+import { greeting, timeAgo } from "@/lib/format";
 
-export default function Home() {
-  const totalTasks = milestones.reduce((sum, m) => sum + m.tasks, 0);
-
+export default async function NewRun({ searchParams }: { searchParams: Promise<{ factory?: string }> }) {
+  const { factory: chosen } = await searchParams;
+  const [factories, me, recent] = await Promise.all([safe(() => api.factories(), null), safe(() => api.me(), undefined), safe(() => api.workItems(), [])]);
+  if (!factories) return <ApiDown />;
+  const name = me?.subject.split("@")[0]?.split(/[._-]/)[0] ?? "there";
+  const current = factories.find((f) => f.id === chosen) ?? factories[0];
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-8">
-      <header className="flex flex-col gap-2">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">{factory.name}</h1>
-          <Badge variant="secondary">@{factory.alias}</Badge>
-          <Badge variant="outline">{factory.schemaVersion}</Badge>
-        </div>
-        <p className="text-muted-foreground text-sm">{factory.product}</p>
-        <p className="text-muted-foreground text-sm">
-          Repository: <code className="font-mono">{factory.repository}</code>
-        </p>
-      </header>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Agents</CardTitle>
-          <CardDescription>Declared in factory/agents/. Humans approve specs and merge.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>agentType</TableHead>
-                <TableHead>Job</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {agents.map((agent) => (
-                <TableRow key={agent.name}>
-                  <TableCell className="font-mono">{agent.name}</TableCell>
-                  <TableCell className="font-mono text-xs">{agent.agentType}</TableCell>
-                  <TableCell className="whitespace-normal">{agent.job}</TableCell>
-                  <TableCell>
-                    <Badge variant={agent.enabled ? "default" : "outline"}>
-                      {agent.enabled ? "Enabled" : "Off"}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Work item lifecycle</CardTitle>
-          <CardDescription>Every transition emits work_item.stage_changed.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <ol className="flex flex-wrap items-center gap-2">
-            {workItemStates.map((state, i) => (
-              <li key={state} className="flex items-center gap-2">
-                <Badge variant="outline" className="font-mono">
-                  {state}
-                </Badge>
-                {i < workItemStates.length - 1 && <span className="text-muted-foreground">→</span>}
-              </li>
-            ))}
-          </ol>
-          <Separator />
-          <div className="flex flex-wrap gap-2">
-            {sideStates.map((state) => (
-              <Badge key={state} variant="secondary" className="font-mono">
-                {state}
-              </Badge>
-            ))}
+    <>
+      <PageHeader crumbs={[{ label: "Runs", href: "/runs" }, { label: "New run" }]} />
+      <div className="mx-auto flex max-w-3xl flex-col items-center px-6 pt-[18vh]">
+        <h1 className="mb-8 text-3xl font-semibold tracking-tight">
+          {greeting()}, {name.charAt(0).toUpperCase() + name.slice(1)}
+        </h1>
+        {factories.length === 0 ? (
+          <div className="text-center text-sm text-muted-foreground">
+            Create a factory first. <Link className="font-medium text-foreground underline" href="/factories/new">Create a factory</Link>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Build plan</CardTitle>
-          <CardDescription>
-            {milestones.length} milestones, {totalTasks} tasks. Source: docs/plan/PLAN.md.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Milestone</TableHead>
-                <TableHead>Title</TableHead>
-                <TableHead>When</TableHead>
-                <TableHead className="text-right">Tasks</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {milestones.map((m) => (
-                <TableRow key={m.id}>
-                  <TableCell className="font-mono">{m.id}</TableCell>
-                  <TableCell>{m.title}</TableCell>
-                  <TableCell className="text-muted-foreground">{m.weeks}</TableCell>
-                  <TableCell className="text-right">{m.tasks}</TableCell>
-                </TableRow>
+        ) : (
+          <form action={sendTask} className="w-full rounded-2xl border bg-background shadow-sm focus-within:ring-2 focus-within:ring-ring/30">
+            <textarea
+              name="text"
+              required
+              rows={4}
+              placeholder={`Tell me what you'd like to build in ${current?.name ?? "your factory"}...`}
+              className="w-full resize-none rounded-t-2xl bg-transparent px-5 pt-4 text-base outline-none placeholder:text-muted-foreground"
+            />
+            <div className="flex items-center gap-2 px-3 pb-3">
+              <span className="flex size-8 items-center justify-center rounded-lg border text-muted-foreground" title="Attachments go in the description">
+                <Plus className="size-4" />
+              </span>
+              <select name="factory" defaultValue={current?.id} className="h-8 rounded-md bg-transparent px-1 text-sm font-medium outline-none">
+                {factories.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+              <div className="ml-auto">
+                <SubmitButton size="icon" variant="secondary">
+                  <ArrowUp className="size-4" />
+                </SubmitButton>
+              </div>
+            </div>
+          </form>
+        )}
+        <div className="mt-4 flex w-full items-center gap-1.5 px-1 text-sm text-muted-foreground">
+          How to chat with the factory foreman in your connected apps
+          <Link href="/integrations" aria-label="Integrations" className="hover:text-foreground">
+            <Info className="size-4" />
+          </Link>
+        </div>
+        {recent.length > 0 && (
+          <div className="mt-16 w-full">
+            <div className="mb-2 text-xs font-medium text-muted-foreground">Recent</div>
+            <ul className="divide-y rounded-xl border">
+              {recent.slice(0, 5).map((w) => (
+                <li key={w.id}>
+                  <Link href={`/runs/${w.id}`} className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted/50">
+                    <span className="truncate">{w.title}</span>
+                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">{w.factory} · {timeAgo(w.updatedAt)}</span>
+                    <StateBadge state={w.state} />
+                  </Link>
+                </li>
               ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </main>
+            </ul>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

@@ -145,8 +145,11 @@ export class RunService {
     this.save(run);
     const token = this.k.secrets.issueRunToken(run.id, repos.map(repoKey));
     const decisions = resolved.parsed.decisions["command-guard"] ?? BUILTIN_DECISIONS["command-guard"]!;
-    const sandbox = await this.provider(input.backend ?? runner.backend).create({
-      runner,
+    const provider = this.provider(input.backend ?? runner.backend);
+    // Setup commands target the runner's image; when Kiln falls back to the host they are skipped.
+    const effective: Runner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [] };
+    const sandbox = await provider.create({
+      runner: effective,
       repos: repos.map((r) => ({ name: r.name, url: this.k.forge.cloneUrl(r, token) })),
       env: { KILN_RUN_ID: run.id },
       labels: { "kiln.dev/run": run.id, "kiln.dev/factory": input.factory },

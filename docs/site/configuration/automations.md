@@ -114,7 +114,7 @@ triggers:
 Investigate the alert in the payload.
 ```
 
-The endpoint is `POST /webhooks/<factory>/<webhook-name>`. The secret is read from Kiln's secrets store by `secretName`, or from an environment variable with that name. A missing secret rejects every call.
+The endpoint is `POST /webhooks/<factory>/<webhook-name>`. The secret is read from Kiln's secrets store by `secretName`, or from the server's environment variable `KILN_SECRET_<secretName>`. A missing secret rejects every call.
 
 | `authMode` | The caller sends |
 | --- | --- |

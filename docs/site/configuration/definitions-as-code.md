@@ -135,7 +135,7 @@ Protect the config repo's default branch so that every change needs a review and
 
 ### Validate pull requests with GitHub Actions
 
-This workflow checks out the config repo inside a Kiln checkout, installs Kiln, and runs `pnpm kiln validate .` on the definition.
+This workflow checks out Kiln and the config repo side by side, installs Kiln, and runs `pnpm kiln validate` on the definition. `pnpm kiln` runs from the Kiln checkout, so the path to the definition is relative to it.
 
 ```yaml
 # .github/workflows/validate.yml
@@ -158,7 +158,7 @@ jobs:
       - name: Check out the definition
         uses: actions/checkout@v4
         with:
-          path: kiln/definition
+          path: definition
 
       - uses: pnpm/action-setup@v4
         with:
@@ -175,11 +175,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate
-        working-directory: kiln/definition
-        run: pnpm kiln validate .
+        working-directory: kiln
+        run: pnpm kiln validate ../definition
 ```
 
-Make the `validate` job a required status check in the branch protection rules. The workflow file itself is outside the definition layout, so validation lists it as an `unknown-file` warning.
+The command prints `ok <name> (<sha>): <n> agents, <n> automations` on success, prints each error as `file:line: message` and exits 1 on failure. Make the `validate` job a required status check in the branch protection rules. The workflow file itself is outside the definition layout, so validation lists it as an `unknown-file` warning.
 
 ## Related pages
 

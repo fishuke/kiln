@@ -35,7 +35,7 @@ Kiln needs two URLs:
 
 ### Webhooks and secrets
 
-Point each provider's webhooks at Kiln and store the matching secret. Kiln reads a secret from its secrets store first, then from an environment variable with the same name.
+Point each provider's webhooks at Kiln and set the matching secret. For the four provider endpoints, Kiln reads the server environment variable with the secret's name (for example `GITHUB_WEBHOOK_SECRET`) first, then its secrets store, then `KILN_SECRET_<NAME>`. A custom webhook's secret comes from the secrets store or `KILN_SECRET_<secretName>`.
 
 | Provider | Endpoint | Secret |
 | --- | --- | --- |
@@ -48,6 +48,10 @@ Point each provider's webhooks at Kiln and store the matching secret. Kiln reads
 When a provider secret is not set, Kiln accepts that provider's webhooks without checking signatures. Set every secret before you expose Kiln to the internet.
 
 Admins can set secrets through the API; values are never returned, only names. See the [API overview](../developer-tools/api.md).
+
+### Model credentials
+
+Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscription token from `claude setup-token`) or `ANTHROPIC_API_KEY` for Claude Code, `OPENAI_API_KEY` or `CODEX_API_KEY` for Codex, and the keys OpenCode's providers need. You can store them as Kiln secrets or set them as plain environment variables on the server. Agents can also name their own secret with `harness.auth`. See [Harnesses](harnesses.md#credentials).
 
 ### Roles
 

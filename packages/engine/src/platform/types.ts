@@ -147,7 +147,7 @@ export type ManagedSecret = {
 
 export type SecretMeta = Omit<ManagedSecret, "value">;
 
-export const BUILTIN_MCP = ["linear", "slack", "jira", "github", "discord"] as const;
+export const BUILTIN_MCP = ["linear", "slack", "jira", "github", "discord", "signoz"] as const;
 export type BuiltinMcp = (typeof BUILTIN_MCP)[number];
 
 export type McpServer = {

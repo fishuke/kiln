@@ -17,6 +17,7 @@ export const BUILTIN_MCP_SERVERS: Record<BuiltinMcp, ServerShape & { description
   jira: { description: "Jira issues", command: "uvx", args: ["mcp-atlassian"], env: { JIRA_URL: "{{JIRA_BASE_URL}}", JIRA_USERNAME: "{{JIRA_EMAIL}}", JIRA_API_TOKEN: "{{JIRA_API_TOKEN}}" } },
   github: { description: "GitHub repositories, issues and pull requests (read-mostly token)", url: "https://api.githubcopilot.com/mcp/", headers: { Authorization: "Bearer {{GITHUB_MCP_TOKEN}}" } },
   discord: { description: "Discord channels", command: "npx", args: ["-y", "mcp-discord"], env: { DISCORD_TOKEN: "{{DISCORD_BOT_TOKEN}}" } },
+  signoz: { description: "SigNoz traces, logs, metrics, dashboards and alerts", command: "signoz-mcp-server", args: [], env: { SIGNOZ_URL: "{{SIGNOZ_URL}}", SIGNOZ_API_KEY: "{{SIGNOZ_API_KEY}}" } },
 };
 
 const PLACEHOLDER = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;

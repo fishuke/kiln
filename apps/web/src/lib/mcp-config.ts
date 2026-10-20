@@ -88,6 +88,7 @@ export type McpTemplate = { id: string; name: string; description: string; serve
 export const MCP_TEMPLATES: McpTemplate[] = [
   { id: "github", name: "GitHub", description: "Manage issues, projects and code. Use a read-mostly token: agents never get merge rights.", server: { url: "https://api.githubcopilot.com/mcp/", headers: { Authorization: "Bearer {{GITHUB_MCP_TOKEN}}" } }, mode: "managed" },
   { id: "linear", name: "Linear", description: "Find, create and update Linear issues, projects and comments.", server: { url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer {{LINEAR_API_KEY}}" } }, mode: "managed" },
+  { id: "signoz", name: "SigNoz", description: "Query traces, logs and metrics, and read dashboards and alerts.", server: { command: "signoz-mcp-server", env: { SIGNOZ_URL: "{{SIGNOZ_URL}}", SIGNOZ_API_KEY: "{{SIGNOZ_API_KEY}}" } }, mode: "managed" },
   { id: "sentry", name: "Sentry", description: "Look up issues, events and stack traces.", server: { command: "npx", args: ["-y", "@sentry/mcp-server"], env: { SENTRY_ACCESS_TOKEN: "{{SENTRY_TOKEN}}" } }, mode: "direct" },
   { id: "figma", name: "Figma", description: "Read frames, components and variables from Figma designs.", server: { url: "https://mcp.figma.com/mcp", headers: { Authorization: "Bearer {{FIGMA_TOKEN}}" } }, mode: "managed" },
   { id: "playwright", name: "Playwright", description: "Drive a headless browser: navigate, click, fill forms and take screenshots.", server: { command: "npx", args: ["-y", "@playwright/mcp@latest", "--headless"] }, mode: "direct" },

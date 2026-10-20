@@ -1,8 +1,17 @@
 import {
+  AzureDevOpsForge,
+  BitbucketForge,
+  DiscordChat,
+  GitLabForge,
+  HttpJiraCloudApi,
+  HttpLinearAgentApi,
+  SlackChat,
+  TeamsChat,
   factoryLabel,
   FACTORY_LABEL_PREFIX,
   GITHUB_BOT_HANDLE,
   repoKey,
+  type BotFrameworkVerifier,
   type Chat,
   type ChatIdentity,
   type Forge,
@@ -24,6 +33,8 @@ export type IntegrationAdapters = {
   forges?: Partial<Record<ForgeKind, Forge>>;
   linearAgent?: LinearAgentApi;
   jira?: JiraCloudApi;
+  /** Validates Bot Framework tokens on /webhooks/teams (a Fake in tests). */
+  teamsVerifier?: BotFrameworkVerifier;
 };
 
 export type NotificationRoute = {
@@ -47,26 +58,52 @@ export class IntegrationHub {
     private readonly adapters: IntegrationAdapters = {},
   ) {}
 
+  private readonly cache = new Map<string, { at?: string; value: unknown }>();
+
+  /** An adapter built from a workspace connection's credentials, rebuilt when the connection changes. */
+  private fromConnection<T>(provider: string, build: (creds: Record<string, string>, inst: Record<string, unknown>) => T | undefined): T | undefined {
+    const conn = this.k.connections.get(provider);
+    if (conn?.status !== "connected") return undefined;
+    const hit = this.cache.get(provider);
+    if (hit && hit.at === conn.connectedAt) return hit.value as T | undefined;
+    const value = build(this.k.connections.credentials(provider), conn.installation);
+    this.cache.set(provider, { at: conn.connectedAt, value });
+    return value;
+  }
+
   chat(provider: "slack" | "discord" | "teams"): Chat | undefined {
     const explicit = this.adapters.chats?.[provider];
     if (explicit) return explicit;
     const primary = this.k.chat;
-    if (!primary) return undefined;
     // The primary chat serves its own provider; the local stand-in serves Slack.
-    return primary.name === provider || (provider === "slack" && primary.name === "fake") ? primary : undefined;
+    if (primary && (primary.name === provider || (provider === "slack" && primary.name === "fake"))) return primary;
+    if (provider === "slack") return this.fromConnection("slack", (c) => (c.botToken ? new SlackChat({ botToken: c.botToken }) : undefined));
+    if (provider === "discord") return this.fromConnection("discord", (c, i) => (c.botToken ? new DiscordChat({ botToken: c.botToken, applicationId: i.applicationId as string | undefined }) : undefined));
+    return this.fromConnection("microsoft-teams", (c, i) => (c.appPassword && i.appId ? new TeamsChat({ appId: String(i.appId), appPassword: c.appPassword, tenantId: i.tenantId as string | undefined }) : undefined));
   }
 
   forgeFor(repo: RepoRef | string): Forge {
     const kind = typeof repo === "string" ? this.forgeKindOf(repo) : (repo.forge ?? this.forgeKindOf(repoKey(repo)));
-    return (kind && this.adapters.forges?.[kind]) || this.k.forge;
+    if (!kind || kind === this.k.forge.name) return this.k.forge;
+    const explicit = this.adapters.forges?.[kind];
+    if (explicit) return explicit;
+    const built =
+      kind === "gitlab"
+        ? this.fromConnection("gitlab", (c, i) => (c.token ? new GitLabForge({ token: c.token, baseUrl: i.baseUrl as string | undefined }) : undefined))
+        : kind === "azure_devops"
+          ? this.fromConnection("azure_devops", (c, i) => (c.token ? new AzureDevOpsForge({ organization: String(i.organization), token: c.token }) : undefined))
+          : kind === "bitbucket"
+            ? this.fromConnection("bitbucket", (c) => (c.token ? new BitbucketForge({ token: c.token }) : undefined))
+            : undefined;
+    return built ?? this.k.forge;
   }
 
-  get linearAgent() {
-    return this.adapters.linearAgent;
+  get linearAgent(): LinearAgentApi | undefined {
+    return this.adapters.linearAgent ?? this.fromConnection("linear", (c) => (c.accessToken ? new HttpLinearAgentApi({ token: c.accessToken }) : undefined));
   }
 
-  get jira() {
-    return this.adapters.jira;
+  get jira(): JiraCloudApi | undefined {
+    return this.adapters.jira ?? this.fromConnection("jira", (c, i) => (c.accessToken && i.cloudId ? new HttpJiraCloudApi({ cloudId: String(i.cloudId), accessToken: c.accessToken }) : undefined));
   }
 
   /** The forge a repository is on, from any factory that lists it. */
@@ -106,12 +143,12 @@ export class IntegrationHub {
       else await forge.comment(repo, s.number, text);
       return true;
     }
-    if (s.provider === "linear" && s.sessionId && this.adapters.linearAgent) {
-      await this.adapters.linearAgent.activity(s.sessionId, { type: "response", body: text });
+    if (s.provider === "linear" && s.sessionId && this.linearAgent) {
+      await this.linearAgent.activity(s.sessionId, { type: "response", body: text });
       return true;
     }
-    if (s.provider === "jira" && (s.issueId ?? wi.trackerKey) && this.adapters.jira) {
-      await this.adapters.jira.comment((s.issueId ?? wi.trackerKey)!, text);
+    if (s.provider === "jira" && (s.issueId ?? wi.trackerKey) && this.jira) {
+      await this.jira.comment((s.issueId ?? wi.trackerKey)!, text);
       return true;
     }
     if ((s.provider === "linear" || s.provider === "jira") && (s.issueId ?? wi.trackerKey) && this.k.tracker) {
@@ -156,11 +193,11 @@ export class IntegrationHub {
     }
     const tracker = (provider: "linear" | "jira") => {
       const key = wi?.source.provider === provider ? (wi.source.issueId ?? wi.trackerKey) : undefined;
-      const can = provider === "linear" ? Boolean(this.adapters.linearAgent || this.k.tracker?.name === "linear" || this.k.tracker?.name === "fake") : Boolean(this.adapters.jira || this.k.tracker?.name === "jira");
+      const can = provider === "linear" ? Boolean(this.linearAgent || this.k.tracker?.name === "linear" || this.k.tracker?.name === "fake") : Boolean(this.jira || this.k.tracker?.name === "jira");
       routes.push({ kind: provider === "linear" ? "linear_issue" : "jira_issue", provider, available: can && Boolean(key) && optedIn(provider, provider), target: key, reason: !can ? `${provider} is not connected` : !key ? `the work did not start from a ${provider} issue` : !optedIn(provider, provider) ? `this factory does not use ${provider}` : undefined });
     };
     tracker("linear");
-    if (wi?.source.sessionId) routes.push({ kind: "linear_session", provider: "linear", available: Boolean(this.adapters.linearAgent), target: wi.source.sessionId, reason: this.adapters.linearAgent ? undefined : "Linear agent sessions need the Linear OAuth app" });
+    if (wi?.source.sessionId) routes.push({ kind: "linear_session", provider: "linear", available: Boolean(this.linearAgent), target: wi.source.sessionId, reason: this.linearAgent ? undefined : "Linear agent sessions need the Linear OAuth app" });
     tracker("jira");
     for (const provider of FORGE_PROVIDERS) {
       const fromHere = wi?.source.provider === provider && wi.source.repo && wi.source.number;
@@ -303,7 +340,7 @@ export class IntegrationHub {
 
   /** Keep a Linear agent session up to date as the work moves. */
   async onStageChanged(wi: WorkItem, to: string) {
-    const api = this.adapters.linearAgent;
+    const api = this.linearAgent;
     if (!api || !wi.source.sessionId) return;
     const stage = HOME_STAGE[STAGE_OF_STATE[to] ?? ""] ?? to;
     await api.activity(wi.source.sessionId, { type: "thought", body: `${stage}: ${wi.title}` }).catch(() => {});
@@ -312,7 +349,7 @@ export class IntegrationHub {
   async onPullRequestOpened(e: { workItemId?: string; repo: string; number: number; url: string }) {
     await this.attribute(e);
     const wi = e.workItemId ? this.k.workflow.get(e.workItemId) : undefined;
-    const api = this.adapters.linearAgent;
+    const api = this.linearAgent;
     if (!wi || !api || wi.source.provider !== "linear") return;
     const issueId = wi.source.issueId ?? wi.trackerKey;
     if (issueId) await api.attachLink(issueId, e.url, `PR #${e.number}`).catch(() => {});

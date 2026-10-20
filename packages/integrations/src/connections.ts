@@ -49,7 +49,7 @@ export class FakeConnectionProvider implements ConnectionProvider {
   readonly mode = "oauth" as const;
   constructor(
     readonly id: ConnectionProviderId,
-    readonly label = id,
+    readonly label: string = id,
   ) {}
   start(ctx: { state: string; redirectUri: string }) {
     return { url: `https://${this.id}.test/oauth?state=${ctx.state}&redirect_uri=${encodeURIComponent(ctx.redirectUri)}`, steps: [`Approve Kiln in ${this.label}`] };

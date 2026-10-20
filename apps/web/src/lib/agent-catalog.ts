@@ -28,6 +28,8 @@ export const AUTO_MODELS: ModelOption[] = [
 
 export const MODELS: ModelOption[] = [
   ...AUTO_MODELS,
+  { id: "claude-fable-5-1", label: "claude fable 5.1", harnesses: CLAUDE },
+  { id: "claude-fable-5", label: "claude fable 5", harnesses: CLAUDE },
   { id: "claude-opus-5-5", label: "claude opus 5.5", harnesses: CLAUDE },
   { id: "claude-sonnet-5-5", label: "claude sonnet 5.5", harnesses: CLAUDE },
   { id: "claude-haiku-5-5", label: "claude haiku 5.5", harnesses: CLAUDE },

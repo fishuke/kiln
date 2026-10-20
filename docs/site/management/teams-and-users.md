@@ -44,7 +44,7 @@ Anyone with an account can create a team (`POST /api/v1/teams`) and becomes its 
 
 ### Current team
 
-Requests act in one team at a time. Send `X-Kiln-Team: <team id or slug>` to choose it. Without the header, Kiln uses your first team. Factory lists, secrets, MCP servers, environments and usage show the current team only. Agent and worker keys always act in their own team.
+Requests act in one team at a time. Send `X-Kiln-Team: <team id or slug>` to choose it. Without the header, Kiln uses your first team. Factory lists, projects, the portfolio, the digest, the skills catalog, decision logs, secrets, MCP servers, environments and usage show the current team only. A project's factories must all belong to one team, and skills install only into factories of the publishing factory's team. Agent and worker keys always act in their own team.
 
 The SDK sets the header with `client.withTeam("payments")`.
 

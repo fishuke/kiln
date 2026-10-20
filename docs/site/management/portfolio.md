@@ -5,7 +5,7 @@ owner: docs
 section: Management
 ---
 
-A project groups the factories that serve one product or goal, and the portfolio rolls up their work, cost and pending decisions across every project.
+A project groups the factories that serve one product or goal, and the portfolio rolls up their work, cost and pending decisions across every project. Projects and the portfolio are per team: a project's factories belong to one team, and you see the current team's projects. See [Teams and users](teams-and-users.md#current-team).
 
 ## Projects
 

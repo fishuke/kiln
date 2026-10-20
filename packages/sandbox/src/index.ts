@@ -282,6 +282,8 @@ export function dockerRunArgs(name: string, spec: SandboxSpec, egress: EgressRou
   else {
     args.push("--network", egress.network);
     args.push("-e", `HTTPS_PROXY=${egress.proxy}`, "-e", `HTTP_PROXY=${egress.proxy}`);
+    // Node's fetch (corepack's pnpm download, too) ignores HTTPS_PROXY without this.
+    args.push("-e", "NODE_USE_ENV_PROXY=1");
     args.push("-e", `KILN_EGRESS_ALLOW=${allow.join(",")}`);
     if (spec.deniedHosts?.length) args.push("-e", `KILN_EGRESS_DENY=${spec.deniedHosts.join(",")}`);
   }

@@ -106,6 +106,11 @@ describe("docker sandbox", () => {
     expect(custom).toEqual(expect.arrayContaining(["--network", "coolify-egress", "HTTPS_PROXY=http://egress:3128"]));
   });
 
+  it("makes Node's fetch use the egress proxy (corepack downloads pnpm with it)", () => {
+    expect(dockerRunArgs("kiln-x", spec)).toContain("NODE_USE_ENV_PROXY=1");
+    expect(dockerRunArgs("kiln-y", { ...spec, repos: [], runner: { ...spec.runner, egress: [] } })).not.toContain("NODE_USE_ENV_PROXY=1");
+  });
+
   it("uses a cached image, clones, runs setup and destroys", async () => {
     const fake = new FakeCommandRunner(() => ({ code: 0, stdout: "", stderr: "" }));
     const sbx = await new DockerSandboxProvider(fake).create(spec);

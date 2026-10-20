@@ -13,6 +13,8 @@ export const SCOPES = [
   "decide:question",
   "decide:merge",
   "definitions:write",
+  /** Self-hosted workers: connect, claim runs routed to their worker id, report results. */
+  "worker",
   "admin",
 ] as const;
 export type Scope = (typeof SCOPES)[number];

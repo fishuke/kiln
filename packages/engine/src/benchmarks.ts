@@ -45,7 +45,7 @@ export class BenchmarkService {
           push: false,
         });
         const verdict = await this.k.judge.judge({
-          scorer: { name: `bench:${suiteName}`, agents: [suite.suite.agent], labels: [{ value: "success", score: 1 }, { value: "failure", score: 0 }], passingScore: 1, samplingRate: 100, model: "judge", selfImprovement: false },
+          scorer: { name: `bench:${suiteName}`, kind: "benchmark_task_correctness", agents: [suite.suite.agent], labels: [{ value: "success", score: 1 }, { value: "failure", score: 0 }], passingScore: 1, samplingRate: 100, model: "judge", selfImprovement: false },
           rubric: `The run succeeds only if every criterion holds:\n${task.successCriteria.join("\n")}`,
           run,
           transcript: this.k.runs.events(run.id).map((e) => e.text ?? "").join("\n"),

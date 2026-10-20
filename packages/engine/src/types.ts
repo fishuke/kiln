@@ -27,7 +27,7 @@ export function newId(prefix: string): string {
 }
 
 export type Source = {
-  provider: "github" | "linear" | "jira" | "slack" | "kiln" | "mcp" | "schedule" | "webhook" | "api";
+  provider: "github" | "gitlab" | "linear" | "jira" | "slack" | "teams" | "discord" | "kiln" | "mcp" | "schedule" | "webhook" | "api" | "cli";
   url?: string;
   repo?: string;
   number?: number;
@@ -44,6 +44,12 @@ export type Artifact = { kind: "image" | "video" | "file" | "report" | "pr" | "p
 
 export type ConversationEntry = { at: string; from: string; role: "human" | "foreman" | "agent" | "system"; text: string; attachments?: Attachment[] };
 
+/** How a run is carried out: as asked, plan first and wait for approval, or orchestrate subagents. */
+export type RunMode = "normal" | "plan" | "orchestrate";
+
+/** The API-facing task stage. Kiln's finer states map onto these. */
+export type TaskStage = "TRIAGE" | "SPEC" | "IMPLEMENT" | "REVIEW" | "COMPLETE" | "CANCELLED";
+
 export type WorkItem = {
   id: string;
   factory: string;
@@ -52,13 +58,20 @@ export type WorkItem = {
   source: Source;
   requester: string;
   state: WorkItemState;
+  /** Set by a person through the API (PATCH stage); cleared by the next workflow state change. */
+  stageOverride?: TaskStage;
+  mode?: RunMode;
+  /** The conversation this task belongs to; defaults to the task id. */
+  conversationId?: string;
+  deletedAt?: string;
+  deletedBy?: string;
   stage?: string;
   pipeline?: string;
   definitionSha: string;
   triage?: { kind: string; size: string; summary?: string; duplicateOf?: string; confidence: number };
   spec?: { path: string; criteria: string[]; stories: string[]; openQuestions: string[] };
   branch?: string;
-  pr?: { repo: string; number: number; url: string };
+  pr?: { repo: string; number: number; url: string; openedAt?: string; firstReviewAt?: string; mergedAt?: string; closedAt?: string; additions?: number; deletions?: number; changedFiles?: number; commits?: number; humanCodeChange?: boolean };
   previewUrl?: string;
   previewDeployedAt?: string;
   evidence?: EvidencePackage;
@@ -79,6 +92,39 @@ export type WorkItem = {
 };
 
 export type RunKind = "work" | "replay" | "benchmark" | "improver" | "planner";
+
+/** Where a run came from. */
+export const RUN_SOURCES = [
+  "LINEAR",
+  "API",
+  "MCP",
+  "SLACK",
+  "TEAMS",
+  "DISCORD",
+  "LOCAL",
+  "SCHEDULED_AGENT",
+  "WEB_APP",
+  "GITHUB_ACTION",
+  "CLI",
+  "JIRA",
+  "SELF_IMPROVEMENT",
+  "GITHUB_WEBHOOK",
+  "GITLAB_WEBHOOK",
+  "AZURE_DEVOPS_WEBHOOK",
+  "AUTOFIX",
+  "RUN_SCORER",
+  "ORCHESTRATION",
+  "BENCHMARK_TRIAL",
+  "CREATE_BENCHMARK_TASK",
+  "CUSTOM_WEBHOOK",
+] as const;
+export type RunSource = (typeof RUN_SOURCES)[number];
+
+/** The API-facing run state. `Run.status` keeps Kiln's own, finer values. */
+export const RUN_STATES = ["QUEUED", "PENDING", "CLAIMED", "INPROGRESS", "SUCCEEDED", "FAILED", "BLOCKED", "ERROR", "CANCELLED"] as const;
+export type RunState = (typeof RUN_STATES)[number];
+
+export type RunError = { code: string; message: string; retryable: boolean; details?: Record<string, unknown> };
 
 export type Run = {
   id: string;
@@ -103,7 +149,35 @@ export type Run = {
   parentRunId?: string;
   artifacts: Artifact[];
   traceId: string;
-  status: "running" | "succeeded" | "failed" | "cancelled" | "paused";
+  /**
+   * queued: waiting for a self-hosted worker; claimed: a worker took it; running; paused (snapshot);
+   * blocked: interrupted, waiting for a follow-up; succeeded; failed: the task could not be done
+   * (user-side error); error: the platform failed; cancelled.
+   */
+  status: "queued" | "claimed" | "running" | "paused" | "blocked" | "succeeded" | "failed" | "error" | "cancelled";
+  source?: RunSource;
+  title?: string;
+  /** Who started it: a person, or `agent:<name>` / `automation:<name>` / `kiln`. */
+  creator?: string;
+  /** Whose identity the run acts as on the forge (credentialStrategy). */
+  executor?: string;
+  /** The first run of the tree this run belongs to. */
+  rootRunId?: string;
+  /** Up to 20 immutable string keys, filterable. */
+  metadata?: Record<string, string>;
+  mode?: RunMode;
+  error?: RunError;
+  attempt?: number;
+  retryOf?: string;
+  /** A follow-up continued this finished run in a new run. */
+  continuationOf?: string;
+  idleTimeoutMinutes?: number;
+  /** Link access for other signed-in people. */
+  sharing?: { publicAccess: "VIEWER" | "EDITOR" | null };
+  workerHost?: string;
+  workerId?: string;
+  queuedAt?: string;
+  claimedAt?: string;
   summary?: string;
   result?: Record<string, unknown>;
   costUsd: number;
@@ -143,7 +217,11 @@ export type Gate = {
   runId?: string;
   command?: string;
   urgency?: number;
+  /** Structured questions shown in the inbox: single or multi select, with a recommended option. */
+  questions?: GateQuestion[];
 };
+
+export type GateQuestion = { id: string; question: string; type: "single_select" | "multi_select"; options: string[]; recommendedOptionIndex?: number };
 
 export type Score = {
   id: string;
@@ -160,6 +238,10 @@ export type Score = {
   selfImprovement: boolean;
   reviewed: boolean;
   failureCategory?: string;
+  /** automatic after a run finishes, or manual (dispatched by a person). */
+  trigger?: "automatic" | "manual";
+  costUsd?: number;
+  durationMs?: number;
   createdAt: string;
 };
 
@@ -175,6 +257,11 @@ export type FactoryBinding = {
   status: "active" | "invalid" | "paused";
   lastError?: string;
   projectId?: string;
+  /** Uploaded avatar, served from /api/v1/files/<key>. */
+  avatarKey?: string;
+  creator?: string;
+  /** A move to a GitHub config repo waiting for its pull request to merge. */
+  migration?: { owner: string; name: string; ref: string; dir: string; branch: string; prUrl: string };
   createdAt: string;
   updatedAt: string;
 };
@@ -252,6 +339,8 @@ export type Proposal = {
   candidateSha?: string;
   needsTwoApprovals: boolean;
   approvals?: string[];
+  /** One person picked from the factory's reviewer pool. */
+  reviewer?: string;
   droppedProtectedPaths: string[];
   state: "open" | "merged" | "rejected";
   createdAt: string;
@@ -273,6 +362,92 @@ export type BenchmarkResult = {
 
 export type AuditEntry = { id: string; at: string; actor: string; action: string; target: string; details?: unknown };
 
+/** A file someone uploaded; the bytes live in the object store under `key`. */
+export type Upload = Attachment & { id: string; uploader: string; factory?: string; createdAt: string };
+
+/** A change to a factory definition proposed by an agent or a person, reviewed in the inbox. */
+export type DefinitionChange = {
+  id: string;
+  factory: string;
+  title: string;
+  message: string;
+  /** path → new content, or null to delete the file. */
+  files: Record<string, string | null>;
+  diff: { added: string[]; changed: string[]; removed: string[] };
+  patches: { path: string; before?: string; after?: string }[];
+  proposedBy: string;
+  runId?: string;
+  workItemId?: string;
+  state: "open" | "merged" | "changes_requested" | "rejected";
+  comments: { at: string; by: string; path?: string; line?: number; text: string }[];
+  result?: { sha?: string; prUrl?: string };
+  errors?: string[];
+  createdAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+};
+
+export type BenchmarkConfiguration = {
+  name: string;
+  /** Per-agent overrides: harness and model, or a router (`router:<slug>`), and the runner. */
+  agents: { agent: string; harness?: string; model?: string; runner?: string; authSecretName?: string }[];
+};
+
+export type BenchmarkRun = {
+  id: string;
+  factory: string;
+  suite: string;
+  agent: string;
+  state: "pending" | "running" | "scoring" | "completed" | "failed" | "cancelled";
+  configurations: BenchmarkConfiguration[];
+  tasks: string[];
+  repetitions: number;
+  scorers: string[];
+  creator: string;
+  cancelRequested?: boolean;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  error?: string;
+};
+
+export type BenchmarkTrial = {
+  id: string;
+  benchmarkRunId: string;
+  factory: string;
+  configuration: string;
+  task: string;
+  repetition: number;
+  attempt: number;
+  agentRunId?: string;
+  state: "pending" | "running" | "succeeded" | "failed" | "cancelled" | "blocked";
+  terminalReason?: "timeout" | "failure";
+  scoring: { state: "awaiting_trial" | "pending" | "judging" | "scored" | "finished_unscored" | "not_scoreable"; scores: { scorer: string; label: string; score: number; passed: boolean; reason?: string; costUsd: number }[] };
+  costUsd: number;
+  judgeCostUsd: number;
+  durationMs: number;
+  startedAt?: string;
+  finishedAt?: string;
+};
+
+/** Per-person inbox state for an item: read and resolved flags. */
+export type InboxState = { id: string; user: string; itemId: string; read: boolean; resolvedAt?: string; updatedAt: string };
+
+/** A connected self-hosted worker process. Several processes may share one `workerId`; runs load-balance across them. */
+export type WorkerRecord = {
+  id: string;
+  workerId: string;
+  backend: string;
+  version?: string;
+  maxConcurrent: number;
+  active: string[];
+  owner: string;
+  connectedAt: string;
+  lastHeartbeatAt: string;
+  claimed: number;
+  completed: number;
+};
+
 export const C = {
   workItems: "work_items",
   runs: "runs",
@@ -291,4 +466,11 @@ export const C = {
   audit: "audit",
   schedules: "schedules",
   secrets: "secrets",
+  uploads: "uploads",
+  definitionChanges: "definition_changes",
+  benchmarkRuns: "benchmark_runs",
+  benchmarkTrials: "benchmark_trials",
+  inboxState: "inbox_state",
+  workers: "workers",
+  scorerMeta: "scorer_meta",
 } as const;

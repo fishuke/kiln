@@ -59,6 +59,7 @@ export class GateService {
     runId?: string;
     command?: string;
     assignees?: string[];
+    questions?: Gate["questions"];
   }): Promise<Gate> {
     const now = this.k.clock.now();
     const def = input.def ?? BUILTIN_GATES[input.name];
@@ -81,6 +82,7 @@ export class GateService {
       expireAction: (expireAction as Gate["expireAction"]) ?? (expireIn ? "park" : undefined),
       runId: input.runId,
       command: input.command,
+      ...(input.questions?.length ? { questions: input.questions } : {}),
     };
     const urgency = await runDecision("inbox-urgency", BUILTIN_DECISIONS["inbox-urgency"]!, { kind: gate.kind, title: gate.title, age_hours: 0 }, this.k.decide).catch(() => undefined);
     gate.urgency = typeof urgency?.answers.urgency === "number" ? urgency.answers.urgency : gate.kind === "question" ? 0.7 : 0.5;

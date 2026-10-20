@@ -288,6 +288,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `configurations[].agents[].harness.model` | string |  |  |
 | `configurations[].agents[].harness.reasoningLevel` | `low` \| `medium` \| `high` \| `xhigh` \| `max` |  |  |
 | `configurations[].agents[].harness.auth` | object \| object \| object \| object \| null |  |  |
+| `configurations[].runner` | string |  |  |
 | `tasks` | list of string | yes |  |
 
 ## benchmark-task

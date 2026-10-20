@@ -329,6 +329,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/factories/{id}/automations/from-template` | `definitions:write` | Add a template to a Kiln-managed factory |
 | GET | `/api/v1/automation-catalog` | — | Every trigger provider, event and filter key |
 | GET | `/api/v1/deliveries` | `admin` | Recent provider deliveries |
+| POST | `/api/v1/factories/{id}/automations/{name}/run` | `send` | Run an automation now, as the caller |
 | POST | `/api/v1/factories/{id}/automations/{name}/test-filter` | `read` | Test an automation's triggers against a stored delivery |
 
 ## Custom webhooks

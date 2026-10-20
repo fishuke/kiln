@@ -1,5 +1,8 @@
+import { EventEmitter } from "node:events";
+import { Readable, Writable } from "node:stream";
+import { query, type Options, type SDKMessage, type SDKUserMessage, type SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import type { HarnessType } from "@kiln/schema";
-import type { Proc, Sandbox } from "@kiln/sandbox";
+import type { ExecResult, Proc, Sandbox } from "@kiln/sandbox";
 
 export type HarnessEvent =
   | { type: "message"; text: string }
@@ -129,6 +132,15 @@ function parseJson(line: string): Record<string, any> | undefined {
 /** The docker CLI's own noise on stderr, which says nothing about why the agent stopped. */
 const DOCKER_CLI_WARNING = /^WARNING: Error loading config file/;
 
+/** Why a process failed: its stderr without docker's noise, then the last lines it printed that were not JSON. */
+function failureText(exit: ExecResult, plain: string[]): string {
+  const stderr = exit.stderr
+    .split("\n")
+    .filter((l) => l.trim() && !DOCKER_CLI_WARNING.test(l))
+    .join("\n");
+  return [stderr, ...plain.slice(-20)].filter(Boolean).join("\n") || `exited with code ${exit.code}`;
+}
+
 /** Shared session plumbing: runs one or more processes in sequence and streams normalized events. */
 abstract class CliSession implements HarnessSession {
   readonly events = new EventStream<HarnessEvent>();
@@ -168,11 +180,7 @@ abstract class CliSession implements HarnessSession {
     const exit = await proc.exit;
     if (exit.code !== 0 && !this.cancelled) {
       this.failed = true;
-      const stderr = exit.stderr
-        .split("\n")
-        .filter((l) => l.trim() && !DOCKER_CLI_WARNING.test(l))
-        .join("\n");
-      const text = [stderr, ...plain.slice(-20)].filter(Boolean).join("\n") || `exited with code ${exit.code}`;
+      const text = failureText(exit, plain);
       this.emit({ type: "error", text });
       if (!this.summary) this.summary = text;
     }
@@ -197,7 +205,10 @@ abstract class CliSession implements HarnessSession {
   abstract steer(text: string): Promise<void>;
 }
 
-/** Claude Code in headless stream-json mode; steering writes another user message to stdin. */
+/**
+ * Claude Code through the Claude Agent SDK. The SDK runs here; the CLI it drives runs inside the
+ * sandbox (`spawnClaudeCodeProcess`) with only the run's environment. Steering sends another user message.
+ */
 export class ClaudeCodeAdapter implements HarnessAdapter {
   readonly type = "claude-code" as const;
 
@@ -206,9 +217,9 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   async start(opts: StartOptions): Promise<HarnessSession> {
     const prefix = opts.cwd ? `${opts.cwd}/` : "";
     await writeSkills(opts, ".claude/skills");
-    // Run config lives in .kiln/ (git-excluded): the MCP config carries the run token, and the repository's
-    // own .mcp.json and .claude/settings.json must not be overwritten or committed.
-    const config: string[] = [];
+    // Run config lives in .kiln/ (git-excluded): the MCP config carries the run token, so it goes in a file rather
+    // than on the command line, and the repository's own .mcp.json and .claude/settings.json are left alone.
+    const extraArgs: Record<string, string | null> = {};
     if (opts.mcpServers?.length) {
       const mcpServers = Object.fromEntries(
         opts.mcpServers.map((s) => [
@@ -217,106 +228,238 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
         ]),
       );
       await opts.sandbox.writeFile(`${prefix}.kiln/mcp.json`, JSON.stringify({ mcpServers }, null, 2));
-      config.push("--mcp-config", ".kiln/mcp.json");
+      extraArgs["mcp-config"] = ".kiln/mcp.json";
     }
+    let settings: string | undefined;
     if (opts.guardUrl) {
       await opts.sandbox.writeFile(`${prefix}.kiln/kiln-guard.mjs`, guardHook(opts.guardUrl));
       await opts.sandbox.writeFile(
         `${prefix}.kiln/claude-settings.json`,
         JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "node .kiln/kiln-guard.mjs" }] }] } }, null, 2),
       );
-      config.push("--settings", ".kiln/claude-settings.json");
+      settings = ".kiln/claude-settings.json";
     }
-    const args = [
-      "-p",
-      "--output-format",
-      "stream-json",
-      "--input-format",
-      "stream-json",
-      "--verbose",
-      "--permission-mode",
-      "bypassPermissions",
-      "--append-system-prompt",
-      opts.instructions,
-      ...(opts.model ? ["--model", opts.model] : []),
-      ...config,
-    ];
-    const session = new ClaudeSession();
-    const proc = opts.sandbox.spawn(this.bin, args, { cwd: opts.cwd, env: opts.env });
-    session.begin(proc, opts.prompt);
+    const session = new ClaudeSdkSession(opts.prompt);
+    const options: Options = {
+      pathToClaudeCodeExecutable: this.bin,
+      // Without it the SDK starts from the host's environment; the sandbox gets the run's variables only.
+      env: { ...opts.env },
+      systemPrompt: { type: "preset", preset: "claude_code", append: opts.instructions },
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+      abortController: session.abort,
+      extraArgs,
+      ...(settings ? { settings } : {}),
+      ...(opts.model ? { model: opts.model } : {}),
+      spawnClaudeCodeProcess: (spawn) => session.attach(opts.sandbox.spawn(spawn.command, spawn.args, { cwd: opts.cwd, env: stringEnv(spawn.env) })),
+    };
+    session.run(query({ prompt: session.input, options }));
     return session;
   }
 }
 
-class ClaudeSession extends CliSession {
+function stringEnv(env: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).filter((e): e is [string, string] => typeof e[1] === "string"));
+}
+
+/**
+ * A sandbox process as the SDK's SpawnedProcess: line-oriented stdin and stdout become Node streams. Only JSON
+ * reaches the SDK; other output (docker exec prints "OCI runtime exec failed" on stdout) is kept for `onExit`.
+ */
+function spawnedProcess(proc: Proc, onExit: (r: ExecResult, plain: string[]) => void): SpawnedProcess {
+  const plain: string[] = [];
+  const emitter = new EventEmitter();
+  let exitCode: number | null = null;
+  let killed = false;
+  let partial = "";
+  const stdin = new Writable({
+    write(chunk, _enc, done) {
+      const lines = (partial + String(chunk)).split("\n");
+      partial = lines.pop() ?? "";
+      for (const line of lines) if (line) proc.write(line);
+      done();
+    },
+    final(done) {
+      if (partial) proc.write(partial);
+      partial = "";
+      proc.closeStdin();
+      done();
+    },
+  });
+  const stdout = Readable.from(
+    (async function* () {
+      for await (const line of proc.lines) {
+        if (!line.trim()) continue;
+        if (parseJson(line)) yield `${line}\n`;
+        else plain.push(line.trim());
+      }
+    })(),
+  );
+  void proc.exit.then((r) => {
+    exitCode = r.code;
+    onExit(r, plain);
+    emitter.emit("exit", r.code, null);
+  });
+  return {
+    stdin,
+    stdout,
+    get killed() {
+      return killed;
+    },
+    get exitCode() {
+      return exitCode;
+    },
+    kill: () => {
+      killed = true;
+      proc.kill();
+      return true;
+    },
+    on: (event: string, listener: (...args: unknown[]) => void) => void emitter.on(event, listener),
+    once: (event: string, listener: (...args: unknown[]) => void) => void emitter.once(event, listener),
+    off: (event: string, listener: (...args: unknown[]) => void) => void emitter.off(event, listener),
+  } as SpawnedProcess;
+}
+
+class ClaudeSdkSession implements HarnessSession {
+  readonly events = new EventStream<HarnessEvent>();
+  readonly result: Promise<HarnessResult>;
+  readonly abort = new AbortController();
+  /** User messages for the SDK: the prompt, then steering; closed once Claude reports its result. */
+  private readonly messages = new EventStream<SDKUserMessage>();
+  private resolve!: (r: HarnessResult) => void;
+  private costUsd = 0;
+  private turns = 0;
+  private summary = "";
+  private failed = false;
+  private cancelled = false;
   private done = false;
+  /** The CLI's exit and the non-JSON lines it printed (still filling while its stdout drains). */
+  private exit?: { result: ExecResult; plain: string[] };
+  /** When the last event arrived, to time the model's thinking. */
+  private lastEventAt = Date.now();
 
-  begin(proc: Proc, prompt: string) {
-    this.proc = proc;
-    this.write(prompt);
-    void this.pump(proc).then(() => this.finish());
+  constructor(prompt: string) {
+    this.result = new Promise((r) => (this.resolve = r));
+    this.push(prompt);
   }
 
-  private write(text: string) {
-    this.proc?.write(JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } }));
+  get input(): AsyncIterable<SDKUserMessage> {
+    return this.messages;
   }
 
-  protected handle(line: string) {
-    const msg = parseJson(line);
-    if (!msg) return;
+  attach(proc: Proc): SpawnedProcess {
+    return spawnedProcess(proc, (r, plain) => (this.exit = { result: r, plain }));
+  }
+
+  run(messages: AsyncIterable<SDKMessage>) {
+    void (async () => {
+      let error: string | undefined;
+      try {
+        for await (const msg of messages) this.handle(msg);
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
+      try {
+        // A process that died before Claude reported a result failed, whether or not the SDK noticed.
+        const exitFailure = this.exit && this.exit.result.code !== 0 ? failureText(this.exit.result, this.exit.plain) : undefined;
+        if ((error !== undefined || (!this.done && exitFailure)) && !this.cancelled) {
+          const text = exitFailure ?? error!;
+          this.failed = true;
+          this.emit({ type: "error", text });
+          if (!this.summary) this.summary = text;
+        }
+      } finally {
+        this.messages.close();
+        this.finish();
+      }
+    })();
+  }
+
+  private push(text: string) {
+    this.messages.push({ type: "user", message: { role: "user", content: [{ type: "text", text }] }, parent_tool_use_id: null, session_id: "" });
+  }
+
+  private emit(e: HarnessEvent) {
+    this.lastEventAt = Date.now();
+    this.events.push(e);
+  }
+
+  private handle(msg: SDKMessage) {
     if (msg.type === "assistant") {
       this.turns++;
       const now = Date.now();
-      for (const c of msg.message?.content ?? []) {
+      for (const c of msg.message.content) {
         // Thinking time: from the previous event to this message.
-        if (c.type === "thinking" && c.thinking)
-          this.emit({ type: "reasoning", text: c.thinking, durationMs: this.lastEventAt ? now - this.lastEventAt : undefined });
+        if (c.type === "thinking" && c.thinking) this.emit({ type: "reasoning", text: c.thinking, durationMs: now - this.lastEventAt });
         if (c.type === "text") this.emit({ type: "message", text: c.text });
         if (c.type === "tool_use") this.emit({ type: "tool_call", name: c.name, input: c.input });
       }
     } else if (msg.type === "user") {
-      for (const c of msg.message?.content ?? []) {
+      const content = msg.message.content;
+      for (const c of Array.isArray(content) ? content : []) {
         if (c.type === "tool_result") {
-          const output = Array.isArray(c.content) ? c.content.map((x: { text?: string }) => x.text ?? "").join("") : String(c.content ?? "");
+          const output = Array.isArray(c.content) ? c.content.map((x) => ("text" in x ? x.text : "")).join("") : String(c.content ?? "");
           this.emit({ type: "tool_result", output, isError: Boolean(c.is_error) });
         }
       }
-    } else if (msg.type === "rate_limit_event" && msg.rate_limit_info) {
-      const info = msg.rate_limit_info;
-      const window = (w: { utilization?: number; resetsAt?: number } | undefined): UsageWindow | undefined =>
-        typeof w?.utilization === "number"
-          ? { utilization: w.utilization, ...(w.resetsAt ? { resetsAt: new Date(w.resetsAt * 1000).toISOString() } : {}) }
-          : undefined;
-      const fiveHour = window(info.unifiedWindows?.five_hour);
-      const sevenDay = window(info.unifiedWindows?.seven_day);
-      // Other windows Claude Code reports (a model's own weekly limit, for example), by their names.
-      const others = Object.fromEntries(
-        Object.entries((info.unifiedWindows ?? {}) as Record<string, { utilization?: number; resetsAt?: number }>)
-          .filter(([k]) => k !== "five_hour" && k !== "seven_day")
-          .map(([k, w]) => [k, window(w)])
-          .filter((e): e is [string, UsageWindow] => Boolean(e[1])),
-      );
-      this.emit({
-        type: "rate_limit",
-        status: String(info.status ?? "allowed"),
-        ...(fiveHour ? { fiveHour } : {}),
-        ...(sevenDay ? { sevenDay } : {}),
-        ...(Object.keys(others).length ? { others } : {}),
-      });
+    } else if (msg.type === "rate_limit_event") {
+      this.emit(rateLimitEvent(msg.rate_limit_info as RateLimitInfo));
     } else if (msg.type === "result") {
       this.costUsd = Number(msg.total_cost_usd ?? 0);
-      this.summary = String(msg.result ?? "");
-      this.failed = Boolean(msg.is_error) || (msg.subtype !== undefined && msg.subtype !== "success");
+      this.summary = msg.subtype === "success" ? msg.result : (msg.errors ?? []).join("; ");
+      this.failed = msg.is_error || msg.subtype !== "success";
       this.done = true;
-      this.proc?.closeStdin();
+      this.messages.close();
     }
+  }
+
+  private finish() {
+    if (this.costUsd) this.emit({ type: "cost", usd: this.costUsd });
+    this.events.close();
+    this.resolve({
+      outcome: this.cancelled ? "cancelled" : this.failed ? "failed" : "succeeded",
+      summary: this.summary,
+      costUsd: this.costUsd,
+      turns: this.turns,
+    });
   }
 
   async steer(text: string) {
     if (this.done) throw new Error("session already finished");
-    this.write(text);
+    this.push(text);
     this.emit({ type: "steer", text });
   }
+
+  async stop() {
+    this.cancelled = true;
+    this.abort.abort();
+  }
+}
+
+type RateLimitInfo = { status?: string; unifiedWindows?: Record<string, { utilization?: number; resetsAt?: number }> };
+
+/** Subscription usage from Claude Code's rate_limit_event: the 5-hour and 7-day windows, and any others by name. */
+function rateLimitEvent(info: RateLimitInfo): HarnessEvent {
+  const window = (w: { utilization?: number; resetsAt?: number } | undefined): UsageWindow | undefined =>
+    typeof w?.utilization === "number"
+      ? { utilization: w.utilization, ...(w.resetsAt ? { resetsAt: new Date(w.resetsAt * 1000).toISOString() } : {}) }
+      : undefined;
+  const fiveHour = window(info.unifiedWindows?.five_hour);
+  const sevenDay = window(info.unifiedWindows?.seven_day);
+  // Other windows Claude Code reports (a model's own weekly limit, for example), by their names.
+  const others = Object.fromEntries(
+    Object.entries(info.unifiedWindows ?? {})
+      .filter(([k]) => k !== "five_hour" && k !== "seven_day")
+      .map(([k, w]) => [k, window(w)])
+      .filter((e): e is [string, UsageWindow] => Boolean(e[1])),
+  );
+  return {
+    type: "rate_limit",
+    status: String(info.status ?? "allowed"),
+    ...(fiveHour ? { fiveHour } : {}),
+    ...(sevenDay ? { sevenDay } : {}),
+    ...(Object.keys(others).length ? { others } : {}),
+  };
 }
 
 /** Codex `exec --json`; steering is delivered by resuming the session after the current turn. */

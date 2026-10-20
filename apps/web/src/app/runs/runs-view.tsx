@@ -55,7 +55,6 @@ export function RunsView({ rows, me, factories, setup }: { rows: RunRow[]; me: s
   const shown = useMemo(() => filterRows(rows, { ...filters, me }), [rows, filters, me]);
   const agents = useMemo(() => [...new Set(collectAgents(rows))].sort(), [rows]);
   const creators = useMemo(() => [...new Set(rows.map((r) => r.creator).filter(Boolean))].sort(), [rows]);
-  const factoryName = (id: string) => factories.find((f) => f.id === id)?.name;
 
   const toggleList = <T extends string>(list: T[] | undefined, v: T): T[] => (list?.includes(v) ? list.filter((x) => x !== v) : [...(list ?? []), v]);
   const isActive = (k: "mine" | RunStatus) => (k === "mine" ? Boolean(filters.mine) : Boolean(filters.status?.includes(k)));
@@ -90,7 +89,6 @@ export function RunsView({ rows, me, factories, setup }: { rows: RunRow[]; me: s
               creators={creators}
               factories={factories}
               me={me}
-              factoryName={factoryName}
               onChange={update}
               onCreatedOn={() => {
                 update({}, { createdChip: true });
@@ -305,7 +303,6 @@ function FilterMenu({
   creators,
   factories,
   me,
-  factoryName,
   onChange,
   onCreatedOn,
 }: {
@@ -314,7 +311,6 @@ function FilterMenu({
   creators: string[];
   factories: FactoryOpt[];
   me: string;
-  factoryName: (id: string) => string | undefined;
   onChange: (f: Partial<RunFilters>) => void;
   onCreatedOn: () => void;
 }) {

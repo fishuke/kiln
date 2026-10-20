@@ -55,7 +55,7 @@ A stage's behavior comes from its agent's `agentType` or its action:
 | Agent type or action | Stage behavior |
 | --- | --- |
 | `TRIAGE` | Classifies kind and size. |
-| `SPEC` | Writes the spec as a draft pull request, checks each criterion with the `spec-check` decision, rewrites failing criteria once, then opens the stage's gate. |
+| `SPEC` | Writes the spec as a draft pull request, checks each criterion with the `spec-check` decision, rewrites failing criteria once, then opens the stage's gate. If the agent fails twice, it opens a `spec-failed` question with the reason and parks the item instead. |
 | `IMPLEMENT` or `CUSTOM` | Builds the change. Two failed attempts open a `build-failed` question and park the item. |
 | `VERIFY` | Runs the verify agent and checks `requires`. |
 | `REVIEW` | Reviews the pull request. `changes_requested` with findings loops back with `on_fail`. For an advisory stage without `on_fail`, or with its loops used up, Kiln posts the findings on the pull request as "Advisory review findings:" and moves on. `needs_human` posts the findings for a person and moves on. |

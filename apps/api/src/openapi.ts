@@ -77,6 +77,7 @@ export const ROUTES: Route[] = [
   { method: "delete", path: "/api/v1/approval-links/{id}", summary: "Revoke an approval link", scope: "admin", tag: "Integrations" },
   { method: "get", path: "/api/v1/identity-links", summary: "Your linked provider accounts (all with ?all=1 for admins)", tag: "Integrations" },
   { method: "post", path: "/api/v1/identity-links/claim", summary: "Link a chat account from a sign-in token", body: I.IdentityClaim, tag: "Integrations" },
+  { method: "post", path: "/api/v1/identity-links/github/start", summary: "Start linking your GitHub account (OAuth URL)", tag: "Integrations" },
   { method: "delete", path: "/api/v1/identity-links/{id}", summary: "Unlink a provider account", tag: "Integrations" },
   { method: "get", path: "/api/v1/factories/{id}/integrations", summary: "A factory's integrations, settings and connection status", scope: "read", tag: "Integrations" },
   { method: "put", path: "/api/v1/factories/{id}/integrations", summary: "Opt a Kiln-managed factory into integrations (applies factory.yaml)", scope: "definitions:write", body: I.FactoryIntegrationsBody, tag: "Integrations" },
@@ -112,6 +113,7 @@ export const ROUTES: Route[] = [
   { method: "post", path: "/webhooks/{factory}/{name}", summary: "A factory's file webhook by name (older URL)", tag: "Webhooks" },
   { method: "get", path: "/oauth/{provider}/callback", summary: "OAuth / app install callback (browser redirect)", tag: "Webhooks" },
   { method: "get", path: "/connect/approve/{token}", summary: "Open an approval link (browser redirect)", tag: "Webhooks" },
+  { method: "get", path: "/oauth/github-user/callback", summary: "GitHub account linking callback (browser redirect)", tag: "Webhooks" },
 ];
 
 export function openApiDocument() {

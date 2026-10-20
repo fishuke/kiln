@@ -264,6 +264,18 @@ describe("connections", () => {
     kiln.identities.link("teams", "aad-2", "ann@acme.test", { tenant: "t1" });
     expect(kiln.identities.unlink("teams", "aad-1", { tenant: "t1" })).toBe(2);
     expect(() => kiln.identities.claim(token, "x")).toThrow(/expired/);
+    const state = kiln.identities.startOAuthLink("github", "bob@acme.test");
+    kiln.identities.completeOAuthLink(state, "github", "bobcat");
+    expect(kiln.automations.person("github", "bobcat")).toBe("bob@acme.test");
+    expect(() => kiln.identities.completeOAuthLink(state, "github", "bobcat")).toThrow(/expired/);
+  });
+
+  it("refreshes the alias directory from Linear when connecting", async () => {
+    const linear = new FakeLinearAgentApi();
+    const { kiln } = createTestKiln({ adapters: { linearAgent: linear }, connectionProviders: { linear: new FakeConnectionProvider("linear") } });
+    const s = kiln.connections.start("linear", "admin", { redirectUri: "r", webhookUrl: "w" });
+    await kiln.connections.complete("linear", { code: "ok", state: s.state, by: "admin", redirectUri: "r", webhookUrl: "w" });
+    expect(kiln.connections.resolveName("linear", "teams", "engineering")).toEqual(["team_eng"]);
   });
 });
 

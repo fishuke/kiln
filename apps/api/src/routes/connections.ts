@@ -1,5 +1,5 @@
 import { ConnectionError } from "@kiln/engine";
-import { registerDiscordCommands, teamsAppPackage } from "@kiln/integrations";
+import { githubOAuthUrl, registerDiscordCommands, teamsAppPackage } from "@kiln/integrations";
 import { parseDocument } from "yaml";
 import { HttpError, type RouteContext } from "../app";
 import { ApprovalLinkCreate, ConnectionComplete, Directory, DiscordCommandsBody, FactoryIntegrationsBody, IdentityClaim, TeamsPackageQuery } from "./integration-schemas";
@@ -78,6 +78,13 @@ export function registerConnectionRoutes({ app, kiln, need, who }: RouteContext)
     const all = c.req.query("all");
     if (all) need(c, "admin", "*");
     return c.json(kiln.identities.list(all ? undefined : who(c)));
+  });
+  app.post("/api/v1/identity-links/github/start", (c) => {
+    const clientId = serverSecret(kiln, "GITHUB_CLIENT_ID");
+    if (!clientId) throw new HttpError(400, "GitHub account linking needs GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET");
+    const state = kiln.identities.startOAuthLink("github", who(c));
+    const base = (kiln.options.publicUrl ?? new URL(c.req.url).origin).replace(/\/$/, "");
+    return c.json({ url: githubOAuthUrl({ clientId, redirectUri: `${base}/oauth/github-user/callback`, state }) });
   });
   app.post("/api/v1/identity-links/claim", async (c) => {
     const { token } = IdentityClaim.parse(await c.req.json());

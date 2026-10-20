@@ -1,6 +1,7 @@
 import { C, type Kiln, type WorkItem } from "@kiln/engine";
 import {
   DiscordChat,
+  githubExchangeCode,
   InteractionResponse,
   InteractionType,
   JwtBotFrameworkVerifier,
@@ -274,6 +275,20 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
       return back(`provider=${encodeURIComponent(provider)}&connected=1`);
     } catch (err) {
       return back(`provider=${encodeURIComponent(provider)}&error=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`);
+    }
+  });
+  // A person links their GitHub account (so @kiln-factory mentions map to them).
+  app.get("/oauth/github-user/callback", async (c) => {
+    const clientId = serverSecret(kiln, "GITHUB_CLIENT_ID");
+    const clientSecret = serverSecret(kiln, "GITHUB_CLIENT_SECRET");
+    if (!clientId || !clientSecret) throw new HttpError(400, "GitHub account linking is not configured");
+    try {
+      const base = (kiln.options.publicUrl ?? new URL(c.req.url).origin).replace(/\/$/, "");
+      const user = await githubExchangeCode({ clientId, clientSecret, code: c.req.query("code") ?? "", redirectUri: `${base}/oauth/github-user/callback` });
+      kiln.identities.completeOAuthLink(c.req.query("state") ?? "", "github", user.login, user.login);
+      return c.redirect(kiln.link(`/integrations?linked=github`));
+    } catch (err) {
+      return c.redirect(kiln.link(`/integrations?error=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`));
     }
   });
   app.get("/connect/approve/:token", (c) => {

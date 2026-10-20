@@ -3,6 +3,8 @@ import type { Run, RunKind, RunSource, RunState, Source, TaskStage, WorkItem } f
 const PROVIDER_SOURCE: Record<Source["provider"], RunSource> = {
   github: "GITHUB_WEBHOOK",
   gitlab: "GITLAB_WEBHOOK",
+  azure_devops: "AZURE_DEVOPS_WEBHOOK",
+  bitbucket: "API",
   linear: "LINEAR",
   jira: "JIRA",
   slack: "SLACK",

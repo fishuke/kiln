@@ -1,4 +1,4 @@
-import { ExprError, parseExpr, refsOf } from "@kiln/schema";
+import { ExprError, parseExpr, refsOf, requiredRepoRef } from "@kiln/schema";
 import { lineAt, parseTree, type DefinitionError, type ParsedFactory } from "./parse";
 import { resolve, type ResolvedFactory } from "./resolve";
 import type { DefinitionTree } from "./tree";
@@ -76,18 +76,20 @@ export function validateTree(tree: DefinitionTree): ValidationResult {
     if (agent && !agentNames.has(agent)) err(key, ["agent"], "ref", `agent ${agent} is not defined in agents/`);
     for (const [i, t] of au.frontmatter.triggers.entries()) {
       if (t.provider === "webhook") {
-        const id = (t.filter as { webhook?: string } | undefined)?.webhook;
-        if (!id || !parsed.webhooks[id]) {
-          err(key, ["triggers", i, "filter"], "ref", `webhook triggers need filter.webhook naming a file in webhooks/`);
+        // A file webhook is named by its file; a managed webhook (created in the API) by its uid or name.
+        if (!webhookIdOf(t.filter)) {
+          err(key, ["triggers", i, "filter"], "ref", `webhook triggers need filter.webhook_ids naming a file in webhooks/ or a managed webhook`);
         }
       }
     }
   }
 
   const attached = new Set((f?.repositories ?? []).map((r) => `${r.owner}/${r.name}`.toLowerCase()));
-  const checkRequiredRepos = (key: string, refs: { owner: string; name: string }[] | undefined) => {
-    for (const [i, r] of (refs ?? []).entries()) {
-      if (f && !attached.has(`${r.owner}/${r.name}`.toLowerCase())) err(key, ["required_repos", i], "ref", `required repo ${r.owner}/${r.name} is not in factory.yaml repositories`);
+  const checkRequiredRepos = (key: string, refs: Parameters<typeof requiredRepoRef>[0][] | undefined) => {
+    for (const [i, ref] of (refs ?? []).entries()) {
+      const r = requiredRepoRef(ref);
+      // Not an error: environments can add repositories too.
+      if (f && !attached.has(`${r.owner}/${r.name}`.toLowerCase())) parsed.warnings.push({ file: parsed.sources[key]?.file ?? key, line: lineAt(parsed.sources[key], ["required_repos", i]), code: "ref", message: `required repo ${r.owner}/${r.name} is not in factory.yaml repositories` });
     }
   };
   for (const [name, agent] of Object.entries(parsed.agents)) checkRequiredRepos(`agent/${name}`, agent.frontmatter.required_repos);
@@ -201,6 +203,15 @@ export function validateTree(tree: DefinitionTree): ValidationResult {
 
   if (errors.length > 0) return { ok: false, errors: dedupe(errors), parsed, warnings: parsed.warnings };
   return { ok: true, resolved: resolve(parsed), parsed, warnings: parsed.warnings };
+}
+
+/** The webhook a trigger names: `webhook_ids: [x]`, `webhook_ids: { in: [x] }` or the legacy `webhook: x`. */
+export function webhookIdOf(filter: Record<string, unknown> | undefined): string | undefined {
+  if (!filter) return undefined;
+  if (typeof filter.webhook === "string") return filter.webhook;
+  const ids = filter.webhook_ids;
+  const list = Array.isArray(ids) ? ids : (ids as { in?: unknown[] } | undefined)?.in;
+  return typeof list?.[0] === "string" ? list[0] : undefined;
 }
 
 function dedupe(errors: DefinitionError[]): DefinitionError[] {

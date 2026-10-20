@@ -5,7 +5,10 @@ import { dirname, join } from "node:path";
 import { FakeProvider, type DecisionOutcome, type DecisionProvider } from "@kiln/decide";
 import { InMemoryEventBus } from "@kiln/events";
 import { adapterFor, type HarnessAdapter } from "@kiln/harness";
-import type { Chat, Forge, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
+import type { Chat, ConnectionProvider, ConnectionProviderId, Forge, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
+import { ConnectionService, IdentityService } from "./connections";
+import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
+import { WebhookSourceService } from "./webhook-sources";
 import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import { MemoryObjectStore, MemoryStore, type ObjectStore, type Store } from "@kiln/store";
@@ -73,6 +76,10 @@ export type KilnOptions = {
   workerStaleMs?: number;
   /** Runs nobody claims fail after this long (default 30 min). */
   workerQueueTimeoutMs?: number;
+  /** Workspace connections Kiln can make (GitHub, GitLab, Slack, Teams, Discord, Linear, Jira…). */
+  connectionProviders?: Partial<Record<ConnectionProviderId, ConnectionProvider>>;
+  /** Adapters for providers beyond the primary forge, tracker and chat. */
+  adapters?: IntegrationAdapters;
 };
 
 /** The composition root: every service, wired to one store, bus and clock. */
@@ -116,6 +123,10 @@ export class Kiln {
   readonly scorers: ScorerAdmin;
   readonly benchmarkAdmin: BenchmarkAdmin;
   readonly wizard: FactoryWizard;
+  readonly connections: ConnectionService;
+  readonly identities: IdentityService;
+  readonly webhookSources: WebhookSourceService;
+  readonly integrations: IntegrationHub;
 
   // platform: identity, teams, settings, credentials
   readonly users: UserService;
@@ -172,6 +183,20 @@ export class Kiln {
     this.mcp = new McpRegistry(this);
     this.environments = new EnvironmentService(this);
     this.usage = new UsageService(this);
+    this.connections = new ConnectionService(this, options.connectionProviders);
+    this.identities = new IdentityService(this);
+    this.webhookSources = new WebhookSourceService(this);
+    this.integrations = new IntegrationHub(this, options.adapters);
+
+    // Routing labels on the factory's repositories, PR attribution and Linear session progress.
+    this.bus.subscribe("definition.applied", async (e) => {
+      if (!e.payload.canaryPercent) await this.integrations.ensureFactoryLabels(e.payload.factory);
+    });
+    this.bus.subscribe("pull_request.opened", async (e) => this.integrations.onPullRequestOpened(e.payload));
+    this.bus.subscribe("work_item.stage_changed", async (e) => {
+      const wi = this.workflow.get(e.payload.workItemId);
+      if (wi) await this.integrations.onStageChanged(wi, e.payload.to);
+    });
 
     // `provider: factory, event: work_item_stage_changed` automations react to stage changes in their own factory.
     this.bus.subscribe("work_item.stage_changed", async (e) => {
@@ -228,17 +253,8 @@ export class Kiln {
 
   /** Post back where the work started: the Slack thread, the issue or the PR. */
   async notify(wi: WorkItem, text: string) {
-    const s = wi.source ?? { provider: "kiln" };
     try {
-      if (s.provider === "slack" && s.channel && this.chat) {
-        await this.chat.post({ channel: s.channel, thread: s.thread, text });
-        this.bus.publish("message.posted", { channel: s.channel, thread: s.thread, text });
-      } else if (s.provider === "github" && s.repo && s.number) {
-        const [owner, name] = s.repo.split("/");
-        await this.forge.comment({ owner: owner!, name: name! }, s.number, text);
-      } else if ((s.provider === "linear" || s.provider === "jira") && (s.issueId ?? wi.trackerKey) && this.tracker) {
-        await this.tracker.comment((s.issueId ?? wi.trackerKey)!, text);
-      }
+      await this.integrations.notify(wi, text);
     } catch (err) {
       this.audit("kiln", "notify.failed", wi.id, { error: err instanceof Error ? err.message : String(err) });
     }

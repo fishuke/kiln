@@ -178,7 +178,7 @@ describe("foreman workflow", () => {
 describe("automations engine", () => {
   const tree = sampleTree({
     "agents/maintainer/agent.md": "---\ndescription: maintenance\n---\nKeep the repo healthy.\n",
-    "automations/merged/automation.md": "---\nagent: maintainer\ntriggers:\n  - provider: github\n    event: push\n    filter: { not_in: { head: [main] } }\n---\nCheck the pushed branch.\n",
+    "automations/merged/automation.md": "---\nagent: maintainer\ntriggers:\n  - provider: github\n    event: push\n    filter: { branches: { not_in: [main] } }\n---\nCheck the pushed branch.\n",
     "automations/weekly/automation.md": "---\nagent: maintainer\ntriggers:\n  - provider: schedule\n    event: cron_fired\n    schedule: { cron: \"0 9 * * 1\", name: weekly }\n---\nWeekly audit.\n",
     "automations/jira/automation.md": "---\nagent: maintainer\ntriggers:\n  - provider: jira\n    event: issue_created\n    filter: { labels: [kiln] }\n---\n",
   });

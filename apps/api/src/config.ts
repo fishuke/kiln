@@ -91,6 +91,7 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     webUrl: env.KILN_WEB_URL ?? "http://localhost:3000",
     roles: parseRoles(env.KILN_ROLES ?? "po=po@kiln.local;code-owners=lead@kiln.local;admins=admin@kiln.local"),
     secretKey: env.KILN_SECRET_KEY,
+    serverAdmins: (env.KILN_ADMIN_EMAILS ?? "").split(",").map((e) => e.trim()).filter(Boolean),
     forgeToken: env.GITHUB_TOKEN,
     connectionProviders: connectionProviders({
       github: { appSlug: env.GITHUB_APP_SLUG, appId: env.GITHUB_APP_ID, privateKey, clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET },

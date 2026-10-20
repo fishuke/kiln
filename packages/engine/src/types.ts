@@ -303,7 +303,7 @@ export type BenchmarkResult = {
   at: string;
 };
 
-export type AuditEntry = { id: string; at: string; actor: string; action: string; target: string; details?: unknown };
+export type AuditEntry = { id: string; at: string; actor: string; action: string; target: string; details?: unknown; /** The team it belongs to, when Kiln can tell. */ team?: string };
 
 export const C = {
   workItems: "work_items",

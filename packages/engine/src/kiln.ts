@@ -57,6 +57,8 @@ export type KilnOptions = {
   canaryPercent?: number;
   canaryDays?: number;
   secretKey?: string;
+  /** Server admins (KILN_ADMIN_EMAILS): users who see every team's audit log, tokens and server secrets. */
+  serverAdmins?: string[];
   /** Token used when Kiln itself commits to config repos (GitHub App installation token). */
   forgeToken?: string;
   /** Workspace connections Kiln can make (GitHub, GitLab, Slack, Teams, Discord, Linear, Jira…). */
@@ -185,12 +187,43 @@ export class Kiln {
 
   audit(actor: string, action: string, target: string, details?: unknown) {
     const entry: AuditEntry = { id: newId("audit"), at: this.clock.now().toISOString(), actor, action, target, details };
+    const team = this.auditTeam(target, details);
+    if (team) entry.team = team;
     this.store.put(C.audit, entry);
   }
 
-  auditLog(limit = 200): AuditEntry[] {
+  /** The team an audit entry belongs to, from its target or details, so team admins see only their team's log. */
+  private auditTeam(target: string, details: unknown): string | undefined {
+    const d = (details ?? {}) as Record<string, unknown>;
+    if (typeof d.team === "string" && d.team.startsWith("team_")) return d.team;
+    if (target.startsWith("team_")) return target;
+    if (target.startsWith("usr_")) return this.teams.teamsOf(target)[0]?.id;
+    const scoped = /^(?:team):(team_[^:]+):/.exec(target);
+    if (scoped) return scoped[1];
+    const personal = /^personal:([^:]+):/.exec(target);
+    if (personal) return this.teams.teamsOf(personal[1]!)[0]?.id;
+    try {
+      if (this.defs.get(target)) return this.teams.factoryTeam(target);
+      const wi = target.startsWith("wi_") ? this.store.get<WorkItem>(C.workItems, target) : undefined;
+      if (wi) return this.teams.factoryTeam(wi.factory);
+      const run = target.startsWith("run_") ? this.store.get<{ id: string; factory: string; team?: string }>(C.runs, target) : undefined;
+      if (run) return run.team ?? this.teams.factoryTeam(run.factory);
+      const owned = this.store.get<{ id: string; factory?: string; teamId?: string }>(C.gates, target) ?? this.store.get(C.proposals, target) ?? this.store.get(C.memories, target) ?? this.store.get("mcp_servers", target) ?? this.store.get("environments", target);
+      if (owned?.teamId) return owned.teamId;
+      if (owned?.factory) return this.teams.factoryTeam(owned.factory);
+      const token = target.startsWith("tok_") ? this.store.get<{ id: string; teamId?: string; userId?: string }>("api_tokens", target) : undefined;
+      if (token?.teamId) return token.teamId;
+      if (token?.userId) return this.teams.teamsOf(token.userId)[0]?.id;
+      if (typeof d.factory === "string" && this.defs.get(d.factory)) return this.teams.factoryTeam(d.factory);
+    } catch {
+      /* attribution is best effort */
+    }
+    return undefined;
+  }
+
+  auditLog(limit = 200, team?: string): AuditEntry[] {
     return this.store
-      .list<AuditEntry>(C.audit)
+      .list<AuditEntry>(C.audit, (a) => !team || a.team === team)
       .sort((a, b) => b.at.localeCompare(a.at))
       .slice(0, limit);
   }

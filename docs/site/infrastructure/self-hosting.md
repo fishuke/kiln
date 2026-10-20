@@ -79,17 +79,25 @@ Kiln needs two URLs:
 
 ### Webhooks and secrets
 
-Point each provider's webhooks at Kiln and set the matching secret. For the four provider endpoints, Kiln reads the server environment variable with the secret's name (for example `GITHUB_WEBHOOK_SECRET`) first, then its secrets store, then `KILN_SECRET_<NAME>`. A custom webhook's secret comes from the secrets store or `KILN_SECRET_<secretName>`.
+Point each provider's webhooks at Kiln and set the matching secret. For the provider endpoints, Kiln reads the server environment variable with the secret's name (for example `GITHUB_WEBHOOK_SECRET`) first, then its secrets store, then `KILN_SECRET_<NAME>`, then the provider's [connection](../integrations/connections.md). A custom webhook's secret comes from the secrets store or `KILN_SECRET_<secretName>`.
 
 | Provider | Endpoint | Secret |
 | --- | --- | --- |
 | GitHub | `POST /webhooks/github` | `GITHUB_WEBHOOK_SECRET` |
+| GitLab | `POST /webhooks/gitlab` | `GITLAB_WEBHOOK_TOKEN` (`X-Gitlab-Token`) |
+| Azure DevOps | `POST /webhooks/azure-devops` | `AZURE_DEVOPS_WEBHOOK_PASSWORD` (basic auth) |
+| Bitbucket | `POST /webhooks/bitbucket` | `BITBUCKET_WEBHOOK_SECRET` |
 | Slack | `POST /webhooks/slack` | `SLACK_SIGNING_SECRET` |
+| Microsoft Teams | `POST /webhooks/teams` | Bot Framework token for `TEAMS_APP_ID` |
+| Discord | `POST /webhooks/discord` | Ed25519 with `DISCORD_PUBLIC_KEY` |
+| Discord bridge | `POST /webhooks/discord/events` | `DISCORD_EVENTS_TOKEN` (bearer) |
 | Linear | `POST /webhooks/linear` | `LINEAR_WEBHOOK_SECRET` |
 | Jira | `POST /webhooks/jira?token=<token>` | `JIRA_WEBHOOK_TOKEN` |
-| Custom | `POST /webhooks/<factory>/<name>` | The webhook file's `secretName` |
+| Custom | `POST /webhooks/w/<uid>` (or `/webhooks/<factory>/<name>`) | The webhook's secret |
 
-When a provider secret is not set, Kiln accepts that provider's webhooks without checking signatures. Set every secret before you expose Kiln to the internet.
+GitLab, Azure DevOps, Bitbucket, Teams and Discord refuse every call until their secret is set. For GitHub, Slack, Linear and Jira, Kiln accepts webhooks without checking signatures when the secret is not set. Set every secret before you expose Kiln to the internet.
+
+OAuth providers redirect to `GET /oauth/<provider>/callback` on the public URL; register that URL in each OAuth app. Every provider's variables are listed on [Connections](../integrations/connections.md#environment-variables).
 
 Admins can set secrets through the API; values are never returned, only names. See the [API overview](../developer-tools/api.md).
 
@@ -126,9 +134,13 @@ Gates name approvers by role, such as `role:po` or `role:code-owners`. Kiln's se
 - **Kubernetes:** create the `kiln-sandboxes` namespace, install gVisor with a RuntimeClass named `gvisor`, and deploy the egress proxy with the label `app.kubernetes.io/name: kiln-egress-proxy` on port 3128.
 - Build runner images with the harness programs (`claude`, `codex`, `opencode`), git and your toolchain installed.
 
+### Cloud identity federation
+
+When a factory sets `cloudProviders` in `factory.yaml`, its runs get the federation settings as environment variables and exchange their own identity token for short-lived cloud credentials. Kiln never holds long-lived cloud keys. See [Definitions as code](../configuration/definitions-as-code.md#cloud-identity-federation).
+
 ### Forge identity
 
-Kiln talks to GitHub with a token, for example a GitHub App installation token. It needs to read repositories, push `kiln/*` branches, open and update pull requests, comment, add labels and read check runs. Do not give it a branch-protection bypass. Agents never see this token; each run gets its own short-lived run token instead.
+Kiln talks to GitHub as a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`), minting a short-lived installation token for each call, or with a plain `GITHUB_TOKEN`. GitLab, Azure DevOps and Bitbucket use the tokens on their pages. It needs to read repositories, push `kiln/*` branches, open and update pull requests, comment, add labels and read check runs. Do not give it a branch-protection bypass. Agents never see this token; each run gets its own short-lived run token instead.
 
 ## Timers
 
@@ -156,7 +168,8 @@ Kiln runs a timer pass that:
 | A run fails at install | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed. |
 | Verify waits forever | CI checks on the branch are still pending. Kiln checks again on each timer pass. |
 | Every command is blocked | The Claude Code hook cannot reach the public URL, so it blocks by design. |
-| Webhooks return 401 | The secret in Kiln does not match the provider's. |
+| Webhooks return 401 | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set. |
+| An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory). |
 
 ## Related pages
 

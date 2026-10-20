@@ -2,19 +2,42 @@ import type { CommandRunner } from "@kiln/sandbox";
 
 export type ChatMessage = { channel: string; thread?: string; text: string; ts: string; fileUrl?: string };
 
+/** Post as the factory where the provider allows it (Slack chat:write.customize, Discord webhooks). */
+export type ChatIdentity = { name?: string; iconUrl?: string };
+export type ChatPost = { channel: string; thread?: string; text: string; fileUrl?: string; as?: ChatIdentity };
+
 export interface Chat {
-  readonly name: "slack" | "fake";
-  post(input: { channel: string; thread?: string; text: string; fileUrl?: string }): Promise<ChatMessage>;
+  readonly name: "slack" | "discord" | "teams" | "fake";
+  post(input: ChatPost): Promise<ChatMessage>;
+  /** Add a reaction (Slack 👀 acknowledgement, Discord). Teams bots cannot react. */
+  react?(input: { channel: string; ts: string; emoji: string }): Promise<void>;
+  /** Send a direct message to a user id of this provider. */
+  directMessage?(user: string, text: string): Promise<ChatMessage>;
 }
 
 export class FakeChat implements Chat {
-  readonly name = "fake" as const;
   readonly messages: ChatMessage[] = [];
+  readonly reactions: { channel: string; ts: string; emoji: string }[] = [];
+  readonly dms: { user: string; text: string }[] = [];
+  readonly identities: (ChatIdentity | undefined)[] = [];
 
-  async post(input: { channel: string; thread?: string; text: string; fileUrl?: string }) {
-    const msg = { ...input, ts: `${Date.now()}.${String(this.messages.length).padStart(6, "0")}` };
+  constructor(readonly name: Chat["name"] = "fake") {}
+
+  async post(input: ChatPost) {
+    const { as, ...rest } = input;
+    const msg = { ...rest, ts: `${Date.now()}.${String(this.messages.length).padStart(6, "0")}` };
     this.messages.push(msg);
+    this.identities.push(as);
     return msg;
+  }
+
+  async react(input: { channel: string; ts: string; emoji: string }) {
+    this.reactions.push(input);
+  }
+
+  async directMessage(user: string, text: string) {
+    this.dms.push({ user, text });
+    return this.post({ channel: `dm:${user}`, text });
   }
 
   inThread(channel: string, thread: string) {
@@ -27,16 +50,47 @@ export class SlackChat implements Chat {
 
   constructor(private readonly options: { botToken: string; fetch?: typeof fetch }) {}
 
-  async post(input: { channel: string; thread?: string; text: string; fileUrl?: string }) {
-    const text = input.fileUrl ? `${input.text}\n${input.fileUrl}` : input.text;
-    const res = await (this.options.fetch ?? fetch)("https://slack.com/api/chat.postMessage", {
+  /** Call a Slack Web API method with a JSON body. */
+  async call<T extends { ok: boolean; error?: string }>(method: string, body: Record<string, unknown>): Promise<T> {
+    const res = await (this.options.fetch ?? fetch)(`https://slack.com/api/${method}`, {
       method: "POST",
       headers: { "content-type": "application/json; charset=utf-8", authorization: `Bearer ${this.options.botToken}` },
-      body: JSON.stringify({ channel: input.channel, thread_ts: input.thread, text, unfurl_links: false }),
+      body: JSON.stringify(body),
     });
-    const body = (await res.json()) as { ok: boolean; ts?: string; error?: string };
-    if (!body.ok) throw new Error(`Slack chat.postMessage failed: ${body.error}`);
+    const out = (await res.json()) as T;
+    if (!out.ok) throw new Error(`Slack ${method} failed: ${out.error}`);
+    return out;
+  }
+
+  async post(input: ChatPost) {
+    const text = input.fileUrl ? `${input.text}\n${input.fileUrl}` : input.text;
+    const body = await this.call<{ ok: boolean; ts?: string; error?: string }>("chat.postMessage", {
+      channel: input.channel,
+      thread_ts: input.thread,
+      text,
+      unfurl_links: false,
+      ...(input.as?.name ? { username: input.as.name } : {}),
+      ...(input.as?.iconUrl ? { icon_url: input.as.iconUrl } : {}),
+    });
     return { channel: input.channel, thread: input.thread, text, ts: body.ts! };
+  }
+
+  async react(input: { channel: string; ts: string; emoji: string }) {
+    try {
+      await this.call("reactions.add", { channel: input.channel, timestamp: input.ts, name: input.emoji });
+    } catch (err) {
+      if (!String(err).includes("already_reacted")) throw err;
+    }
+  }
+
+  async directMessage(user: string, text: string) {
+    const open = await this.call<{ ok: boolean; channel: { id: string } }>("conversations.open", { users: user });
+    return this.post({ channel: open.channel.id, text });
+  }
+
+  /** The App Home tab for one user. */
+  async publishHome(user: string, view: Record<string, unknown>) {
+    await this.call("views.publish", { user_id: user, view });
   }
 }
 

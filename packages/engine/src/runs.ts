@@ -6,7 +6,8 @@ import { repoKey, type RepoRef } from "@kiln/integrations";
 import { hashDir, type Sandbox, type SandboxProvider, type SnapshotRef } from "@kiln/sandbox";
 import type { HarnessType, Runner } from "@kiln/schema";
 import type { Kiln } from "./kiln";
-import { C, newId, type Artifact, type Attachment, type Run, type RunEvent, type RunKind, type WorkItem } from "./types";
+import { cloudProviderEnv } from "./cloud";
+import { C, newId, type Artifact, type Attachment, type ExecutionOverrides, type Run, type RunEvent, type RunKind, type WorkItem } from "./types";
 
 const MEDIA: Record<string, [Artifact["kind"], string]> = {
   png: ["image", "image/png"],
@@ -47,7 +48,8 @@ export type ExecuteInput = {
   /** Check out exact commits, for replays and benchmarks. */
   pinned?: Record<string, string>;
   repos?: RepoRef[];
-  overrides?: { model?: string; harness?: HarnessType };
+  /** Run-level overrides: replay/benchmark model or harness, or an automation's execution overrides. */
+  overrides?: { model?: string; harness?: HarnessType | string } & Omit<ExecutionOverrides, "model" | "harness">;
   replayOf?: string;
   push?: boolean;
   collect?: (sandbox: Sandbox, cwd: string, run: Run) => Promise<void>;
@@ -172,10 +174,12 @@ export class RunService {
     this.k.usage.assertWithinBudget(team);
     const user = input.triggeredBy ? this.k.users.get(input.triggeredBy) : this.k.users.forRequester(input.workItem?.requester);
     const automationEnv = input.workItem?.source.automation ? resolved.automations[input.workItem.source.automation]?.environmentId : undefined;
-    const envRef = automationEnv ?? agent.environmentId;
+    // An automation's environmentId override selects the team environment for this run.
+    const envRef = input.overrides?.environmentId ?? automationEnv ?? agent.environmentId;
     const environment = envRef ? this.k.environments.get(team, envRef) : undefined;
     if (envRef && !environment) throw new Error(`environment ${envRef} is not defined for this team`);
-    const declared: Runner | undefined = agent.runner ? resolved.parsed.runners[agent.runner] : undefined;
+    const runnerName = input.overrides?.runner ?? agent.runner;
+    const declared: Runner | undefined = runnerName ? resolved.parsed.runners[runnerName] : undefined;
     const teamSettings = team ? this.k.teams.settings(team) : undefined;
     const host = teamSettings?.defaultSandboxHost;
     const teamBackend = host === "local" || host === "docker" || host === "kubernetes" ? host : undefined;
@@ -186,7 +190,9 @@ export class RunService {
       setupCommands: [...(base.setupCommands ?? []), ...(environment?.setupCommands ?? [])],
       egress: [...new Set([...(base.egress ?? []), ...(teamSettings?.egressAllowlist ?? [])])],
     };
-    const factoryRepos = input.repos ?? resolved.factory.repositories.filter((r) => !r.deferred);
+    // required_repos makes deferred repositories eager for this run.
+    const required = new Set(input.overrides?.requiredRepos ?? []);
+    const factoryRepos = input.repos ?? resolved.factory.repositories.filter((r) => !r.deferred || required.has(repoKey(r)));
     const repos = [...factoryRepos, ...(input.repos ? [] : (environment?.repos ?? []).filter((e) => !factoryRepos.some((r) => r.owner === e.owner && r.name === e.name)))];
     const now = this.k.clock.now().toISOString();
     const run: Run = {
@@ -277,11 +283,18 @@ export class RunService {
       const adapter = this.k.harnessFor(harnessType, agent.agentType);
       const scope = { teamId: team, userId: user?.id };
       const resolver = this.k.vault.resolver(scope);
-      const credentials = this.credentials(harnessType, { ...agent, secrets: [...agent.secrets, ...(environment?.secrets ?? [])] }, scope);
-      const mcp = this.k.mcp.resolve(team, agent.mcpServers, resolver);
+      // Automation overrides add secrets (resolved through the vault like the agent's) and replace the MCP servers.
+      const credentials = this.credentials(harnessType, { ...agent, secrets: [...new Set([...agent.secrets, ...(environment?.secrets ?? []), ...(input.overrides?.secrets ?? [])])] }, scope);
+      const mcp = this.k.mcp.resolve(team, input.overrides?.mcpServers ?? agent.mcpServers, resolver);
       for (const s of mcp.skipped) this.record(run, "mcp_skipped", s);
       this.redactions.set(run.id, [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope)].filter((v) => v.length >= 6))]);
       const kilnMcp = this.k.options.publicUrl ? [{ name: "kiln", url: `${this.k.options.publicUrl}/mcp`, headers: { authorization: `Bearer ${token}` } }] : [];
+      const overrideEnv: Record<string, string> = {
+        ...cloudProviderEnv(resolved.factory),
+        ...(envRef ? { KILN_ENVIRONMENT_ID: envRef } : {}),
+        ...(input.overrides?.workerHost ? { KILN_WORKER_HOST: input.overrides.workerHost } : {}),
+        ...(input.overrides?.idleTimeoutMinutes ? { KILN_IDLE_TIMEOUT_MINUTES: String(input.overrides.idleTimeoutMinutes) } : {}),
+      };
       const session = await adapter.start({
         sandbox,
         cwd,
@@ -294,6 +307,7 @@ export class RunService {
         env: {
           ...mcp.env,
           ...credentials,
+          ...overrideEnv,
           KILN_RUN_ID: run.id,
           KILN_RUN_TOKEN: token,
           KILN_FACTORY: input.factory,

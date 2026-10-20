@@ -59,6 +59,9 @@ export function meRoutes(ctx: RouteContext) {
     return c.json(kiln.users.unlink(ctx.user(c).id, provider).linkedAccounts);
   });
 
+  // what Kiln sent you, and whether it arrived
+  app.get("/api/v1/me/notifications", (c) => c.json(kiln.notifications.history(ctx.user(c).id, Number(c.req.query("limit") ?? 50))));
+
   // API keys
   app.get("/api/v1/api-keys", (c) => c.json(kiln.accounts.listApiKeys(ctx.user(c), ctx.team(c).id)));
   app.post("/api/v1/api-keys", async (c) => {

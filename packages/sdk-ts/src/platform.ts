@@ -8,6 +8,7 @@ import type {
   McpServer,
   Membership,
   NotificationPrefs,
+  NotificationRecord,
   PublicUser,
   SecretMeta,
   SecretType,
@@ -17,7 +18,7 @@ import type {
   UsageSummary,
 } from "@kiln/engine";
 
-export type { Appearance, EnvironmentTemplate, FactoryMember, Invite, LinkedAccount, LinkProvider, McpServer, Membership, NotificationPrefs, PublicUser, SecretMeta, SecretType, TeamSettings, UsageEntry, UsageSummary };
+export type { Appearance, EnvironmentTemplate, FactoryMember, Invite, LinkedAccount, LinkProvider, McpServer, Membership, NotificationPrefs, NotificationRecord, PublicUser, SecretMeta, SecretType, TeamSettings, UsageEntry, UsageSummary };
 
 export type TeamRole = "owner" | "admin" | "member";
 export type FactoryRole = "user" | "editor" | "admin";

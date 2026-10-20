@@ -43,6 +43,7 @@ import type {
   Membership,
   ModelKeyProvider,
   NotificationPrefs,
+  NotificationRecord,
   PublicUser,
   SecretMeta,
   SecretType,
@@ -245,9 +246,10 @@ export class KilnClient {
   acceptInvite = (token: string) => this.request<{ team: { id: string; name: string; slug: string }; role: TeamRole }>("POST", "/api/v1/invites/accept", { token });
 
   // ---- user settings ----
-  updateMe = (patch: { name?: string; email?: string; avatar?: string | null; appearance?: Appearance; notifications?: Partial<NotificationPrefs> }) => this.request<PublicUser>("PATCH", "/api/v1/me", patch);
+  updateMe = (patch: { name?: string; email?: string; avatar?: string | null; appearance?: Appearance; notifications?: Partial<NotificationPrefs>; digest?: Partial<{ daily: boolean; hourUtc: number; channels: ("email" | "slack" | "discord")[]; only: boolean }> }) => this.request<PublicUser>("PATCH", "/api/v1/me", patch);
   changePassword = (next: string, current?: string) => this.request<{ ok: true }>("PUT", "/api/v1/me/password", { next, current });
   uploadAvatar = (bytes: Uint8Array | ArrayBuffer | Blob, contentType: string) => this.upload<PublicUser>("PUT", "/api/v1/me/avatar", bytes, contentType);
+  notifications = (limit = 50) => this.request<NotificationRecord[]>("GET", `/api/v1/me/notifications?limit=${limit}`);
   linkedAccounts = () => this.request<LinkedAccount[]>("GET", "/api/v1/me/linked-accounts");
   linkAccount = (provider: LinkProvider, externalId: string, handle?: string) => this.request<LinkedAccount[]>("POST", "/api/v1/me/linked-accounts", { provider, externalId, handle });
   unlinkAccount = (provider: LinkProvider) => this.request<LinkedAccount[]>("DELETE", `/api/v1/me/linked-accounts/${provider}`);

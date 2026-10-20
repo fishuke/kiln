@@ -20,7 +20,9 @@ import {
   HttpLinearAgentApi,
   JiraTracker,
   LinearTracker,
+  parseSmtpUrl,
   SlackChat,
+  SmtpMailer,
   TeamsChat,
   VercelPreview,
   type Forge,
@@ -92,6 +94,7 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     roles: parseRoles(env.KILN_ROLES ?? "po=po@kiln.local;code-owners=lead@kiln.local;admins=admin@kiln.local"),
     secretKey: env.KILN_SECRET_KEY,
     storageRoot: join(dataDir, "storage"),
+    mailer: env.KILN_SMTP_URL ? new SmtpMailer(parseSmtpUrl(env.KILN_SMTP_URL, env.KILN_MAIL_FROM)) : undefined,
     serverAdmins: (env.KILN_ADMIN_EMAILS ?? "").split(",").map((e) => e.trim()).filter(Boolean),
     forgeToken: env.GITHUB_TOKEN,
     connectionProviders: connectionProviders({

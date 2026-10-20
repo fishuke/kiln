@@ -13,6 +13,7 @@ export const ROUTES: Route[] = [
   { method: "put", path: "/api/v1/me/password", summary: "Change your password", body: PS.ChangePassword, tag: "Users" },
   { method: "put", path: "/api/v1/me/avatar", summary: "Upload your avatar (raw image body, at most 1 MiB)", tag: "Users" },
   { method: "get", path: "/api/v1/users/{id}/avatar", summary: "A user's uploaded avatar", tag: "Users" },
+  { method: "get", path: "/api/v1/me/notifications", summary: "Recent notifications Kiln sent you (email, Slack, Discord) and their status", tag: "Users" },
   { method: "get", path: "/api/v1/me/linked-accounts", summary: "Your linked accounts (identity mapping)", tag: "Users" },
   { method: "post", path: "/api/v1/me/linked-accounts", summary: "Link a GitHub, Slack, Discord, Linear, Jira, Teams, GitLab or Azure DevOps identity", body: PS.LinkAccount, tag: "Users" },
   { method: "delete", path: "/api/v1/me/linked-accounts/{provider}", summary: "Unlink an identity", tag: "Users" },

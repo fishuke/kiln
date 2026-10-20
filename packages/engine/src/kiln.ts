@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { FakeProvider, type DecisionOutcome, type DecisionProvider } from "@kiln/decide";
 import { InMemoryEventBus } from "@kiln/events";
 import { adapterFor, type HarnessAdapter } from "@kiln/harness";
-import type { Chat, ConnectionProvider, ConnectionProviderId, Forge, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
+import type { Chat, ConnectionProvider, ConnectionProviderId, Forge, Mailer, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
 import { ConnectionService, IdentityService } from "./connections";
 import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
 import { WebhookSourceService } from "./webhook-sources";
@@ -19,7 +19,7 @@ import { GateService } from "./gates";
 import { ImprovementService, RuleImprover, type Improver } from "./improvement";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
-import { AccountService, EnvironmentService, McpRegistry, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
+import { AccountService, EnvironmentService, McpRegistry, NotificationService, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
 import { PlanningService, type Planner } from "./planning";
 import { RunService } from "./runs";
 import { DecisionJudge, ScoringService, type Judge } from "./scoring";
@@ -59,6 +59,10 @@ export type KilnOptions = {
   secretKey?: string;
   /** Server admins (KILN_ADMIN_EMAILS): users who see every team's audit log, tokens and server secrets. */
   serverAdmins?: string[];
+  /** Email for notifications (KILN_SMTP_URL). */
+  mailer?: Mailer;
+  /** Chat adapters for direct-message notifications, by provider key; the main `chat` is used when it is real. */
+  chats?: Partial<Record<"slack" | "discord", Chat>>;
   /** ECR pull passwords for aws_ecr registry credentials (default: the AWS CLI). */
   ecr?: EcrTokenProvider;
   /** Root folder for teams' local storage folders (default .data/storage). */
@@ -116,6 +120,7 @@ export class Kiln {
   readonly usage: UsageService;
   /** Routes artifacts, transcripts and attachments to each team's storage; `objects` is this router. */
   readonly storage: StorageRouter;
+  readonly notifications: NotificationService;
 
   constructor(readonly options: KilnOptions) {
     this.store = options.store ?? new MemoryStore();
@@ -167,6 +172,8 @@ export class Kiln {
       const wi = this.workflow.get(e.payload.workItemId);
       if (wi) await this.integrations.onStageChanged(wi, e.payload.to);
     });
+    this.notifications = new NotificationService(this);
+    this.notifications.subscribe();
 
     // `provider: factory, event: work_item_stage_changed` automations react to stage changes in their own factory.
     this.bus.subscribe("work_item.stage_changed", async (e) => {
@@ -295,6 +302,7 @@ export class Kiln {
   async tick(opts: { selfImprovement?: boolean } = {}) {
     await this.gates.tick();
     await this.automations.tick();
+    await this.notifications.tick();
     for (const wi of this.workflow.list()) {
       if (wi.blockedReason === "waiting for CI" && wi.state === "building") await this.workflow.advance(wi.id);
     }

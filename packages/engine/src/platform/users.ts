@@ -1,12 +1,12 @@
 import { hashPassword, verifyPassword } from "@kiln/auth";
 import type { Kiln } from "../kiln";
 import { newId } from "../types";
-import { avatarKey, INBOX_KINDS, P, PlatformError, type Appearance, type LinkProvider, type NotificationPrefs, type PublicUser, type User } from "./types";
+import { avatarKey, DEFAULT_DIGEST, INBOX_KINDS, P, type DigestPrefs, PlatformError, type Appearance, type LinkProvider, type NotificationPrefs, type PublicUser, type User } from "./types";
 
 export const DEV_USER_EMAIL = "dev@kiln.local";
 
 export function defaultNotifications(): NotificationPrefs {
-  return Object.fromEntries(INBOX_KINDS.map((k) => [k, { email: true, slack: true, discord: false }])) as NotificationPrefs;
+  return Object.fromEntries(INBOX_KINDS.map((k) => [k, { email: true, slack: true, discord: true }])) as NotificationPrefs;
 }
 
 export function publicUser(u: User): PublicUser {
@@ -51,6 +51,7 @@ export class UserService {
       passwordHash: input.password ? hashPassword(input.password) : undefined,
       appearance: "system",
       notifications: defaultNotifications(),
+      digest: { ...DEFAULT_DIGEST },
       linkedAccounts: [],
     };
     this.k.store.put(P.users, user);
@@ -70,7 +71,7 @@ export class UserService {
     this.k.audit(u.email, "user.password_changed", u.id);
   }
 
-  update(id: string, patch: { name?: string; email?: string; avatar?: string | null; appearance?: Appearance; notifications?: Partial<NotificationPrefs> }): User {
+  update(id: string, patch: { name?: string; email?: string; avatar?: string | null; appearance?: Appearance; notifications?: Partial<NotificationPrefs>; digest?: Partial<DigestPrefs> }): User {
     const u = this.require(id);
     const next: User = { ...u };
     if (patch.name !== undefined) next.name = patch.name.trim();
@@ -88,7 +89,8 @@ export class UserService {
       delete next.avatarKey;
     }
     if (patch.appearance) next.appearance = patch.appearance;
-    if (patch.notifications) next.notifications = { ...u.notifications, ...patch.notifications };
+    if (patch.notifications) next.notifications = { ...defaultNotifications(), ...u.notifications, ...patch.notifications };
+    if (patch.digest) next.digest = { ...DEFAULT_DIGEST, ...u.digest, ...patch.digest };
     this.k.store.put(P.users, next);
     if (patch.email !== undefined && next.email !== u.email) this.k.audit(u.email, "user.email_changed", id, { from: u.email, to: next.email });
     return next;

@@ -7,6 +7,7 @@ import { InMemoryEventBus } from "@kiln/events";
 import { adapterFor, type HarnessAdapter } from "@kiln/harness";
 import type { Chat, ConnectionProvider, ConnectionProviderId, Forge, GitHubAppCredentials, GitHubManifestClient, Mailer, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
 import { ConnectionService, IdentityService } from "./connections";
+import { ReviewService } from "./reviews";
 import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
 import { WebhookSourceService } from "./webhook-sources";
 import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
@@ -152,6 +153,7 @@ export class Kiln {
   readonly dedupe: DedupeService;
   readonly connections: ConnectionService;
   readonly identities: IdentityService;
+  readonly reviews: ReviewService;
   readonly webhookSources: WebhookSourceService;
   readonly integrations: IntegrationHub;
 
@@ -225,6 +227,7 @@ export class Kiln {
     this.usage = new UsageService(this);
     this.connections = new ConnectionService(this, options.connectionProviders);
     this.identities = new IdentityService(this);
+    this.reviews = new ReviewService(this);
     this.webhookSources = new WebhookSourceService(this);
     this.integrations = new IntegrationHub(this, options.adapters);
 

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { FactoryAvatar } from "@/components/kiln/sidebar";
 import { GateCard } from "@/components/kiln/gate-card";
+import { ReviewPanel } from "@/components/kiln/review-panel";
 import { HeaderIconButton, HeaderSearch, MenuSearch } from "@/components/kiln/header-controls";
 import { Markdown } from "@/components/kiln/markdown";
 import { Chip } from "@/components/kiln/run-visuals";
@@ -18,7 +19,10 @@ import { filterInbox, INBOX_KIND_LABEL, INBOX_KINDS, primaryAction, type InboxEn
 import type { GateView } from "@/lib/run-detail";
 import { relativeTime } from "@/lib/run-tree";
 import { cn } from "@/lib/utils";
+import type { ReadyToMerge as Ready } from "@kiln/sdk-ts";
+import { decide } from "@/app/runs/actions";
 import { markItems } from "./actions";
+import { ReadyToMerge } from "./ready-to-merge";
 
 type FactoryOpt = { id: string; name: string };
 const READ_KEY = "kiln.inbox.read";
@@ -48,7 +52,7 @@ function loadLocalRead(): Record<string, boolean> {
   }
 }
 
-export function InboxView({ entries, gates, factories }: { entries: InboxEntry[]; gates: Record<string, GateView>; factories: FactoryOpt[] }) {
+export function InboxView({ entries, gates, factories, ready = [] }: { entries: InboxEntry[]; gates: Record<string, GateView>; factories: FactoryOpt[]; ready?: Ready[] }) {
   const router = useRouter();
   const sp = useSearchParams();
   const [q, setQ] = useState("");
@@ -212,6 +216,7 @@ export function InboxView({ entries, gates, factories }: { entries: InboxEntry[]
       />
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-y-auto">
+          <ReadyToMerge items={ready} />
           {items.length === 0 ? (
             <EmptyInbox />
           ) : shown.length === 0 ? (
@@ -268,8 +273,10 @@ export function InboxView({ entries, gates, factories }: { entries: InboxEntry[]
 function InboxPane({ entry, gate, factoryName, onClose, onResolve, onToggleRead }: { entry: InboxEntry; gate?: GateView; factoryName: string; onClose: () => void; onResolve: () => void; onToggleRead: () => void }) {
   const Icon = KIND_ICON[entry.kind];
   const runHref = `/runs/${entry.workItemId}`;
+  // A code review needs room for the diff.
+  const reviewing = gate?.state === "open" && gate.kind === "merge" && Boolean(entry.prUrl);
   return (
-    <aside aria-label="Inbox item" className="flex w-[480px] shrink-0 flex-col border-l">
+    <aside aria-label="Inbox item" className={cn("flex shrink-0 flex-col border-l", reviewing ? "w-[min(960px,65vw)]" : "w-[480px]")}>
       <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3">
         <span className="flex-1" />
         <button type="button" aria-label={entry.read ? "Mark as unread" : "Mark as read"} title={entry.read ? "Mark as unread" : "Mark as read"} onClick={onToggleRead} className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
@@ -301,7 +308,12 @@ function InboxPane({ entry, gate, factoryName, onClose, onResolve, onToggleRead 
           </Link>
         )}
         <div className="mt-4">
-          {gate && gate.state === "open" ? (
+          {reviewing && gate ? (
+            <>
+              <ReviewPanel taskId={entry.workItemId} onDone={onResolve} />
+              <ConfirmLanded gateId={gate.id} onDone={onResolve} />
+            </>
+          ) : gate && gate.state === "open" ? (
             <GateCard gate={gate} prUrl={entry.prUrl} previewUrl={entry.previewUrl} compact onDone={() => onResolve()} />
           ) : (
             <>
@@ -322,6 +334,30 @@ function InboxPane({ entry, gate, factoryName, onClose, onResolve, onToggleRead 
         </Link>
       </div>
     </aside>
+  );
+}
+
+/** The merge happened outside Kiln (or the work landed another way): close the task. */
+function ConfirmLanded({ gateId, onDone }: { gateId: string; onDone: () => void }) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={async () => {
+        setPending(true);
+        const r = await decide({ gateId, decision: "approve" });
+        setPending(false);
+        if (!r.ok) return toast.error("Could not confirm", { description: r.error });
+        toast.success("Marked as landed");
+        onDone();
+        router.refresh();
+      }}
+      className="mt-3 text-xs text-muted-foreground hover:text-foreground hover:underline"
+    >
+      Merged somewhere else? Confirm it landed
+    </button>
   );
 }
 

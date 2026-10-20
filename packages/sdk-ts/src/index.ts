@@ -657,6 +657,15 @@ export class KilnClient {
   revokeApprovalLink = (id: string) => this.request<{ ok: true }>("DELETE", `/api/v1/approval-links/${encodeURIComponent(id)}`);
   /** Start linking your GitHub account (a GitHub OAuth URL); the callback adds it to your linked accounts. */
   linkGitHubAccount = () => this.request<{ url: string }>("POST", "/api/v1/me/linked-accounts/github/start");
+
+  /** A task's pull request for review in Kiln: changed files with patches and whether you can review as your GitHub account. */
+  taskReview = (id: string) => this.request<TaskReview>("GET", `/api/v1/tasks/${encodeURIComponent(id)}/review`);
+  /** Submit a review as your linked GitHub account; requested changes go to the agents. */
+  submitReview = (id: string, input: ReviewSubmission) => this.request<{ id: string; url: string }>("POST", `/api/v1/tasks/${encodeURIComponent(id)}/review`, input);
+  /** Merge the task's pull request as your linked GitHub account. */
+  mergeTask = (id: string) => this.request<{ pr: { url: string; state: string } }>("POST", `/api/v1/tasks/${encodeURIComponent(id)}/merge`);
+  /** Handed-off tasks that need no code review, only a person's merge. */
+  readyToMerge = (factory?: string) => this.request<{ items: ReadyToMerge[] }>("GET", `/api/v1/ready-to-merge${this.q({ factory })}`);
   /** Link a chat account from the token a `sign in` command sent you. */
   claimLinkToken = (token: string) => this.request<LinkedAccount[]>("POST", "/api/v1/me/linked-accounts/claim", { token });
   factoryIntegrations = (factory: string) => this.request<FactoryIntegrations>("GET", `/api/v1/factories/${encodeURIComponent(factory)}/integrations`);
@@ -703,3 +712,19 @@ export type FactoryIntegrations = {
   editable: boolean;
 };
 export type TestFilterResult = { wouldTrigger: boolean; delivery: string; triggers: { index: number; provider: string; event: string; wouldTrigger: boolean; checks: CheckOutcome[] }[] };
+
+export type PullRequestFileView = { path: string; previousPath?: string; status: "added" | "modified" | "removed" | "renamed"; additions: number; deletions: number; patch?: string };
+export type TaskReview = {
+  taskId: string;
+  title: string;
+  state: string;
+  pr?: { repo: string; number: number; url: string };
+  needsHuman: boolean;
+  findings: string[];
+  verdict?: string;
+  gateId?: string;
+  account: { linked: false } | { linked: true; login: string };
+  files: PullRequestFileView[];
+};
+export type ReviewSubmission = { event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"; body?: string; comments?: { path: string; line: number; side?: "LEFT" | "RIGHT"; body: string }[] };
+export type ReadyToMerge = { taskId: string; factory: string; title: string; pr: { repo: string; number: number; url: string; additions?: number; deletions?: number; changedFiles?: number }; previewUrl?: string; updatedAt: string };

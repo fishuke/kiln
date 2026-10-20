@@ -10,7 +10,7 @@ import { InboxView } from "./inbox-view";
 export const metadata: Metadata = { title: "Inbox" };
 
 export default async function InboxPage() {
-  const [gates, items, factories] = await Promise.all([safe(() => api.inbox({ all: true }), null), safe(() => api.workItems(), []), safe(() => api.factories(), [])]);
+  const [gates, items, factories, ready] = await Promise.all([safe(() => api.inbox({ all: true }), null), safe(() => api.workItems(), []), safe(() => api.factories(), []), safe(() => api.readyToMerge(), { items: [] })]);
   if (!gates) return <ApiDown />;
   const entries = buildInbox(gates as GateLike[], items);
   const views: Record<string, GateView> = {};
@@ -19,7 +19,7 @@ export default async function InboxPage() {
     <>
       <AutoRefresh ms={8000} />
       <Suspense>
-        <InboxView entries={entries} gates={views} factories={factories.map((f) => ({ id: f.id, name: f.name }))} />
+        <InboxView entries={entries} gates={views} factories={factories.map((f) => ({ id: f.id, name: f.name }))} ready={ready.items} />
       </Suspense>
     </>
   );

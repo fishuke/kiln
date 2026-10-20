@@ -402,6 +402,10 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/tasks` | `read` | Tasks across the factories you can read (same filters as the factory list, plus factory) |
 | GET | `/api/v1/tasks/lookup` | `read` | Find a task by id, run, PR or issue URL, tracker key or branch (?reference=, &start_working=true for local commands) |
 | POST | `/api/v1/tasks/{taskId}/handback` | `send` | Hand a locally worked task back with a note and the pushed branch or PR |
+| GET | `/api/v1/tasks/{id}/review` | `read` | The task's pull request for review: changed files with patches, review findings, and whether you can review as your linked GitHub account |
+| POST | `/api/v1/tasks/{id}/review` | `decide:merge` | Submit a review (APPROVE, REQUEST_CHANGES, COMMENT, line comments) as your linked GitHub account; requested changes go to the agents |
+| POST | `/api/v1/tasks/{id}/merge` | `decide:merge` | Merge the task's pull request as your linked GitHub account |
+| GET | `/api/v1/ready-to-merge` | — | Handed-off tasks that need no code review, only a person's merge (?factory=) |
 
 ## Scorers
 

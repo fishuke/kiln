@@ -175,7 +175,8 @@ export function heuristicRule(request: DecisionRequest): Answers | undefined {
       return { is_testable: vague ? 0.3 : 0.9, is_ambiguous: vague ? 0.7 : 0.1 };
     }
     case "review-risk": {
-      const high = /\b(auth|login|payment|billing|security|secret|migration|delete)\b/i.test(text);
+      const files = Array.isArray(st.files) ? st.files.join("\n") : "";
+      const high = /\b(auth|login|payment|billing|security|secret|migrations?|delete)\b/i.test(`${text}\n${files}`);
       return { risk_tier: choice(["low", "medium", "high"], high ? "high" : "low", 0.8), touches_sensitive_area: high ? 0.8 : 0.1 };
     }
     case "model-router": {
@@ -317,7 +318,8 @@ export const BUILTIN_DECISIONS: Record<string, Decision> = {
       risk_tier: { type: "choice", options: ["low", "medium", "high"] },
       touches_sensitive_area: { type: "probability" },
     },
-    policy: { code_owners: "risk_tier.high >= 0.5 or touches_sensitive_area >= 0.7" },
+    // First match wins; with no answer the first action applies, so a failed check never skips review.
+    policy: { code_owners: "risk_tier.high >= 0.5 or touches_sensitive_area >= 0.7", skip_review: "risk_tier.low >= 0.8 and touches_sensitive_area < 0.3" },
     on_error: "llm",
     timeout_ms: 800,
   },

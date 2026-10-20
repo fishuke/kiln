@@ -107,7 +107,10 @@ export type WorkItem = {
   previewUrl?: string;
   previewDeployedAt?: string;
   evidence?: EvidencePackage;
-  review?: { verdict: string; findings: string[]; reviewers: string[] };
+  /** `needsHuman: false` when review-risk said no person needs to read the code (ADR-010). */
+  review?: { verdict: string; findings: string[]; reviewers: string[]; needsHuman?: boolean };
+  /** Reviews already acted on (`<login>:<body>`), so the forge's webhook for a review sent from Kiln is not handled twice. */
+  handledReviews?: string[];
   loops: Record<string, number>;
   conversation: ConversationEntry[];
   attachments: Attachment[];
@@ -533,4 +536,6 @@ export const C = {
   eventDeliveries: "event_deliveries",
   deliveriesSeen: "deliveries_seen",
   aliasMaps: "alias_maps",
+  /** People's own forge tokens (GitHub user OAuth). Never named secrets; never in a sandbox (ADR-010). */
+  personTokens: "person_tokens",
 } as const;

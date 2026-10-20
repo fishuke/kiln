@@ -57,7 +57,7 @@ export function meRoutes(ctx: RouteContext) {
   app.delete("/api/v1/me/linked-accounts/:provider", (c) => {
     const provider = c.req.param("provider") as LinkProvider;
     if (!LINK_PROVIDERS.includes(provider)) throw new HttpError(404, `unknown provider ${provider}`);
-    return c.json(kiln.users.unlink(ctx.user(c).id, provider).linkedAccounts);
+    return c.json(kiln.identities.unlinkUser(ctx.user(c).id, provider).linkedAccounts);
   });
 
   // what Kiln sent you, and whether it arrived

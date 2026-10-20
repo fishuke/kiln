@@ -26,6 +26,30 @@ export type PullRequest = {
 
 export type ForgeIssue = { repo: string; number: number; url: string; title: string; body: string; labels: string[]; state: "open" | "closed" };
 
+/** One changed file of a pull request; `patch` is the unified diff from the first hunk on. */
+export type PullRequestFile = { path: string; previousPath?: string; status: "added" | "modified" | "removed" | "renamed"; additions: number; deletions: number; patch?: string };
+
+export type ReviewComment = { path: string; line: number; side?: "LEFT" | "RIGHT"; body: string };
+export type ReviewInput = { event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"; body?: string; comments?: ReviewComment[] };
+
+/**
+ * The forge as one person, with their own token: what a review or merge started from Kiln
+ * runs as, so the forge records that person. Agent identities are refused (ADR-008, ADR-010).
+ */
+export interface PersonForge {
+  login(): Promise<string>;
+  submitReview(repo: RepoRef, number: number, input: ReviewInput): Promise<{ id: string; url: string }>;
+  merge(repo: RepoRef, number: number): Promise<PullRequest>;
+}
+
+export class AgentIdentityError extends Error {
+  constructor(login: string) {
+    super(`${login} is an agent identity; agents cannot review or merge`);
+  }
+}
+
+const isAgentLogin = (login: string, type?: string) => type === "Bot" || /^kiln-agent|\[bot\]$/.test(login);
+
 export type CheckStatus = { status: "success" | "failure" | "pending"; runs: { name: string; conclusion: string }[] };
 
 export interface Forge {
@@ -49,6 +73,10 @@ export interface Forge {
   deleteLabel?(repo: RepoRef, name: string): Promise<void>;
   /** Report a check (e.g. kiln/factory-config) on a commit. */
   createCheckRun?(repo: RepoRef, input: CheckRunInput): Promise<{ id: string }>;
+  /** The changed files of a pull request, read with the forge's own identity. */
+  pullRequestFiles?(repo: RepoRef, number: number): Promise<PullRequestFile[]>;
+  /** Act as a person with their own token (see PersonForge). */
+  asPerson?(token: string): PersonForge;
 }
 
 export type CheckRunInput = {
@@ -273,6 +301,61 @@ done
     return { id };
   }
 
+  /** Reviews people submitted through `asPerson`, for tests. */
+  readonly reviews: (ReviewInput & { repo: string; number: number; by: string; id: string })[] = [];
+
+  /** The token `asPerson` accepts for `login`; stands in for a person's OAuth token. */
+  static personToken(login: string) {
+    return `fake-gh:${login}`;
+  }
+
+  async pullRequestFiles(repo: RepoRef, number: number): Promise<PullRequestFile[]> {
+    const pr = await this.getPullRequest(repo, number);
+    if (!pr) throw new Error(`no pull request ${number} in ${repoKey(repo)}`);
+    const bare = this.bare(repo);
+    const range = `refs/heads/${pr.base}...${pr.headSha ?? `refs/heads/${pr.head}`}`;
+    const STATUS: Record<string, PullRequestFile["status"]> = { A: "added", M: "modified", D: "removed", R: "renamed" };
+    const names = git(bare, ["diff", "--name-status", "-M", range]).trim().split("\n").filter(Boolean);
+    const counts = git(bare, ["diff", "--numstat", "-M", range]).trim().split("\n").filter(Boolean);
+    return names.map((line, i) => {
+      const [code, a, b] = line.split("\t");
+      const [add, del] = counts[i]!.split("\t");
+      const path = b ?? a!;
+      const patch = git(bare, ["diff", "-M", range, "--", ...(b ? [a!, b] : [a!])]);
+      return {
+        path,
+        ...(b ? { previousPath: a } : {}),
+        status: STATUS[code![0]!] ?? "modified",
+        additions: Number(add) || 0,
+        deletions: Number(del) || 0,
+        patch: patch.slice(patch.indexOf("@@")).trimEnd(),
+      };
+    });
+  }
+
+  asPerson(token: string): PersonForge {
+    const m = /^fake-gh:(.+)$/.exec(token);
+    if (!m) throw new Error("not a token this forge issued");
+    const login = m[1]!;
+    const check = () => {
+      if (isAgentLogin(login)) throw new AgentIdentityError(login);
+    };
+    return {
+      login: async () => login,
+      submitReview: async (repo, number, input) => {
+        check();
+        if (!(await this.getPullRequest(repo, number))) throw new Error(`no pull request ${number} in ${repoKey(repo)}`);
+        const id = `review_${this.reviews.length + 1}`;
+        this.reviews.push({ ...input, repo: repoKey(repo), number, by: login, id });
+        return { id, url: `https://forge.test/${repoKey(repo)}/pull/${number}#${id}` };
+      },
+      merge: async (repo, number) => {
+        check();
+        return this.merge(repo, number, login);
+      },
+    };
+  }
+
   /** A person merges a pull request; agents never can. */
   async merge(repo: RepoRef, number: number, by: string): Promise<PullRequest> {
     if (by.startsWith("kiln-agent")) throw new Error("agents cannot merge pull requests");
@@ -451,6 +534,57 @@ export class GitHubForge implements Forge {
       output: { title: input.title, summary: input.summary, ...(input.text ? { text: input.text } : {}) },
     });
     return { id: String(r.id) };
+  }
+
+  async pullRequestFiles(repo: RepoRef, number: number): Promise<PullRequestFile[]> {
+    const out: PullRequestFile[] = [];
+    // GitHub lists at most 3000 files, 100 per page.
+    for (let page = 1; page <= 30; page++) {
+      const list = await this.api<Record<string, any>[] | undefined>("GET", `/repos/${repoKey(repo)}/pulls/${number}/files?per_page=100&page=${page}`);
+      for (const f of list ?? []) {
+        out.push({
+          path: f.filename,
+          ...(f.previous_filename ? { previousPath: f.previous_filename } : {}),
+          status: f.status === "removed" || f.status === "added" || f.status === "renamed" ? f.status : "modified",
+          additions: f.additions ?? 0,
+          deletions: f.deletions ?? 0,
+          ...(f.patch ? { patch: f.patch } : {}),
+        });
+      }
+      if (!list || list.length < 100) break;
+    }
+    return out;
+  }
+
+  asPerson(token: string): PersonForge {
+    const as = new GitHubForge({ token, baseUrl: this.options.baseUrl, fetch: this.options.fetch });
+    let me: Promise<string> | undefined;
+    const login = () =>
+      (me ??= as.api<{ login: string; type?: string }>("GET", "/user").then((u) => {
+        if (!u) throw new Error("GitHub did not accept this account's token; link GitHub again");
+        if (isAgentLogin(u.login, u.type)) throw new AgentIdentityError(u.login);
+        return u.login;
+      }));
+    return {
+      login,
+      submitReview: async (repo, number, input) => {
+        await login();
+        const r = await as.api<{ id: number; html_url: string }>("POST", `/repos/${repoKey(repo)}/pulls/${number}/reviews`, {
+          event: input.event,
+          ...(input.body ? { body: input.body } : {}),
+          ...(input.comments?.length ? { comments: input.comments.map((c) => ({ path: c.path, line: c.line, side: c.side ?? "RIGHT", body: c.body })) } : {}),
+        });
+        if (!r) throw new Error(`pull request ${number} was not found in ${repoKey(repo)}`);
+        return { id: String(r.id), url: r.html_url };
+      },
+      merge: async (repo, number) => {
+        await login();
+        await as.api("PUT", `/repos/${repoKey(repo)}/pulls/${number}/merge`, {});
+        const pr = await as.getPullRequest(repo, number);
+        if (!pr) throw new Error(`pull request ${number} was not found in ${repoKey(repo)}`);
+        return pr;
+      },
+    };
   }
 
   async readTree(repo: RepoRef, ref = "main", dir = "") {

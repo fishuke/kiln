@@ -793,13 +793,15 @@ export class Workflow {
   private async review(wi: Item, stage: PlanStage): Promise<StepResult> {
     wi = this.move(wi, "reviewing", "review started");
     const r = this.resolved(wi);
-    const risk = await runDecision("review-risk", r.parsed.decisions["review-risk"] ?? BUILTIN_DECISIONS["review-risk"]!, { title: wi.title, files: [], additions: 0, deletions: 0 }, this.k.decide);
-    this.k.logDecision(risk, { title: wi.title }, { workItemId: wi.id });
+    const riskState = await this.diffSummary(wi);
+    const risk = await runDecision("review-risk", r.parsed.decisions["review-risk"] ?? BUILTIN_DECISIONS["review-risk"]!, riskState, this.k.decide);
+    this.k.logDecision(risk, riskState, { workItemId: wi.id });
     const reviewers = risk.action === "code_owners" ? (this.k.options.roles?.["code-owners"] ?? []) : [wi.requester];
     const run = await this.agentRun(wi, stage.agent!, stage.id, this.briefing(wi, ["", `Review the pull request ${wi.pr?.url ?? ""} adversarially. Report findings; do not post them yourself.`]), { push: false });
     const res = (run.result ?? {}) as { verdict?: string; findings?: string[] };
     const verdict = res.verdict ?? "accepted";
-    wi.review = { verdict, findings: res.findings ?? [], reviewers };
+    // Nobody reads the code when the risk check says so and the reviewer agent agrees (ADR-010); a person still merges.
+    wi.review = { verdict, findings: res.findings ?? [], reviewers, needsHuman: !(risk.action === "skip_review" && verdict === "accepted") };
     this.save(wi);
     if (verdict === "changes_requested" && (res.findings?.length ?? 0) > 0) {
       const max = stage.max_loops ?? 3;
@@ -818,6 +820,16 @@ export class Workflow {
     return this.nextStage(wi);
   }
 
+  /** What review-risk looks at: the pull request's changed files and line counts. */
+  private async diffSummary(wi: Item): Promise<{ title: string; files: string[]; additions: number; deletions: number }> {
+    const base = { title: wi.title, files: [] as string[], additions: wi.pr?.additions ?? 0, deletions: wi.pr?.deletions ?? 0 };
+    if (!wi.pr || !this.k.forge.pullRequestFiles) return base;
+    const [owner, name] = wi.pr.repo.split("/");
+    const files = await this.k.forge.pullRequestFiles({ owner: owner!, name: name! }, wi.pr.number).catch(() => undefined);
+    if (!files) return base;
+    return { title: wi.title, files: files.map((f) => f.path), additions: files.reduce((n, f) => n + f.additions, 0), deletions: files.reduce((n, f) => n + f.deletions, 0) };
+  }
+
   private async handoff(wi: Item): Promise<StepResult> {
     if (wi.state === "handed_off") return "wait";
     if (!wi.pr) {
@@ -827,9 +839,11 @@ export class Workflow {
     const repo = this.repoOf(wi);
     await this.k.forge.addLabels(repo, wi.pr.number, [`factory:${this.resolved(wi).factory.alias ?? wi.factory}`]);
     this.move(wi, "handed_off", "pull request ready for a human merge");
-    const msg = [`Ready to merge: ${wi.pr.url}`, wi.previewUrl ? `Preview: ${wi.previewUrl}` : "", wi.review?.verdict === "needs_human" ? "Some review findings need your judgment; they are on the PR." : ""].filter(Boolean).join("\n");
+    const skip = wi.review?.needsHuman === false;
+    const msg = [skip ? `Ready to merge, no code review needed: ${wi.pr.url}` : `Ready for review: ${wi.pr.url}`, wi.previewUrl ? `Preview: ${wi.previewUrl}` : "", wi.review?.verdict === "needs_human" ? "Some review findings need your judgment; they are on the PR." : ""].filter(Boolean).join("\n");
     await this.k.notify(wi, msg);
-    await this.k.gates.open({ workItem: wi, kind: "merge", name: "merge", title: `Merge "${wi.title}"`, question: `Review and merge ${wi.pr.url}. Approve here only to confirm completion without a merge.`, evidence: [{ label: "Pull request", url: wi.pr.url }], assignees: wi.review?.reviewers });
+    // Low risk: no inbox item; the task is listed as ready to merge (ReviewService.readyToMerge).
+    if (!skip) await this.k.gates.open({ workItem: wi, kind: "merge", name: "merge", title: `Review "${wi.title}"`, question: `Review the changes, then merge ${wi.pr.url}.`, evidence: [{ label: "Pull request", url: wi.pr.url }], assignees: wi.review?.reviewers });
     await this.moveTrackerIssue(wi, "handoff");
     return "done";
   }
@@ -904,11 +918,14 @@ export class Workflow {
   }
 
   /** New review comments on a handed-off PR send the work back to implementation. */
-  async onReviewSubmitted(repo: string, number: number, text: string, by: string) {
+  async onReviewSubmitted(repo: string, number: number, text: string, by: string, body = text) {
     const wi = this.list().find((w) => w.pr?.repo === repo && w.pr.number === number);
     if (!wi || !isActive(wi.state)) return;
+    const key = `${by}:${body.trim()}`;
+    if (wi.handledReviews?.includes(key)) return;
     this.addMessage(wi.id, by, text);
     const fresh = this.get(wi.id)!;
+    fresh.handledReviews = [...(fresh.handledReviews ?? []), key].slice(-50);
     if (fresh.pr && !fresh.pr.firstReviewAt) fresh.pr.firstReviewAt = this.k.clock.now().toISOString();
     const idx = fresh.plan?.stages.findIndex((s) => s.kind === "build") ?? -1;
     if (idx < 0) return;

@@ -2,16 +2,17 @@ import { BUILTIN_DECISIONS, runDecision, top } from "@kiln/decide";
 import type { ResolvedFactory } from "@kiln/definitions";
 import { collectPlaywrightEvidence, criteriaCovered, previewCard } from "@kiln/evidence";
 import { evalBool, type PipelineStage } from "@kiln/schema";
+import { KilnError } from "./errors";
 import { BUILTIN_GATES } from "./gates";
 import type { Kiln } from "./kiln";
 import { isActive, transition } from "./state";
-import { fileUrl } from "./runs";
-import { C, newId, type Attachment, type Gate, type Run, type Source, type WorkItem, type WorkItemState } from "./types";
+import { fileUrl } from "./media";
+import { C, newId, type Attachment, type Gate, type Run, type RunMode, type Source, type WorkItem, type WorkItemState } from "./types";
 
-export type StageKind = "triage" | "spec" | "build" | "verify" | "review" | "preview" | "handoff" | "custom";
+export type StageKind = "triage" | "spec" | "build" | "verify" | "review" | "preview" | "handoff" | "custom" | "blueprint";
 export type PlanStage = PipelineStage & { kind: StageKind };
-type Plan = { mode: "pipeline" | "foreman" | "direct"; stages: PlanStage[]; cursor: number };
-type Item = WorkItem & { plan?: Plan };
+type Plan = { mode: "pipeline" | "foreman" | "direct" | "blueprint"; stages: PlanStage[]; cursor: number };
+type Item = WorkItem & { plan?: Plan; pendingDiff?: { additions: number; deletions: number; files: number } };
 
 const TYPE_TO_KIND: Record<string, StageKind> = {
   TRIAGE: "triage",
@@ -49,9 +50,18 @@ export class Workflow {
     return wi;
   }
 
+  /** Change fields of a stored item (not its state) and save it. */
+  update(id: string, fn: (wi: Item) => void): Item | undefined {
+    const wi = this.get(id);
+    if (!wi) return undefined;
+    fn(wi);
+    return this.save(wi);
+  }
+
   private move(wi: Item, to: WorkItemState, reason: string): Item {
     const from = wi.state;
     const next = transition(wi, to, this.k.clock.now().toISOString()) as Item;
+    if (from !== to) delete next.stageOverride;
     this.save(next);
     if (from !== to) this.k.bus.publish("work_item.stage_changed", { workItemId: wi.id, factory: wi.factory, from, to, reason });
     return next;
@@ -74,6 +84,10 @@ export class Workflow {
     directAgent?: string;
     prompt?: string;
     attachments?: Attachment[];
+    conversationId?: string;
+    mode?: RunMode;
+    /** Work on this branch instead of a generated kiln/<id>-<slug> one. */
+    branch?: string;
   }): Promise<WorkItem> {
     const id = newId("wi");
     const sha = this.k.defs.shaFor(input.factory, id);
@@ -97,6 +111,9 @@ export class Workflow {
       projectId: input.projectId,
       trackerKey: input.trackerKey,
       pipeline: input.pipeline ?? resolved.factory.defaultPipeline,
+      ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+      ...(input.mode && input.mode !== "normal" ? { mode: input.mode } : {}),
+      ...(input.branch ? { branch: input.branch } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -202,14 +219,17 @@ export class Workflow {
         })),
       };
     }
+    const bp = r.factory.blueprint;
+    if (bp) return { mode: "blueprint", cursor: 0, stages: [{ id: bp.entry, kind: "blueprint", agent: bp.staffing[bp.entry] }] };
     return { mode: "foreman", cursor: 0, stages: [{ id: "triage", kind: "triage", agent: this.agentFor(wi, "TRIAGE") }] };
   }
 
   /** After triage, the foreman picks the rest of the path. */
   private async foremanRoute(wi: Item): Promise<PlanStage[]> {
-    const needsSpec = await this.needsSpec(wi);
+    // Plan mode: always plan first and wait for a person to approve the plan.
+    const needsSpec = wi.mode === "plan" ? true : await this.needsSpec(wi);
     const stages: PlanStage[] = [];
-    const spec = this.agentFor(wi, "SPEC");
+    const spec = this.agentFor(wi, "SPEC") ?? (wi.mode === "plan" ? (this.agentFor(wi, "PLAN") ?? this.agentFor(wi, "IMPLEMENT") ?? this.agentFor(wi, "FOREMAN")) : undefined);
     if (needsSpec && spec) stages.push({ id: "spec", kind: "spec", agent: spec, gate: "spec-approval" });
     stages.push({ id: "build", kind: "build", agent: this.agentFor(wi, "IMPLEMENT") ?? this.agentFor(wi, "CUSTOM") ?? this.agentFor(wi, "FOREMAN")! });
     stages.push({ id: "verify", kind: "verify", agent: this.agentFor(wi, "VERIFY"), requires: ["ci_green"], on_fail: "build", max_loops: 3 });
@@ -264,12 +284,12 @@ export class Workflow {
     return [...lines, ...extra].join("\n");
   }
 
-  private async agentRun(wi: Item, agent: string, stage: string, prompt: string, opts: { push?: boolean; collect?: Parameters<Kiln["runs"]["execute"]>[0]["collect"] } = {}): Promise<Run> {
+  private async agentRun(wi: Item, agent: string, stage: string, prompt: string, opts: { push?: boolean; collect?: Parameters<Kiln["runs"]["execute"]>[0]["collect"]; mode?: RunMode } = {}): Promise<Run> {
     const r = this.resolved(wi);
     const caps = [wi.budgetUsd, ...Object.values(r.parsed.policies).map((p) => p.maxUsdPerWorkItem)].filter((n): n is number => typeof n === "number");
     const cap = caps.length ? Math.min(...caps) : undefined;
     if (cap !== undefined && wi.costUsd >= cap) {
-      throw new Error(`budget of $${cap} reached ($${wi.costUsd.toFixed(2)} spent)`);
+      throw new KilnError("budget_exceeded", `budget of $${cap} reached ($${wi.costUsd.toFixed(2)} spent)`);
     }
     const monthly = r.factory.budgets?.monthlyUsd;
     if (monthly !== undefined) {
@@ -277,8 +297,10 @@ export class Workflow {
       start.setUTCDate(1);
       start.setUTCHours(0, 0, 0, 0);
       const spent = this.k.runs.list({ factory: wi.factory }).filter((x) => x.startedAt >= start.toISOString()).reduce((s, x) => s + x.costUsd, 0);
-      if (spent >= monthly) throw new Error(`monthly budget of $${monthly} for ${wi.factory} reached ($${spent.toFixed(2)} spent)`);
+      if (spent >= monthly) throw new KilnError("budget_exceeded", `monthly budget of $${monthly} for ${wi.factory} reached ($${spent.toFixed(2)} spent)`);
     }
+    const agentType = r.agents[agent]?.agentType;
+    const mode = opts.mode ?? (wi.mode === "orchestrate" && (agentType === "FOREMAN" || agentType === "IMPLEMENT") ? "orchestrate" : undefined);
     const run = await this.k.runs.execute({
       factory: wi.factory,
       sha: wi.definitionSha,
@@ -289,15 +311,34 @@ export class Workflow {
       branch: this.branch(wi),
       push: opts.push ?? true,
       collect: opts.collect,
+      mode,
     });
     const fresh = this.get(wi.id)!;
     fresh.costUsd += run.costUsd;
     fresh.branch = this.branch(wi);
+    const diff = run.result?.diffStat as { additions: number; deletions: number; files: number } | undefined;
+    if (diff && fresh.pr) {
+      fresh.pr.additions = (fresh.pr.additions ?? 0) + diff.additions;
+      fresh.pr.deletions = (fresh.pr.deletions ?? 0) + diff.deletions;
+      fresh.pr.changedFiles = Math.max(fresh.pr.changedFiles ?? 0, diff.files);
+      fresh.pr.commits = (fresh.pr.commits ?? 0) + 1;
+    } else if (diff) {
+      fresh.pendingDiff = { additions: (fresh.pendingDiff?.additions ?? 0) + diff.additions, deletions: (fresh.pendingDiff?.deletions ?? 0) + diff.deletions, files: Math.max(fresh.pendingDiff?.files ?? 0, diff.files) };
+    }
     this.say(fresh, agent, "agent", run.summary || `${agent} ${run.status}`);
     this.save(fresh);
     Object.assign(wi, fresh);
     const memories = (run.result?.memories as { title: string; body: string; tags?: string[] }[] | undefined) ?? [];
     for (const m of memories) this.k.memories.propose(wi.factory, { ...m, author: agent, sourceRunId: run.id });
+    // Agents may propose definition changes (prompts, skills, settings); people review them in the inbox.
+    const change = run.result?.definitionChange as { title?: string; message?: string; files?: Record<string, string | null> } | undefined;
+    if (change?.files && Object.keys(change.files).length) {
+      try {
+        this.k.definitionChanges.propose({ factory: wi.factory, title: change.title ?? `Definition change from ${agent}`, message: change.message ?? run.summary ?? "", files: change.files, by: `agent:${agent}`, runId: run.id, workItemId: wi.id });
+      } catch (err) {
+        this.say(wi, "kiln", "system", `Could not record the proposed definition change: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     return run;
   }
 
@@ -335,7 +376,74 @@ export class Workflow {
         return this.review(wi, stage);
       case "handoff":
         return this.handoff(wi);
+      case "blueprint":
+        return this.blueprintStage(wi, stage);
     }
+  }
+
+  /**
+   * One stage of the factory's blueprint: the staffed agent runs the stage prompt, then the
+   * first edge out of the stage whose condition holds picks the next stage. The agent may name
+   * it (`result.next`); otherwise the foreman decides; with no edge that holds the work ends.
+   */
+  private async blueprintStage(wi: Item, stage: PlanStage): Promise<StepResult> {
+    const bp = this.resolved(wi).factory.blueprint;
+    const def = bp?.stages[stage.id];
+    if (!bp || !def || !stage.agent) {
+      this.park(wi.id, `blueprint stage ${stage.id} is not defined`);
+      return "wait";
+    }
+    const visits = (wi.loops[`bp:${stage.id}`] ?? 0) + 1;
+    wi.loops[`bp:${stage.id}`] = visits;
+    if (visits > 5) {
+      this.park(wi.id, `blueprint stage ${stage.id} ran ${visits - 1} times without finishing`);
+      return "wait";
+    }
+    if (wi.state !== "building") wi = this.move(wi, "building", `${stage.id} started`);
+    const edges = Object.entries(bp.edges).filter(([, e]) => e.from === stage.id);
+    const run = await this.agentRun(
+      wi,
+      stage.agent,
+      stage.id,
+      this.briefing(wi, [
+        "",
+        `## Stage: ${stage.id}`,
+        def.prompt,
+        ...(def.inputs ? ["", `Inputs: ${def.inputs}`] : []),
+        ...(def.outputs ? ["", `Report back: ${def.outputs}`] : []),
+        ...(edges.length ? ["", "When you finish, set `next` in .kiln/result.json to the edge that holds, or \"end\":", ...edges.map(([name, e]) => `- ${name} → ${e.to}: ${e.when}`)] : []),
+      ]),
+    );
+    if (run.status !== "succeeded") {
+      this.park(wi.id, `${stage.agent} failed in blueprint stage ${stage.id}: ${run.summary ?? run.status}`);
+      await this.k.gates.open({ workItem: wi, kind: "question", name: `${stage.id}-failed`, title: `${stage.agent} could not finish ${stage.id} for "${wi.title}"`, question: run.summary });
+      return "wait";
+    }
+    const pr = await this.ensurePullRequest(wi, false);
+    if (pr) this.k.runs.addArtifact(run.id, { kind: "pr", name: `${pr.repo}#${pr.number}`, url: pr.url });
+    let next = typeof run.result?.next === "string" ? run.result.next : undefined;
+    if (next === undefined && edges.length > 1 && bp.staffing.foreman) {
+      const choice = await this.agentRun(wi, bp.staffing.foreman, "route", [`Stage ${stage.id} finished: ${run.summary ?? ""}`, `Result: ${JSON.stringify(run.result ?? {})}`, "Pick the edge whose condition holds and answer with dispatch.edge (or \"end\"):", ...edges.map(([name, e]) => `- ${name} → ${e.to}: ${e.when}`)].join("\n"), { push: false });
+      const d = choice.result?.dispatch as { edge?: string; stage?: string } | undefined;
+      next = d?.edge ?? d?.stage;
+    }
+    if (next === undefined && edges.length === 1) next = edges[0]![0];
+    const edge = edges.find(([name, e]) => name === next || e.to === next);
+    if (edge) {
+      const to = edge[1].to;
+      this.say(wi, "foreman", "foreman", `${stage.id} done; ${edge[0]} → ${to}.`);
+      wi.plan!.stages.splice(wi.plan!.cursor + 1, 0, { id: to, kind: "blueprint", agent: bp.staffing[to] });
+      return this.nextStage(wi);
+    }
+    this.say(wi, "foreman", "foreman", `${stage.id} done; the blueprint ends here.`);
+    if (wi.pr) {
+      wi.plan!.stages.splice(wi.plan!.cursor + 1, 0, { id: "handoff", kind: "handoff", action: "handoff" });
+      return this.nextStage(wi);
+    }
+    this.save(wi);
+    this.move(wi, "handed_off", "blueprint finished");
+    await this.k.gates.open({ workItem: wi, kind: "merge", name: "merge", title: `Confirm "${wi.title}" is done`, question: `The blueprint finished without a pull request.\n${run.summary ?? ""}\nApprove to close the task.` });
+    return "done";
   }
 
   private nextStage(wi: Item): StepResult {
@@ -398,10 +506,17 @@ export class Workflow {
       .list({ workItemId: wi.id })
       .filter((g) => g.kind === "spec" && g.state === "rejected" && g.answer)
       .map((g) => `Requested changes: ${g.answer}`);
-    let run = await this.agentRun(wi, stage.agent!, "spec", this.briefing(wi, ["", "Write the spec with numbered, testable acceptance criteria (AC1, AC2, …) and user stories.", ...feedback]));
-    let res = (run.result ?? {}) as { specPath?: string; criteria?: string[]; stories?: string[]; openQuestions?: string[] };
+    const planOnly = this.resolved(wi).agents[stage.agent!]?.agentType !== "SPEC";
+    let run = await this.agentRun(
+      wi,
+      stage.agent!,
+      "spec",
+      this.briefing(wi, ["", planOnly ? "Write the plan for this change." : "Write the spec with numbered, testable acceptance criteria (AC1, AC2, …) and user stories.", ...feedback]),
+      planOnly ? { mode: "plan", push: false } : {},
+    );
+    let res = (run.result ?? {}) as { specPath?: string; criteria?: string[]; stories?: string[]; openQuestions?: string[]; plan?: string };
     const failing = await this.checkCriteria(wi, res.criteria ?? []);
-    if (failing.length && (wi.loops.spec ?? 0) < 1) {
+    if (failing.length && (wi.loops.spec ?? 0) < 1 && !planOnly) {
       wi.loops.spec = (wi.loops.spec ?? 0) + 1;
       run = await this.agentRun(wi, stage.agent!, "spec", this.briefing(wi, ["", "These acceptance criteria are not testable or are ambiguous; rewrite them:", ...failing.map((c) => `- ${c}`)]));
       res = (run.result ?? res) as typeof res;
@@ -418,8 +533,10 @@ export class Workflow {
       kind: "spec",
       name: stage.gate,
       def: this.gateDef(wi, stage.gate),
-      title: `Approve the spec for "${wi.title}"`,
+      title: planOnly ? `Approve the plan for "${wi.title}"` : `Approve the spec for "${wi.title}"`,
+      runId: planOnly ? run.id : undefined,
       question: [
+        ...(res.plan ? [res.plan] : []),
         ...wi.spec.criteria.map((c) => `- ${c}`),
         ...(wi.spec.openQuestions.length ? ["Open questions:", ...wi.spec.openQuestions.map((q) => `- ${q}`)] : []),
         ...(stillFailing.length ? ["Not yet testable:", ...stillFailing.map((c) => `- ${c}`)] : []),
@@ -463,7 +580,9 @@ export class Workflow {
     }
     try {
       const pr = await this.k.forge.openPullRequest({ repo, head: branch, title: wi.title, body, labels: [`factory:${alias}`], draft });
-      wi.pr = { repo: pr.repo, number: pr.number, url: pr.url };
+      const d = wi.pendingDiff;
+      wi.pr = { repo: pr.repo, number: pr.number, url: pr.url, openedAt: this.k.clock.now().toISOString(), ...(d ? { additions: d.additions, deletions: d.deletions, changedFiles: d.files, commits: 1 } : {}) };
+      delete wi.pendingDiff;
       this.save(wi);
       this.k.bus.publish("pull_request.opened", { workItemId: wi.id, repo: pr.repo, number: pr.number, url: pr.url, branch });
       return pr;
@@ -647,6 +766,7 @@ export class Workflow {
     const wi = this.get(id);
     if (!wi || wi.state === "complete") return wi;
     wi.completion = completion;
+    if (completion.by === "merge" && wi.pr) wi.pr.mergedAt = this.k.clock.now().toISOString();
     let next = wi;
     if (wi.state !== "handed_off") next = this.move({ ...wi }, "handed_off", "completed before hand-off");
     next = this.move({ ...next, completion }, "complete", completion.by === "merge" ? `merged (${completion.ref})` : `confirmed by ${completion.ref}`);
@@ -670,6 +790,7 @@ export class Workflow {
     if (!wi || !isActive(wi.state)) return;
     this.addMessage(wi.id, by, text);
     const fresh = this.get(wi.id)!;
+    if (fresh.pr && !fresh.pr.firstReviewAt) fresh.pr.firstReviewAt = this.k.clock.now().toISOString();
     const idx = fresh.plan?.stages.findIndex((s) => s.kind === "build") ?? -1;
     if (idx < 0) return;
     for (const g of this.k.gates.list({ workItemId: wi.id, state: "open" })) if (g.kind === "merge") this.k.store.put(C.gates, { ...g, state: "expired", decidedBy: "kiln:revision" });

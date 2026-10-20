@@ -10,19 +10,30 @@ import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import { MemoryObjectStore, MemoryStore, type ObjectStore, type Store } from "@kiln/store";
 import { AutomationService } from "./automations";
+import { BenchmarkAdmin } from "./benchmark-admin";
 import { BenchmarkService } from "./benchmarks";
+import { DefinitionChangeService } from "./definition-changes";
 import { DefinitionService } from "./definitions";
+import { DefinitionEditor } from "./editing";
+import { FactoryMetricsService } from "./factory-metrics";
+import { FileService } from "./files";
 import { GateService } from "./gates";
 import { ImprovementService, RuleImprover, type Improver } from "./improvement";
+import { InboxService } from "./inbox";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
 import { PlanningService, type Planner } from "./planning";
+import { RunQuery } from "./run-query";
 import { RunService } from "./runs";
+import { ScorerAdmin } from "./scorer-admin";
 import { DecisionJudge, ScoringService, type Judge } from "./scoring";
 import { SecretsBroker } from "./secrets";
 import { SkillService } from "./skills";
+import { TaskService } from "./tasks";
 import { C, newId, systemClock, type AuditEntry, type Clock, type DecisionLog, type WorkItem } from "./types";
+import { WorkerRegistry } from "./workers";
 import { Workflow } from "./workflow";
+import { FactoryWizard } from "./wizard";
 
 export type KilnOptions = {
   forge: Forge;
@@ -55,6 +66,12 @@ export type KilnOptions = {
   secretKey?: string;
   /** Token used when Kiln itself commits to config repos (GitHub App installation token). */
   forgeToken?: string;
+  /** Attempts per run for retryable platform errors (default 3). */
+  maxRunAttempts?: number;
+  /** A worker that has not sent a heartbeat for this long is no longer connected (default 60 s). */
+  workerStaleMs?: number;
+  /** Runs nobody claims fail after this long (default 30 min). */
+  workerQueueTimeoutMs?: number;
 };
 
 /** The composition root: every service, wired to one store, bus and clock. */
@@ -73,7 +90,7 @@ export class Kiln {
   readonly improver: Improver;
   readonly planner?: Planner;
   readonly secrets: SecretsBroker;
-  readonly stopping = new Map<string, "pause" | "cancel">();
+  readonly stopping = new Map<string, "pause" | "cancel" | "interrupt">();
 
   readonly defs: DefinitionService;
   readonly runs: RunService;
@@ -87,6 +104,17 @@ export class Kiln {
   readonly planning: PlanningService;
   readonly memories: MemoryService;
   readonly skills: SkillService;
+  readonly files: FileService;
+  readonly tasks: TaskService;
+  readonly runQuery: RunQuery;
+  readonly workers: WorkerRegistry;
+  readonly inbox: InboxService;
+  readonly editor: DefinitionEditor;
+  readonly definitionChanges: DefinitionChangeService;
+  readonly factoryMetrics: FactoryMetricsService;
+  readonly scorers: ScorerAdmin;
+  readonly benchmarkAdmin: BenchmarkAdmin;
+  readonly wizard: FactoryWizard;
 
   constructor(readonly options: KilnOptions) {
     this.store = options.store ?? new MemoryStore();
@@ -116,6 +144,17 @@ export class Kiln {
     this.planning = new PlanningService(this);
     this.memories = new MemoryService(this);
     this.skills = new SkillService(this);
+    this.files = new FileService(this);
+    this.tasks = new TaskService(this);
+    this.runQuery = new RunQuery(this);
+    this.workers = new WorkerRegistry(this);
+    this.inbox = new InboxService(this);
+    this.editor = new DefinitionEditor(this);
+    this.definitionChanges = new DefinitionChangeService(this);
+    this.factoryMetrics = new FactoryMetricsService(this);
+    this.scorers = new ScorerAdmin(this);
+    this.benchmarkAdmin = new BenchmarkAdmin(this);
+    this.wizard = new FactoryWizard(this);
 
     // `provider: factory, event: work_item_stage_changed` automations react to stage changes in their own factory.
     this.bus.subscribe("work_item.stage_changed", async (e) => {
@@ -199,14 +238,22 @@ export class Kiln {
   }
 
   /** Kiln's own commits (self-improvement, skills, memories, routers) to a config repo branch. */
-  async commitFiles(repo: RepoRef & { ref?: string }, branch: string, files: Record<string, string>, message: string) {
+  async commitFiles(repo: RepoRef & { ref?: string }, branch: string, files: Record<string, string | null>, message: string) {
     const work = mkdtempSync(join(tmpdir(), "kiln-commit-"));
     const env = { ...process.env, KILN_PUSH_AS: "agent:kiln" };
     const git = (...args: string[]) => execFileSync("git", args, { cwd: work, env, stdio: "pipe" }).toString();
     try {
       git("clone", "-q", this.forge.cloneUrl(repo, this.options.forgeToken), ".");
-      git("checkout", "-q", "-B", branch, `origin/${repo.ref ?? "main"}`);
+      const base = repo.ref ?? "main";
+      const hasBase = git("ls-remote", "origin", `refs/heads/${base}`).trim() !== "";
+      if (hasBase) git("checkout", "-q", "-B", branch, `origin/${base}`);
+      else git("checkout", "-q", "--orphan", branch);
       for (const [path, content] of Object.entries(files)) {
+        if (path.split("/").includes("..")) throw new Error(`refusing to write ${path}`);
+        if (content === null) {
+          git("rm", "-q", "-f", "--ignore-unmatch", path);
+          continue;
+        }
         mkdirSync(dirname(join(work, path)), { recursive: true });
         writeFileSync(join(work, path), content);
       }
@@ -222,6 +269,8 @@ export class Kiln {
   async tick(opts: { selfImprovement?: boolean } = {}) {
     await this.gates.tick();
     await this.automations.tick();
+    this.workers.tick();
+    for (const f of this.defs.list()) if (f.migration) await this.editor.completeMigration(f.id).catch(() => false);
     for (const wi of this.workflow.list()) {
       if (wi.blockedReason === "waiting for CI" && wi.state === "building") await this.workflow.advance(wi.id);
     }

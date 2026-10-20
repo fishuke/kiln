@@ -92,7 +92,8 @@ export class DefinitionService {
     const result = validateTree(tree);
     const sha = result.parsed.sha;
     const named = result.parsed.factory;
-    const factoryId = opts.factory ?? (named ? (named.alias ?? slug(named.name)) : undefined);
+    // The factory id is the alias as a slug ("Web Platform" → web-platform); existing ids never change.
+    const factoryId = opts.factory ?? (named ? slug(named.alias ?? named.name) : undefined);
     if (!result.ok) {
       const errors = result.errors.map((e) => `${e.file}:${e.line}: ${e.message}`);
       if (!opts.dryRun) {

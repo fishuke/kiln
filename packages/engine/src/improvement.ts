@@ -69,6 +69,7 @@ export class AgentImprover implements Improver {
       ...(input.negatives.length ? ["Reviewers rejected these earlier proposals; do not repeat them:", ...input.negatives.map((n) => `- ${n.rationale}`)] : []),
       "Edit instructions, skills, routers or runners. Do not touch policies/ or gates/. Write a one-paragraph rationale as result.summary.",
     ].join("\n");
+    const model = this.k.defs.resolved(b.appliedSha!).factory.selfImprovement?.model;
     const run = await this.k.runs.execute({
       factory: input.factory,
       sha: b.appliedSha!,
@@ -78,6 +79,9 @@ export class AgentImprover implements Improver {
       repos: [],
       files,
       push: false,
+      source: "SELF_IMPROVEMENT",
+      title: `Self-improvement for ${input.agent}`,
+      ...(model ? { overrides: { model } } : {}),
       collect: async (sandbox) => {
         const list = await sandbox.exec("cd .kiln/definition && find . -type f | sed 's|^./||'", { trusted: true });
         for (const p of list.stdout.split("\n").filter(Boolean)) {
@@ -109,6 +113,7 @@ export class ImprovementService {
   /** Scheduled check: enough distinct unreviewed failures, or the oldest is too old. */
   async check(factory: string, opts: { runNow?: boolean } = {}): Promise<Proposal[]> {
     const resolved = this.k.defs.current(factory);
+    if (resolved.factory.selfImprovement?.enabled === false && !opts.runNow) return [];
     const threshold = resolved.factory.selfImprovement?.failedRunThreshold ?? 25;
     const maxAgeMs = (resolved.factory.selfImprovement?.maxAgeDays ?? 7) * 86_400_000;
     const now = this.k.clock.now().getTime();
@@ -171,6 +176,7 @@ export class ImprovementService {
     const passRateBefore = rate(replay.map((r) => r.before));
     const passRateAfter = rate(replay.map((r) => r.after));
     const needsTwoApprovals = Object.keys(changes).some((p) => twoApproval.some((g) => g.test(p)));
+    const reviewer = this.pickReviewer(factory, `${agent}:${category}:${group.length}`);
     const body = [
       `Self-improvement for \`${agent}\` (${category}).`,
       "",
@@ -190,6 +196,7 @@ export class ImprovementService {
       ...Object.keys(changes).map((p) => `- \`${p}\``),
       ...(dropped.length ? ["", `Dropped changes to protected paths: ${dropped.join(", ")}`] : []),
       ...(needsTwoApprovals ? ["", "This change touches a path that needs two human approvals."] : []),
+      ...(reviewer ? ["", `Reviewer: ${reviewer}`] : []),
     ].join("\n");
     // The meta rule: a proposal without replay evidence is never opened.
     if (!body.includes("## Replay") || replay.length === 0) throw new Error("self-improvement proposals must include a replay report");
@@ -209,6 +216,7 @@ export class ImprovementService {
       body,
       candidateSha: treeSha(candidate),
       needsTwoApprovals,
+      ...(reviewer ? { reviewer } : {}),
       droppedProtectedPaths: dropped,
       state: "open",
       createdAt: this.k.clock.now().toISOString(),
@@ -227,6 +235,35 @@ export class ImprovementService {
     this.k.bus.publish("self_improvement.proposed", { factory, agent, url: p.pr?.url ?? this.k.link(`/factories/${factory}/self-improvement/${p.id}`) });
     this.k.audit("self-improvement", "proposal.opened", p.id, { factory, agent, passRateBefore, passRateAfter });
     return p;
+  }
+
+  /**
+   * One reviewer from the factory's pool: admins (default), the whole team, a custom list, or
+   * none. The pick is stable for the same failures so retries ask the same person.
+   */
+  pickReviewer(factory: string, seed: string): string | undefined {
+    const si = this.k.defs.current(factory).factory.selfImprovement;
+    const type = si?.reviewers.type ?? "admins";
+    const roles = this.k.options.roles ?? {};
+    const pool = type === "none" ? [] : type === "custom" ? (si?.reviewers.emails ?? []) : type === "team" ? [...new Set(Object.values(roles).flat())] : (roles.admins ?? []);
+    if (!pool.length) return undefined;
+    const h = [...seed].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) >>> 0, 7);
+    return [...pool].sort()[h % pool.length];
+  }
+
+  /** Settings shown on the self-improvement page: the toggle, threshold, reviewers, model and per-scorer toggles. */
+  settings(factory: string) {
+    const r = this.k.defs.current(factory);
+    const si = r.factory.selfImprovement;
+    return {
+      enabled: si?.enabled ?? true,
+      failedRunThreshold: si?.failedRunThreshold ?? 25,
+      maxAgeDays: si?.maxAgeDays ?? 7,
+      reviewers: si?.reviewers ?? { type: "admins" },
+      model: si?.model,
+      scorers: Object.entries(r.parsed.scorers).map(([slug, s]) => ({ slug, name: s.frontmatter.name, selfImprovement: s.frontmatter.selfImprovement })),
+      unreviewedFailures: this.k.scoring.failures(factory).length,
+    };
   }
 
   /** A reviewer accepts: apply as a 10% canary. Paths marked for two approvals need two people. */

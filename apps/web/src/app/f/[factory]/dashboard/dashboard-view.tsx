@@ -219,7 +219,7 @@ function Productivity({ data, improvements, factory }: { data: DashboardData; im
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="Human interactions per PR" tip={TIPS.interactions} value={data.interactions.value}>
-          <TimeChart rows={data.interactions.rows} series={[{ key: "interactions", label: "Interactions", color: "#ea580c" }]} height={260} />
+          <TimeChart rows={data.interactions.rows} series={[{ key: "interactions", label: "Interactions", color: "#ea580c" }]} height={210} />
         </ChartCard>
         <section className="overflow-hidden rounded-xl border bg-card">
           <h3 className="flex items-center gap-1.5 border-b px-4 py-3 text-sm font-medium text-muted-foreground">
@@ -234,7 +234,7 @@ function Productivity({ data, improvements, factory }: { data: DashboardData; im
           </div>
         </section>
         <ChartCard title="Pull requests" tip={TIPS.prs} value={data.prs.opened} sub={`${data.prs.merged} merged`} controls={<Legend series={prSeries} hidden={prHidden} onToggle={togglePr} />}>
-          <TimeChart rows={data.prs.rows} series={prSeries.filter((s) => !prHidden.has(s.key))} height={260} />
+          <TimeChart rows={data.prs.rows} series={prSeries.filter((s) => !prHidden.has(s.key))} height={210} />
         </ChartCard>
         <ChartCard
           title="Total runs"
@@ -244,7 +244,7 @@ function Productivity({ data, improvements, factory }: { data: DashboardData; im
           controls={
             <>
               <Select items={GROUPS} value={group} onValueChange={(v) => setGroup(v as RunGroup)}>
-                <SelectTrigger className="h-9 w-56" aria-label="Group runs">
+                <SelectTrigger className="h-9 w-56 data-[size=default]:h-9" aria-label="Group runs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -259,7 +259,7 @@ function Productivity({ data, improvements, factory }: { data: DashboardData; im
             </>
           }
         >
-          <TimeChart rows={g.rows} series={runSeries.filter((s) => !runHidden.has(s.key))} kind="stacked" height={260} />
+          <TimeChart rows={g.rows} series={runSeries.filter((s) => !runHidden.has(s.key))} kind="stacked" height={210} />
         </ChartCard>
       </div>
       <section className="rounded-xl border bg-card">
@@ -413,7 +413,7 @@ function SpendCard({ title, tip, unit, data, footer, footerHint, detail }: { tit
         </Disclosure>
       }
     >
-      <TimeChart rows={data.series.rows} series={series.filter((s) => !hidden.has(s.key))} kind="area" format="usd" height={260} />
+      <TimeChart rows={data.series.rows} series={series.filter((s) => !hidden.has(s.key))} kind="area" format="usd" height={210} />
     </ChartCard>
   );
 }
@@ -428,7 +428,7 @@ function Spending({ data }: { data: DashboardData }) {
     { value: "size", label: "By PR size" },
   ];
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <ChartCard
         title="Cost per PR"
         tip={TIPS.costPerPr}
@@ -437,7 +437,7 @@ function Spending({ data }: { data: DashboardData }) {
         controls={
           <>
             <Select items={modes} value={mode} onValueChange={(v) => setMode(v as "breakdown" | "size")}>
-              <SelectTrigger className="h-9 w-56" aria-label="Cost view">
+              <SelectTrigger className="h-9 w-56 data-[size=default]:h-9" aria-label="Cost view">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -465,7 +465,7 @@ function Spending({ data }: { data: DashboardData }) {
           </>
         }
       >
-        <TimeChart rows={src.rows} series={series.filter((s) => !hidden.has(s.key))} format="usd" height={260} />
+        <TimeChart rows={src.rows} series={series.filter((s) => !hidden.has(s.key))} format="usd" height={210} />
       </ChartCard>
       <SpendCard title="Spend by source" tip={TIPS.source} unit="source" data={data.spend.source} footer="Sources" footerHint="ranked by spend" />
       <SpendCard title="Spend by user" tip={TIPS.user} unit="user" data={data.spend.user} footer="Users" footerHint="ranked by spend" />
@@ -513,7 +513,7 @@ function ScorerTile({ s, factory, data }: { s: ScorerCard; factory: string; data
 
 function Scorers({ scorers, data, factory }: { scorers: ScorerCard[]; data: DashboardData; factory: string }) {
   return (
-    <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {scorers.map((s) => (
         <ScorerTile key={s.slug} s={s} factory={factory} data={data.scores[s.slug] ?? data.scores[s.name]} />
       ))}

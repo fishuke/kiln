@@ -187,7 +187,7 @@ export function AgentsBoard({ factory, factoryName, agents, readOnly }: { factor
           </>
         }
       />
-      <div className="mx-auto w-full max-w-[1150px] px-6 py-8">
+      <div className="w-full px-6 py-8">
         {showForeman && (
           <div className="mx-auto max-w-[672px]">
             <Card factory={factory} agent={foreman} foreman readOnly={readOnly} />

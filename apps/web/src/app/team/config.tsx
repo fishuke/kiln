@@ -178,7 +178,7 @@ export function SpendLimit({ team, limit, canEdit }: { team: string; limit: Team
       </Field>
       {canEdit && (
         <div className="mt-6 flex justify-end">
-          <Button type="submit" disabled={pending || !dirty || !(n >= 0)}>
+          <Button type="submit" disabled={pending || !dirty || !(n >= 0)} variant={dirty ? "default" : "secondary"}>
             {pending ? "Saving…" : "Save"}
           </Button>
         </div>
@@ -217,7 +217,7 @@ export function ListSetting({
       <TagListInput value={value} onChange={setValue} placeholder={placeholder} disabled={!canEdit} validate={validate} mono />
       {canEdit && (
         <div className="flex justify-end pt-2">
-          <Button disabled={pending || !dirty} onClick={() => void run(() => A.updateSettings(team, { [field]: value }))}>
+          <Button disabled={pending || !dirty} onClick={() => void run(() => A.updateSettings(team, { [field]: value }))} variant={dirty ? "default" : "secondary"}>
             {pending ? "Saving…" : "Save"}
           </Button>
         </div>
@@ -342,7 +342,7 @@ export function DataStorage({ team, storage, canEdit }: { team: string; storage:
       })}
       {canEdit && (
         <div className="mt-4 flex justify-end">
-          <Button disabled={pending || !dirty} onClick={() => void run(() => A.updateSettings(team, { storage: state }, "Storage saved"))}>
+          <Button disabled={pending || !dirty} onClick={() => void run(() => A.updateSettings(team, { storage: state }, "Storage saved"))} variant={dirty ? "default" : "secondary"}>
             {pending ? "Saving…" : "Save"}
           </Button>
         </div>

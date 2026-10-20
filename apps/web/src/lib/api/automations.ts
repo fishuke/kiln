@@ -3,11 +3,16 @@ import type { RunView } from "@kiln/sdk-ts";
 import { BUILTIN_TEMPLATES, normalizeTemplate, type AutomationTemplate } from "@/lib/automations/templates";
 import { api, safe } from "@/lib/kiln";
 
-/** Suggested automations from the API (filled in for the factory), or the built-in catalogue. */
+/** Suggested automations: the built-in catalogue plus the API templates, filled in for the factory. */
 export async function automationTemplates(factory?: string): Promise<AutomationTemplate[]> {
-  const list = await safe(() => api.automationTemplates({ factory }), []);
-  const parsed = list.map(normalizeTemplate).filter((t): t is AutomationTemplate => Boolean(t));
-  return parsed.length ? parsed : BUILTIN_TEMPLATES;
+  const [list, factories] = await Promise.all([safe(() => api.automationTemplates({ factory }), []), factory ? safe(() => api.factories(), []) : Promise.resolve([])]);
+  // Templates carry a {{alias}} placeholder (labels such as factory:{{alias}}); fill it for this factory.
+  const alias = factories.find((f) => f.id === factory || f.alias === factory)?.alias;
+  const filled = alias ? (JSON.parse(JSON.stringify(list).replaceAll("{{alias}}", alias)) as typeof list) : list;
+  const parsed = filled.map(normalizeTemplate).filter((t): t is AutomationTemplate => Boolean(t));
+  // The built-in suggestions fill every category; the factory's own templates follow them.
+  const builtin = new Set(BUILTIN_TEMPLATES.map((t) => t.slug));
+  return [...BUILTIN_TEMPLATES, ...parsed.filter((t) => !builtin.has(t.slug))];
 }
 
 /**

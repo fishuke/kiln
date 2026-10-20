@@ -21,7 +21,14 @@ export function DetailsPanel({ model, tab, onTab, isChild }: { model: RunDetailM
     <aside aria-label="Run details" className="flex w-[432px] shrink-0 flex-col border-l">
       <div role="tablist" className="mx-4 flex gap-1 border-b py-3">
         {tabs.map((t) => (
-          <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => onTab(t)} className={cn("h-9 rounded-lg px-4 text-sm font-medium text-muted-foreground hover:text-foreground", tab === t && "bg-muted text-foreground")}>
+          <button
+            key={t}
+            role="tab"
+            type="button"
+            aria-selected={tab === t}
+            onClick={() => onTab(t)}
+            className={cn("h-9 rounded-lg px-4 text-sm font-medium text-muted-foreground hover:text-foreground", tab === t && "bg-muted text-foreground")}
+          >
             {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
@@ -52,8 +59,9 @@ function Timeline({ nodes, currentId }: { nodes: AgentNode[]; currentId: string 
   const height = Math.max(420, Math.min(1400, all.length * 80));
   const ticks = useMemo(() => {
     const step = niceStep(span / 8);
-    const out: number[] = [];
-    for (let t = Math.ceil(start / step) * step; t <= end; t += step) out.push(t);
+    // The run's start time leads the axis (bold), then round ticks that are not too close to it.
+    const out: number[] = [start];
+    for (let t = Math.ceil(start / step) * step; t <= end; t += step) if (t - start >= step / 2) out.push(t);
     return out;
   }, [start, end, span]);
   const tz = useMemo(() => {
@@ -76,14 +84,24 @@ function Timeline({ nodes, currentId }: { nodes: AgentNode[]; currentId: string 
       </div>
       <div className="relative flex" style={{ height: height + 40 }}>
         <div className="relative w-20 shrink-0">
-          {ticks.map((t) => (
-            <div key={t} className="absolute right-3 -translate-y-1/2 text-xs text-muted-foreground tabular-nums" style={{ top: y(t) + 20 }}>
-              {new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+          {ticks.map((t, i) => (
+            <div
+              key={t}
+              className={cn("absolute right-3 -translate-y-1/2 text-xs tabular-nums", i === 0 ? "font-semibold text-foreground" : "text-muted-foreground")}
+              style={{ top: y(t) + 20 }}
+            >
+              {new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", ...(span < 4 * 60_000 && i > 0 ? { second: "2-digit" } : {}) })}
             </div>
           ))}
         </div>
         {columns.map((a) => (
-          <div key={a} className="relative flex-1 border-l bg-muted/30">
+          <div
+            key={a}
+            className={cn(
+              "relative flex-1 border-l bg-muted/30",
+              all.some((n) => n.agent === a && n.id === currentId) && "rounded-sm bg-background ring-1 ring-foreground/40 ring-inset",
+            )}
+          >
             {all
               .filter((n) => n.agent === a)
               .map((n) => {
@@ -96,7 +114,7 @@ function Timeline({ nodes, currentId }: { nodes: AgentNode[]; currentId: string 
                     href={`/runs/${n.id}`}
                     aria-label={`${n.title} · ${n.status} · ${dur}`}
                     title={`${n.title} · ${dur}`}
-                    className={cn("absolute left-1/2 w-9 -translate-x-1/2 rounded-sm border", agentLook(a).bar, n.id === currentId && "ring-2 ring-foreground/60 ring-offset-2 ring-offset-background")}
+                    className={cn("absolute left-1/2 w-7 -translate-x-1/2 rounded-sm border", agentLook(a).bar)}
                     style={{ top, height: h }}
                   >
                     <span className="absolute -bottom-7 left-1/2 -translate-x-1/2">
@@ -113,7 +131,21 @@ function Timeline({ nodes, currentId }: { nodes: AgentNode[]; currentId: string 
 }
 
 function niceStep(ms: number): number {
-  const steps = [60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000, 15 * 60_000, 30 * 60_000, 3_600_000, 2 * 3_600_000, 6 * 3_600_000, 86_400_000];
+  const steps = [
+    10_000,
+    15_000,
+    30_000,
+    60_000,
+    2 * 60_000,
+    5 * 60_000,
+    10 * 60_000,
+    15 * 60_000,
+    30 * 60_000,
+    3_600_000,
+    2 * 3_600_000,
+    6 * 3_600_000,
+    86_400_000,
+  ];
   return steps.find((s) => s >= ms) ?? 86_400_000;
 }
 
@@ -134,7 +166,11 @@ function AgentRow({ node, depth, currentId }: { node: AgentNode; depth: number; 
   const dur = node.finishedAt ? shortDuration(new Date(node.finishedAt).getTime() - new Date(node.startedAt).getTime()) : "running";
   return (
     <li>
-      <Link href={depth ? `${node.href}?tab=agents&from=parent` : node.href} className={cn("flex h-10 items-center gap-2 rounded-lg px-2 text-sm hover:bg-muted", node.id === currentId && "bg-muted")} style={{ paddingLeft: 8 + depth * 48 }}>
+      <Link
+        href={depth ? `${node.href}?tab=agents&from=parent` : node.href}
+        className={cn("flex h-10 items-center gap-2 rounded-lg px-2 text-sm hover:bg-muted", node.id === currentId && "bg-muted")}
+        style={{ paddingLeft: 8 + depth * 48 }}
+      >
         <StatusSquare status={node.status} size={20} />
         <AgentIcon agent={node.agent} size={20} />
         <span className="min-w-0 flex-1 truncate">{node.title}</span>
@@ -169,13 +205,20 @@ function Section({ title, count, children }: { title: string; count: number; chi
   );
 }
 
-const PR_TONE = { open: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400", merged: "bg-violet-500/10 text-violet-700 dark:text-violet-400", closed: "bg-red-500/10 text-red-700 dark:text-red-400" };
+const PR_TONE = {
+  open: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  merged: "bg-violet-500/10 text-violet-700 dark:text-violet-400",
+  closed: "bg-red-500/10 text-red-700 dark:text-red-400",
+};
 
 function ArtifactsTab({ model }: { model: RunDetailModel }) {
   const { prs, previews, media, files } = model.artifacts;
   const [lightbox, setLightbox] = useState<number | null>(null);
   const empty = !prs.length && !previews.length && !media.length && !files.length && !model.spec && !model.review;
-  if (empty) return <p className="text-sm text-muted-foreground">This run has no artifacts yet. Pull requests, previews, screenshots, recordings and reports appear here.</p>;
+  if (empty)
+    return (
+      <p className="text-sm text-muted-foreground">This run has no artifacts yet. Pull requests, previews, screenshots, recordings and reports appear here.</p>
+    );
   return (
     <div>
       {prs.length > 0 && (
@@ -211,7 +254,13 @@ function ArtifactsTab({ model }: { model: RunDetailModel }) {
           <ul className="flex flex-col gap-1.5 rounded-lg border p-3 text-sm">
             {model.spec.criteria.map((c) => (
               <li key={c.text} className="flex gap-2">
-                <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", c.status === "passed" ? "bg-emerald-500" : c.status ? "bg-red-500" : "bg-muted-foreground/30")} title={c.status ?? "not verified yet"} />
+                <span
+                  className={cn(
+                    "mt-1.5 size-2 shrink-0 rounded-full",
+                    c.status === "passed" ? "bg-emerald-500" : c.status ? "bg-red-500" : "bg-muted-foreground/30",
+                  )}
+                  title={c.status ?? "not verified yet"}
+                />
                 <span className="flex-1">{c.text}</span>
               </li>
             ))}
@@ -222,7 +271,13 @@ function ArtifactsTab({ model }: { model: RunDetailModel }) {
         <Section title="Screencaptures" count={media.length}>
           <div className="grid grid-cols-2 gap-2">
             {media.map((m, i) => (
-              <button key={m.url} type="button" aria-label={`Open ${m.kind === "video" ? "video" : "screencapture"} ${i + 1}`} onClick={() => setLightbox(i)} className="relative aspect-[19/11] overflow-hidden rounded-md border bg-muted">
+              <button
+                key={m.url}
+                type="button"
+                aria-label={`Open ${m.kind === "video" ? "video" : "screencapture"} ${i + 1}`}
+                onClick={() => setLightbox(i)}
+                className="relative aspect-[19/11] overflow-hidden rounded-md border bg-muted"
+              >
                 {m.kind === "image" ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={m.url} alt={m.name} loading="lazy" className="size-full object-cover object-top" />
@@ -288,9 +343,18 @@ export function Lightbox({ items, index, onIndex }: { items: ArtifactView[]; ind
   }, [index, items.length, onIndex]);
   return (
     <Dialog open={index !== null} onOpenChange={(o) => !o && onIndex(null)}>
-      <DialogContent showCloseButton={false} className="flex h-[90vh] w-[92vw] max-w-[92vw] flex-col items-center justify-center gap-3 bg-transparent p-0 ring-0 sm:max-w-[92vw]">
+      {/* Full-screen popup doubles as the backdrop: always dark, whatever the theme. */}
+      <DialogContent
+        showCloseButton={false}
+        className="top-0 left-0 flex h-screen w-screen max-w-none translate-x-0 translate-y-0 flex-col items-center justify-center gap-4 rounded-none bg-black/75 px-32 pt-20 pb-12 text-white ring-0 backdrop-blur-md sm:max-w-none data-open:zoom-in-100 data-closed:zoom-out-100"
+      >
         <DialogTitle className="sr-only">{item?.name ?? "Media"}</DialogTitle>
-        <button type="button" aria-label="Close lightbox" onClick={() => onIndex(null)} className="fixed top-4 right-4 flex size-9 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70">
+        <button
+          type="button"
+          aria-label="Close lightbox"
+          onClick={() => onIndex(null)}
+          className="absolute top-12 right-12 flex size-8 items-center justify-center rounded-md text-white/80 hover:bg-white/10 hover:text-white"
+        >
           <X className="size-5" />
         </button>
         {item && (
@@ -299,24 +363,51 @@ export function Lightbox({ items, index, onIndex }: { items: ArtifactView[]; ind
               {loading && <Loader2 className="absolute size-8 animate-spin text-violet-500" />}
               {item.kind === "image" ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img key={item.url} src={item.url} alt={item.name} onLoad={() => setLoading(false)} onError={() => setLoading(false)} className="max-h-full max-w-full rounded-lg object-contain" />
+                <img
+                  key={item.url}
+                  src={item.url}
+                  alt={item.name}
+                  onLoad={() => setLoading(false)}
+                  onError={() => setLoading(false)}
+                  className="max-h-full max-w-full rounded-lg object-contain"
+                />
               ) : (
-                <video key={item.url} src={item.url} controls autoPlay onLoadedData={() => setLoading(false)} onError={() => setLoading(false)} className="max-h-full max-w-full rounded-lg" />
+                <video
+                  key={item.url}
+                  src={item.url}
+                  controls
+                  autoPlay
+                  onLoadedData={() => setLoading(false)}
+                  onError={() => setLoading(false)}
+                  className="max-h-full max-w-full rounded-lg"
+                />
               )}
             </div>
-            <div className="flex items-center gap-4 text-sm text-white">
-              <button type="button" aria-label="Previous media item" disabled={index === 0} onClick={() => onIndex(Math.max(0, index! - 1))} className="flex size-9 items-center justify-center rounded-full bg-black/50 hover:bg-black/70 disabled:opacity-30">
-                <ChevronLeft className="size-5" />
-              </button>
+            <button
+              type="button"
+              aria-label="Previous media item"
+              disabled={index === 0}
+              onClick={() => onIndex(Math.max(0, index! - 1))}
+              className="absolute top-1/2 left-16 flex size-9 -translate-y-1/2 items-center justify-center rounded-md text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
+            >
+              <ChevronLeft className="size-5" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next media item"
+              disabled={index === items.length - 1}
+              onClick={() => onIndex(Math.min(items.length - 1, index! + 1))}
+              className="absolute top-1/2 right-16 flex size-9 -translate-y-1/2 items-center justify-center rounded-md text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
+            >
+              <ChevronRight className="size-5" />
+            </button>
+            <div className="flex items-center text-sm text-white">
               <div className="max-w-[60vw] text-center">
-                {item.caption && <div className="truncate">{item.caption}</div>}
+                <div className="truncate">{item.caption ?? item.name}</div>
                 <div className="text-xs text-white/70">
                   {index! + 1} of {items.length}
                 </div>
               </div>
-              <button type="button" aria-label="Next media item" disabled={index === items.length - 1} onClick={() => onIndex(Math.min(items.length - 1, index! + 1))} className="flex size-9 items-center justify-center rounded-full bg-black/50 hover:bg-black/70 disabled:opacity-30">
-                <ChevronRight className="size-5" />
-              </button>
             </div>
           </>
         )}
@@ -369,7 +460,8 @@ function MetadataTab({ model }: { model: RunDetailModel }) {
       <Row label="Run time">{longDuration(m.runTimeMs)}</Row>
       <Row label="Created">
         <span suppressHydrationWarning>
-          {new Date(m.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase()} on {new Date(m.createdAt).toLocaleDateString("en-US")}
+          {new Date(m.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase()} on{" "}
+          {new Date(m.createdAt).toLocaleDateString("en-US")}
         </span>
       </Row>
       <Row label="Source">
@@ -403,7 +495,12 @@ function MetadataTab({ model }: { model: RunDetailModel }) {
       {m.extra.map((e, i) => (
         <Row key={i} label={e.label}>
           {e.href ? (
-            <a href={e.href} className="break-all text-violet-600 hover:underline dark:text-violet-400" target={e.href.startsWith("/") ? undefined : "_blank"} rel="noreferrer">
+            <a
+              href={e.href}
+              className="break-all text-violet-600 hover:underline dark:text-violet-400"
+              target={e.href.startsWith("/") ? undefined : "_blank"}
+              rel="noreferrer"
+            >
               {e.value}
             </a>
           ) : (

@@ -81,7 +81,7 @@ export function GeneralForm({ team, canEdit }: { team: { id: string; name: strin
       </Field>
       {canEdit && (
         <div className="mt-6 flex justify-end">
-          <Button type="submit" disabled={!dirty || pending}>
+          <Button type="submit" disabled={!dirty || pending} variant={dirty ? "default" : "secondary"}>
             {pending ? "Saving…" : "Save"}
           </Button>
         </div>

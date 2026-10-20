@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -197,39 +198,41 @@ export function EventTriggerRow({ t, update, remove, ctx, index }: { t: TriggerM
 
   return (
     <div className="group/trigger px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <ProviderIcon provider={t.provider} />
-        {e ? (
-          <ChipSelect label={`${p?.label ?? t.provider} event`} value={t.event} options={events.map((x) => ({ value: x.id, label: x.label }))} onChange={(event) => update({ ...newTrigger(t.provider, event), skipBots: t.skipBots })} />
-        ) : (
-          <span className="text-sm text-muted-foreground">
-            {t.provider} / {t.event}
-          </span>
-        )}
-        {t.provider === "webhook" && (
-          <ChipSelect
-            label="Webhook"
-            value={t.webhook ?? ""}
-            options={[...(t.webhook && !ctx.webhooks.some((w) => w.uid === t.webhook || w.name === t.webhook) ? [{ value: t.webhook, label: t.webhook }] : []), ...ctx.webhooks.map((w) => ({ value: w.uid, label: w.name })), ...(ctx.webhooks.length ? [] : [{ value: "", label: "No webhooks yet" }])]}
-            onChange={(webhook) => update({ ...t, webhook: webhook || undefined })}
-          />
-        )}
-        {inline.map((f) => {
-          if (f.kind === "webhook_ids") return null;
-          const m = t.filters[f.key];
-          const isRepo = f.picker === "repos";
-          return (
-            <span key={f.key} className="flex items-center gap-2">
-              {isRepo || !supportsExclude(f) ? (
-                <span className="text-sm text-muted-foreground">in</span>
-              ) : (
-                <OperatorChip field={f} matcher={m} onChange={setMatcher(f.key)} words={f.key === "labels" ? ["with", "without"] : ["in", "not in"]} />
-              )}
-              <FilterValues field={f} matcher={m} onChange={setMatcher(f.key)} ctx={ctx} inline />
+      <div className="flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <ProviderIcon provider={t.provider} />
+          {e ? (
+            <ChipSelect label={`${p?.label ?? t.provider} event`} value={t.event} options={events.map((x) => ({ value: x.id, label: x.label }))} onChange={(event) => update({ ...newTrigger(t.provider, event), skipBots: t.skipBots })} />
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              {t.provider} / {t.event}
             </span>
-          );
-        })}
-        <div className="ml-auto flex items-center gap-1">
+          )}
+          {t.provider === "webhook" && (
+            <ChipSelect
+              label="Webhook"
+              value={t.webhook ?? ""}
+              options={[...(t.webhook && !ctx.webhooks.some((w) => w.uid === t.webhook || w.name === t.webhook) ? [{ value: t.webhook, label: t.webhook }] : []), ...ctx.webhooks.map((w) => ({ value: w.uid, label: w.name })), ...(ctx.webhooks.length ? [] : [{ value: "", label: "No webhooks yet" }])]}
+              onChange={(webhook) => update({ ...t, webhook: webhook || undefined })}
+            />
+          )}
+          {inline.map((f) => {
+            if (f.kind === "webhook_ids") return null;
+            const m = t.filters[f.key];
+            const isRepo = f.picker === "repos";
+            return (
+              <span key={f.key} className="flex items-center gap-2">
+                {isRepo || !supportsExclude(f) ? (
+                  <span className="text-sm text-muted-foreground">in</span>
+                ) : (
+                  <OperatorChip field={f} matcher={m} onChange={setMatcher(f.key)} words={f.key === "labels" ? ["with", "without"] : ["in", "not in"]} />
+                )}
+                <FilterValues field={f} matcher={m} onChange={setMatcher(f.key)} ctx={ctx} inline />
+              </span>
+            );
+          })}
+        </div>
+        <div className="flex h-9 shrink-0 items-center gap-1">
           {t.provider === "webhook" && (
             <Tooltip>
               <TooltipTrigger render={<span />}>
@@ -257,7 +260,7 @@ export function EventTriggerRow({ t, update, remove, ctx, index }: { t: TriggerM
       )}
       {more.length > 0 && (
         <>
-          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="mt-2 ml-6 inline-flex items-center gap-1 text-xs font-medium text-violet-600 hover:underline dark:text-violet-400">
+          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="mt-2 ml-6 inline-flex items-center gap-1 text-sm font-medium text-violet-600 hover:underline dark:text-violet-400">
             More filters {open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
           </button>
           {open && (
@@ -297,64 +300,66 @@ export function ScheduleTriggerRow({ t, update, remove }: { t: TriggerModel; upd
     : null;
   return (
     <div className="group/trigger px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <ProviderIcon provider="schedule" />
-        <ChipSelect<Frequency>
-          label="Frequency"
-          value={form.frequency}
-          options={[
-            { value: "hourly", label: "Hourly" },
-            { value: "daily", label: "Daily" },
-            { value: "weekly", label: "Weekly" },
-            { value: "custom", label: "Custom (cron)" },
-          ]}
-          onChange={(frequency) => {
-            if (frequency === "custom") {
-              setCustom(cron);
-              set({ frequency, cron });
-            } else set({ frequency, hour: form.frequency === "hourly" || form.frequency === "custom" ? 9 : form.hour, minute: form.frequency === "custom" ? 0 : form.minute, day: form.frequency === "weekly" ? form.day : 1 });
-          }}
-        />
-        {form.frequency === "weekly" && (
-          <>
-            <span className="text-muted-foreground">on</span>
-            <ChipSelect label="Day" value={String(form.day)} options={DAYS.map((d, i) => ({ value: String(i), label: d }))} onChange={(d) => set({ day: Number(d) })} />
-          </>
-        )}
-        {form.frequency === "hourly" && (
-          <>
-            <span className="text-muted-foreground">at minute</span>
-            <ChipSelect label="Minute" value={pad(form.minute)} options={Array.from({ length: 60 }, (_, i) => ({ value: pad(i), label: pad(i) }))} onChange={(m) => set({ minute: Number(m) })} />
-          </>
-        )}
-        {(form.frequency === "daily" || form.frequency === "weekly") && (
-          <>
-            <span className="text-muted-foreground">at</span>
-            <ChipSelect label="Hour" value={String(h12)} options={Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }))} onChange={(h) => set({ hour: (Number(h) % 12) + (pm ? 12 : 0) })} />
-            <span className="text-muted-foreground">:</span>
-            <ChipSelect label="Minute" value={pad(form.minute)} options={Array.from({ length: 60 }, (_, i) => ({ value: pad(i), label: pad(i) }))} onChange={(m) => set({ minute: Number(m) })} />
-            <ChipSelect label="AM or PM" value={pm ? "PM" : "AM"} options={[{ value: "AM", label: "AM" }, { value: "PM", label: "PM" }]} onChange={(x) => set({ hour: (form.hour % 12) + (x === "PM" ? 12 : 0) })} />
-            <span className="font-medium">{gmtLabel(offset)}</span>
-          </>
-        )}
-        {form.frequency === "custom" && (
-          <input
-            aria-label="Cron expression"
-            value={custom}
-            onChange={(e) => {
-              setCustom(e.target.value);
-              update({ ...t, schedule: { ...t.schedule, cron: e.target.value } });
+      <div className="flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm">
+          <ProviderIcon provider="schedule" />
+          <ChipSelect<Frequency>
+            label="Frequency"
+            value={form.frequency}
+            options={[
+              { value: "hourly", label: "Hourly" },
+              { value: "daily", label: "Daily" },
+              { value: "weekly", label: "Weekly" },
+              { value: "custom", label: "Custom (cron)" },
+            ]}
+            onChange={(frequency) => {
+              if (frequency === "custom") {
+                setCustom(cron);
+                set({ frequency, cron });
+              } else set({ frequency, hour: form.frequency === "hourly" || form.frequency === "custom" ? 9 : form.hour, minute: form.frequency === "custom" ? 0 : form.minute, day: form.frequency === "weekly" ? form.day : 1 });
             }}
-            placeholder="0 9 * * 1  or  @every 30m"
-            className="h-9 w-56 rounded-md bg-muted px-2.5 font-mono text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           />
-        )}
-        {nextLabel && (
-          <span className="text-muted-foreground">
-            Next run <span className="text-foreground/80">{nextLabel}</span>
-          </span>
-        )}
-        <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove trigger" onClick={remove} className="ml-auto text-muted-foreground opacity-0 group-hover/trigger:opacity-100 focus-visible:opacity-100">
+          {form.frequency === "weekly" && (
+            <>
+              <span className="text-muted-foreground">on</span>
+              <ChipSelect label="Day" value={String(form.day)} options={DAYS.map((d, i) => ({ value: String(i), label: d }))} onChange={(d) => set({ day: Number(d) })} />
+            </>
+          )}
+          {form.frequency === "hourly" && (
+            <>
+              <span className="text-muted-foreground">at minute</span>
+              <ChipSelect label="Minute" value={pad(form.minute)} options={Array.from({ length: 60 }, (_, i) => ({ value: pad(i), label: pad(i) }))} onChange={(m) => set({ minute: Number(m) })} />
+            </>
+          )}
+          {(form.frequency === "daily" || form.frequency === "weekly") && (
+            <>
+              <span className="text-muted-foreground">at</span>
+              <ChipSelect label="Hour" value={String(h12)} options={Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }))} onChange={(h) => set({ hour: (Number(h) % 12) + (pm ? 12 : 0) })} />
+              <span className="text-muted-foreground">:</span>
+              <ChipSelect label="Minute" value={pad(form.minute)} options={Array.from({ length: 60 }, (_, i) => ({ value: pad(i), label: pad(i) }))} onChange={(m) => set({ minute: Number(m) })} />
+              <ChipSelect label="AM or PM" value={pm ? "PM" : "AM"} options={[{ value: "AM", label: "AM" }, { value: "PM", label: "PM" }]} onChange={(x) => set({ hour: (form.hour % 12) + (x === "PM" ? 12 : 0) })} />
+              <span className="font-medium">{gmtLabel(offset)}</span>
+            </>
+          )}
+          {form.frequency === "custom" && (
+            <input
+              aria-label="Cron expression"
+              value={custom}
+              onChange={(e) => {
+                setCustom(e.target.value);
+                update({ ...t, schedule: { ...t.schedule, cron: e.target.value } });
+              }}
+              placeholder="0 9 * * 1  or  @every 30m"
+              className="h-9 w-56 rounded-md bg-muted px-2.5 font-mono text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+          )}
+          {nextLabel && (
+            <span className="text-muted-foreground">
+              Next run <span className="text-foreground/80">{nextLabel}</span>
+            </span>
+          )}
+        </div>
+        <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove trigger" onClick={remove} className="mt-1 shrink-0 text-muted-foreground opacity-0 group-hover/trigger:opacity-100 focus-visible:opacity-100">
           <Trash2 />
         </Button>
       </div>
@@ -374,7 +379,7 @@ const SCHEDULE_PRESETS: { label: string; frequency: Frequency }[] = [
 ];
 
 function NotConnected() {
-  return <span className="ml-auto rounded border px-1 text-[11px] font-medium text-muted-foreground">Not connected</span>;
+  return <span className="ml-auto shrink-0 rounded border px-1 text-[11px] font-medium whitespace-nowrap text-muted-foreground">Not connected</span>;
 }
 
 /** "+ Add trigger" menu: Scheduled, Webhook, then every provider with its grouped events. */
@@ -430,19 +435,21 @@ export function AddTriggerMenu({ onAdd, ctx }: { onAdd: (t: TriggerModel) => voi
               <DropdownMenuSubContent className="max-h-[70vh] w-64 overflow-y-auto">
                 {!connected && (
                   <>
-                    <DropdownMenuLabel className="font-normal">{p.label} is not connected. Triggers save, but fire only after you connect it in Integrations.</DropdownMenuLabel>
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel className="font-normal">{p.label} is not connected. Triggers save, but fire only after you connect it in Integrations.</DropdownMenuLabel>
+                    </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                   </>
                 )}
                 {groupedEvents(p).map((g, i) => (
-                  <div key={g.group ?? i}>
+                  <DropdownMenuGroup key={g.group ?? i}>
                     {g.group && <DropdownMenuLabel className="font-semibold text-foreground">{g.group}</DropdownMenuLabel>}
                     {g.events.map((e) => (
                       <DropdownMenuItem key={e.id} onClick={() => onAdd(newTrigger(p.id, e.id))}>
                         {e.label}
                       </DropdownMenuItem>
                     ))}
-                  </div>
+                  </DropdownMenuGroup>
                 ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>

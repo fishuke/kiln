@@ -57,7 +57,7 @@ export function Chips({ items, icon: Icon, onRemove, disabled, empty = "--" }: {
   );
 }
 
-const triggerCls = "h-10 w-full rounded-md bg-background px-3";
+const triggerCls = "h-10 w-full rounded-md bg-background px-3 data-[size=default]:h-10";
 
 export function HarnessSelect({ value, onChange, inheritLabel, disabled }: { value: string; onChange: (v: string) => void; inheritLabel?: string; disabled?: boolean }) {
   const items: Record<string, React.ReactNode> = Object.fromEntries(HARNESSES.map((h) => [h.id, <HarnessItem key={h.id} label={h.label} />]));
@@ -67,7 +67,7 @@ export function HarnessSelect({ value, onChange, inheritLabel, disabled }: { val
       <SelectTrigger className={triggerCls} aria-label="Harness">
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent alignItemWithTrigger={false}>
         {inheritLabel !== undefined && <SelectItem value={INHERIT}>{items[INHERIT]}</SelectItem>}
         {HARNESSES.map((h) => (
           <SelectItem key={h.id} value={h.id}>
@@ -110,7 +110,7 @@ export function ModelSelect({ value, onChange, harness, routers = [], inheritLab
       <SelectTrigger className={triggerCls} aria-label="Model">
         <SelectValue />
       </SelectTrigger>
-      <SelectContent className="max-h-72">
+      <SelectContent alignItemWithTrigger={false} className="max-h-72">
         {inheritLabel !== undefined && (
           <>
             <SelectItem value={INHERIT}>{items[INHERIT]}</SelectItem>
@@ -150,7 +150,7 @@ export function HostSelect({ value, onChange, workers, defaultHost = "docker", i
       <SelectTrigger className={triggerCls} aria-label="Host">
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent alignItemWithTrigger={false}>
         {hosts.map((h) => (
           <SelectItem key={h.id} value={inherit && h.id === defaultHost ? INHERIT : h.id}>
             {items[h.id]}
@@ -180,7 +180,7 @@ export function RunnerSelect({ value, onChange, runners, defaultRunner, onEdit, 
       <SelectTrigger className={triggerCls} aria-label="Runner">
         <SelectValue placeholder="Select a runner" />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent alignItemWithTrigger={false}>
         {runners.map((r) => (
           <div key={r.name} className="flex items-center gap-1">
             <SelectItem value={inherit && r.name === defaultRunner ? INHERIT : r.name} className="flex-1">
@@ -251,15 +251,15 @@ export function AddSecretDialog({ open, onOpenChange, secrets, selected, onAdd }
     <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
       <DialogContent className="h-[min(720px,90vh)] gap-0 overflow-hidden p-0 sm:max-w-[960px]" showCloseButton={false}>
         <div className="grid h-full min-h-0 grid-cols-1 md:grid-cols-[320px_1fr]">
-          <div className="flex min-h-0 flex-col border-b md:border-r md:border-b-0">
-            <div className="relative border-b p-3">
+          <div className="flex min-h-0 flex-col border-b bg-muted/30 md:border-r md:border-b-0">
+            <div className="relative p-3">
               <Search className="absolute top-1/2 left-5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search secrets" className="pl-8" aria-label="Search secrets" />
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search secrets" className="h-10 pl-8" aria-label="Search secrets" />
             </div>
-            <button type="button" className="mx-2 mt-2 flex items-center gap-2 rounded-md bg-muted px-2 py-2 text-sm font-medium">
+            <button type="button" className="mx-3 flex h-10 items-center gap-2 rounded-md bg-muted px-3 text-sm font-medium">
               <Plus className="size-4" /> Add secret
             </button>
-            <div className="flex items-center justify-between px-4 py-2 text-xs text-muted-foreground">
+            <div className="mx-3 mt-3 flex items-center justify-between border-t px-1 pt-3 pb-2 text-sm text-muted-foreground">
               <label className="flex items-center gap-2">
                 <Checkbox checked={shown.length > 0 && shown.every((s) => picked.includes(s.name))} onCheckedChange={(c) => setPicked(c ? shown.map((s) => s.name) : [])} disabled={!shown.length} />
                 Select all
@@ -285,7 +285,7 @@ export function AddSecretDialog({ open, onOpenChange, secrets, selected, onAdd }
             </div>
           </div>
           <div className="flex min-h-0 flex-col">
-            <div className="flex items-center justify-between border-b px-5 py-3">
+            <div className="flex items-center justify-between px-5 pt-4 pb-2">
               <DialogTitle>Add secret</DialogTitle>
               <div className="flex items-center gap-2">
                 <Button onClick={add} disabled={pending || (!picked.length && !(form.name && form.value))}>
@@ -296,30 +296,30 @@ export function AddSecretDialog({ open, onOpenChange, secrets, selected, onAdd }
                 </Button>
               </div>
             </div>
-            <div className="space-y-5 overflow-y-auto p-5">
+            <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 pt-2 pb-5">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium" htmlFor="secret-name">
                   Name
                 </label>
-                <Input id="secret-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. OPENAI_API_KEY" className="font-mono" />
+                <Input id="secret-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. OPENAI_API_KEY" className="h-10 font-mono" />
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium" htmlFor="secret-value">
                   Value
                 </label>
                 <div className="relative">
-                  <Input id="secret-value" type={show ? "text" : "password"} value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} placeholder="Enter secret value" className="pr-9" autoComplete="off" />
+                  <Input id="secret-value" type={show ? "text" : "password"} value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} placeholder="Enter secret value" className="h-10 pr-9" autoComplete="off" />
                   <button type="button" aria-label={show ? "Hide value" : "Show value"} className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setShow(!show)}>
                     {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                   </button>
                 </div>
                 <p className="text-xs text-muted-foreground">Values are encrypted at rest and never shown again. Agents receive them as environment variables.</p>
               </div>
-              <div className="space-y-1.5">
+              <div className="flex min-h-0 flex-1 flex-col gap-1.5">
                 <label className="text-sm font-medium" htmlFor="secret-desc">
                   Description (optional)
                 </label>
-                <Textarea id="secret-desc" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g. Service account key for production" />
+                <Textarea id="secret-desc" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g. Service account key for production" className="min-h-32 flex-1" />
               </div>
             </div>
           </div>
@@ -372,10 +372,10 @@ export function AddMcpDialog({ open, onOpenChange, servers, selected, onAdd }: {
     <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
       <DialogContent className="h-[min(720px,90vh)] gap-0 overflow-hidden p-0 sm:max-w-[780px]" showCloseButton={false}>
         <div className="grid h-full min-h-0 grid-cols-1 md:grid-cols-[260px_1fr]">
-          <div className="flex min-h-0 flex-col border-b md:border-r md:border-b-0">
-            <div className="relative border-b p-3">
+          <div className="flex min-h-0 flex-col border-b bg-muted/30 md:border-r md:border-b-0">
+            <div className="relative p-3">
               <Search className="absolute top-1/2 left-5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search apps and MCP servers" className="pl-8" aria-label="Search apps and MCP servers" />
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search apps and MCP servers" className="h-10 pl-8" aria-label="Search apps and MCP servers" />
             </div>
             <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
               <button type="button" onClick={() => setMode("custom")} className={cn("flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm", mode === "custom" ? "bg-muted font-medium" : "hover:bg-muted")}>
@@ -394,7 +394,7 @@ export function AddMcpDialog({ open, onOpenChange, servers, selected, onAdd }: {
             </div>
           </div>
           <div className="flex min-h-0 flex-col">
-            <div className="flex items-center justify-between border-b px-5 py-3">
+            <div className="flex items-center justify-between px-5 pt-4 pb-2">
               <DialogTitle>{pickedServer ? pickedServer.name : "Add custom MCP"}</DialogTitle>
               <div className="flex items-center gap-2">
                 <Button onClick={add} disabled={pending || (!pickedServer && !json.trim())}>

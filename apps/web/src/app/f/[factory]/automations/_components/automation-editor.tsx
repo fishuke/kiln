@@ -15,6 +15,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { agentDisplayName } from "@/lib/agent-catalog";
 import type { Resources } from "@/lib/api/resources";
 import { hasScheduleTrigger, type AutomationModel, type Overrides } from "@/lib/automations/model";
 import { cn } from "@/lib/utils";
@@ -193,7 +194,7 @@ export function AutomationEditor(p: EditorProps) {
         actions={
           <>
             {isNew ? (
-              <Link href={`/f/${p.factory}/automations`} className={buttonVariants({ variant: "outline" })}>
+              <Link href={`/f/${p.factory}/automations`} className={cn(buttonVariants({ variant: "outline" }))}>
                 Cancel
               </Link>
             ) : (
@@ -241,7 +242,7 @@ export function AutomationEditor(p: EditorProps) {
           </>
         }
       />
-      <div className="mx-auto w-full max-w-[820px] px-6 py-10">
+      <div className="mx-auto w-full max-w-[868px] px-6 py-10">
         {isNew || renaming ? (
           <input
             ref={titleRef}
@@ -298,13 +299,13 @@ export function AutomationEditor(p: EditorProps) {
                   setModel((m) => ({ ...m, agent: v === foreman && !m.agent ? undefined : String(v) }));
                 }}
               >
-                <SelectTrigger aria-label="Agent" className="h-10 w-full text-base">
+                <SelectTrigger aria-label="Agent" className="h-10 w-full text-base data-[size=default]:h-10">
                   <SelectValue>
                     {(v: string) => {
                       const a = agentOptions.find((x) => x.name === v);
                       return v ? (
                         <span className="flex items-center gap-2">
-                          <AgentTypeIcon size="sm" type={a?.agentType ?? "CUSTOM"} /> {v}
+                          <AgentTypeIcon size="sm" type={a?.agentType ?? "CUSTOM"} /> {a ? agentDisplayName(p.factoryName, a) : v}
                         </span>
                       ) : (
                         <span className="text-muted-foreground">Choose an agent</span>
@@ -315,7 +316,7 @@ export function AutomationEditor(p: EditorProps) {
                 <SelectContent>
                   {agentOptions.map((a) => (
                     <SelectItem key={a.name} value={a.name}>
-                      <AgentTypeIcon size="sm" type={a.agentType ?? "CUSTOM"} /> {a.name}
+                      <AgentTypeIcon size="sm" type={a.agentType ?? "CUSTOM"} /> {agentDisplayName(p.factoryName, a)}
                     </SelectItem>
                   ))}
                   {model.agent && !agentOptions.some((a) => a.name === model.agent) && <SelectItem value={model.agent}>{model.agent}</SelectItem>}

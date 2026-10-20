@@ -49,14 +49,14 @@ export function RunsTable({ rows, empty = "No runs yet" }: { rows: RunRow[]; emp
     <div className="space-y-2">
       <div className="flex items-center justify-end gap-1">
         {searching && <input autoFocus aria-label="Search runs" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search runs…" className="h-8 w-56 rounded-lg border bg-background px-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50" />}
-        <Button variant="ghost" size="icon-sm" aria-label="Search" onClick={() => setSearching((s) => !s)}>
+        <Button variant="outline" size="icon" aria-label="Search" onClick={() => setSearching((s) => !s)}>
           <Search />
         </Button>
-        <Button variant="ghost" size="icon-sm" aria-label={desc ? "Sort oldest first" : "Sort newest first"} onClick={() => setDesc((d) => !d)}>
+        <Button variant="outline" size="icon" aria-label={desc ? "Sort oldest first" : "Sort newest first"} onClick={() => setDesc((d) => !d)}>
           {desc ? <ArrowDownWideNarrow /> : <ArrowUpNarrowWide />}
         </Button>
         <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Filter" className={cn(status && "bg-muted")} />}>
+          <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label="Filter" className={cn(status && "bg-muted")} />}>
             <ListFilter />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">

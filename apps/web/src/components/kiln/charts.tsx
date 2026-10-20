@@ -61,14 +61,14 @@ export function TimeChart({ rows, series, kind = "line", format = "count", heigh
         {scale.ticks.map((t) => (
           <g key={t}>
             <line x1={left} x2={width - pad.right} y1={y(t)} y2={y(t)} stroke="var(--border)" strokeWidth={1} />
-            <text x={left - 8} y={y(t)} dy="0.32em" textAnchor="end" fontSize={11} fill="currentColor">
+            <text x={left - 8} y={y(t)} dy="0.32em" textAnchor="end" fontSize={12} fill="currentColor">
               {format === "usd" ? `$${t.toFixed(2)}` : t}
             </text>
           </g>
         ))}
         {rows.map((r, i) =>
           labels.has(i) ? (
-            <text key={r.key} x={x(i)} y={height - 8} textAnchor={i === 0 ? "start" : i === rows.length - 1 ? "end" : "middle"} fontSize={11} fill="currentColor">
+            <text key={r.key} x={x(i)} y={height - 8} textAnchor={i === 0 ? "start" : i === rows.length - 1 ? "end" : "middle"} fontSize={12} fill="currentColor">
               {dayLabel(r.key)}
             </text>
           ) : null,

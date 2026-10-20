@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ChevronDown, Search } from "lucide-react";
+import { Check, ListFilter, Search } from "lucide-react";
 import { AgentTypeIcon } from "@/components/kiln/agent-type-icon";
 import { PageHeader } from "@/components/kiln/ui";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { pct, timeAgo, usd } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { EmptyIllustration } from "../../self-improvement/_components/empty-illustration";
 
 export type SuiteCard = { slug: string; name: string; description?: string; agent: string; agentType?: string; tasks: number; configurations: number; lastRun?: string; best?: { configuration: string; successRate: number; avgCostUsd: number } };
 
@@ -32,14 +34,16 @@ export function BenchmarkList({ factory, factoryName, suites }: { factory: strin
               </Button>
             )}
             <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="outline" aria-label={`Filter by agent type: ${type ? label(type) : "All agent types"}`} />}>
-                {type ? label(type) : "All agent types"} <ChevronDown className="text-muted-foreground" />
+              <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label={`Filter by agent type: ${type ? label(type) : "All agent types"}`} className={cn(type && "bg-muted")} />}>
+                <ListFilter />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={() => setType(null)}>All agent types</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setType(null)}>
+                  All agent types {!type && <Check className="ml-auto" />}
+                </DropdownMenuItem>
                 {types.map((t) => (
                   <DropdownMenuItem key={t} onClick={() => setType(t)}>
-                    <AgentTypeIcon size="sm" type={t ?? "CUSTOM"} /> {label(t)}
+                    <AgentTypeIcon size="sm" type={t ?? "CUSTOM"} /> {label(t)} {type === t && <Check className="ml-auto" />}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -52,9 +56,10 @@ export function BenchmarkList({ factory, factoryName, suites }: { factory: strin
       />
       <div className="px-4 py-6 sm:px-6">
         {suites.length === 0 ? (
-          <div className="flex min-h-[60vh] flex-col items-center justify-center rounded-2xl bg-muted/60 px-6 text-center">
-            <p className="font-medium">You haven’t created any benchmarks yet.</p>
-            <p className="mt-1 text-sm text-muted-foreground">Benchmarks allow you to evaluate agent performance across different model configs.</p>
+          <div className="flex min-h-[calc(100vh-7rem)] flex-col items-center justify-center px-6 pb-16 text-center">
+            <EmptyIllustration />
+            <p className="text-base font-semibold text-muted-foreground">You haven’t created any benchmarks yet.</p>
+            <p className="mt-1 max-w-lg text-sm text-muted-foreground">Benchmarks allow you to evaluate agent performance across different model configs.</p>
             <Link href={`/f/${factory}/benchmarks/new`} className={buttonVariants({ className: "mt-4" })}>
               New benchmark
             </Link>

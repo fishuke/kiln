@@ -115,11 +115,15 @@ const SOURCE_LABEL: Record<string, string> = {
 export const SOURCES = ["linear", "slack", "teams", "api", "mcp", "local", "schedule", "kiln", "github_action", "github", "gitlab", "azure_devops", "cli", "jira", "scorer", "benchmark", "improver", "orchestration", "webhook"] as const;
 
 export function sourceLabel(source: string): string {
-  return SOURCE_LABEL[source] ?? source.charAt(0).toUpperCase() + source.slice(1);
+  const key = source.toLowerCase();
+  if (key === "web_app") return "Kiln Web";
+  return SOURCE_LABEL[key] ?? source.charAt(0).toUpperCase() + source.slice(1);
 }
 
 /** Where a run came from: explicit `source`, else derived from its kind (child runs are orchestration). */
 export function runSource(run: RunLike): string {
+  // Runs the foreman launched for a work item inherit the request's source from the API; they are orchestration.
+  if ((run.workItemId || run.parentRunId) && run.kind === "work") return "orchestration";
   if (run.source) return run.source;
   if (run.kind === "benchmark") return "benchmark";
   if (run.kind === "improver") return "improver";
@@ -137,10 +141,11 @@ export function agentDisplayName(agent: string, factoryName?: string): string {
 }
 
 export function runTitle(run: RunLike, workItemTitle?: string): string {
-  if (run.title) return run.title;
+  // The API echoes the work item title on its runs; name those by their stage instead.
+  if (run.title && run.title !== workItemTitle) return run.title;
   const what = run.stage ?? run.agent;
   const verb: Record<string, string> = { triage: "Triage", spec: "Write spec for", build: "Build", implement: "Implement", verify: "Verify", review: "Review", plan: "Plan" };
-  const v = verb[what] ?? verb[run.agent] ?? what.charAt(0).toUpperCase() + what.slice(1);
+  const v = verb[run.agent] ?? verb[what] ?? what.charAt(0).toUpperCase() + what.slice(1);
   return workItemTitle ? `${v} ${workItemTitle}` : `${v} run`;
 }
 

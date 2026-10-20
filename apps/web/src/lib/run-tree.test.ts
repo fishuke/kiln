@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRunRows, filterRows, longDuration, mediaChipLabel, parseRunFilters, presetRange, relativeTime, runFiltersToQuery, shortDuration, sourceLabel, workItemStatus, type RunLike, type WorkItemLike } from "./run-tree";
+import { buildRunRows, runSource, runTitle, filterRows, longDuration, mediaChipLabel, parseRunFilters, presetRange, relativeTime, runFiltersToQuery, shortDuration, sourceLabel, workItemStatus, type RunLike, type WorkItemLike } from "./run-tree";
 
 const wi = (id: string, over: Partial<WorkItemLike> = {}): WorkItemLike => ({
   id,
@@ -94,6 +94,8 @@ describe("labels", () => {
   it("sources and states", () => {
     expect(sourceLabel("kiln")).toBe("Kiln Web");
     expect(sourceLabel("orchestration")).toBe("Orchestration");
+    expect(sourceLabel("WEB_APP")).toBe("Kiln Web");
+    expect(sourceLabel("GITHUB_ACTION")).toBe("GitHub Action");
     expect(workItemStatus("awaiting_spec")).toBe("blocked");
     expect(workItemStatus("building")).toBe("running");
     expect(workItemStatus("handed_off")).toBe("complete");
@@ -111,5 +113,17 @@ describe("labels", () => {
     expect(presetRange("This week", now)).toEqual({ from: "2026-10-18", to: "2026-10-24" });
     expect(presetRange("Last month", now)).toEqual({ from: "2026-09-01", to: "2026-09-30" });
     expect(presetRange("All time", now)).toEqual({});
+  });
+});
+
+describe("child runs", () => {
+  const run: RunLike = { id: "run_1", kind: "work", factory: "shop", workItemId: "wi_1", agent: "verify", stage: "verify", title: "Saved carts", source: "WEB_APP", status: "succeeded", costUsd: 0, startedAt: "2026-10-20T10:00:00Z" };
+  it("titles a work-item run by its stage when the API echoes the work item title", () => {
+    expect(runTitle(run, "Saved carts")).toBe("Verify Saved carts");
+    expect(runTitle({ ...run, title: "Check the cart badge" }, "Saved carts")).toBe("Check the cart badge");
+  });
+  it("marks runs launched by the foreman as orchestration", () => {
+    expect(runSource(run)).toBe("orchestration");
+    expect(runSource({ ...run, workItemId: undefined })).toBe("WEB_APP");
   });
 });

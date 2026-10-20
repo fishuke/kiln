@@ -42,8 +42,10 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { GitHubIcon, LinearIcon } from "./brand-icons";
+import { KilnMark } from "./logo";
 import { useTheme, type ThemePreference } from "./theme";
 
 export type ShellFactory = { id: string; name: string; alias: string; canary?: unknown };
@@ -100,13 +102,17 @@ function SubItem({ href, label }: { href: string; label: string }) {
 }
 
 function copy(text: string) {
-  void navigator.clipboard?.writeText(text);
+  void navigator.clipboard?.writeText(text).then(
+    () => toast.success(`Copied ${text}`),
+    () => toast.error("Could not copy to the clipboard"),
+  );
 }
 
 function FactoryRow({ f, pinned, onPin }: { f: ShellFactory; pinned: boolean; onPin: () => void }) {
   const path = usePathname();
-  const [open, setOpen] = useState(true);
   const base = `/f/${f.id}`;
+  // Only the factory being viewed starts expanded.
+  const [open, setOpen] = useState(() => path.startsWith(`${base}/`) || path === base);
   useEffect(() => {
     if (path.startsWith(base)) setOpen(true);
   }, [path, base]);
@@ -359,7 +365,7 @@ export function Sidebar({
     <aside style={{ width }} className="sticky top-0 flex h-screen shrink-0 flex-col border-r bg-sidebar">
       <div className="flex h-14 items-center gap-1 px-3">
         {searching ? (
-          <div className="flex h-9 flex-1 items-center gap-2 rounded-lg border-2 border-foreground bg-background px-2">
+          <div className="mr-2 flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border-2 border-foreground bg-background px-2">
             <Search className="size-4 text-muted-foreground" />
             <input
               autoFocus
@@ -378,10 +384,8 @@ export function Sidebar({
           </div>
         ) : (
           <>
-            <Link href="/runs/new" aria-label="Kiln home" className="flex size-7 items-center justify-center rounded-md bg-foreground text-background">
-              <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden>
-                <path d="M3 13.5 6.2 2.5h2.6L5.6 13.5zM7.4 13.5l3.2-11h2.6l-3.2 11z" />
-              </svg>
+            <Link href="/runs/new" aria-label="Kiln home">
+              <KilnMark />
             </Link>
             <span className="flex-1" />
             <button type="button" aria-label="Search factories" onClick={() => setSearching(true)} className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10">

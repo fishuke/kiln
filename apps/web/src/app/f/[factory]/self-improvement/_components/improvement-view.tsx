@@ -13,24 +13,9 @@ import type { Proposal } from "@kiln/sdk-ts";
 import { pct, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { decideProposal, runImprovementNow } from "../actions";
+import { EmptyIllustration } from "./empty-illustration";
 
 export type ImprovementSettings = { threshold: number; maxAgeDays: number; reviewers: string; enabledScorers: string[] };
-
-function EmptyIllustration() {
-  return (
-    <svg viewBox="0 0 120 80" className="mb-4 h-20 w-32 text-muted-foreground/40" aria-hidden>
-      {[
-        [14, 50, 22],
-        [48, 36, 36],
-        [82, 18, 54],
-      ].map(([x, y, h]) => (
-        <path key={x} d={`M${x} ${y + 6} l11 -6 l11 6 v${h - 12} l-11 6 l-11 -6 z`} className="fill-current" />
-      ))}
-      <path d="M20 40 Q60 10 104 8" className="fill-none stroke-current" strokeWidth={2} strokeDasharray="4 4" />
-      <path d="M98 4 l8 4 l-7 6" className="fill-none stroke-current" strokeWidth={2} />
-    </svg>
-  );
-}
 
 const STATE: Record<Proposal["state"], string> = {
   open: "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300",
@@ -178,9 +163,9 @@ export function ImprovementView({ factory, factoryName, proposals, failures, set
           </>
         }
       />
-      <div className="mx-auto w-full max-w-5xl px-6 py-6">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+      <div className="flex min-h-[calc(100vh-3.5rem)] w-full flex-col px-6 py-6">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
             <Tooltip>
               <TooltipTrigger render={<button type="button" aria-label="About self-improvement" />}>
                 <CircleHelp className="size-4" />
@@ -193,13 +178,13 @@ export function ImprovementView({ factory, factoryName, proposals, failures, set
             </Tooltip>
             Runs when an agent has {settings.threshold} unreviewed failures or its oldest is {settings.maxAgeDays} days old · reviewers: {settings.reviewers} · scorers: {settings.enabledScorers.length ? settings.enabledScorers.join(", ") : "none enabled"}
           </div>
-          <Link href={`/runs?factory=${encodeURIComponent(factory)}&source=SELF_IMPROVEMENT&myRuns=false`} className="text-sm font-medium hover:underline">
+          <Link href={`/runs?factory=${encodeURIComponent(factory)}&source=improver`} className="shrink-0 text-sm font-medium hover:underline">
             View all runs
           </Link>
         </div>
 
         {failures.length > 0 && (
-          <section className="mb-8">
+          <section className="mx-auto mb-8 w-full max-w-5xl">
             <h2 className="mb-2 text-sm text-muted-foreground">Unreviewed failures</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {failures.map((f) => (
@@ -220,13 +205,13 @@ export function ImprovementView({ factory, factoryName, proposals, failures, set
         )}
 
         {proposals.length === 0 ? (
-          <div className="flex flex-col items-center py-24 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center pb-24 text-center">
             <EmptyIllustration />
-            <p className="font-semibold text-muted-foreground">No self improvement PRs yet</p>
-            <p className="mt-1 max-w-md text-sm text-muted-foreground">Proposed changes will appear here for your approval. Not every self-improvement run creates a PR — view all runs to see activity and outcomes.</p>
+            <p className="text-base font-semibold text-muted-foreground">No self improvement PRs yet</p>
+            <p className="mt-1 max-w-lg text-sm text-muted-foreground">Proposed changes will appear here for your approval. Not every self-improvement run creates a PR — view all runs to see activity and outcomes.</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="mx-auto w-full max-w-5xl space-y-3">
             {proposals.map((p) => (
               <ProposalCard key={p.id} factory={factory} p={p} />
             ))}

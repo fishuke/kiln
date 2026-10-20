@@ -2,7 +2,25 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowUp, Award, ChevronsUpDown, EllipsisVertical, ExternalLink, FlaskConical, Laptop, Link2, List, PanelRight, Pause, Play, Plus, Repeat, Settings, Square, Undo2 } from "lucide-react";
+import {
+  ArrowUp,
+  Award,
+  ChevronsUpDown,
+  EllipsisVertical,
+  ExternalLink,
+  FlaskConical,
+  Laptop,
+  Link2,
+  List,
+  PanelRight,
+  Pause,
+  Play,
+  Plus,
+  Repeat,
+  Settings,
+  Square,
+  Undo2,
+} from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { confirmLanded, handBack, pauseRun, replayRun, resumeRun, saveAsBenchmark, scoreThisRun, sendFollowup, stopRun, takeLocal } from "@/app/runs/actions";
@@ -11,7 +29,15 @@ import { AgentIcon, StatusSquare } from "@/components/kiln/run-visuals";
 import { PageHeader } from "@/components/kiln/ui";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -43,7 +69,8 @@ function useLiveRun(runId: string | undefined, live: boolean) {
     if (runId && typeof EventSource !== "undefined") {
       es = new EventSource(`/api/runs/${runId}/stream`);
       es.onmessage = refresh;
-      for (const t of ["message", "tool_call", "tool_result", "steer", "pushed", "error", "finished", "started", "reasoning", "thinking"]) es.addEventListener(t, refresh);
+      for (const t of ["message", "tool_call", "tool_result", "steer", "pushed", "error", "finished", "started", "reasoning", "thinking"])
+        es.addEventListener(t, refresh);
       es.onerror = () => {
         es?.close();
         es = undefined;
@@ -115,7 +142,13 @@ export function RunDetailView({ model }: { model: RunDetailModel }) {
     window.history.replaceState(null, "", url);
   };
 
-  const crumbs = [{ label: "Runs", href: "/runs" }, { label: model.factory.name, href: `/runs?all=1&factory=${model.factory.id}` }, ...(model.root ? [{ label: model.root.title, href: `/runs/${model.root.id}` }] : []), { label: model.title }];
+  // Runs › factory › this run, for child runs too (the agent switcher links back to the root).
+  // Long titles are shortened here so the ancestor crumbs never collapse to "R…".
+  const crumbs = [
+    { label: "Runs", href: "/runs" },
+    { label: model.factory.name, href: `/runs?all=1&factory=${model.factory.id}` },
+    { label: shorten(model.title, 96) },
+  ];
 
   return (
     <div className="flex h-screen flex-col">
@@ -135,7 +168,20 @@ export function RunDetailView({ model }: { model: RunDetailModel }) {
                 onReplayed={(id) => router.push(`/runs/${id}`)}
               />
               <Tooltip>
-                <TooltipTrigger render={<button type="button" aria-label={panelOpen ? "Hide run details" : "Show run details"} aria-pressed={panelOpen} onClick={togglePanel} className={cn("flex size-7 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground", panelOpen && "bg-muted text-foreground")} />}>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={panelOpen ? "Hide run details" : "Show run details"}
+                      aria-pressed={panelOpen}
+                      onClick={togglePanel}
+                      className={cn(
+                        "flex size-7 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground",
+                        panelOpen && "bg-muted text-foreground",
+                      )}
+                    />
+                  }
+                >
                   <PanelRight className="size-4" />
                 </TooltipTrigger>
                 <TooltipContent>{panelOpen ? "Hide run details" : "Show run details"}</TooltipContent>
@@ -144,7 +190,13 @@ export function RunDetailView({ model }: { model: RunDetailModel }) {
           </div>
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-[976px] px-6 pt-2 pb-8">
-              <Transcript items={model.transcript} showThinking={showThinking} showTools={showTools} prUrl={model.workItem?.prUrl} previewUrl={model.workItem?.previewUrl} />
+              <Transcript
+                items={model.transcript}
+                showThinking={showThinking}
+                showTools={showTools}
+                prUrl={model.workItem?.prUrl}
+                previewUrl={model.workItem?.previewUrl}
+              />
               {model.live && (
                 <div className="mt-5 flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="relative flex size-2">
@@ -169,20 +221,23 @@ export function RunDetailView({ model }: { model: RunDetailModel }) {
 function AgentSwitcher({ model }: { model: RunDetailModel }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger aria-label={`Switch agent; current agent: ${model.agentLabel}`} className="flex h-7 items-center gap-1.5 rounded-md px-1.5 text-sm font-semibold hover:bg-muted aria-expanded:bg-muted">
+      <DropdownMenuTrigger
+        aria-label={`Switch agent; current agent: ${model.agentLabel}`}
+        className="flex h-7 items-center gap-1.5 rounded-md px-1.5 text-sm font-semibold hover:bg-muted aria-expanded:bg-muted"
+      >
         <AgentIcon agent={model.agent} />
         {model.agentLabel}
         <ChevronsUpDown className="size-4 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-100">
         {model.root && (
-          <DropdownMenuItem className="h-9 gap-2 px-2" render={<Link href={`/runs/${model.root.id}`} />}>
+          <DropdownMenuItem className="h-10 gap-2 px-2" render={<Link href={`/runs/${model.root.id}`} />}>
             <StatusSquare status={model.root.status} size={20} />
             <AgentIcon agent="foreman" />
             <span className="truncate">{model.root.title}</span>
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem className="h-9 gap-2 bg-muted/60 px-2" render={<Link href={`/runs/${model.id}`} />}>
+        <DropdownMenuItem className="h-10 gap-2 bg-muted/60 px-2" render={<Link href={`/runs/${model.id}`} />}>
           <StatusSquare status={model.status} size={20} />
           <AgentIcon agent={model.agent} />
           <span className="truncate font-medium">{model.isWorkItem ? model.agentLabel : model.title}</span>
@@ -191,7 +246,7 @@ function AgentSwitcher({ model }: { model: RunDetailModel }) {
           <DropdownMenuGroup>
             <DropdownMenuLabel className="px-2 pt-2 text-xs">Subagents</DropdownMenuLabel>
             {model.subagents.map((s) => (
-              <DropdownMenuItem key={s.id} className="h-9 gap-2 px-2" render={<Link href={`/runs/${s.id}?tab=agents&from=parent`} />}>
+              <DropdownMenuItem key={s.id} className="h-10 gap-2 px-2" render={<Link href={`/runs/${s.id}?tab=agents&from=parent`} />}>
                 <StatusSquare status={s.status} size={20} />
                 <AgentIcon agent={s.agent} />
                 <span className="truncate">{s.title}</span>
@@ -234,7 +289,21 @@ function StopButton({ model }: { model: RunDetailModel }) {
   );
 }
 
-function RunActionsMenu({ model, showThinking, showTools, onThinking, onTools, onReplayed }: { model: RunDetailModel; showThinking: boolean; showTools: boolean; onThinking: (v: boolean) => void; onTools: (v: boolean) => void; onReplayed: (id: string) => void }) {
+function RunActionsMenu({
+  model,
+  showThinking,
+  showTools,
+  onThinking,
+  onTools,
+  onReplayed,
+}: {
+  model: RunDetailModel;
+  showThinking: boolean;
+  showTools: boolean;
+  onThinking: (v: boolean) => void;
+  onTools: (v: boolean) => void;
+  onReplayed: (id: string) => void;
+}) {
   const router = useRouter();
   const [, start] = useTransition();
   const [dialog, setDialog] = useState<null | "benchmark" | "local" | "handback">(null);
@@ -250,7 +319,10 @@ function RunActionsMenu({ model, showThinking, showTools, onThinking, onTools, o
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger aria-label="Run actions" className="flex size-7 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground aria-expanded:bg-muted">
+        <DropdownMenuTrigger
+          aria-label="Run actions"
+          className="flex size-7 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground aria-expanded:bg-muted"
+        >
           <EllipsisVertical className="size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
@@ -352,6 +424,11 @@ function RunActionsMenu({ model, showThinking, showTools, onThinking, onTools, o
   );
 }
 
+function shorten(s: string, max: number) {
+  const one = s.replace(/\s+/g, " ").trim();
+  return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one;
+}
+
 function slugify(s: string) {
   return s
     .toLowerCase()
@@ -370,7 +447,9 @@ function BenchmarkDialog({ open, onClose, runId, title }: { open: boolean; onClo
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add to benchmark</DialogTitle>
-          <DialogDescription>Save this run&apos;s starting state and task as a benchmark task, so other models and settings can be compared on it.</DialogDescription>
+          <DialogDescription>
+            Save this run&apos;s starting state and task as a benchmark task, so other models and settings can be compared on it.
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <div className="grid gap-1.5">
@@ -544,10 +623,23 @@ function FollowupComposer({ model }: { model: RunDetailModel }) {
       />
       <div className="mt-1 flex items-center">
         {files.input}
-        <button type="button" aria-label="Add attachment" onClick={files.open} className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+        <button
+          type="button"
+          aria-label="Add attachment"
+          onClick={files.open}
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
           <Plus className="size-4" />
         </button>
-        <button type="submit" aria-label="Send (Enter)" disabled={!canSend} className={cn("ml-auto flex size-7 items-center justify-center rounded-md", canSend ? "bg-primary text-primary-foreground hover:bg-primary/85" : "bg-foreground/5 text-muted-foreground")}>
+        <button
+          type="submit"
+          aria-label="Send (Enter)"
+          disabled={!canSend}
+          className={cn(
+            "ml-auto flex size-7 items-center justify-center rounded-md",
+            canSend ? "bg-primary text-primary-foreground hover:bg-primary/85" : "bg-foreground/5 text-muted-foreground",
+          )}
+        >
           <ArrowUp className="size-4" />
         </button>
       </div>

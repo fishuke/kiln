@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { AuthLink, AuthShell, CredentialsForm, GitHubButton, OrDivider } from "@/components/kiln/auth-shell";
 import { api, safe } from "@/lib/kiln";
 import { safeNext } from "@/lib/session";
@@ -10,10 +11,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const next = safeNext(sp.next);
   const providers = await safe(() => api.withToken("").authProviders(), { password: true, github: false, openSignup: false, needsOwner: false });
+  // A fresh Kiln has no accounts yet: the first signup owns it.
+  if (providers.needsOwner) redirect(`/signup${next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`);
   return (
     <AuthShell
       title="Log in to Kiln"
-      subtitle={providers.needsOwner ? "No one has signed up yet. The first account owns this Kiln." : "Welcome back."}
+      subtitle="Welcome back."
       footer={
         providers.needsOwner || providers.openSignup ? (
           <>

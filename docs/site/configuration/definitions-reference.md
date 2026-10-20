@@ -189,6 +189,9 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `shape.memoryGb` | number | yes |  |
 | `setupCommands` | list of string |  | default `[]` |
 | `egress` | list of string |  | default `[]` |
+| `platform` | object |  |  |
+| `platform.linux` | object |  |  |
+| `platform.linux.registryCredentialSecretName` | string |  |  |
 
 ## router
 

@@ -68,10 +68,26 @@ Owners and admins invite people by email with a role (`POST /api/v1/teams/<team>
 | `githubOrgs` | `[]` | Enabled GitHub orgs. When the list is not empty, the team's factories may only use GitHub repositories owned by these orgs. |
 | `defaultSandboxHost` | not set | `local`, `docker` or `kubernetes`. Used for runs whose agent names no runner. |
 | `egressAllowlist` | `[]` | Hosts added to every run's egress allowlist. |
-| `storage.artifacts`, `storage.transcripts`, `storage.attachments` | `{ kind: local }` | Where each kind of data should go: a local folder (`path`) or an S3-compatible bucket (`bucket`, `region`, optional `endpoint`, `prefix`, `forcePathStyle`, and the names of team secrets holding the access key). |
+| `storage.artifacts`, `storage.transcripts`, `storage.attachments` | `{ kind: local }` | Where each kind of data goes. See [Data storage](#data-storage). |
 | `defaultFactoryRole` | `user` | The factory role every member has on the team's factories: `none`, `user` or `editor`. |
 
-Kiln validates and stores the `storage` settings, but files are still written to the server's object store (`KILN_DATA_DIR/objects`). Writing to a team's own bucket is not built yet.
+### Data storage
+
+Each team chooses where three kinds of data go:
+
+| Category | What | Object keys |
+| --- | --- | --- |
+| `artifacts` | Screenshots, recordings and reports that runs save | `runs/<run id>/<file>` |
+| `transcripts` | Each run's events as JSON lines, written when the run finishes | `transcripts/<run id>.jsonl` |
+| `attachments` | Files people attach to requests | `attachments/<team id>/…` |
+
+A target is one of:
+
+- `{ kind: local }`: the server's object store (`KILN_DATA_DIR/objects`). This is the default.
+- `{ kind: local, path: "acme/artifacts" }`: a folder under the server's storage root (`KILN_DATA_DIR/storage`). The path must stay inside the root.
+- `{ kind: s3, bucket, region, endpoint?, prefix?, forcePathStyle?, accessKeyIdSecret?, secretAccessKeySecret? }`: an S3-compatible bucket, such as AWS S3, MinIO or Cloudflare R2. Kiln signs requests itself (SigV4). Put the access key in two team secrets and name them here. Without them Kiln uses the server's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`. With an `endpoint`, Kiln uses path-style URLs unless `forcePathStyle: false`.
+
+Kiln remembers where each object went, so changing the settings later does not lose anything. Existing objects are not moved. Check a target with `POST /api/v1/teams/<team>/storage/<category>/test`, which writes a small object and reads it back.
 
 Team-managed model keys (Anthropic, OpenAI, OpenRouter, Bedrock) are team secrets with fixed names. See [Secrets, MCP servers and environments](secrets-mcps-environments.md#team-managed-model-keys).
 
@@ -108,9 +124,19 @@ Expiry is `1d`, `30d` (the default), `90d` or `never`. The key list shows when e
 - `name` and `email`.
 - `avatar`: a URL, or `null` to clear it. You can also upload an image with `PUT /api/v1/me/avatar` (PNG, JPEG, GIF, WebP or SVG, at most 1 MiB).
 - `appearance`: `light`, `dark` or `system`.
-- `notifications`: for each inbox kind (`spec`, `preview`, `question`, `merge`, `custom`), whether to notify by `email`, `slack` and `discord`.
+- `notifications`: for each kind (`spec`, `preview`, `question`, `merge` (pull request review), `custom`, `blocked`, `failed`), whether to notify by `email`, `slack` and `discord`.
+- `digest`: `{ daily, hourUtc, channels, only }`. With `daily: true`, Kiln sends one summary of the decisions waiting on you each day at or after `hourUtc`. With `only: true`, it sends nothing right away.
 
 Change your password with `PUT /api/v1/me/password`.
+
+### Notifications
+
+When a gate opens (a spec, preview, question, pull request review or custom decision), Kiln notifies its assignees. When work moves to `blocked` or `failed`, it notifies the requester. Only people with an account are notified, and only on the channels their preferences allow:
+
+- **Email:** set `KILN_SMTP_URL` on the server, for example `smtp://user:password@mail.acme.test:587?from=kiln@acme.test`, or `smtps://…:465` for implicit TLS. Kiln upgrades to STARTTLS when the server offers it. `KILN_MAIL_FROM` sets the sender.
+- **Slack and Discord:** a direct message to your linked account, through the chat integration for that provider.
+
+`GET /api/v1/me/notifications` lists what Kiln sent you and whether it arrived. Failed deliveries are also in the audit log as `notify.failed`.
 
 `GET /api/v1/me` returns your user, your teams, the current team, your role in it, your role on each factory, and the token's grants.
 

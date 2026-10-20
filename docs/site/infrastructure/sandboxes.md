@@ -30,6 +30,7 @@ egress:
 | `shape` | none | `vcpus` and `memoryGb`. Sets CPU and memory limits. |
 | `setupCommands` | `[]` | Run in order after the repositories are cloned. A failing command fails the run. |
 | `egress` | `[]` | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed. |
+| `platform.linux.registryCredentialSecretName` | none | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images). |
 | `description` | none | |
 
 An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses `node:22-bookworm` on the server's default backend, which is `local` unless the server sets another.

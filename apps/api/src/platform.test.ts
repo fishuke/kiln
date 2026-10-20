@@ -215,6 +215,9 @@ describe("user settings API", () => {
     const me = await member.c.updateMe({ name: "Max M", appearance: "dark", notifications: { spec: { email: false, slack: true, discord: true } } });
     expect(me).toMatchObject({ name: "Max M", appearance: "dark", notifications: { spec: { email: false, slack: true, discord: true }, preview: { email: true } } });
     await expect(member.c.updateMe({ email: "olga@acme.test" })).rejects.toMatchObject({ status: 409 });
+    expect((await member.c.updateMe({ digest: { daily: true, hourUtc: 7 } })).digest).toEqual({ daily: true, hourUtc: 7, channels: ["email"], only: false });
+    await expect(member.c.updateMe({ digest: { hourUtc: 25 } })).rejects.toMatchObject({ status: 400 });
+    expect(await member.c.notifications()).toEqual([]);
     const withAvatar = await member.c.uploadAvatar(new Uint8Array([1, 2, 3]), "image/webp");
     expect(withAvatar.avatar).toMatch(/^\/api\/v1\/users\/usr_.+\/avatar/);
     await expect(member.c.uploadAvatar(new Uint8Array(1024 * 1024 + 1), "image/png")).rejects.toMatchObject({ status: 413 });

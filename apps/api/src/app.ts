@@ -220,6 +220,13 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     for (const f of kiln.defs.list()) if (!before.has(f.id) && f.team !== t.id) kiln.teams.assignFactory(f.id, t.id, who(c));
   };
   const known = () => new Set(kiln.defs.list().map((f) => f.id));
+  /** Enabled GitHub orgs: when a team lists any, its factories may only use repos in them. */
+  const checkOrgs = (c: Context<Env>, repos: { owner: string; forge?: string }[]) => {
+    const t = access(c).team;
+    const orgs = t ? kiln.teams.settings(t.id).githubOrgs.map((o) => o.toLowerCase()) : [];
+    const outside = orgs.length ? repos.filter((r) => (r.forge ?? "github") === "github" && !orgs.includes(r.owner.toLowerCase())) : [];
+    if (outside.length) throw new HttpError(403, `GitHub org ${outside[0]!.owner} is not enabled for team ${t!.slug}`);
+  };
 
   // factories and definitions
   app.get("/api/v1/factories", (c) =>
@@ -278,6 +285,7 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const v = kiln.defs.validate(body.tree);
     const target = body.factory ?? (v.ok ? kiln.defs.resolveTree(body.tree).factory.alias : undefined) ?? "*";
     need(c, "definitions:write", target);
+    if (v.ok) checkOrgs(c, kiln.defs.resolveTree(body.tree).factory.repositories);
     const before = known();
     const r = kiln.defs.applyAny(body.tree, { author: who(c), factory: body.factory, canaryPercent: body.canaryPercent, dryRun: body.dryRun });
     adopt(c, before);
@@ -286,6 +294,7 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   app.post("/api/v1/factories/connect", async (c) => {
     const body = S.Connect.parse(await c.req.json());
     need(c, "definitions:write", "*");
+    checkOrgs(c, [{ owner: body.owner, forge: "github" }]);
     const before = known();
     const r = await kiln.defs.connectRepo(body, who(c));
     adopt(c, before);
@@ -507,8 +516,10 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const p = kiln.improvement.get(c.req.param("id"));
     if (!p) throw new HttpError(404, "unknown proposal");
     need(c, "definitions:write", p.factory);
-    const body = await c.req.json().catch(() => ({}));
-    return c.json(c.req.param("action") === "approve" ? kiln.improvement.approve(p.id, who(c)) : kiln.improvement.reject(p.id, who(c), (body as { reason?: string }).reason));
+    const body = (await c.req.json().catch(() => ({}))) as { reason?: string; force?: boolean };
+    // Factory Admins may force a change that waits for a second approval.
+    if (body.force) need(c, "admin", p.factory);
+    return c.json(c.req.param("action") === "approve" ? kiln.improvement.approve(p.id, who(c), { force: body.force }) : kiln.improvement.reject(p.id, who(c), body.reason));
   });
   app.get("/api/v1/factories/:id/benchmarks", (c) => {
     const id = c.req.param("id");

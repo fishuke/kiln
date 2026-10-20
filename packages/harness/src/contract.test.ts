@@ -140,20 +140,24 @@ describe.each(adapters)("harness contract: %s", (_name, adapter, skillPath) => {
 });
 
 describe("claude code specifics", () => {
-  it("installs the guard hook and MCP config when asked", async () => {
+  it("keeps the guard hook and MCP config (with the run token) in the git-excluded .kiln/ folder", async () => {
     const { sandbox, files, spawned } = scriptedSandbox();
     const session = await new ClaudeCodeAdapter().start({
       ...base,
       sandbox,
       cwd: "app",
       guardUrl: "http://kiln/api/v1/guard",
-      mcpServers: [{ name: "kiln", url: "http://kiln/mcp" }],
+      mcpServers: [{ name: "kiln", url: "http://kiln/mcp", headers: { authorization: "Bearer run-token" } }],
     });
     await session.result;
-    expect(JSON.parse(files["app/.claude/settings.json"]!).hooks.PreToolUse[0].matcher).toBe("Bash");
-    expect(files["app/.claude/hooks/kiln-guard.mjs"]).toContain("http://kiln/api/v1/guard");
-    expect(JSON.parse(files["app/.mcp.json"]!).mcpServers.kiln.url).toBe("http://kiln/mcp");
-    expect(spawned[0]).toEqual(expect.arrayContaining(["--output-format", "stream-json", "--model", "m"]));
+    expect(JSON.parse(files["app/.kiln/claude-settings.json"]!).hooks.PreToolUse[0].hooks[0].command).toBe("node .kiln/kiln-guard.mjs");
+    expect(files["app/.kiln/kiln-guard.mjs"]).toContain("http://kiln/api/v1/guard");
+    expect(JSON.parse(files["app/.kiln/mcp.json"]!).mcpServers.kiln.url).toBe("http://kiln/mcp");
+    // Nothing that could be committed carries the token, and the repository's own config is left alone.
+    expect(Object.entries(files).filter(([p, c]) => !p.startsWith("app/.kiln/") && c.includes("run-token"))).toEqual([]);
+    expect(files["app/.mcp.json"]).toBeUndefined();
+    expect(files["app/.claude/settings.json"]).toBeUndefined();
+    expect(spawned[0]).toEqual(expect.arrayContaining(["--output-format", "stream-json", "--model", "m", "--mcp-config", ".kiln/mcp.json", "--settings", ".kiln/claude-settings.json"]));
   });
 });
 

@@ -35,8 +35,8 @@ The harness program must be installed in the runner's image. Pin its version in 
 | Model flag | `--model` | `-m` | `-m` |
 | Instructions | Appended to the system prompt | Sent before the prompt | Written to `AGENTS.md` |
 | Skills folder | `.claude/skills/` | `.agents/skills/` | `.opencode/skills/` |
-| Kiln MCP | Written to `.mcp.json` | Not configured | Not configured |
-| Command guard | `PreToolUse` hook on Bash in `.claude/settings.json` | Not installed | Not installed |
+| Kiln MCP | `.kiln/mcp.json`, passed with `--mcp-config` (never committed: it holds the run token) | Not configured | Not configured |
+| Command guard | `PreToolUse` hook on Bash in `.kiln/claude-settings.json`, passed with `--settings` | Not installed | Not installed |
 | Cost | Reported by Claude Code | Estimated from token counts | Reported per step |
 
 ## Credentials

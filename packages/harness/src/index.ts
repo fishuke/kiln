@@ -188,20 +188,21 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   async start(opts: StartOptions): Promise<HarnessSession> {
     const prefix = opts.cwd ? `${opts.cwd}/` : "";
     await writeSkills(opts, ".claude/skills");
+    // Run config lives in .kiln/ (git-excluded): the MCP config carries the run token, and the repository's
+    // own .mcp.json and .claude/settings.json must not be overwritten or committed.
+    const config: string[] = [];
     if (opts.mcpServers?.length) {
       const mcpServers = Object.fromEntries(opts.mcpServers.map((s) => [s.name, "url" in s ? { type: "http", url: s.url, headers: s.headers } : { type: "stdio", command: s.command, args: s.args ?? [], env: s.env ?? {} }]));
-      await opts.sandbox.writeFile(`${prefix}.mcp.json`, JSON.stringify({ mcpServers }, null, 2));
+      await opts.sandbox.writeFile(`${prefix}.kiln/mcp.json`, JSON.stringify({ mcpServers }, null, 2));
+      config.push("--mcp-config", ".kiln/mcp.json");
     }
     if (opts.guardUrl) {
-      await opts.sandbox.writeFile(`${prefix}.claude/hooks/kiln-guard.mjs`, guardHook(opts.guardUrl));
+      await opts.sandbox.writeFile(`${prefix}.kiln/kiln-guard.mjs`, guardHook(opts.guardUrl));
       await opts.sandbox.writeFile(
-        `${prefix}.claude/settings.json`,
-        JSON.stringify(
-          { hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "node .claude/hooks/kiln-guard.mjs" }] }] } },
-          null,
-          2,
-        ),
+        `${prefix}.kiln/claude-settings.json`,
+        JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "node .kiln/kiln-guard.mjs" }] }] } }, null, 2),
       );
+      config.push("--settings", ".kiln/claude-settings.json");
     }
     const args = [
       "-p",
@@ -215,6 +216,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
       "--append-system-prompt",
       opts.instructions,
       ...(opts.model ? ["--model", opts.model] : []),
+      ...config,
     ];
     const session = new ClaudeSession();
     const proc = opts.sandbox.spawn(this.bin, args, { cwd: opts.cwd, env: opts.env });

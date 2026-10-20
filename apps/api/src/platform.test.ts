@@ -178,6 +178,26 @@ describe("factory roles API", () => {
     await expect(member.c.send({ factory: "webapp", title: "x" })).rejects.toMatchObject({ status: 403 });
   });
 
+  it("only factory Admins force a definition change that waits for a second approval", async () => {
+    const s = setup();
+    const { o, member } = await people(s);
+    await o.addFactoryMember("webapp", { email: "max@acme.test", role: "editor" });
+    const sha = s.kiln.defs.require("webapp").appliedSha!;
+    s.kiln.store.put("proposals", { id: "prop_1", factory: "webapp", agent: "implement", category: "instructions", target: "definition", failures: [], changes: {}, rationale: "", replay: [], passRateBefore: 0, passRateAfter: 1, body: "", candidateSha: sha, needsTwoApprovals: true, droppedProtectedPaths: [], state: "open", createdAt: new Date().toISOString() });
+    await expect(member.c.approveProposal("prop_1", { force: true })).rejects.toMatchObject({ status: 403 });
+    expect((await o.approveProposal("prop_1", { force: true })).state).toBe("merged");
+    expect((await o.audit()).map((a) => a.action)).toContain("proposal.force_approved");
+  });
+
+  it("enabled GitHub orgs limit which repos a team's factories use", async () => {
+    const s = setup();
+    const { o } = await people(s);
+    await o.updateTeamSettings("default", { githubOrgs: ["other-org"] });
+    await expect(o.apply(sampleTree({}, "Web 2", "web2", "acme/web"))).rejects.toMatchObject({ status: 403, message: "GitHub org acme is not enabled for team default" });
+    await o.updateTeamSettings("default", { githubOrgs: ["other-org", "ACME"] });
+    expect((await o.apply(sampleTree({}, "Web 2", "web2", "acme/web"))).ok).toBe(true);
+  });
+
   it("scoped tokens keep their explicit grants", async () => {
     const s = setup();
     const { token } = issueToken(s.kiln.store, { name: "ci", subject: "ci@acme.test", grants: [{ scope: "read", factory: "webapp" }] });

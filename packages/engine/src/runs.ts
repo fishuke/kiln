@@ -3,12 +3,13 @@ import { BUILTIN_DECISIONS, guardCommand, runDecision } from "@kiln/decide";
 import type { DefinitionTree, ResolvedAgent, ResolvedFactory } from "@kiln/definitions";
 import type { HarnessSession } from "@kiln/harness";
 import { repoKey, type RepoRef } from "@kiln/integrations";
-import { hashDir, type Sandbox, type SandboxProvider, type SnapshotRef } from "@kiln/sandbox";
+import { hashDir, type RegistryAuth, type Sandbox, type SandboxProvider, type SnapshotRef } from "@kiln/sandbox";
 import type { HarnessType, Runner } from "@kiln/schema";
 import { classifyError, KilnError, retriesAutomatically, runStatusFor } from "./errors";
 import type { Kiln } from "./kiln";
 import { cloudProviderEnv } from "./cloud";
 import { fileUrl, mediaOf } from "./media";
+import { registryAuthFor } from "./platform/registry";
 import { checkMetadata, isTerminal, sourceFor } from "./run-state";
 import { C, newId, type Artifact, type Attachment, type ExecutionOverrides, type Run, type RunEvent, type RunKind, type RunMode, type RunSource, type WorkItem } from "./types";
 import type { RemoteSession, WorkerJob } from "./workers";
@@ -126,6 +127,8 @@ type Prepared = {
   /** Secrets of the run's environment, given to the agent with its own. */
   environmentSecrets: string[];
   envRef?: string;
+  /** Pull credential for a private runner image. */
+  registryAuth?: RegistryAuth;
 };
 
 export class RunService {
@@ -336,7 +339,10 @@ export class RunService {
     const instructions = [agent.instructions, memories, input.extraInstructions ?? "", modeInstructions(input.mode), resultProtocol(agent.agentType)].filter(Boolean).join("\n\n");
     run.startState.instructions = instructions;
     this.save(run);
-    return { run, input: { ...input, prompt }, resolved, agent, harnessType, model, runner, deniedHosts: policy?.deniedHosts ?? [], repos, token, instructions, attachments, workerHost, team, userId: user?.id, environmentSecrets: environment?.secrets ?? [], envRef };
+    // A private image: the runner's (or else the environment's) registry credential, checked against the image's registry.
+    const registrySecret = declared?.platform?.linux?.registryCredentialSecretName ?? (declared ? undefined : environment?.registryCredentialSecretName);
+    const registryAuth = registrySecret && !workerHost ? await registryAuthFor(this.k, team, registrySecret, runner.image) : undefined;
+    return { run, input: { ...input, prompt }, resolved, agent, harnessType, model, runner, deniedHosts: policy?.deniedHosts ?? [], repos, token, instructions, attachments, workerHost, team, userId: user?.id, environmentSecrets: environment?.secrets ?? [], envRef, registryAuth };
   }
 
   private async executeOnce(input: ExecuteInput, prior?: Run): Promise<Run> {
@@ -380,6 +386,7 @@ export class RunService {
       const retrying = run.status === "error" && retriesAutomatically(run.error) && (run.attempt ?? 1) < Math.max(1, input.maxAttempts ?? this.k.options.maxRunAttempts ?? 3);
       if (!retrying) {
         this.record(run, "finished", run.status, { costUsd: run.costUsd });
+        await this.saveTranscript(run);
         this.k.bus.publish("run.finished", { runId: run.id, outcome: run.status === "succeeded" ? "succeeded" : run.status === "failed" || run.status === "error" ? "failed" : "cancelled", costUsd: run.costUsd });
       }
     }
@@ -402,6 +409,7 @@ export class RunService {
     const effective: Runner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [] };
     let sandbox: Sandbox | undefined;
     sandbox = await provider.create({
+      registryAuth: p.registryAuth,
       runner: effective,
       repos: repos.map((r) => ({ name: r.name, url: this.k.forge.cloneUrl(r, token) })),
       env: { KILN_RUN_ID: run.id },
@@ -649,6 +657,18 @@ export class RunService {
       }
     }
     return env;
+  }
+
+  /** The run's events as JSON lines, in the team's transcript storage. */
+  private async saveTranscript(run: Run) {
+    const key = `transcripts/${run.id}.jsonl`;
+    try {
+      await this.k.objects.put(key, this.events(run.id).map((e) => JSON.stringify(e)).join("\n") + "\n", "application/x-ndjson");
+      run.transcriptKey = key;
+      this.save(run);
+    } catch (err) {
+      this.k.audit("kiln", "transcript.failed", run.id, { error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   /** Upload what the agent saved in .kiln/artifacts/ (and lists in result.artifacts) for reviewers. */

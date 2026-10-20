@@ -76,6 +76,10 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `blueprint.stages` | object | yes |  |
 | `blueprint.edges` | object |  | default `{}` |
 | `blueprint.staffing` | object | yes |  |
+| `deduplication` | object |  |  |
+| `deduplication.enabled` | boolean |  | default `true` |
+| `deduplication.windowHours` | integer |  | default `24`, min 1, max 720 |
+| `deduplication.threshold` | number |  | default `0.5`, min 0.2, max 1 |
 | `experimental` | object |  |  |
 | `selfImprovement` | object |  |  |
 | `selfImprovement.enabled` | boolean |  | default `true` |
@@ -219,7 +223,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `platform.os` | `linux` \| `macos` \| `windows` |  | default `"linux"` |
 | `platform.arch` | `x86_64` \| `aarch64` |  |  |
 | `platform.linux` | object |  |  |
-| `platform.linux.dockerImage` | string | yes |  |
+| `platform.linux.dockerImage` | string |  |  |
 | `platform.linux.registryCredentialSecretName` | string |  |  |
 | `platform.mac` | object |  |  |
 | `platform.mac.version` | `14` \| `15` \| `26` \| `27` |  | default `"26"` |

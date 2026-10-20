@@ -66,6 +66,7 @@ import type {
   Membership,
   ModelKeyProvider,
   NotificationPrefs,
+  NotificationRecord,
   PublicUser,
   SecretMeta,
   SecretType,
@@ -552,9 +553,10 @@ export class KilnClient {
   acceptInvite = (token: string) => this.request<{ team: { id: string; name: string; slug: string }; role: TeamRole }>("POST", "/api/v1/invites/accept", { token });
 
   // ---- user settings ----
-  updateMe = (patch: { name?: string; email?: string; avatar?: string | null; appearance?: Appearance; notifications?: Partial<NotificationPrefs> }) => this.request<PublicUser>("PATCH", "/api/v1/me", patch);
+  updateMe = (patch: { name?: string; email?: string; avatar?: string | null; appearance?: Appearance; notifications?: Partial<NotificationPrefs>; digest?: Partial<{ daily: boolean; hourUtc: number; channels: ("email" | "slack" | "discord")[]; only: boolean }> }) => this.request<PublicUser>("PATCH", "/api/v1/me", patch);
   changePassword = (next: string, current?: string) => this.request<{ ok: true }>("PUT", "/api/v1/me/password", { next, current });
   uploadAvatar = (bytes: Uint8Array | ArrayBuffer | Blob, contentType: string) => this.upload<PublicUser>("PUT", "/api/v1/me/avatar", bytes, contentType);
+  notifications = (limit = 50) => this.request<NotificationRecord[]>("GET", `/api/v1/me/notifications?limit=${limit}`);
   linkedAccounts = () => this.request<LinkedAccount[]>("GET", "/api/v1/me/linked-accounts");
   linkAccount = (provider: LinkProvider, externalId: string, handle?: string) => this.request<LinkedAccount[]>("POST", "/api/v1/me/linked-accounts", { provider, externalId, handle });
   unlinkAccount = (provider: LinkProvider) => this.request<LinkedAccount[]>("DELETE", `/api/v1/me/linked-accounts/${provider}`);
@@ -577,6 +579,7 @@ export class KilnClient {
   revokeInvite = (team: string, inviteId: string) => this.request<{ ok: true }>("DELETE", `/api/v1/teams/${encodeURIComponent(team)}/invites/${encodeURIComponent(inviteId)}`);
   teamSettings = (team: string) => this.request<TeamSettings>("GET", `/api/v1/teams/${encodeURIComponent(team)}/settings`);
   updateTeamSettings = (team: string, patch: Partial<TeamSettings>) => this.request<TeamSettings>("PATCH", `/api/v1/teams/${encodeURIComponent(team)}/settings`, patch);
+  testStorage = (team: string, category: "artifacts" | "transcripts" | "attachments") => this.request<{ ok: boolean; error?: string }>("POST", `/api/v1/teams/${encodeURIComponent(team)}/storage/${category}/test`);
   modelKeys = (team: string) => this.request<Record<ModelKeyProvider, { set: boolean; updatedAt?: string; updatedBy?: string }>>("GET", `/api/v1/teams/${encodeURIComponent(team)}/model-keys`);
   setModelKey = (team: string, provider: ModelKeyProvider, value: string | Record<string, string>) => this.request<SecretMeta>("PUT", `/api/v1/teams/${encodeURIComponent(team)}/model-keys/${provider}`, { value });
   deleteModelKey = (team: string, provider: ModelKeyProvider) => this.request<{ ok: true }>("DELETE", `/api/v1/teams/${encodeURIComponent(team)}/model-keys/${provider}`);

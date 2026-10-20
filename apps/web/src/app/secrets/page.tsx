@@ -1,64 +1,87 @@
-import { setSecret } from "@/app/actions";
-import { SubmitButton } from "@/components/kiln/submit-button";
-import { ApiDown, Page, PageHeader, Pre, Section } from "@/components/kiln/ui";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { KeyRound } from "lucide-react";
+import { EmptyPanel } from "@/components/kiln/settings-blocks";
+import { ApiDown, PageHeader } from "@/components/kiln/ui";
 import { Badge } from "@/components/ui/badge";
 import { api, safe } from "@/lib/kiln";
+import { secretType } from "@/lib/secret-types";
+import { EmptyActions, SecretRowMenu, SecretsToolbar } from "./toolbar";
 
-const KEYS: [string, string, string][] = [
-  ["CLAUDE_CODE_OAUTH_TOKEN", "Claude Code on your Claude subscription", "Run `claude setup-token` on your machine and paste the token. Claude Code agents use it instead of an API key."],
-  ["ANTHROPIC_API_KEY", "Claude Code or OpenCode with an Anthropic API key", "Used when no subscription token is set."],
-  ["OPENAI_API_KEY", "Codex and OpenCode", "OpenAI or a compatible gateway key."],
-  ["OPENROUTER_API_KEY", "OpenCode through OpenRouter", "Any model OpenRouter serves, including open-weight ones."],
-  ["GITHUB_WEBHOOK_SECRET", "GitHub webhook signature", "Set the same value in the GitHub App's webhook settings."],
-  ["SLACK_SIGNING_SECRET", "Slack request signatures", "From the Slack app's Basic Information page."],
-];
+export const metadata: Metadata = { title: "Secrets" };
 
-export default async function Secrets() {
-  const names = await safe(() => api.secrets(), null);
-  if (!names) return <ApiDown />;
+function ago(iso: string) {
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+export default async function Secrets({ searchParams }: { searchParams: Promise<{ q?: string; type?: string; scope?: string; creator?: string }> }) {
+  const sp = await searchParams;
+  const [secrets, me] = await Promise.all([safe(() => api.managedSecrets(), null), safe(() => api.me(), null)]);
+  if (!secrets) return <ApiDown />;
+  const canTeam = me?.role === "owner" || me?.role === "admin";
+  const q = sp.q?.toLowerCase().trim();
+  const shown = secrets
+    .filter((s) => !sp.type || s.type === sp.type)
+    .filter((s) => !sp.scope || s.scope === sp.scope)
+    .filter((s) => !sp.creator || s.createdBy === sp.creator)
+    .filter((s) => !q || s.name.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.scope.localeCompare(b.scope));
+  const creators = [...new Set(secrets.map((s) => s.createdBy))].sort();
+
   return (
     <>
-      <PageHeader crumbs={[{ label: "Secrets" }]} />
-      <Page narrow>
-        <Section title="Bring your own keys" description="Kiln is open source and self-hosted: models run on your keys or your subscription. Values stay in the control plane; an agent receives only the secrets its definition lists, plus its harness credential.">
-          <ul className="divide-y rounded-xl border text-sm">
-            {KEYS.map(([name, what, how]) => (
-              <li key={name} className="flex items-start gap-3 px-4 py-3">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <code>{name}</code>
-                    {names.includes(name) ? <Badge variant="secondary">set</Badge> : <Badge variant="outline">not set</Badge>}
+      <PageHeader crumbs={[{ label: "Secrets" }]} actions={<SecretsToolbar creators={creators} canTeam={canTeam} />} />
+      {secrets.length === 0 ? (
+        <EmptyPanel title="You haven’t added any secrets yet." actions={<EmptyActions canTeam={canTeam} />}>
+          Secrets allow agents to access accounts and use personal tokens on your behalf.
+        </EmptyPanel>
+      ) : shown.length === 0 ? (
+        <EmptyPanel title="No secrets match these filters.">
+          <Link href="/secrets" className="font-medium text-foreground underline-offset-4 hover:underline">
+            Clear filters
+          </Link>
+        </EmptyPanel>
+      ) : (
+        <div className="px-6 py-4">
+          <ul className="divide-y rounded-xl border">
+            {shown.map((s) => {
+              const meta = secretType(s.type);
+              const editable = s.scope === "personal" || canTeam;
+              return (
+                <li key={s.id} className="group flex items-center gap-4 px-4 py-3 hover:bg-muted/50">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                    <KeyRound className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      {editable ? (
+                        <Link href={`/secrets/${s.scope}/${encodeURIComponent(s.name)}`} className="truncate font-mono text-sm font-medium hover:underline">
+                          {s.name}
+                        </Link>
+                      ) : (
+                        <span className="truncate font-mono text-sm font-medium">{s.name}</span>
+                      )}
+                      <Badge variant="outline">{meta.label}</Badge>
+                      <Badge variant={s.scope === "team" ? "secondary" : "outline"} className="capitalize">
+                        {s.scope}
+                      </Badge>
+                    </div>
+                    {s.description && <div className="truncate text-sm text-muted-foreground">{s.description}</div>}
                   </div>
-                  <div className="mt-0.5 font-medium">{what}</div>
-                  <div className="text-muted-foreground">{how}</div>
-                </div>
-              </li>
-            ))}
+                  <div className="hidden w-56 shrink-0 text-right text-xs text-muted-foreground md:block">
+                    <div className="truncate">Updated {ago(s.updatedAt)}</div>
+                    <div className="truncate">by {s.updatedBy}</div>
+                  </div>
+                  <SecretRowMenu scope={s.scope} name={s.name} canEdit={editable} />
+                </li>
+              );
+            })}
           </ul>
-        </Section>
-        <Section title="Use a key for one agent" description="Point an agent's harness at a named secret, for example a team key for the reviewer:">
-          <Pre>{`---
-agentType: REVIEW
-harness:
-  type: codex
-  auth: { source: secret, secretName: TEAM_OPENAI }
----`}</Pre>
-        </Section>
-        <Section title="All secrets">
-          <ul className="mb-4 flex flex-wrap gap-2">
-            {names.map((n) => (
-              <li key={n}>
-                <Badge variant="outline" className="font-mono">{n}</Badge>
-              </li>
-            ))}
-          </ul>
-          <form action={setSecret} className="flex gap-2">
-            <input name="name" required placeholder="NAME" pattern="[A-Z0-9_]+" className="h-9 w-56 rounded-md border bg-background px-3 font-mono text-sm" />
-            <input name="value" required type="password" placeholder="value" className="h-9 flex-1 rounded-md border bg-background px-3 text-sm" />
-            <SubmitButton>Save</SubmitButton>
-          </form>
-        </Section>
-      </Page>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {shown.length} of {secrets.length} secret{secrets.length === 1 ? "" : "s"}. Values are write-only and never shown.
+          </p>
+        </div>
+      )}
     </>
   );
 }

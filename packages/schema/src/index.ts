@@ -394,7 +394,14 @@ export const RunnerPlatform = z
   .object({
     os: z.enum(["linux", "macos", "windows"]).default("linux"),
     arch: z.enum(["x86_64", "aarch64"]).optional(),
-    linux: z.object({ dockerImage: z.string().min(1), registryCredentialSecretName: z.string().optional() }).strict().optional(),
+    linux: z
+      .object({
+        dockerImage: z.string().min(1).optional(),
+        /** A team secret of type docker_registry or aws_ecr used to pull a private image; its host must match the image's registry. */
+        registryCredentialSecretName: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
     mac: z.object({ version: z.enum(["14", "15", "26", "27"]).default("26") }).strict().optional(),
   })
   .strict();
@@ -424,7 +431,10 @@ type RunnerOut = Omit<z.infer<typeof RunnerInput>, "image" | "shape"> & { image:
 
 export const Runner = RunnerInput.transform((r): RunnerOut => {
   const shape = r.shape ?? r.instanceShape;
-  return { ...r, image: r.image ?? r.platform?.linux?.dockerImage ?? "node:22-bookworm", ...(shape ? { shape } : {}) };
+  // One place for the pull credential: the top-level v1alpha1 key is folded into platform.linux.
+  const registry = r.platform?.linux?.registryCredentialSecretName ?? r.registryCredentialSecretName;
+  const platform = registry ? { ...(r.platform ?? { os: "linux" as const }), linux: { ...r.platform?.linux, registryCredentialSecretName: registry } } : r.platform;
+  return { ...r, image: r.image ?? r.platform?.linux?.dockerImage ?? "node:22-bookworm", ...(shape ? { shape } : {}), ...(platform ? { platform } : {}) };
 });
 export type Runner = z.infer<typeof Runner>;
 

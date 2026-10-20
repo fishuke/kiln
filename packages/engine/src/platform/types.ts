@@ -17,9 +17,19 @@ export const P = {
 export const LINK_PROVIDERS = ["github", "slack", "discord", "linear", "jira", "teams", "gitlab", "azure_devops"] as const;
 export type LinkProvider = (typeof LINK_PROVIDERS)[number];
 
-export const INBOX_KINDS = ["spec", "preview", "question", "merge", "custom"] as const;
+/** What people are notified about: the gate kinds (merge is the PR review), plus work that is blocked or failed. */
+export const NOTIFY_KINDS = ["spec", "preview", "question", "merge", "custom", "blocked", "failed"] as const;
+export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 export const NOTIFY_CHANNELS = ["email", "slack", "discord"] as const;
-export type NotificationPrefs = Record<(typeof INBOX_KINDS)[number], Record<(typeof NOTIFY_CHANNELS)[number], boolean>>;
+export type NotifyChannel = (typeof NOTIFY_CHANNELS)[number];
+export type NotificationPrefs = Record<NotifyKind, Record<NotifyChannel, boolean>>;
+
+/** A daily summary of open decisions. With `only`, nothing is sent right away. */
+export const DigestPrefs = z
+  .object({ daily: z.boolean(), hourUtc: z.number().int().min(0).max(23), channels: z.array(z.enum(NOTIFY_CHANNELS)).min(1), only: z.boolean() })
+  .strict();
+export type DigestPrefs = z.infer<typeof DigestPrefs>;
+export const DEFAULT_DIGEST: DigestPrefs = { daily: false, hourUtc: 8, channels: ["email"], only: false };
 
 export const Appearance = z.enum(["light", "dark", "system"]);
 export type Appearance = z.infer<typeof Appearance>;
@@ -36,6 +46,7 @@ export type User = {
   passwordHash?: string;
   appearance: Appearance;
   notifications: NotificationPrefs;
+  digest?: DigestPrefs;
   linkedAccounts: LinkedAccount[];
 };
 
@@ -165,6 +176,8 @@ export type EnvironmentTemplate = {
   repos: { owner: string; name: string }[];
   setupCommands: string[];
   secrets: string[];
+  /** A team secret (docker_registry or aws_ecr) for pulling `image`. */
+  registryCredentialSecretName?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

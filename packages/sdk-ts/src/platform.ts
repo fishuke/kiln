@@ -8,6 +8,7 @@ import type {
   McpServer,
   Membership,
   NotificationPrefs,
+  NotificationRecord,
   PublicUser,
   SecretMeta,
   SecretType,
@@ -17,7 +18,7 @@ import type {
   UsageSummary,
 } from "@kiln/engine";
 
-export type { Appearance, EnvironmentTemplate, FactoryMember, Invite, LinkedAccount, LinkProvider, McpServer, Membership, NotificationPrefs, PublicUser, SecretMeta, SecretType, TeamSettings, UsageEntry, UsageSummary };
+export type { Appearance, EnvironmentTemplate, FactoryMember, Invite, LinkedAccount, LinkProvider, McpServer, Membership, NotificationPrefs, NotificationRecord, PublicUser, SecretMeta, SecretType, TeamSettings, UsageEntry, UsageSummary };
 
 export type TeamRole = "owner" | "admin" | "member";
 export type FactoryRole = "user" | "editor" | "admin";
@@ -43,4 +44,4 @@ export type ApiKeyRow = { id: string; name: string; subject: string; type?: stri
 export type ModelKeyProvider = "anthropic" | "openai" | "openrouter" | "bedrock";
 export type BuiltinMcpRow = { kiln_id: string; name: string; description: string; connected: boolean; missing: string[] };
 export type McpServerInput = { name: string; description?: string; mode?: "managed" | "direct"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string> };
-export type EnvironmentInput = { name: string; description?: string; image?: string; repos?: { owner: string; name: string }[]; setupCommands?: string[]; secrets?: string[] };
+export type EnvironmentInput = { name: string; description?: string; image?: string; repos?: { owner: string; name: string }[]; setupCommands?: string[]; secrets?: string[]; registryCredentialSecretName?: string };

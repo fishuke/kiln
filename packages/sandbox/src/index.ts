@@ -21,7 +21,23 @@ export type SandboxSpec = {
   labels?: Record<string, string>;
   /** Hosts the egress proxy always blocks (an agent's networkPolicy.deniedHosts). */
   deniedHosts?: string[];
+  /** Credentials for pulling a private runner image. */
+  registryAuth?: RegistryAuth;
 };
+
+export type RegistryAuth = { host: string; username: string; password: string };
+
+/** The registry host of an image reference; Docker Hub for bare names. */
+export function imageRegistry(image: string): string {
+  const first = image.split("/")[0]!;
+  return image.includes("/") && (first.includes(".") || first.includes(":") || first === "localhost") ? first : "docker.io";
+}
+
+/** A Docker config.json holding one registry login. */
+export function dockerConfigJson(auth: RegistryAuth): string {
+  const host = auth.host === "docker.io" ? "https://index.docker.io/v1/" : auth.host;
+  return JSON.stringify({ auths: { [host]: { auth: Buffer.from(`${auth.username}:${auth.password}`).toString("base64") } } });
+}
 
 export type SnapshotRef = {
   key: string;
@@ -265,10 +281,22 @@ export class DockerSandboxProvider implements SandboxProvider {
     private readonly options: { checkpoint?: boolean; hostTmp?: string; volumes?: string[]; pullPolicy?: "Always" | "IfNotPresent" | "Never" } = {},
   ) {}
 
-  private async must(args: string[], stdin?: string): Promise<ExecResult> {
-    const r = await this.runner.run("docker", args, stdin === undefined ? {} : { stdin });
+  private async must(args: string[], stdin?: string, env?: Record<string, string>): Promise<ExecResult> {
+    const r = await this.runner.run("docker", args, { ...(stdin === undefined ? {} : { stdin }), ...(env ? { env } : {}) });
     if (r.code !== 0) throw new Error(`docker ${args.slice(0, 2).join(" ")} failed: ${r.stderr}`);
     return r;
+  }
+
+  /** Pull, with a private registry login in a temporary DOCKER_CONFIG that is removed right after. */
+  private async pull(spec: SandboxSpec) {
+    if (!spec.registryAuth) return void (await this.must(["pull", spec.runner.image]));
+    const dir = mkdtempSync(join(this.options.hostTmp ?? tmpdir(), "kiln-docker-config-"));
+    try {
+      writeFileSync(join(dir, "config.json"), dockerConfigJson(spec.registryAuth), { mode: 0o600 });
+      await this.must(["pull", spec.runner.image], undefined, { DOCKER_CONFIG: dir });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   async create(spec: SandboxSpec): Promise<Sandbox> {
@@ -277,7 +305,8 @@ export class DockerSandboxProvider implements SandboxProvider {
     const name = `kiln-${id}`;
     const policy = this.options.pullPolicy ?? "IfNotPresent";
     const cached = policy === "Always" ? { code: 1 } : await this.runner.run("docker", ["image", "inspect", spec.runner.image]);
-    if (cached.code !== 0 && policy !== "Never") await this.must(["pull", spec.runner.image]);
+    // A private image is always pulled with its credential, so access is checked on every run.
+    if (policy !== "Never" && (cached.code !== 0 || spec.registryAuth)) await this.pull(spec);
     const args = dockerRunArgs(name, spec);
     // Host volumes from the worker's configuration (`kiln worker --volumes HOST:CONTAINER[:ro]`).
     for (const v of this.options.volumes ?? []) args.splice(args.indexOf(spec.runner.image), 0, "-v", v);
@@ -438,6 +467,7 @@ export function kubernetesManifests(name: string, namespace: string, spec: Sandb
           },
         ],
         volumes: [{ name: "workspace", emptyDir: {} }],
+        ...(spec.registryAuth ? { imagePullSecrets: [{ name: `${name}-pull` }] } : {}),
       },
     },
     {
@@ -458,6 +488,17 @@ export function kubernetesManifests(name: string, namespace: string, spec: Sandb
               ],
       },
     },
+    ...(spec.registryAuth
+      ? [
+          {
+            apiVersion: "v1",
+            kind: "Secret",
+            type: "kubernetes.io/dockerconfigjson",
+            metadata: { name: `${name}-pull`, namespace, labels },
+            data: { ".dockerconfigjson": Buffer.from(dockerConfigJson(spec.registryAuth)).toString("base64") },
+          },
+        ]
+      : []),
   ];
 }
 
@@ -597,6 +638,7 @@ class KubernetesSandbox implements Sandbox {
   async destroy() {
     await this.runner.run("kubectl", ["-n", this.namespace, "delete", "pod", this.pod, "--ignore-not-found"]);
     await this.runner.run("kubectl", ["-n", this.namespace, "delete", "networkpolicy", `${this.pod}-egress`, "--ignore-not-found"]);
+    if (this.spec.registryAuth) await this.runner.run("kubectl", ["-n", this.namespace, "delete", "secret", `${this.pod}-pull`, "--ignore-not-found"]);
   }
 }
 

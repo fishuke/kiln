@@ -1,7 +1,8 @@
 import { z } from "zod";
+import * as I from "./routes/integration-schemas";
 import * as S from "./schemas";
 
-type Route = { method: "get" | "post" | "put"; path: string; summary: string; scope?: string; body?: z.ZodType; tag: string };
+type Route = { method: "get" | "post" | "put" | "patch" | "delete"; path: string; summary: string; scope?: string; body?: z.ZodType; tag: string };
 
 /** The API surface, used for the OpenAPI document and the generated API reference. */
 export const ROUTES: Route[] = [
@@ -64,11 +65,53 @@ export const ROUTES: Route[] = [
   { method: "get", path: "/api/v1/tokens", summary: "List API tokens", scope: "admin", tag: "Admin" },
   { method: "post", path: "/api/v1/tokens", summary: "Issue a scoped token", scope: "admin", body: S.Token, tag: "Admin" },
   { method: "put", path: "/api/v1/secrets/{name}", summary: "Set a managed secret", scope: "admin", tag: "Admin" },
-  { method: "post", path: "/webhooks/github", summary: "GitHub webhook (X-Hub-Signature-256)", tag: "Webhooks" },
+  { method: "get", path: "/api/v1/connections", summary: "Workspace connections to every provider, with status", scope: "admin", tag: "Integrations" },
+  { method: "post", path: "/api/v1/connections/{provider}/start", summary: "Start connecting: an OAuth/install URL and setup steps", scope: "admin", tag: "Integrations" },
+  { method: "post", path: "/api/v1/connections/{provider}/complete", summary: "Finish connecting (OAuth code + state, or manual fields)", scope: "admin", body: I.ConnectionComplete, tag: "Integrations" },
+  { method: "post", path: "/api/v1/connections/{provider}/test", summary: "Test a connection's credentials", scope: "admin", tag: "Integrations" },
+  { method: "delete", path: "/api/v1/connections/{provider}", summary: "Disconnect and delete stored credentials", scope: "admin", tag: "Integrations" },
+  { method: "put", path: "/api/v1/connections/{provider}/directory", summary: "Set the names → ids used to resolve alias filters", scope: "admin", body: I.Directory, tag: "Integrations" },
+  { method: "get", path: "/api/v1/connections/{provider}/approval-links", summary: "Approval links sent to someone else", scope: "admin", tag: "Integrations" },
+  { method: "post", path: "/api/v1/connections/{provider}/approval-links", summary: "Send an approval link to an admin (expires in 7 days)", scope: "admin", body: I.ApprovalLinkCreate, tag: "Integrations" },
+  { method: "post", path: "/api/v1/approval-links/{id}/resend", summary: "Resend an approval link (new token, 7 more days)", scope: "admin", tag: "Integrations" },
+  { method: "delete", path: "/api/v1/approval-links/{id}", summary: "Revoke an approval link", scope: "admin", tag: "Integrations" },
+  { method: "get", path: "/api/v1/identity-links", summary: "Your linked provider accounts (all with ?all=1 for admins)", tag: "Integrations" },
+  { method: "post", path: "/api/v1/identity-links/claim", summary: "Link a chat account from a sign-in token", body: I.IdentityClaim, tag: "Integrations" },
+  { method: "delete", path: "/api/v1/identity-links/{id}", summary: "Unlink a provider account", tag: "Integrations" },
+  { method: "get", path: "/api/v1/factories/{id}/integrations", summary: "A factory's integrations, settings and connection status", scope: "read", tag: "Integrations" },
+  { method: "put", path: "/api/v1/factories/{id}/integrations", summary: "Opt a Kiln-managed factory into integrations (applies factory.yaml)", scope: "definitions:write", body: I.FactoryIntegrationsBody, tag: "Integrations" },
+  { method: "get", path: "/api/v1/notification-routes", summary: "Where a factory can notify a person (?factory, ?workItem, ?subject)", tag: "Integrations" },
+  { method: "get", path: "/api/v1/integrations/teams/app-package", summary: "Microsoft Teams app package (manifest and icons, zip)", scope: "admin", tag: "Integrations" },
+  { method: "post", path: "/api/v1/integrations/discord/commands", summary: "Register the /kiln Discord command (global or one server)", scope: "admin", body: I.DiscordCommandsBody, tag: "Integrations" },
+  { method: "get", path: "/api/v1/automation-templates", summary: "Default and suggested automation files (?factory fills them in)", tag: "Automations" },
+  { method: "post", path: "/api/v1/factories/{id}/automations/from-template", summary: "Add a template to a Kiln-managed factory", scope: "definitions:write", body: I.FromTemplate, tag: "Automations" },
+  { method: "get", path: "/api/v1/automation-catalog", summary: "Every trigger provider, event and filter key", tag: "Automations" },
+  { method: "get", path: "/api/v1/deliveries", summary: "Recent provider deliveries", scope: "admin", tag: "Automations" },
+  { method: "post", path: "/api/v1/factories/{id}/automations/{name}/test-filter", summary: "Test an automation's triggers against a stored delivery", scope: "read", body: I.TestFilter, tag: "Automations" },
+  { method: "get", path: "/api/v1/factories/{id}/webhooks", summary: "A factory's custom webhooks (managed and file)", scope: "read", tag: "Custom webhooks" },
+  { method: "post", path: "/api/v1/factories/{id}/webhooks", summary: "Create a webhook; the secret is shown once", scope: "definitions:write", body: I.WebhookCreate, tag: "Custom webhooks" },
+  { method: "get", path: "/api/v1/webhooks/{uid}", summary: "A webhook with its ingress URL", scope: "read", tag: "Custom webhooks" },
+  { method: "patch", path: "/api/v1/webhooks/{uid}", summary: "Enable, disable or set the delivery id header", scope: "definitions:write", body: I.WebhookPatch, tag: "Custom webhooks" },
+  { method: "delete", path: "/api/v1/webhooks/{uid}", summary: "Delete a webhook (automations stay but stop firing)", scope: "definitions:write", tag: "Custom webhooks" },
+  { method: "post", path: "/api/v1/webhooks/{uid}/rotate", summary: "Rotate the secret immediately", scope: "definitions:write", body: I.WebhookRotate, tag: "Custom webhooks" },
+  { method: "post", path: "/api/v1/webhooks/{uid}/finish", summary: "Finish setup with the provider's secret and enable", scope: "definitions:write", body: I.WebhookSecret, tag: "Custom webhooks" },
+  { method: "get", path: "/api/v1/webhooks/{uid}/deliveries", summary: "Recent deliveries and their status", scope: "read", tag: "Custom webhooks" },
+  { method: "get", path: "/api/v1/webhooks/{uid}/deliveries/{delivery}", summary: "One delivery with its stored payload", scope: "read", tag: "Custom webhooks" },
+  { method: "post", path: "/webhooks/github", summary: "GitHub App webhook (X-Hub-Signature-256)", tag: "Webhooks" },
+  { method: "post", path: "/webhooks/gitlab", summary: "GitLab group webhook (X-Gitlab-Token)", tag: "Webhooks" },
+  { method: "post", path: "/webhooks/azure-devops", summary: "Azure DevOps service hooks (basic auth)", tag: "Webhooks" },
+  { method: "post", path: "/webhooks/bitbucket", summary: "Bitbucket Cloud webhook (X-Hub-Signature)", tag: "Webhooks" },
   { method: "post", path: "/webhooks/slack", summary: "Slack Events API (signing secret)", tag: "Webhooks" },
+  { method: "post", path: "/webhooks/teams", summary: "Microsoft Teams Bot Framework activities (JWT)", tag: "Webhooks" },
+  { method: "post", path: "/webhooks/discord", summary: "Discord interactions (Ed25519)", tag: "Webhooks" },
+  { method: "post", path: "/webhooks/discord/events", summary: "Discord gateway events from a bridge (bearer token)", tag: "Webhooks" },
   { method: "post", path: "/webhooks/linear", summary: "Linear webhook (Linear-Signature)", tag: "Webhooks" },
   { method: "post", path: "/webhooks/jira", summary: "Jira webhook (?token=)", tag: "Webhooks" },
-  { method: "post", path: "/webhooks/{factory}/{name}", summary: "A factory's custom webhook from webhooks/<name>.yaml", tag: "Webhooks" },
+  { method: "post", path: "/webhooks/w/{uid}", summary: "Custom webhook ingress: 202 {delivery_id}", tag: "Webhooks" },
+  { method: "post", path: "/webhooks/w/{uid}/{token}", summary: "Custom webhook ingress with a URL token", tag: "Webhooks" },
+  { method: "post", path: "/webhooks/{factory}/{name}", summary: "A factory's file webhook by name (older URL)", tag: "Webhooks" },
+  { method: "get", path: "/oauth/{provider}/callback", summary: "OAuth / app install callback (browser redirect)", tag: "Webhooks" },
+  { method: "get", path: "/connect/approve/{token}", summary: "Open an approval link (browser redirect)", tag: "Webhooks" },
 ];
 
 export function openApiDocument() {

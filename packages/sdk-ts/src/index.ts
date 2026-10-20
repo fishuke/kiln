@@ -1,5 +1,14 @@
 import type {
   ApplyResult,
+  ApprovalLink,
+  AutomationTemplate,
+  CheckOutcome,
+  Connection,
+  EventDelivery,
+  IdentityLink,
+  NotificationRoute,
+  WebhookDelivery,
+  WebhookSource,
   BenchmarkResult,
   ConfigSummary,
   DefinitionRecord,
@@ -19,6 +28,15 @@ import type {
 
 export type {
   ApplyResult,
+  ApprovalLink,
+  AutomationTemplate,
+  CheckOutcome,
+  Connection,
+  EventDelivery,
+  IdentityLink,
+  NotificationRoute,
+  WebhookDelivery,
+  WebhookSource,
   BenchmarkResult,
   ConfigSummary,
   DefinitionRecord,
@@ -173,4 +191,60 @@ export class KilnClient {
   integrations = () => this.request<{ forge: string; tracker: string; chat: string; preview: string; decisions: { primary: string; fallback: string }; judge: string; sandboxes: string[]; defaultBackend: string; agents: string; publicUrl?: string }>("GET", "/api/v1/integrations");
   secrets = () => this.request<string[]>("GET", "/api/v1/secrets");
   setSecret = (name: string, value: string) => this.request<{ ok: true }>("PUT", `/api/v1/secrets/${encodeURIComponent(name)}`, { value });
+
+  // Workspace connections
+  connections = () => this.request<ConnectionRow[]>("GET", "/api/v1/connections");
+  startConnection = (provider: string) => this.request<{ provider: string; state: string; url?: string; steps: string[]; fields?: { name: string; label: string; secret?: boolean; optional?: boolean }[] }>("POST", `/api/v1/connections/${encodeURIComponent(provider)}/start`);
+  completeConnection = (provider: string, input: { code?: string; state?: string; params?: Record<string, string> }) => this.request<Connection>("POST", `/api/v1/connections/${encodeURIComponent(provider)}/complete`, input);
+  testConnection = (provider: string) => this.request<{ ok: boolean; message: string }>("POST", `/api/v1/connections/${encodeURIComponent(provider)}/test`);
+  disconnect = (provider: string) => this.request<{ ok: true }>("DELETE", `/api/v1/connections/${encodeURIComponent(provider)}`);
+  setConnectionDirectory = (provider: string, directory: Record<string, Record<string, string>>) => this.request<Record<string, Record<string, string>>>("PUT", `/api/v1/connections/${encodeURIComponent(provider)}/directory`, directory);
+  approvalLinks = (provider: string) => this.request<ApprovalLink[]>("GET", `/api/v1/connections/${encodeURIComponent(provider)}/approval-links`);
+  createApprovalLink = (provider: string, email?: string) => this.request<ApprovalLink & { token: string; url: string }>("POST", `/api/v1/connections/${encodeURIComponent(provider)}/approval-links`, { email });
+  resendApprovalLink = (id: string) => this.request<ApprovalLink & { token: string; url: string }>("POST", `/api/v1/approval-links/${encodeURIComponent(id)}/resend`);
+  revokeApprovalLink = (id: string) => this.request<{ ok: true }>("DELETE", `/api/v1/approval-links/${encodeURIComponent(id)}`);
+  identityLinks = (all = false) => this.request<IdentityLink[]>("GET", `/api/v1/identity-links${all ? "?all=1" : ""}`);
+  claimIdentityLink = (token: string) => this.request<IdentityLink>("POST", "/api/v1/identity-links/claim", { token });
+  unlinkIdentity = (id: string) => this.request<{ ok: true }>("DELETE", `/api/v1/identity-links/${encodeURIComponent(id)}`);
+  factoryIntegrations = (factory: string) => this.request<FactoryIntegrations>("GET", `/api/v1/factories/${encodeURIComponent(factory)}/integrations`);
+  setFactoryIntegrations = (factory: string, integrations: (string | Record<string, unknown>)[]) => this.request<ApplyResult & { integrations: FactoryIntegrations["integrations"] }>("PUT", `/api/v1/factories/${encodeURIComponent(factory)}/integrations`, { integrations });
+  notificationRoutes = (opts: { factory?: string; workItem?: string; subject?: string } = {}) => this.request<NotificationRoute[]>("GET", `/api/v1/notification-routes${this.q(opts)}`);
+  registerDiscordCommands = (guildId?: string) => this.request<{ registered: string[]; scope: string }>("POST", "/api/v1/integrations/discord/commands", { guildId });
+  /** The Microsoft Teams app package (zip with manifest.json, color.png, outline.png). */
+  teamsAppPackage = async (opts: { name?: string; developer?: string; website?: string; color?: string } = {}): Promise<ArrayBuffer> => {
+    const res = await (this.options.fetch ?? fetch)(`${this.options.baseUrl.replace(/\/$/, "")}/api/v1/integrations/teams/app-package${this.q(opts)}`, {
+      headers: { ...(this.options.token ? { authorization: `Bearer ${this.options.token}` } : {}), ...this.options.headers },
+    });
+    if (!res.ok) throw new KilnApiError(res.status, `GET app-package returned ${res.status}`, await res.text());
+    return res.arrayBuffer();
+  };
+
+  // Automations
+  automationTemplates = (opts: { factory?: string; category?: "default" | "suggested" } = {}) => this.request<(AutomationTemplate & { connected: boolean })[]>("GET", `/api/v1/automation-templates${this.q(opts)}`);
+  addAutomationFromTemplate = (factory: string, template: string, name?: string) => this.request<{ applied: boolean; files: Record<string, string>; reason?: string }>("POST", `/api/v1/factories/${encodeURIComponent(factory)}/automations/from-template`, { template, name });
+  automationCatalog = () => this.request<{ providers: Record<string, Record<string, Record<string, string>>>; defaults: Record<string, unknown> }>("GET", "/api/v1/automation-catalog");
+  deliveries = (opts: { provider?: string; limit?: number } = {}) => this.request<EventDelivery[]>("GET", `/api/v1/deliveries${this.q(opts)}`);
+  testFilter = (factory: string, automation: string, deliveryId: string) => this.request<TestFilterResult>("POST", `/api/v1/factories/${encodeURIComponent(factory)}/automations/${encodeURIComponent(automation)}/test-filter`, { deliveryId });
+
+  // Custom webhooks
+  webhooks = (factory: string) => this.request<(WebhookSource & { url: string })[]>("GET", `/api/v1/factories/${encodeURIComponent(factory)}/webhooks`);
+  createWebhook = (factory: string, input: { name: string; authMode?: "token" | "url_token" | "signature"; signatureScheme?: string; secret?: string; deliveryIdHeader?: string }) => this.request<{ webhook: WebhookSource; url: string; secret?: string }>("POST", `/api/v1/factories/${encodeURIComponent(factory)}/webhooks`, input);
+  webhook = (uid: string) => this.request<WebhookSource & { url: string }>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}`);
+  updateWebhook = (uid: string, patch: { enabled?: boolean; deliveryIdHeader?: string | null }) => this.request<WebhookSource>("PATCH", `/api/v1/webhooks/${encodeURIComponent(uid)}`, patch);
+  deleteWebhook = (uid: string) => this.request<{ ok: true }>("DELETE", `/api/v1/webhooks/${encodeURIComponent(uid)}`);
+  rotateWebhookSecret = (uid: string, secret?: string) => this.request<{ webhook: WebhookSource; url: string; secret?: string }>("POST", `/api/v1/webhooks/${encodeURIComponent(uid)}/rotate`, { secret });
+  finishWebhook = (uid: string, secret: string) => this.request<WebhookSource>("POST", `/api/v1/webhooks/${encodeURIComponent(uid)}/finish`, { secret });
+  webhookDeliveries = (uid: string) => this.request<(Omit<WebhookDelivery, "payload"> & { hasPayload: boolean })[]>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries`);
+  webhookDelivery = (uid: string, id: string) => this.request<WebhookDelivery>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries/${encodeURIComponent(id)}`);
 }
+
+export type ConnectionRow = { provider: string; label: string; mode?: string; available: boolean; connection?: Omit<Connection, "secretNames"> & { secretNames: string[] }; pendingApprovals: number };
+export type FactoryIntegrations = {
+  integrations: ({ type: string } & Record<string, unknown>)[];
+  forges: string[];
+  cloudProviders: Record<string, Record<string, string>> | null;
+  github: { factoryConfigChecks: "main" | "all" };
+  connections: Record<string, string>;
+  editable: boolean;
+};
+export type TestFilterResult = { wouldTrigger: boolean; delivery: string; triggers: { index: number; provider: string; event: string; wouldTrigger: boolean; checks: CheckOutcome[] }[] };

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -61,8 +61,34 @@ export class FakeForge implements Forge {
   private readonly counters = new Map<string, number>();
   private readonly listeners: ((e: { type: "merged" | "closed"; pr: PullRequest }) => void)[] = [];
 
-  constructor(root?: string, private readonly protectedBranches = ["main"]) {
+  constructor(root?: string, private readonly protectedBranches = ["main"], private readonly persistState = false) {
     this.root = root ?? mkdtempSync(join(tmpdir(), "kiln-forge-"));
+    const state = join(this.root, "forge.json");
+    if (persistState && existsSync(state)) {
+      const saved = JSON.parse(readFileSync(state, "utf8")) as { pulls: PullRequest[]; issues: ForgeIssue[]; comments: FakeForge["comments"]; counters: [string, number][] };
+      this.pulls.push(...saved.pulls);
+      this.issues.push(...saved.issues);
+      this.comments.push(...saved.comments);
+      for (const [k, v] of saved.counters) this.counters.set(k, v);
+    }
+  }
+
+  private persist() {
+    if (!this.persistState) return;
+    writeFileSync(join(this.root, "forge.json"), JSON.stringify({ pulls: this.pulls, issues: this.issues, comments: this.comments, counters: [...this.counters] }));
+  }
+
+  hasRepo(repo: RepoRef) {
+    return existsSync(join(this.bare(repo), "HEAD"));
+  }
+
+  listRepos(): string[] {
+    if (!existsSync(this.root)) return [];
+    return readdirSync(this.root).flatMap((owner) => {
+      const dir = join(this.root, owner);
+      if (!statSync(dir).isDirectory()) return [];
+      return readdirSync(dir).filter((n) => n.endsWith(".git")).map((n) => `${owner}/${n.slice(0, -4)}`);
+    });
   }
 
   onEvent(fn: (e: { type: "merged" | "closed"; pr: PullRequest }) => void) {
@@ -75,6 +101,7 @@ export class FakeForge implements Forge {
 
   createRepo(repo: RepoRef, files: Record<string, string> = { "README.md": `# ${repo.name}\n` }): string {
     const bare = this.bare(repo);
+    if (this.hasRepo(repo)) return bare;
     mkdirSync(bare, { recursive: true });
     git(bare, ["init", "-q", "--bare", "-b", "main"]);
     const hook = join(bare, "hooks", "pre-receive");
@@ -144,6 +171,7 @@ done
       headSha,
     };
     this.pulls.push(pr);
+    this.persist();
     return pr;
   }
 
@@ -151,6 +179,7 @@ done
     const pr = this.pulls.find((p) => p.repo === repoKey(repo) && p.number === number);
     if (!pr) throw new Error(`no pull request ${number}`);
     Object.assign(pr, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)));
+    this.persist();
     return pr;
   }
 
@@ -169,12 +198,14 @@ done
   async comment(repo: RepoRef, number: number, body: string) {
     const id = `c${this.comments.length + 1}`;
     this.comments.push({ repo: repoKey(repo), number, body, id });
+    this.persist();
     return { id, url: `https://forge.test/${repoKey(repo)}/issues/${number}#${id}` };
   }
 
   async addLabels(repo: RepoRef, number: number, labels: string[]) {
     const target = this.pulls.find((p) => p.repo === repoKey(repo) && p.number === number) ?? this.issues.find((i) => i.repo === repoKey(repo) && i.number === number);
     if (target) target.labels = [...new Set([...target.labels, ...labels])];
+    this.persist();
   }
 
   setChecks(repo: RepoRef, ref: string, status: CheckStatus) {
@@ -190,6 +221,7 @@ done
     const number = this.next(key);
     const issue: ForgeIssue = { repo: key, number, url: `https://forge.test/${key}/issues/${number}`, title: input.title, body: input.body, labels: input.labels ?? [], state: "open" };
     this.issues.push(issue);
+    this.persist();
     return issue;
   }
 
@@ -219,6 +251,7 @@ done
     pr.mergedBy = by;
     pr.mergedAt = new Date().toISOString();
     for (const l of this.listeners) l({ type: "merged", pr });
+    this.persist();
     return pr;
   }
 
@@ -227,6 +260,7 @@ done
     if (!pr) throw new Error(`no pull request ${number}`);
     pr.state = "closed";
     for (const l of this.listeners) l({ type: "closed", pr });
+    this.persist();
     return pr;
   }
 }

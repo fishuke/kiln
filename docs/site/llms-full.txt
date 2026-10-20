@@ -2901,7 +2901,7 @@ egress:
 | `image` | Kiln's runner image | The container image. Docker pulls it if it is not cached. Without one, runs use the server's runner image (`KILN_RUNNER_IMAGE`), which has the agent CLIs. An image you name must have the harness CLI (`claude`, `codex` or `opencode`) on its `PATH`. |
 | `backend` | `docker` | `docker`, `kubernetes` or `local`. |
 | `shape` | none | `vcpus` and `memoryGb`. Sets CPU and memory limits. |
-| `setupCommands` | `[]` | Run in order after the repositories are cloned. A failing command fails the run. |
+| `setupCommands` | `[]` | Run in order after the repositories are cloned, inside each repository (so `pnpm install` finds its `package.json` and the `packageManager` pin). A failing command fails the run. Kiln's runner image has a corepack that runs pnpm 11 and later. |
 | `egress` | `[]` | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed. |
 | `platform.linux.registryCredentialSecretName` | none | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images). |
 | `description` | none | |

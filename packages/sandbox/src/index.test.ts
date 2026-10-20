@@ -35,11 +35,21 @@ describe("local sandbox", () => {
     const sbx = await provider.create({ runner, repos: [{ name: "app", url: gitRepo(), branch: "kiln/test" }] });
     expect(sbx.startedInMs).toBeLessThan(15_000);
     expect(await sbx.readFile("app/README.md")).toBe("hello\n");
-    expect(await sbx.readFile(".setup-done")).toBe("ready\n");
+    // Setup runs in the cloned repository, where its package.json (and packageManager) is.
+    expect(await sbx.readFile("app/.setup-done")).toBe("ready\n");
     const branch = await sbx.exec("git rev-parse --abbrev-ref HEAD", { cwd: "app" });
     expect(branch.stdout.trim()).toBe("kiln/test");
     await sbx.destroy();
     expect(existsSync(sbx.workdir)).toBe(false);
+  });
+
+  it("runs setup in each repository, then workspace-wide setup once at the root", async () => {
+    const provider = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-a-")));
+    const sbx = await provider.create({ runner: { ...runner, setupCommands: ["pwd > .where"], workspaceSetupCommands: ["ls -d */ >> .ws"] }, repos: [{ name: "app", url: gitRepo() }, { name: "api", url: gitRepo() }] });
+    expect(await sbx.readFile("app/.where")).toMatch(/\/app\n$/);
+    expect(await sbx.readFile("api/.where")).toMatch(/\/api\n$/);
+    expect(await sbx.readFile(".ws")).toBe("api/\napp/\n");
+    await sbx.destroy();
   });
 
   it("runs every command through the guardrail", async () => {
@@ -105,7 +115,8 @@ describe("docker sandbox", () => {
     expect(verbs).not.toContain("pull node:22");
     expect(verbs[1]).toBe("run -d");
     expect(fake.calls.some((c) => c.args.includes("clone"))).toBe(true);
-    expect(fake.calls.some((c) => c.args.includes("corepack enable"))).toBe(true);
+    const setup = fake.calls.find((c) => c.args.includes("corepack enable"))!;
+    expect(setup.args.slice(0, 3)).toEqual(["exec", "-w", "/workspace/app"]);
     expect(fake.calls.at(-1)?.args.slice(0, 2)).toEqual(["rm", "-f"]);
   });
 });

@@ -302,12 +302,13 @@ export class RunService {
     const image = declared?.image ?? environment?.image ?? this.k.options.defaultImage ?? "node:22-bookworm";
     const base: SandboxRunner = declared ? { ...declared, image } : { ...DEFAULT_RUNNER(teamBackend ?? this.k.options.defaultBackend ?? "local"), image };
     const policy = agent.networkPolicy;
-    // Environment setup commands run after the runner's own; the team's egress allowlist and the agent's allowed hosts add to the runner's.
+    // Environment setup commands run after the runner's own, in the workspace root (the runner's run in each repository); the team's egress allowlist and the agent's allowed hosts add to the runner's.
     // Kiln's own host is always allowed: the command guard and the Kiln MCP server live there.
     const kilnHost = this.k.options.publicUrl ? new URL(this.k.options.publicUrl).hostname : undefined;
     const runner: SandboxRunner = {
       ...base,
-      setupCommands: [...(base.setupCommands ?? []), ...(environment?.setupCommands ?? [])],
+      setupCommands: base.setupCommands ?? [],
+      workspaceSetupCommands: environment?.setupCommands ?? [],
       egress: [...new Set([...(base.egress ?? []), ...(teamSettings?.egressAllowlist ?? []), ...(policy?.allowedHosts ?? []), ...(kilnHost ? [kilnHost] : [])])],
     };
     // required_repos (the agent's and an automation's) makes deferred repositories eager for this run.
@@ -453,7 +454,7 @@ export class RunService {
     const decisions = resolved.parsed.decisions["command-guard"] ?? BUILTIN_DECISIONS["command-guard"]!;
     const provider = this.provider(input.backend ?? runner.backend);
     // Setup commands target the runner's image; when Kiln falls back to the host they are skipped.
-    const effective: SandboxRunner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [] };
+    const effective: SandboxRunner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [], workspaceSetupCommands: [] };
     let sandbox: Sandbox | undefined;
     sandbox = await provider.create({
       registryAuth: p.registryAuth,

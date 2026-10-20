@@ -273,7 +273,7 @@ export function SuiteView({ factory, factoryName, suite, tasks, agentType, resul
       <div className="mx-auto w-full max-w-5xl px-6 py-10">
         <h1 className="text-[28px] leading-tight font-semibold tracking-tight">{suite.name}</h1>
         <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
-          <AgentTypeIcon type={agentType} className="size-3.5" /> {suite.agent} • {tasks.length} task{tasks.length === 1 ? "" : "s"} • {suite.configurations.length} configuration{suite.configurations.length === 1 ? "" : "s"}
+          <AgentTypeIcon size="sm" type={agentType ?? "CUSTOM"} className="size-3.5" /> {suite.agent} • {tasks.length} task{tasks.length === 1 ? "" : "s"} • {suite.configurations.length} configuration{suite.configurations.length === 1 ? "" : "s"}
         </p>
         {suite.description && <p className="mt-2 text-sm text-muted-foreground">{suite.description}</p>}
         <div className="mt-6 mb-6">

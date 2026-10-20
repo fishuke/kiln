@@ -67,6 +67,9 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 - [Admin, RBAC and audit](management/admin-rbac-audit.md): Issue API and MCP tokens with scopes per factory, manage secrets, and read the audit log.
 - [Inbox](management/inbox.md): Every decision waiting on people, across all factories, ordered by urgency, with the evidence to decide and the same result from every surface.
 - [Portfolio and projects](management/portfolio.md): Group factories into projects, roll up their metrics in the portfolio, and plan roadmaps across them.
+- [Secrets, MCP servers and environments](management/secrets-mcps-environments.md): Team and personal secrets, team-managed model keys, the MCPs and apps registry, and environment templates that runs start from.
+- [Teams and users](management/teams-and-users.md): Accounts, login, teams, invites, team and factory roles, API keys, user settings and linked accounts.
+- [Usage and spend limits](management/usage-and-spend-limits.md): Usage per team, factory, agent, model and user from run costs, and the team's monthly spend limit with optional auto-stop.
 
 ## Guides
 

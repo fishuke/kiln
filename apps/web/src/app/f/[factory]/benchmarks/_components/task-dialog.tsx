@@ -41,7 +41,7 @@ export function ScratchTaskForm({ draft, onChange }: { draft: Draft; onChange: (
         <Input id="task-title" value={draft.title} onChange={(e) => onChange({ ...draft, title: e.target.value })} placeholder="E.g. Fix the flaky login test" className="h-10" />
       </Field>
       <Field label="Prompt" required help="What the agent is asked to do, exactly as a person would ask it.">
-        <MarkdownEditor label="Prompt" value={draft.prompt} onChange={(prompt) => onChange({ ...draft, prompt })} minHeight={140} />
+        <MarkdownEditor value={draft.prompt} onChange={(prompt) => onChange({ ...draft, prompt })} minRows={6} />
       </Field>
       <Field label="Correctness criteria" required help="The Correctness Scorer checks each trial against these.">
         <CriteriaList value={draft.successCriteria} onChange={(successCriteria) => onChange({ ...draft, successCriteria })} />

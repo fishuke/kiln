@@ -111,7 +111,7 @@ export function ScorerConfig({ model, onChange, res, errors, isNew }: { model: S
             <ul className="space-y-1 p-3 pb-1">
               {model.agents.map((a, i) => (
                 <li key={a.name} className="flex items-center gap-2 py-1">
-                  <AgentTypeIcon type={typeOf(a.name)} />
+                  <AgentTypeIcon size="sm" type={typeOf(a.name) ?? "CUSTOM"} />
                   <span className="flex-1 text-base">{a.name}</span>
                   <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Checkbox checked={a.includeDescendants} onCheckedChange={(v) => set({ agents: model.agents.map((x, j) => (j === i ? { ...x, includeDescendants: Boolean(v) } : x)) })} aria-label={`Include subagent runs of ${a.name}`} />
@@ -132,7 +132,7 @@ export function ScorerConfig({ model, onChange, res, errors, isNew }: { model: S
               <DropdownMenuContent className="w-64">
                 {remaining.map((a) => (
                   <DropdownMenuItem key={a.name} onClick={() => set({ agents: [...model.agents, { name: a.name, includeDescendants: false }] })}>
-                    <AgentTypeIcon type={a.agentType} /> {a.name}
+                    <AgentTypeIcon size="sm" type={a.agentType ?? "CUSTOM"} /> {a.name}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -142,7 +142,7 @@ export function ScorerConfig({ model, onChange, res, errors, isNew }: { model: S
       </Field>
 
       <Field label="Judge instructions" required help="Give the scorer specific instructions on how it should evaluate the agents." error={errors.rubric}>
-        <MarkdownEditor label="Judge instructions" value={model.rubric} onChange={(rubric) => set({ rubric })} minHeight={160} placeholder="E.g. “You should look specifically for how many tests are being created for new functions”" invalid={Boolean(errors.rubric)} />
+        <MarkdownEditor value={model.rubric} onChange={(rubric) => set({ rubric })} minRows={8} placeholder="E.g. “You should look specifically for how many tests are being created for new functions”" />
       </Field>
 
       <Field label="Judge model" required help="The model this scorer's judge runs on." error={errors.model}>

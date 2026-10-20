@@ -39,9 +39,9 @@ export type Diagnostic = { severity: "error" | "warning"; path?: string; line?: 
 
 /** "agents/foo/agent.md:2: message" → { path, line, message }. */
 export function parseDiagnostic(text: string, severity: Diagnostic["severity"]): Diagnostic {
-  const m = /^([^\s:][^:]*?\.(?:ya?ml|md|json|sh|txt)|[^\s:]+\/[^:\s]+):(\d+):\s*(.*)$/s.exec(text);
+  const m = /^([^\s:][^:]*?\.(?:ya?ml|md|json|sh|txt)|[^\s:]+\/[^:\s]+):(\d+):\s*([\s\S]*)$/.exec(text);
   if (m) return { severity, path: m[1], line: Number(m[2]), message: m[3]!.trim() };
-  const p = /^([^\s:]+\.(?:ya?ml|md)):\s*(.*)$/s.exec(text);
+  const p = /^([^\s:]+\.(?:ya?ml|md)):\s*([\s\S]*)$/.exec(text);
   if (p) return { severity, path: p[1], message: p[2]!.trim() };
   return { severity, message: text };
 }

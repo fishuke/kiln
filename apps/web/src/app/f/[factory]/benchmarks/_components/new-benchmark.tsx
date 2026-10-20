@@ -55,7 +55,7 @@ export function NewBenchmark({ factory, factoryName, agents }: { factory: string
                 {(v: string) =>
                   v ? (
                     <span className="flex items-center gap-2">
-                      <AgentTypeIcon type={agents.find((a) => a.name === v)?.agentType} /> {v}
+                      <AgentTypeIcon size="sm" type={agents.find((a) => a.name === v)?.agentType ?? "CUSTOM"} /> {v}
                     </span>
                   ) : (
                     <span className="text-muted-foreground">Add agent</span>
@@ -66,7 +66,7 @@ export function NewBenchmark({ factory, factoryName, agents }: { factory: string
             <SelectContent>
               {agents.map((a) => (
                 <SelectItem key={a.name} value={a.name}>
-                  <AgentTypeIcon type={a.agentType} /> {a.name}
+                  <AgentTypeIcon size="sm" type={a.agentType ?? "CUSTOM"} /> {a.name}
                 </SelectItem>
               ))}
               <SelectItem value="__new__">New agent</SelectItem>

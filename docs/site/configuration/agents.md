@@ -33,8 +33,9 @@ The directory name is the agent's name. Other files refer to the agent by that n
 | `harness` | object | inherited | `type` (`claude-code`, `codex`, `opencode`), optional `model`, optional `reasoningLevel` (`low`, `medium`, `high`), optional `auth`. See [Harness credentials](../infrastructure/harnesses.md#credentials). |
 | `model` | string | inherited | A model name, or `router:<name>` for a router in `routers/`. |
 | `runner` | string | inherited | A file name in `runners/`, without `.yaml`. |
-| `secrets` | list | inherited | Names of Kiln secrets. Each one that is set is passed to the run as an environment variable with the same name. |
-| `mcpServers` | list | inherited | MCP server names. |
+| `secrets` | list | inherited | Names of Kiln secrets. A raw secret that is set is passed to the run as an environment variable with the same name. A typed secret passes its provider variables. See [Secrets](../management/secrets-mcps-environments.md#secrets). |
+| `mcpServers` | list | inherited | Names or ids of the team's MCP servers, or built-in ids such as `linear` and `github`. See [MCP servers](../management/secrets-mcps-environments.md#mcp-servers-mcps-and-apps). |
+| `environmentId` | string | inherited | A team environment (id or name): image, repositories, setup commands and secrets. See [Environments](../management/secrets-mcps-environments.md#environments). |
 
 Unknown keys are errors.
 
@@ -59,7 +60,7 @@ When the foreman builds the default path, it picks the first agent of each type.
 Set exactly one of `harness` or `model` in a file, not both. `factory.yaml` must set one of them in `agentDefaults`.
 
 - `harness` picks the program and, optionally, its model: `harness: { type: codex, model: gpt-5-codex }`.
-- `model` keeps the inherited harness and changes only its model: `model: claude-opus-5-5`.
+- `model` keeps the inherited harness and changes only its model, e.g. `model: claude-fable-5-1` (Claude Fable 5.1, the most capable), `claude-opus-5-5`, `claude-sonnet-5-5` or `claude-haiku-5-5`.
 - `model: router:by-task` picks a model per run with `routers/by-task.yaml`.
 
 If nothing sets a harness, the run uses `claude-code`.
@@ -74,7 +75,7 @@ type: complexity
 default: claude-sonnet-5-5
 routing:
   easy: claude-haiku-5-5
-  hard: claude-opus-5-5
+  hard: claude-fable-5-1
 ```
 
 A `complexity` router asks the `model-router` decision. Its built-in policy picks `easy` when `complexity.easy >= 0.8`, `hard` when `complexity.hard >= 0.6`, and `medium` otherwise. A missing entry falls back to `default`.
@@ -92,7 +93,7 @@ A `prompt` router picks the entry whose description shares the most words (four 
 
 ## Inheritance
 
-Execution settings (`harness`, `model`, `runner`, `secrets`, `mcpServers`) are layered:
+Execution settings (`harness`, `model`, `runner`, `secrets`, `mcpServers`, `environmentId`) are layered:
 
 1. `agentDefaults` in `factory.yaml`
 2. the agent's frontmatter

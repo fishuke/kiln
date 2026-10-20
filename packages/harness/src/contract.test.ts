@@ -68,6 +68,7 @@ function scriptedSandbox(fail = false) {
     exec: async (): Promise<ExecResult> => ({ code: 0, stdout: "", stderr: "" }),
     writeFile: async (p, c) => void (files[p] = c),
     readFile: async (p) => files[p],
+    readBytes: async (p) => (files[p] === undefined ? undefined : new TextEncoder().encode(files[p])),
     snapshot: async () => ({}) as SnapshotRef,
     destroy: async () => {},
     spawn: (cmd, args): Proc => {

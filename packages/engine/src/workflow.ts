@@ -586,6 +586,16 @@ export class Workflow {
     return repos.find((x) => `${x.owner}/${x.name}` === wi.repo) ?? repos[0]!;
   }
 
+  /** The spec agent could not finish: try once more, then park and ask a person, instead of asking them to approve an empty spec. */
+  private async specFailed(wi: Item, stage: PlanStage, run: Run): Promise<StepResult> {
+    wi.loops["spec-errors"] = (wi.loops["spec-errors"] ?? 0) + 1;
+    this.save(wi);
+    if (wi.loops["spec-errors"]! < 2) return "continue";
+    this.park(wi.id, `${stage.agent} could not write the spec: ${run.summary ?? run.status}`);
+    await this.k.gates.open({ workItem: wi, kind: "question", name: "spec-failed", title: `${stage.agent} could not write the spec for "${wi.title}"`, question: run.summary });
+    return "wait";
+  }
+
   private async spec(wi: Item, stage: PlanStage): Promise<StepResult> {
     const approved = this.k.gates.list({ workItemId: wi.id }).find((g) => g.name === (stage.gate ?? "spec-approval") && g.state === "approved");
     if (approved && wi.spec) return this.nextStage(wi);
@@ -602,11 +612,13 @@ export class Workflow {
       this.briefing(wi, ["", planOnly ? "Write the plan for this change." : "Write the spec with numbered, testable acceptance criteria (AC1, AC2, …) and user stories.", ...feedback]),
       planOnly ? { mode: "plan", push: false } : {},
     );
+    if (run.status !== "succeeded") return this.specFailed(wi, stage, run);
     let res = (run.result ?? {}) as { specPath?: string; criteria?: string[]; stories?: string[]; openQuestions?: string[]; plan?: string };
     const failing = await this.checkCriteria(wi, res.criteria ?? []);
     if (failing.length && (wi.loops.spec ?? 0) < 1 && !planOnly) {
       wi.loops.spec = (wi.loops.spec ?? 0) + 1;
       run = await this.agentRun(wi, stage.agent!, "spec", this.briefing(wi, ["", "These acceptance criteria are not testable or are ambiguous; rewrite them:", ...failing.map((c) => `- ${c}`)]));
+      if (run.status !== "succeeded") return this.specFailed(wi, stage, run);
       res = (run.result ?? res) as typeof res;
     }
     wi.spec = { path: res.specPath ?? `docs/specs/${wi.id}.md`, criteria: res.criteria ?? [], stories: res.stories ?? [], openQuestions: res.openQuestions ?? [] };

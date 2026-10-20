@@ -146,7 +146,8 @@ export function createMcpHandler(apiBaseUrl: string, fetchImpl?: typeof fetch) {
   return async (req: Request): Promise<Response> => {
     const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
     if (!token) return new Response(JSON.stringify({ error: "a bearer token is required" }), { status: 401, headers: { "content-type": "application/json" } });
-    const server = createKilnMcpServer(new KilnClient({ baseUrl: apiBaseUrl, token, fetch: fetchImpl }));
+    // X-Kiln-Team on the MCP connection picks the team the tools act in.
+    const server = createKilnMcpServer(new KilnClient({ baseUrl: apiBaseUrl, token, fetch: fetchImpl, team: req.headers.get("x-kiln-team") ?? undefined }));
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
     return transport.handleRequest(req);

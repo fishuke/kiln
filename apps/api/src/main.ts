@@ -9,7 +9,7 @@ const { kiln } = config;
 
 let app: ReturnType<typeof createApp>;
 // MCP calls the API in-process with the caller's token, so scopes are enforced in one place.
-const mcp = createMcpHandler(config.publicUrl, async (input, init) => app.fetch(new Request(input as string, init)));
+const mcp = createMcpHandler(config.publicUrl, async (input, init) => app.fetch(new Request(input as string, init)), { resourceMetadata: `${config.publicUrl.replace(/\/$/, "")}/.well-known/oauth-protected-resource/mcp` });
 app = createApp(kiln, { devAuth: config.devAuth, mcp, github: config.github, openSignup: config.openSignup });
 
 serve({ fetch: app.fetch, port: config.port }, () => {

@@ -34,7 +34,7 @@ The directory name is the agent's name. Other files refer to the agent by that n
 | `mcpServers` | list | inherited | Names or ids of the team's MCP servers, or built-in ids such as `linear` and `github`. See [MCP servers](../management/secrets-mcps-environments.md#mcp-servers-mcps-and-apps). |
 | `environmentId` | string | inherited | A team environment (id or name): image, repositories, setup commands and secrets. See [Environments](../management/secrets-mcps-environments.md#environments). |
 | `workerHost` | string | inherited | Run on a [self-hosted worker](../infrastructure/self-hosted-workers.md) with this id. `""` or `null` runs on the Kiln server. |
-| `computerUse` | boolean | inherited | Turn computer use (screenshots and recordings of the running app) on or off. |
+| `computerUse` | boolean | `true` | Computer use: a browser the agent drives, with annotated video recordings and screenshots. See [Computer use](#computer-use). |
 | `computerUseModel` | string | automatic | The model for computer use, for example `claude-fable-5-1` or `claude-sonnet-5-5`. |
 | `credentialStrategy` | `EXECUTOR` or `CREATOR` | factory's, else `EXECUTOR` | Whose forge identity the run acts as: the agent, or the person who started the work. |
 | `networkPolicy` | object | factory's | `allowedHosts` (added to the runner's egress) and `deniedHosts` (always blocked). Literal hosts or IPs only. `null` turns an inherited policy off. |
@@ -114,6 +114,12 @@ Each run gets:
 - a "Reporting back to Kiln" section that tells the agent to write `.kiln/result.json` in a shape for its role, commit on the current branch, and never push, open pull requests or merge.
 
 See [Harnesses](../infrastructure/harnesses.md#the-result-file) for each role's result shape.
+
+## Computer use
+
+Claude Code agents get a browser, the `browser` MCP server (Playwright MCP, headless, in the sandbox). They are told to check UI changes in it: record a video per acceptance criterion with annotated clicks and typing and a chapter card per criterion (`browser_start_video`, `browser_video_show_actions`, `browser_video_chapter`, `browser_stop_video`), and take a screenshot of each change. Files go to `.kiln/artifacts/browser/`; Kiln uploads them to the run, where the video viewer plays them, and lists them under **Evidence** in the pull request.
+
+Set `computerUse: false` on an agent (or in `agentDefaults`) to leave the browser out. `KILN_COMPUTER_USE=0` turns it off for the whole server. The sandbox image `runners/images/node` has the browser server and its Chromium installed; with the local backend Kiln starts it with `npx`. In Docker sandboxes the network is internal, so the browser is meant for the app the agent runs on `localhost`, not for browsing the web.
 
 ## Related pages
 

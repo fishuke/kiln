@@ -30,8 +30,9 @@ The directory name is the agent's name. Other files refer to the agent by that n
 | `harness` | object | inherited | `type` (`claude-code`, `codex`, `opencode`), optional `model`, optional `reasoningLevel` (`low`, `medium`, `high`), optional `auth`. See [Harness credentials](../infrastructure/harnesses.md#credentials). |
 | `model` | string | inherited | A model name, or `router:<name>` for a router in `routers/`. |
 | `runner` | string | inherited | A file name in `runners/`, without `.yaml`. |
-| `secrets` | list | inherited | Names of Kiln secrets. Each one that is set is passed to the run as an environment variable with the same name. |
-| `mcpServers` | list | inherited | MCP server names. |
+| `secrets` | list | inherited | Names of Kiln secrets. A raw secret that is set is passed to the run as an environment variable with the same name. A typed secret passes its provider variables. See [Secrets](../management/secrets-mcps-environments.md#secrets). |
+| `mcpServers` | list | inherited | Names or ids of the team's MCP servers, or built-in ids such as `linear` and `github`. See [MCP servers](../management/secrets-mcps-environments.md#mcp-servers-mcps-and-apps). |
+| `environmentId` | string | inherited | A team environment (id or name): image, repositories, setup commands and secrets. See [Environments](../management/secrets-mcps-environments.md#environments). |
 
 Unknown keys are errors.
 
@@ -89,7 +90,7 @@ A `prompt` router picks the entry whose description shares the most words (four 
 
 ## Inheritance
 
-Execution settings (`harness`, `model`, `runner`, `secrets`, `mcpServers`) are layered:
+Execution settings (`harness`, `model`, `runner`, `secrets`, `mcpServers`, `environmentId`) are layered:
 
 1. `agentDefaults` in `factory.yaml`
 2. the agent's frontmatter
@@ -147,7 +148,7 @@ The body is the automation's prompt. Kiln appends it to the work item's body as 
 | `agent` | the foreman | When this is the `FOREMAN` agent, the work item takes the foreman's path. Any other agent runs directly on the work item. |
 | `displayName` | none | |
 | `triggers` | required | At least one. |
-| `harness`, `model`, `runner`, `secrets`, `mcpServers` | inherited from the agent | Override settings for work this automation starts. See [Inheritance](agents.md#inheritance). |
+| `harness`, `model`, `runner`, `secrets`, `mcpServers`, `environmentId` | inherited from the agent | Override settings for work this automation starts. See [Inheritance](agents.md#inheritance). |
 
 ## Triggers
 
@@ -666,6 +667,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `agentDefaults.runner` | string \| null |  |  |
 | `agentDefaults.secrets` | list of string \| null |  |  |
 | `agentDefaults.mcpServers` | list of string \| null |  |  |
+| `agentDefaults.environmentId` | string \| null |  |  |
 | `selfImprovement` | object |  |  |
 | `selfImprovement.failedRunThreshold` | integer |  | default `25`, min 1, max 50 |
 | `selfImprovement.maxAgeDays` | integer |  | default `7`, min 1, max 90 |
@@ -699,6 +701,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `runner` | string \| null |  |  |
 | `secrets` | list of string \| null |  |  |
 | `mcpServers` | list of string \| null |  |  |
+| `environmentId` | string \| null |  |  |
 
 ## automation
 
@@ -728,6 +731,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `runner` | string \| null |  |  |
 | `secrets` | list of string \| null |  |  |
 | `mcpServers` | list of string \| null |  |  |
+| `environmentId` | string \| null |  |  |
 
 ## pipeline
 
@@ -1219,22 +1223,112 @@ How a memory gets there:
 
 Source: https://github.com/fishuke/klin/blob/main/docs/site/developer-tools/api.md
 
-Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>`; each route needs the scope shown for the factory it touches (`admin` grants every scope). The machine-readable document is at `/api/v1/openapi.json`, and the TypeScript SDK (`@kiln/sdk-ts`) wraps every route.
+Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a session token from login, an API key or a scoped token); each route needs the scope shown for the factory it touches (`admin` grants every scope). People's scopes come from their team and factory roles. Send `X-Kiln-Team: <team id or slug>` to act in a team other than your first. The machine-readable document is at `/api/v1/openapi.json`, and the TypeScript SDK (`@kiln/sdk-ts`) wraps every route.
 
 ## System
 
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
 | GET | `/api/v1/health` | — | Health check |
-| GET | `/api/v1/me` | — | The token's subject and grants |
 | POST | `/api/v1/guard` | — | Check a shell command against the guardrail (run token) |
+
+## Users
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/me` | — | You: user, teams, current team, role, per-factory roles and grants |
+| PATCH | `/api/v1/me` | — | Update your profile, email, appearance and notification preferences |
+| PUT | `/api/v1/me/password` | — | Change your password |
+| PUT | `/api/v1/me/avatar` | — | Upload your avatar (raw image body, at most 1 MiB) |
+| GET | `/api/v1/users/{id}/avatar` | — | A user's uploaded avatar |
+| GET | `/api/v1/me/linked-accounts` | — | Your linked accounts (identity mapping) |
+| POST | `/api/v1/me/linked-accounts` | — | Link a GitHub, Slack, Discord, Linear, Jira, Teams, GitLab or Azure DevOps identity |
+| DELETE | `/api/v1/me/linked-accounts/{provider}` | — | Unlink an identity |
+| GET | `/api/v1/api-keys` | — | Your API keys, plus the team's agent and worker keys for team admins |
+| POST | `/api/v1/api-keys` | — | Create a personal, agent or worker API key (shown once) |
+| DELETE | `/api/v1/api-keys/{id}` | — | Revoke an API key |
+
+## Auth
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/auth/providers` | — | Login methods and whether signup is open |
+| POST | `/api/v1/auth/signup` | — | Create an account (the first one owns the default team; later ones need an invite unless signup is open) |
+| POST | `/api/v1/auth/login` | — | Log in with email and password; returns a session token |
+| POST | `/api/v1/auth/logout` | — | Revoke the current session token |
+| GET | `/api/v1/auth/github/start` | — | Start GitHub login (redirects, or JSON with Accept: application/json) |
+| GET | `/api/v1/auth/github/callback` | — | GitHub login callback; returns or redirects with a session token |
+| GET | `/api/v1/invites/{token}` | — | Look at an invite link |
+| POST | `/api/v1/invites/accept` | — | Accept an invite with your account |
+
+## Teams
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/teams` | — | Your teams with your role |
+| POST | `/api/v1/teams` | — | Create a team (you become its owner) |
+| GET | `/api/v1/teams/{team}` | — | A team with its settings and factories |
+| PATCH | `/api/v1/teams/{team}` | — | Rename a team, change its slug or avatar URL (team admin) |
+| PUT | `/api/v1/teams/{team}/avatar` | — | Upload the team avatar (team admin) |
+| GET | `/api/v1/teams/{team}/avatar` | — | The team's uploaded avatar |
+| GET | `/api/v1/teams/{team}/members` | — | Team members and roles |
+| PATCH | `/api/v1/teams/{team}/members/{userId}` | — | Change a member's role (only owners grant ownership) |
+| DELETE | `/api/v1/teams/{team}/members/{userId}` | — | Remove a member, or leave the team |
+| GET | `/api/v1/teams/{team}/invites` | — | Pending invites (team admin) |
+| POST | `/api/v1/teams/{team}/invites` | — | Invite by email; the link expires in 7 days |
+| POST | `/api/v1/teams/{team}/invites/{inviteId}/resend` | — | New link and 7 more days; the old link stops working |
+| DELETE | `/api/v1/teams/{team}/invites/{inviteId}` | — | Revoke an invite |
+| GET | `/api/v1/teams/{team}/settings` | — | Spend limit, GitHub orgs, sandbox host, egress allowlist, data storage, default factory role |
+| PATCH | `/api/v1/teams/{team}/settings` | — | Change team settings (team admin) |
+| GET | `/api/v1/teams/{team}/model-keys` | — | Which team-managed model keys are set |
+| PUT | `/api/v1/teams/{team}/model-keys/{provider}` | — | Set the team's Anthropic, OpenAI, OpenRouter or Bedrock key |
+| DELETE | `/api/v1/teams/{team}/model-keys/{provider}` | — | Remove a team-managed model key |
 
 ## Factories
 
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
+| GET | `/api/v1/factories/{id}/members` | `read` | Everyone with a role on the factory and where the role comes from |
+| POST | `/api/v1/factories/{id}/members` | `admin` | Give a team member a factory role (user, editor, admin) |
+| PATCH | `/api/v1/factories/{id}/members/{userId}` | `admin` | Change a factory role |
+| DELETE | `/api/v1/factories/{id}/members/{userId}` | `admin` | Remove a factory role |
 | GET | `/api/v1/factories` | `read` | List factories you can read |
 | GET | `/api/v1/factories/{id}` | `read` | A factory with its resolved definition |
+
+## Secrets
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/managed-secrets` | — | Team secrets and your personal secrets (metadata only) |
+| POST | `/api/v1/managed-secrets` | — | Create a team or personal secret (raw, registry, ECR or harness credential) |
+| PATCH | `/api/v1/managed-secrets/{scope}/{name}` | — | Replace a secret's value or description |
+| DELETE | `/api/v1/managed-secrets/{scope}/{name}` | — | Delete a secret |
+
+## MCPs and apps
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/mcp-servers` | — | The team's MCP servers and built-in integration servers |
+| POST | `/api/v1/mcp-servers` | — | Add an MCP server (command + args + env, or url + headers) |
+| GET | `/api/v1/mcp-servers/{id}` | — | One MCP server |
+| PATCH | `/api/v1/mcp-servers/{id}` | — | Change an MCP server |
+| DELETE | `/api/v1/mcp-servers/{id}` | — | Remove an MCP server |
+
+## Environments
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/environments` | — | The team's environment templates |
+| POST | `/api/v1/environments` | — | Create an environment (image, repos, setup commands, secrets) |
+| GET | `/api/v1/environments/{id}` | — | One environment |
+| PATCH | `/api/v1/environments/{id}` | — | Change an environment |
+| DELETE | `/api/v1/environments/{id}` | — | Delete an environment |
+
+## Usage
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/usage` | — | Team usage from run costs: totals, spend limit, by day, factory, agent, model and user |
 
 ## Definitions
 
@@ -1347,13 +1441,14 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>`; eac
 
 ## Errors
 
-Errors are JSON: `{ "error": "message" }` with status 400 (invalid request; `issues` lists the fields), 401 (missing or invalid token), 403 (token lacks the scope), 404 (unknown resource) or 409 (wrong state).
+Errors are JSON: `{ "error": "message" }` with status 400 (invalid request; `issues` lists the fields), 401 (missing or invalid token), 402 (`{ "error": "budget_exceeded", "message": ... }`: the team's spend limit is reached and auto-stop is on), 403 (token lacks the scope), 404 (unknown resource), 409 (wrong state or already exists), 410 (expired invite) or 413 (upload too large).
 
 ## Related pages
 
 - [CLI reference](cli.md)
 - [Kiln MCP](mcp.md)
 - [Admin, RBAC and audit](../management/admin-rbac-audit.md)
+- [Teams and users](../management/teams-and-users.md)
 
 ---
 
@@ -1436,13 +1531,16 @@ List my factories, then help me send a task to the right one and follow it throu
 | Tool | What it does |
 | --- | --- |
 | `complete_task` | Hand a locally worked task back, or confirm a handed-off task landed (needs decide:merge). |
+| `create_team` | Create a team. You become its owner. Needs a user token (session or personal API key). |
 | `decide_gate` | Approve, reject or answer a gate. Needs the decide scope for the gate's kind. |
 | `get_conversation` | The task's conversation: requests, foreman messages, agent summaries and decisions. |
 | `get_factory_file_schema` | JSON Schema for a definition file kind. |
 | `get_metrics` | Factory metrics: PRs opened/merged, autonomy, cycle time, cost, cost per merged PR by agent, scores. `since` is an ISO date. |
 | `get_task` | Get a task by id or by its PR/issue URL. With start_working=true, returns the branch and clone URL to continue locally. |
+| `join_team` | Join a team by accepting an invite. Takes the invite token or the whole invite link. |
 | `list_factories` | List the factories this token can see. |
 | `list_inbox` | Open decisions waiting on people: spec approvals, questions, previews, merges. |
+| `list_teams` | List the teams you belong to, with your role in each. Pass a team's slug as X-Kiln-Team to act in it. |
 | `message_foreman` | Message the foreman of a task. Answers its open question if there is one. |
 | `plan_project` | Turn a goal or PRD into a roadmap and tracker issues for a project. |
 | `query_runs` | Raw rows (runs, scores or work_items) for your own analysis. |
@@ -2048,11 +2146,11 @@ harness:
 
 | `auth` | What the run gets |
 | --- | --- |
-| `{ source: secret, secretName: <name> }` | The secret's value. For Claude Code it is set as `CLAUDE_CODE_OAUTH_TOKEN` when it is a subscription token from `claude setup-token` (it starts with `sk-ant-oat`), and as `ANTHROPIC_API_KEY` otherwise. For Codex it is `OPENAI_API_KEY`. For OpenCode the variable has the secret's name. Add `env: <VARIABLE>` to choose the variable yourself. A missing secret fails the run. |
+| `{ source: secret, secretName: <name> }` | A typed secret (such as `claude_oauth_token` or `anthropic_bedrock_access_key`) gives its provider variables. Otherwise, the secret's value. For Claude Code it is set as `CLAUDE_CODE_OAUTH_TOKEN` when it is a subscription token from `claude setup-token` (it starts with `sk-ant-oat`), and as `ANTHROPIC_API_KEY` otherwise. For Codex it is `OPENAI_API_KEY`. For OpenCode the variable has the secret's name. Add `env: <VARIABLE>` to choose the variable yourself. A missing secret fails the run. |
 | `{ source: worker }` | No credential from Kiln. The harness uses credentials already present on the worker or in the image. |
-| not set | Kiln looks for default secrets. Claude Code gets the first of `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` that is set. Codex gets the first of `OPENAI_API_KEY` and `CODEX_API_KEY`. OpenCode gets every one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY` that is set. |
+| not set | Kiln looks for default secrets, including typed team and personal secrets and the team-managed model keys. Claude Code gets the first of `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` and Bedrock credentials that is set. Codex gets the first of `OPENAI_API_KEY` and `CODEX_API_KEY`. OpenCode gets every one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY` that is set. |
 
-The agent's `secrets` list is passed the same way, one variable per secret. Credentials go only to that run's sandbox.
+The agent's `secrets` list is passed the same way, one variable per secret. Credentials go only to that run's sandbox, and personal secrets only to runs their owner triggered. Secret values are redacted from run output. See [Secrets, MCP servers and environments](../management/secrets-mcps-environments.md).
 
 ## Isolation
 
@@ -2261,6 +2359,8 @@ pnpm health
 
 The API prints a bootstrap admin token on first start (also in the data volume as `admin-token`). Put it in `.env` as `KILN_TOKEN` so the web app can call the API, then restart `web`.
 
+Then create your account: the first signup (`POST /api/v1/auth/signup`) becomes the owner of the default team, and existing factories move into that team. Invite everyone else. See [Teams and users](../management/teams-and-users.md).
+
 ### Kubernetes with Helm
 
 ```bash
@@ -2313,9 +2413,18 @@ Admins can set secrets through the API; values are never returned, only names. S
 
 Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscription token from `claude setup-token`) or `ANTHROPIC_API_KEY` for Claude Code, `OPENAI_API_KEY` or `CODEX_API_KEY` for Codex, and the keys OpenCode's providers need. You can store them as Kiln secrets or set them as plain environment variables on the server. Agents can also name their own secret with `harness.auth`. See [Harnesses](harnesses.md#credentials).
 
+### Accounts and login
+
+| Variable | What it does |
+| --- | --- |
+| `KILN_OPEN_SIGNUP=1` | Anyone may sign up and join the default team. Otherwise, after the first owner, signup needs an invite. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Turn on GitHub login. The OAuth app's callback URL is `<KILN_PUBLIC_URL>/api/v1/auth/github/callback`. `GITHUB_OAUTH_URL` and `GITHUB_API_URL` point at GitHub Enterprise. |
+| `KILN_SECRET_KEY` | Seals team and personal secrets with AES-256-GCM, and signs run tokens. Set it, and keep it stable across restarts. |
+| `KILN_DEV_AUTH=1` | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team. |
+
 ### Identities
 
-Gate assignees are people, such as `po@acme.test`. To let replies in Slack or on issues decide gates, map provider users to people with the server option `identities`, keyed by `<provider>:<user>`, for example `slack:U024BE7LH` → `po@acme.test`. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
+Gate assignees are people, such as `po@acme.test`. To let replies in Slack or on issues decide gates, people link their Slack, GitHub, Linear, Jira, Discord, Teams, GitLab or Azure DevOps accounts in user settings. See [Linked accounts](../management/teams-and-users.md#linked-accounts). The server option `identities` still works as a fallback. It is keyed by `<provider>:<user>`, for example `slack:U024BE7LH` → `po@acme.test`. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 
 ### Roles
 
@@ -2728,7 +2837,19 @@ A token belongs to a subject (a person or a service), has a name, a list of gran
 
 Send it as `Authorization: Bearer <token>` to the API, and configure it in your MCP client for the Kiln MCP. See the [API overview](../developer-tools/api.md) and the [MCP reference](../developer-tools/mcp.md).
 
-Only tokens with `admin` can issue tokens, list them, manage secrets and read the audit log.
+Only tokens with `admin` on `*` (or team owners and admins) can issue scoped tokens, list them, manage server secrets and read the audit log.
+
+### Token types
+
+| Type | Grants |
+| --- | --- |
+| `scoped` | The explicit grants it was issued with (`POST /api/v1/tokens`). The bootstrap admin token is one. |
+| `session` | A login. Grants come from the user's team and factory roles, computed on every request. |
+| `personal` | An API key that acts as its user, like a session. |
+| `agent` | A team service account: `read` and `send` on the team's factories. |
+| `worker` | A self-hosted worker. It has no API scopes. |
+
+Sessions and personal, agent and worker keys are covered in [Teams and users](teams-and-users.md).
 
 ## Scopes
 
@@ -2774,6 +2895,10 @@ An unknown scope is an error.
 
 A product owner's token cannot touch definitions, and a `decide:preview` token cannot apply definition changes.
 
+### Roles map onto scopes
+
+People do not need hand-made grants. Their factory role (User, Editor or Admin) gives them the scopes in [Factory roles](teams-and-users.md#factory-roles), and team owners and admins are Admin on every factory in their team. A team-wide check (`*`), or a factory that does not exist yet, is decided by the team role. Members may `read` and `send`. Owners and admins may do everything.
+
 ## Run tokens are different
 
 Agents never get API tokens. Each run gets its own run token, valid for 60 minutes, that can only push `kiln/*` branches of the run's repositories, open pull requests, comment and add labels. It can never approve or merge. See [Architecture and security](../infrastructure/architecture-and-security.md).
@@ -2781,6 +2906,8 @@ Agents never get API tokens. Each run gets its own run token, valid for 60 minut
 ## Secrets
 
 Admins store named secrets, such as webhook secrets and API keys, in Kiln. Listing secrets returns names only; values never leave the server through the API. When a secret is not in the store, Kiln looks for the server environment variable `KILN_SECRET_<NAME>`. The only plain environment variables Kiln reads as secrets are model-provider keys: `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY`. This way an agent definition cannot ask for the server's own credentials by name. Listing secrets includes names found in the environment.
+
+These server secrets are the last place Kiln looks. Typed team and personal secrets, which most teams should use, are described in [Secrets, MCP servers and environments](secrets-mcps-environments.md).
 
 ## Audit log
 
@@ -2792,7 +2919,11 @@ Kiln writes an entry with the time, the actor, the action and the target for:
 | Work items | `work_item.created`, `work_item.cancelled`, `notify.failed` |
 | Gates | `gate.approve`, `gate.reject`, `gate.answer`, with the surface used |
 | Runs | `run.steered` (with the message), `run.cancelled`, `run.paused`, `run.resumed` |
-| Self-improvement | `proposal.opened`, `proposal.approved`, `proposal.rejected`, `proposal.empty`, `proposal.invalid` |
+| Self-improvement | `proposal.opened`, `proposal.approved`, `proposal.force_approved`, `proposal.rejected`, `proposal.empty`, `proposal.invalid` |
+| Accounts | `user.created`, `user.password_changed`, `user.email_changed`, `user.account_linked`, `user.account_unlinked`, `auth.login`, `auth.login_failed`, `auth.logout`, `api_key.created`, `api_key.revoked` |
+| Teams | `team.created`, `team.updated`, `team.avatar_changed`, `team.settings_changed`, `team.member_added`, `team.member_role_changed`, `team.member_removed`, `team.invite_created`, `team.invite_resent`, `team.invite_revoked`, `team.invite_accepted` |
+| Factory roles | `factory.team_assigned`, `factory.member_added`, `factory.member_role_changed`, `factory.member_removed` |
+| Secrets, MCP servers and environments | `secret.created`, `secret.updated`, `secret.deleted`, `mcp.created`, `mcp.updated`, `mcp.deleted`, `environment.created`, `environment.updated`, `environment.deleted` |
 | Skills, memories and routers | `skill.published`, `skill.installed`, `memory.accepted`, `memory.rejected`, `router.proposed` |
 | Planning and benchmarks | `project.created`, `roadmap.created`, `benchmark.ran` |
 | Scoring | `score.invalid_label` |
@@ -2804,6 +2935,8 @@ Typed decisions have their own log with inputs, answers, action, provider, fallb
 
 ## Related pages
 
+- [Teams and users](teams-and-users.md)
+- [Secrets, MCP servers and environments](secrets-mcps-environments.md)
 - [Architecture and security](../infrastructure/architecture-and-security.md)
 - [Inbox](inbox.md)
 - [Self-hosting](../infrastructure/self-hosting.md)
@@ -2926,6 +3059,308 @@ The digest tells each person which decisions are waiting on them, oldest first, 
 - [Dashboard metrics](../measure-and-improve/metrics.md)
 - [Inbox](inbox.md)
 - [Admin, RBAC and audit](admin-rbac-audit.md)
+
+---
+
+# Secrets, MCP servers and environments
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/management/secrets-mcps-environments.md
+
+Secrets, MCP servers and environments belong to a team. Agents use them by name, and Kiln resolves them for each run.
+
+## Secrets
+
+A secret has a scope, a name, a type, an optional description, and who created and last changed it and when. Values are write-only: the API returns metadata, never values. A value can be at most 128 KiB.
+
+| Scope | Who manages it | Which runs get it |
+| --- | --- | --- |
+| `team` | Team owners and admins | Runs of the team's factories, when the agent asks for it |
+| `personal` | You | Only runs you triggered: work you sent, or work whose requester resolves to your account |
+
+When both scopes have a secret with the same name, a run you triggered gets your personal one.
+
+### Types
+
+| Type | Value | Gives the run |
+| --- | --- | --- |
+| `raw` | a string | An environment variable named after the secret |
+| `docker_registry` | `{ host, username, password }` | Nothing in the environment. It is a private image credential. |
+| `aws_ecr` | `{ roleArn, region }` (team scope only) | Nothing in the environment. It is an image credential. |
+| `anthropic_api_key` | a string | `ANTHROPIC_API_KEY` |
+| `claude_oauth_token` | a string from `claude setup-token` | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `anthropic_bedrock_api_key` | a string, or `{ apiKey, region }` | `AWS_BEARER_TOKEN_BEDROCK`, `AWS_REGION`, `CLAUDE_CODE_USE_BEDROCK=1` |
+| `anthropic_bedrock_access_key` | `{ accessKeyId, secretAccessKey, sessionToken?, region }` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`, `CLAUDE_CODE_USE_BEDROCK=1` |
+| `openai_api_key` | a string | `OPENAI_API_KEY` |
+| `openrouter_api_key` | a string | `OPENROUTER_API_KEY` |
+| `google_api_key` | a string | `GOOGLE_GENERATIVE_AI_API_KEY` |
+
+Kiln checks each value against its type. Secret names use letters, digits and underscores.
+
+Manage secrets with `GET /api/v1/managed-secrets`, `POST /api/v1/managed-secrets`, `PATCH /api/v1/managed-secrets/<scope>/<name>` (new value or description) and `DELETE /api/v1/managed-secrets/<scope>/<name>`.
+
+### How runs get secrets
+
+- **Agent secrets:** an agent's `secrets` list names the secrets its runs get. Typed secrets give their provider variables. Agents get no secrets they do not list.
+- **Harness credentials:** with `harness.auth: { source: secret, secretName: X }`, a typed secret `X` gives its provider variables. A raw secret goes to the harness's usual variable. Without `harness.auth`, Kiln picks the first credential the harness can use, from typed secrets and the names in [Harnesses](../infrastructure/harnesses.md#credentials). Claude Code also accepts Bedrock credentials.
+- **Lookup order** for a name: your personal secret (for runs you triggered), then the team secret, then the server's secrets (the older admin `PUT /api/v1/secrets/<name>` store, model-provider environment variables and `KILN_SECRET_<NAME>`).
+- **Redaction:** Kiln replaces every secret value a run could see with `[redacted]` in its events, tool output and summary.
+- **Encryption:** with `KILN_SECRET_KEY` set, values are sealed with AES-256-GCM in the store. Without it they are stored in plain text, so set it on any shared server.
+
+### Team-managed model keys
+
+Team owners and admins set one key per provider with `PUT /api/v1/teams/<team>/model-keys/<provider>`:
+
+| Provider | Team secret | Type |
+| --- | --- | --- |
+| `anthropic` | `KILN_MODEL_ANTHROPIC` | `anthropic_api_key` |
+| `openai` | `KILN_MODEL_OPENAI` | `openai_api_key` |
+| `openrouter` | `KILN_MODEL_OPENROUTER` | `openrouter_api_key` |
+| `bedrock` | `KILN_MODEL_BEDROCK` | `anthropic_bedrock_access_key`, or `anthropic_bedrock_api_key` when you send an API key |
+
+Runs without their own harness credential use these. `GET /api/v1/teams/<team>/model-keys` shows which keys are set.
+
+## MCP servers ("MCPs and apps")
+
+Team owners and admins register MCP servers for the team. Agents name them in `mcpServers`, by name or id.
+
+```json
+{ "name": "figma", "url": "https://mcp.figma.com/mcp", "headers": { "Authorization": "Bearer {{FIGMA_TOKEN}}" } }
+{ "name": "sentry", "command": "npx", "args": ["-y", "@sentry/mcp-server"], "env": { "SENTRY_TOKEN": "{{SENTRY_TOKEN}}" }, "mode": "direct" }
+```
+
+- A server has either `command` with `args` and `env`, or `url` with `headers`.
+- `{{NAME}}` refers to a secret, looked up the same way as agent secrets.
+- **Connection mode `managed`** (the default for URL servers): Kiln puts the secret values into the harness's MCP config.
+- **Connection mode `direct`** (the default for command servers): the config keeps `${NAME}` references, and the values go into the run's environment. Values are never written to disk.
+- A server whose secrets are missing, or a name Kiln does not know, is skipped. The run shows an `mcp_skipped` event.
+
+### Built-in integration servers
+
+These servers can be referenced by id without registering them. They are listed as connected once their secrets exist in the team or on the server.
+
+| `kiln_id` | Server | Needs |
+| --- | --- | --- |
+| `linear` | Linear's hosted MCP | `LINEAR_API_KEY` |
+| `slack` | `@modelcontextprotocol/server-slack` | `SLACK_BOT_TOKEN` |
+| `jira` | `mcp-atlassian` | `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` |
+| `github` | GitHub's hosted MCP | `GITHUB_MCP_TOKEN` (use a read-mostly token; agents never get merge rights) |
+| `discord` | `mcp-discord` | `DISCORD_BOT_TOKEN` |
+
+Every run also gets the Kiln MCP server with its own run token.
+
+## Environments
+
+An environment is a team template: a Docker image, repositories, setup commands and secrets. Point a factory at one with `environmentId` in `agentDefaults`, an agent or an automation. You can use the id or the name. The most specific setting wins.
+
+```yaml
+# factory.yaml
+agentDefaults:
+  harness: { type: claude-code }
+  environmentId: node-24
+```
+
+At run time:
+
+- The image is used when the agent names no runner.
+- The environment's repositories are cloned next to the factory's.
+- Its setup commands run after the runner's setup commands.
+- Its secrets are added to the agent's secrets.
+- An `environmentId` that the team does not have stops the run with a clear error.
+
+Manage environments with `GET`, `POST`, `PATCH` and `DELETE /api/v1/environments`.
+
+## Related pages
+
+- [Teams and users](teams-and-users.md)
+- [Harnesses](../infrastructure/harnesses.md)
+- [Agents](../configuration/agents.md)
+- [Admin, RBAC and audit](admin-rbac-audit.md)
+
+---
+
+# Teams and users
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/management/teams-and-users.md
+
+People sign in to Kiln with an account, work in one or more teams, and get a role on each factory. Every API request acts as a user, a team service account or a scoped token.
+
+## Accounts and login
+
+An account has a name, an email, an optional avatar and a password (stored as a salted scrypt hash) or a linked GitHub login.
+
+- **Sign up:** `POST /api/v1/auth/signup` with `email`, `password` (at least 8 characters) and optionally `name` and `invite`.
+- **Log in:** `POST /api/v1/auth/login` returns a session token. Send it as `Authorization: Bearer <token>`. Sessions last 30 days.
+- **Log out:** `POST /api/v1/auth/logout` revokes the session token.
+- **GitHub login:** set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` on the server, and use `<public URL>/api/v1/auth/github/callback` as the OAuth app's callback URL. `GET /api/v1/auth/github/start?redirect=<web URL>` sends people to GitHub. They come back to the web app with the session token in the URL fragment. Kiln finds the account by the linked GitHub id, then by verified email. If neither matches, it signs the person up under the rules below.
+
+`GET /api/v1/auth/providers` tells a login page which methods are on and whether signup is open.
+
+### Who may sign up
+
+1. The first person to sign up becomes the owner of the default team.
+2. After that, signing up needs an invite for the same email address.
+3. With `KILN_OPEN_SIGNUP=1`, anyone may sign up and joins the default team as a member.
+
+### Local development
+
+With `KILN_DEV_AUTH=1`, requests without a token act as the seeded user `dev@kiln.local`. That user owns the default team and has `admin` on every factory. Requests that do send a token still act as that token, so you can try logins locally. Never turn dev auth on for a server others can reach.
+
+The bootstrap admin token that the server prints on first start keeps working. It is a scoped token with `admin` on every factory, not a user.
+
+## Teams
+
+A team has a name, a slug, an avatar and settings. Each factory belongs to one team. Factories created before teams existed move into the default team on start.
+
+| Team role | Can |
+| --- | --- |
+| `owner` | Everything an admin can, plus grant or take away ownership. A team always keeps at least one owner. |
+| `admin` | Rename the team, manage members, invites, settings, team secrets, MCP servers, environments and model keys, and create agent and worker keys. Admin on every factory in the team. |
+| `member` | Use the team's factories with the team's default factory role, add personal secrets, create personal API keys. |
+
+Anyone with an account can create a team (`POST /api/v1/teams`) and becomes its owner.
+
+### Current team
+
+Requests act in one team at a time. Send `X-Kiln-Team: <team id or slug>` to choose it. Without the header, Kiln uses your first team. Factory lists, secrets, MCP servers, environments and usage show the current team only. Agent and worker keys always act in their own team.
+
+The SDK sets the header with `client.withTeam("payments")`.
+
+### Invites
+
+Owners and admins invite people by email with a role (`POST /api/v1/teams/<team>/invites`). The response holds the invite link, `<web URL>/join?invite=<token>`. Kiln stores only a hash of the token.
+
+- An invite expires after 7 days.
+- **Resend** issues a new link and 7 more days. The old link stops working.
+- **Revoke** cancels the invite.
+- `GET /api/v1/invites/<token>` shows the team, email and role without logging in.
+- People with an account accept with `POST /api/v1/invites/accept`. New people sign up with the `invite` field.
+- Only owners can invite owners.
+
+### Team settings
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `spendLimit.monthlyUsd` | `200` | The monthly spend limit. See [Usage and spend limits](usage-and-spend-limits.md). |
+| `spendLimit.autoStop` | `false` | Refuse new runs once the limit is reached. When off, the limit is a soft warning. |
+| `githubOrgs` | `[]` | Enabled GitHub orgs. When the list is not empty, the team's factories may only use GitHub repositories owned by these orgs. |
+| `defaultSandboxHost` | not set | `local`, `docker` or `kubernetes`. Used for runs whose agent names no runner. |
+| `egressAllowlist` | `[]` | Hosts added to every run's egress allowlist. |
+| `storage.artifacts`, `storage.transcripts`, `storage.attachments` | `{ kind: local }` | Where each kind of data should go: a local folder (`path`) or an S3-compatible bucket (`bucket`, `region`, optional `endpoint`, `prefix`, `forcePathStyle`, and the names of team secrets holding the access key). |
+| `defaultFactoryRole` | `user` | The factory role every member has on the team's factories: `none`, `user` or `editor`. |
+
+Kiln validates and stores the `storage` settings, but files are still written to the server's object store (`KILN_DATA_DIR/objects`). Writing to a team's own bucket is not built yet.
+
+Team-managed model keys (Anthropic, OpenAI, OpenRouter, Bedrock) are team secrets with fixed names. See [Secrets, MCP servers and environments](secrets-mcps-environments.md#team-managed-model-keys).
+
+## Factory roles
+
+| Factory role | Can | Scopes |
+| --- | --- | --- |
+| User | See the factory, send work, decide spec, preview and question gates, propose memories. | `read`, `send`, `decide:spec`, `decide:preview`, `decide:question` |
+| Editor | Everything a User can, plus edit the definition, agents, repos and automations, attach secrets, MCP servers and runners, and confirm merges. | adds `definitions:write`, `decide:merge` |
+| Admin | Everything, including factory members and forcing a definition change that waits for a second approval (`POST /api/v1/proposals/<id>/approve` with `{ "force": true }`). | `admin` |
+
+Team owners and admins are always Admin. Members get the team's `defaultFactoryRole`, or a higher role from a factory membership. Manage factory memberships with `GET`, `POST`, `PATCH` and `DELETE /api/v1/factories/<id>/members`. The person must be in the factory's team first.
+
+Kiln turns roles into the same per-factory scopes that tokens use, when each request arrives. Every route checks scopes the same way for users and tokens. See [Admin, RBAC and audit](admin-rbac-audit.md).
+
+Team-wide actions, and applying a definition for a factory that does not exist yet, are decided by the team role. Members may read and send. Owners and admins may do everything.
+
+## API keys
+
+Create keys in user settings (`POST /api/v1/api-keys`). Keys use the `kiln_` format and are shown once.
+
+| Type | Acts as | Who creates it |
+| --- | --- | --- |
+| `personal` | You, with your roles. Usage counts as yours. | Anyone |
+| `agent` | A team service account: `read` and `send` on the team's factories, never decide or merge. Usage counts as the team's. | Team owners and admins |
+| `worker` | A self-hosted worker. It has no API scopes. | Team owners and admins |
+
+Expiry is `1d`, `30d` (the default), `90d` or `never`. The key list shows when each key was last used. Revoke a key with `DELETE /api/v1/api-keys/<id>`. Team owners and admins also see and revoke the team's agent and worker keys.
+
+## User settings
+
+`PATCH /api/v1/me` changes:
+
+- `name` and `email`.
+- `avatar`: a URL, or `null` to clear it. You can also upload an image with `PUT /api/v1/me/avatar` (PNG, JPEG, GIF, WebP or SVG, at most 1 MiB).
+- `appearance`: `light`, `dark` or `system`.
+- `notifications`: for each inbox kind (`spec`, `preview`, `question`, `merge`, `custom`), whether to notify by `email`, `slack` and `discord`.
+
+Change your password with `PUT /api/v1/me/password`.
+
+`GET /api/v1/me` returns your user, your teams, the current team, your role in it, your role on each factory, and the token's grants.
+
+### Linked accounts
+
+Linked accounts tell Kiln who you are on other systems. Supported providers: `github`, `slack`, `discord`, `linear`, `jira`, `teams`, `gitlab` and `azure_devops`.
+
+- Link one with `POST /api/v1/me/linked-accounts` and `{ "provider": "slack", "externalId": "U024BE7LH" }`. Add `handle` for a login name such as a GitHub username.
+- Unlink with `DELETE /api/v1/me/linked-accounts/<provider>`.
+- One external account belongs to one user.
+
+When an event arrives, for example a Slack reply in a work item's thread, Kiln looks up the author:
+
+1. A linked account.
+2. The server's `identities` option.
+3. An email that matches an account. Linear and Jira send emails.
+
+The result becomes the work item's requester and the person who decides a gate from a reply. GitHub login links your GitHub account automatically.
+
+## Related pages
+
+- [Admin, RBAC and audit](admin-rbac-audit.md)
+- [Secrets, MCP servers and environments](secrets-mcps-environments.md)
+- [Usage and spend limits](usage-and-spend-limits.md)
+- [API reference](../developer-tools/api.md)
+- [Self-hosting](../infrastructure/self-hosting.md)
+
+---
+
+# Usage and spend limits
+
+Source: https://github.com/fishuke/klin/blob/main/docs/site/management/usage-and-spend-limits.md
+
+Kiln is self-hosted, so there are no plans or credits. It records what runs cost and lets each team set a monthly spend limit.
+
+## Usage
+
+Every run records its cost, its factory, agent and model, the team it counts toward and, when there is one, the user who triggered it. Runs started by agent keys, schedules or people without an account count as `team`.
+
+`GET /api/v1/usage` returns the current team's usage for the current calendar month (UTC), or for `since` and `until`:
+
+| Field | What it holds |
+| --- | --- |
+| `totalUsd`, `runs` | Totals for the period |
+| `limit` | `monthlyUsd`, `autoStop`, `spentThisMonthUsd`, `remainingUsd`, `exceeded` |
+| `byDay` | Cost and runs per day |
+| `byFactory`, `byAgent`, `byModel`, `byUser` | Cost and runs per factory, `factory/agent`, model and user, highest first |
+| `entries` | With `entries=1`: the ledger rows, one per run, newest first (at most 1000) |
+
+Filter with `factory=<id>` and `user=<email or user id>`. Costs are what the harness reports. They are for comparing, not invoices.
+
+## Spend limit
+
+Each team has a monthly spend limit, $200 by default. Team owners and admins change it in the team settings:
+
+```json
+{ "spendLimit": { "monthlyUsd": 500, "autoStop": true } }
+```
+
+- With `autoStop` off (the default), the limit is soft. Runs continue, and `limit.exceeded` shows it was passed.
+- With `autoStop` on, once the month's spend reaches the limit, Kiln refuses new runs, and the API refuses new work items with `402`:
+
+```json
+{ "error": "budget_exceeded", "message": "Monthly spending budget of $500 has been reached ($512.40 spent)", "limitUsd": 500, "spentUsd": 512.4 }
+```
+
+Work items already in progress, or started by webhooks and schedules, move to `blocked` before their next run, with the same message as the reason. Raise the limit or turn off auto-stop to continue. Factory budgets (`budgets.perWorkItemUsd`, `budgets.monthlyUsd`) and policy caps still apply as well. See [Policies and budgets](../configuration/policies-and-budgets.md).
+
+## Related pages
+
+- [Teams and users](teams-and-users.md)
+- [Metrics](../measure-and-improve/metrics.md)
+- [API reference](../developer-tools/api.md)
 
 ---
 

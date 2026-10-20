@@ -30,10 +30,10 @@ The directory name is the agent's name. Other files refer to the agent by that n
 | `agentType` | enum | `CUSTOM` | The role. See below. |
 | `spawnableBy` | list of agent names | `[foreman]` | Every name must be an agent in the tree. |
 | `idleTimeoutMinutes` | integer 1–60 | 10 | |
-| `harness` | object | inherited | `type` (`claude-code`, `codex`, `opencode`), optional `model`, optional `reasoningLevel` (`low`, `medium`, `high`). |
+| `harness` | object | inherited | `type` (`claude-code`, `codex`, `opencode`), optional `model`, optional `reasoningLevel` (`low`, `medium`, `high`), optional `auth`. See [Harness credentials](../infrastructure/harnesses.md#credentials). |
 | `model` | string | inherited | A model name, or `router:<name>` for a router in `routers/`. |
 | `runner` | string | inherited | A file name in `runners/`, without `.yaml`. |
-| `secrets` | list | inherited | Secret names. |
+| `secrets` | list | inherited | Names of Kiln secrets. Each one that is set is passed to the run as an environment variable with the same name. |
 | `mcpServers` | list | inherited | MCP server names. |
 
 Unknown keys are errors.

@@ -45,7 +45,7 @@ A comment that mentions the factory's alias starts foreman work in a factory wit
 
 ## Planning
 
-The [planning agent](../product-owners/planning.md) creates its roadmap in Linear: one issue per epic, labeled `epic`, with a child issue for each piece of work. Each child issue has an "Acceptance criteria" checklist, a `factory:<alias>` label and a line naming the factory.
+The [planning agent](../product-owners/planning.md) creates its roadmap in Linear: one issue per epic, with a sub-issue for each piece of work. Each sub-issue has an "Acceptance criteria" checklist and a "Factory: @<alias>" line. The Linear adapter does not set labels yet.
 
 ## Related pages
 

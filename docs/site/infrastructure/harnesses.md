@@ -35,6 +35,26 @@ The harness program must be installed in the runner's image. Pin its version in 
 | Command guard | `PreToolUse` hook on Bash in `.claude/settings.json` | Not installed | Not installed |
 | Cost | Reported by Claude Code | Estimated from token counts | Reported per step |
 
+## Credentials
+
+Kiln passes model credentials to the harness as environment variables of the run, read from Kiln's secrets. You bring your own keys. Set them with `harness.auth`:
+
+```yaml
+harness:
+  type: claude-code
+  auth: { source: secret, secretName: CLAUDE_TOKEN }
+```
+
+| `auth` | What the run gets |
+| --- | --- |
+| `{ source: secret, secretName: <name> }` | The secret's value. For Claude Code it is set as `CLAUDE_CODE_OAUTH_TOKEN` when it is a subscription token from `claude setup-token` (it starts with `sk-ant-oat`), and as `ANTHROPIC_API_KEY` otherwise. For Codex it is `OPENAI_API_KEY`. For OpenCode the variable has the secret's name. Add `env: <VARIABLE>` to choose the variable yourself. A missing secret fails the run. |
+| `{ source: worker }` | No credential from Kiln. The harness uses credentials already present on the worker or in the image. |
+| not set | Kiln looks for default secrets. Claude Code gets the first of `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` that is set. Codex gets the first of `OPENAI_API_KEY` and `CODEX_API_KEY`. OpenCode gets every one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY` that is set. |
+
+The agent's `secrets` list is passed the same way, one variable per secret. Credentials go only to that run's sandbox.
+
+## Isolation
+
 The sandbox is the security boundary for all three. Permission prompts are off because nobody is there to answer them; the [command guard](../configuration/decisions.md#command-guard) and the sandbox take their place.
 
 ## What a run receives

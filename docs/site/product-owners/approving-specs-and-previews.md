@@ -50,7 +50,7 @@ Built-in spec and preview gates remind the approvers in the thread every 24 hour
 
 ## Who can approve
 
-By default, the requester and everyone in the `po` role are assigned. Deciding also needs a token scope: `decide:spec` for specs, `decide:preview` for previews.
+By default, the requester and everyone in the `po` role are assigned. Deciding through the inbox, the API or the Kiln MCP also needs a token scope: `decide:spec` for specs, `decide:preview` for previews.
 
 ## Related pages
 

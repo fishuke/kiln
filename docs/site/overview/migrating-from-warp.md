@@ -50,6 +50,8 @@ Kiln adds optional directories Warp does not have: `pipelines/`, `gates/`, `poli
 | Harness `claude` | `claude-code` |
 | Harness `codex` | `codex` |
 | `model: auto` or `auto-<anything>` | `model: router:auto`. If the tree has no `routers/auto.yaml`, Kiln adds a complexity router (Haiku for easy, Sonnet by default, Opus for hard) |
+| Harness `auth: { source: managedSecret, secretName: X }` | `auth: { source: secret, secretName: X }`. Store `X` in Kiln's secrets. |
+| Harness `auth: { source: workerEnvironment }` | `auth: { source: worker }` |
 | `mcpServers` as a map | A list of the server names |
 | Runner `platform.linux.dockerImage` | `image` (defaults to `ubuntu:24.04` when missing) |
 | Runner `instanceShape` | `shape` |
@@ -69,7 +71,7 @@ Every change that drops something is reported as a warning.
 | `scorerDefaults` | `factory.yaml` | Each scorer states its own `samplingRate`, `model` and `passingScore`. |
 | `benchmarkRepoSubstitutions` | `factory.yaml` | Benchmark tasks pin exact commits in `startingRepoRefs`. |
 | `environmentId`, `workerHost`, `computerUseModel`, `credentialStrategy`, `required_repos` | Agents, automations and `agentDefaults` | Kiln picks compute from the agent's runner, not from a Warp environment or worker. |
-| Harness `auth` | Agents, automations, `agentDefaults` | Kiln does not read harness credentials from the definition tree. |
+| Harness `auth` other than a managed secret or the worker environment | Agents, automations, `agentDefaults` | Kiln only supports credentials from its secrets store or from the worker. This is dropped without a warning. |
 | `idleTimeoutMinutes` | Automations | Kiln accepts it on agents only. |
 | `output`, `runner`, `secrets`, `mcpServers` | Scorers | Kiln's scorer service runs judges itself. |
 | `linearSeed` | Benchmark tasks | Not supported. |

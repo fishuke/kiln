@@ -1286,7 +1286,7 @@ A stage's behavior comes from its agent's `agentType` or its action:
 | Agent type or action | Stage behavior |
 | --- | --- |
 | `TRIAGE` | Classifies kind and size. |
-| `SPEC` | Writes the spec as a draft pull request, checks each criterion with the `spec-check` decision, rewrites failing criteria once, then opens the stage's gate. If the agent fails twice, it opens a `spec-failed` question with the reason and parks the item instead. |
+| `SPEC` | Writes the spec as a draft pull request, checks each criterion with the `spec-check` decision, rewrites failing criteria once, then opens the stage's gate. If the agent fails twice, it opens a `spec-failed` question with the reason and parks the item instead. A spec review or a `spec-failed` question can be retried: the spec is written again from scratch, optionally on another model for that run. See [Retrying a spec](../product-owners/approving-specs-and-previews.md#retrying-a-spec). |
 | `IMPLEMENT` or `CUSTOM` | Builds the change. Two failed attempts open a `build-failed` question and park the item. |
 | `VERIFY` | Runs the verify agent and checks `requires`. |
 | `REVIEW` | Reviews the pull request. `changes_requested` with findings loops back with `on_fail`. For an advisory stage without `on_fail`, or with its loops used up, Kiln posts the findings on the pull request as "Advisory review findings:" and moves on. `needs_human` posts the findings for a person and moves on. |
@@ -1800,6 +1800,8 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/inbox/unread` | — | Mark items unread |
 | POST | `/api/v1/inbox/resolve` | — | Resolve (hide) items for you |
 | POST | `/api/v1/inbox/unresolve` | — | Undo a resolve |
+| GET | `/api/v1/gates/{id}/retry` | `decide:spec` | What a spec retry can run on: the spec agent's harness and model, the factory's routers and the model that wrote the spec |
+| POST | `/api/v1/gates/{id}/retry` | `decide:spec` | Write the spec again from scratch (a spec review or a failed spec), optionally on another model for that run |
 | GET | `/api/v1/factories/{id}/definition-changes` | `read` | Proposed definition changes (?state=open|merged|changes_requested|rejected) |
 | POST | `/api/v1/factories/{id}/definition-changes` | `send` | Propose a definition change for review (agents and people) |
 | GET | `/api/v1/definition-changes/{id}` | `read` | A proposed change with its diff and comments |
@@ -5754,6 +5756,17 @@ Read the criteria as a checklist the finished work must pass. See [Writing accep
 | --- | --- |
 | Approve | The work item moves to `building`. |
 | Reject with feedback | The spec agent rewrites the spec with your feedback, and you get a new request. |
+| Retry | The spec agent writes the spec again from scratch, without the earlier spec or feedback. You can pick another model for that one run. |
+
+Each request ends with the agent and model that wrote the spec, for example `Written by spec (claude-sonnet-5-5)`.
+
+### Retrying a spec
+
+Use **Retry** in the inbox when a spec is off track and a note would not help, or to compare models. Pick a model, by default the spec agent's own, and select **Retry spec**. The model applies only to that spec run; the agent's definition does not change, and later rewrites use the agent's model again.
+
+Retry also appears on the `spec-failed` question Kiln opens when the spec agent fails twice, for example after a setup command failed. Fix the cause, then retry instead of answering.
+
+Through the API, call `POST /api/v1/gates/{id}/retry` with an optional `model` (a model id or `router:<name>`), with a token that has `decide:spec`. `GET /api/v1/gates/{id}/retry` lists the spec agent's harness, its model and the factory's routers.
 
 ## Accepting a preview
 

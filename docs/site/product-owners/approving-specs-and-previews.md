@@ -22,6 +22,17 @@ Read the criteria as a checklist the finished work must pass. See [Writing accep
 | --- | --- |
 | Approve | The work item moves to `building`. |
 | Reject with feedback | The spec agent rewrites the spec with your feedback, and you get a new request. |
+| Retry | The spec agent writes the spec again from scratch, without the earlier spec or feedback. You can pick another model for that one run. |
+
+Each request ends with the agent and model that wrote the spec, for example `Written by spec (claude-sonnet-5-5)`.
+
+### Retrying a spec
+
+Use **Retry** in the inbox when a spec is off track and a note would not help, or to compare models. Pick a model, by default the spec agent's own, and select **Retry spec**. The model applies only to that spec run; the agent's definition does not change, and later rewrites use the agent's model again.
+
+Retry also appears on the `spec-failed` question Kiln opens when the spec agent fails twice, for example after a setup command failed. Fix the cause, then retry instead of answering.
+
+Through the API, call `POST /api/v1/gates/{id}/retry` with an optional `model` (a model id or `router:<name>`), with a token that has `decide:spec`. `GET /api/v1/gates/{id}/retry` lists the spec agent's harness, its model and the factory's routers.
 
 ## Accepting a preview
 

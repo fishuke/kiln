@@ -51,6 +51,21 @@ describe("API", () => {
     expect(detail.decisions.some((d) => d.decision === "triage")).toBe(true);
   });
 
+  it("retries a spec within the decide:spec scope, on a valid model", async () => {
+    const { kiln, token, client } = setup();
+    const po = client(token("read:webapp,send:webapp,decide:spec:webapp"));
+    const reader = client(token("read:webapp"));
+    const wi = await po.send({ factory: "webapp", title: "Team invites", body: "- Admins invite by email\n- Invites expire" });
+    await waitFor(kiln, wi.id, ["awaiting_spec"]);
+    const [gate] = await po.inbox({ all: true });
+    expect(await po.retryOptions(gate!.id)).toMatchObject({ agent: "spec", model: "claude-sonnet-5-5" });
+    await expect(reader.retrySpec(gate!.id, "claude-haiku-5-5")).rejects.toMatchObject({ status: 403 });
+    await expect(po.retrySpec(gate!.id, "not a model")).rejects.toMatchObject({ status: 400 });
+    await expect(po.retrySpec(gate!.id, "router:missing")).rejects.toMatchObject({ status: 400 });
+    expect(await po.retrySpec(gate!.id, "claude-haiku-5-5")).toMatchObject({ state: "expired", decision: "retry" });
+    await expect(po.retrySpec(gate!.id)).rejects.toMatchObject({ status: 409 });
+  });
+
   it("scopes are per factory", async () => {
     const { token, client } = setup();
     const other = client(token("read:payments,send:payments"));

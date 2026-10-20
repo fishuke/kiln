@@ -1,6 +1,7 @@
 import type { Kiln } from "./kiln";
 import { page, taskStage } from "./run-state";
 import { C, type GateQuestion, type InboxState, type Run, type TaskStage } from "./types";
+import { isSpecGate } from "./workflow";
 
 export const INBOX_ITEM_KINDS = ["question", "answer_question", "spec_review", "pr_review", "blocked", "failed"] as const;
 export type InboxKind = (typeof INBOX_ITEM_KINDS)[number];
@@ -77,7 +78,7 @@ export class InboxService {
           title: g.title,
           description: g.question,
           ...(g.questions?.length ? { questions: g.questions } : {}),
-          actions: kind === "question" ? ["answer", "reject"] : kind === "spec_review" ? ["approve", "request_changes"] : ["approve", "reject"],
+          actions: [...(kind === "question" ? ["answer", "reject"] : kind === "spec_review" ? ["approve", "request_changes"] : ["approve", "reject"]), ...(isSpecGate(g) ? ["retry"] : [])],
           recipients: g.assignees.length ? g.assignees : wi ? [wi.requester] : this.admins(),
           urgency: g.urgency ?? 0.5,
           createdAt: g.openedAt,

@@ -11,6 +11,8 @@ export type ConversationLike = { at: string; from: string; role: string; text: s
 export type GateView = {
   id: string;
   kind: string;
+  /** The gate's definition name, e.g. spec-approval or spec-failed. */
+  name?: string;
   title: string;
   question?: string;
   state: string;

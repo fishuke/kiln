@@ -1,25 +1,30 @@
 "use client";
 
-import { Check, ExternalLink, GitPullRequest, Globe, Sparkles } from "lucide-react";
+import type { SpecRetryOptions } from "@kiln/sdk-ts";
+import { Check, ExternalLink, GitPullRequest, Globe, RotateCcw, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { decide } from "@/app/runs/actions";
+import { decide, retrySpec, specRetryOptions } from "@/app/runs/actions";
 import { Markdown } from "@/components/kiln/markdown";
+import { ModelSelect } from "@/components/kiln/resource-pickers";
 import { Button } from "@/components/ui/button";
-import { questionOptions, questionPrompt } from "@/lib/inbox-model";
+import { canRetrySpec, questionOptions, questionPrompt, retryModel } from "@/lib/inbox-model";
 import type { GateView } from "@/lib/run-detail";
 import { cn } from "@/lib/utils";
 
 /**
  * A decision the factory waits on: approve a spec, accept a preview, answer a question (single
- * or multi-select with a recommended option), confirm a merge, or allow a guarded command.
+ * or multi-select with a recommended option), confirm a merge, or allow a guarded command. A spec
+ * review, or the question a failed spec run left, can also be retried on a model of your choice.
  */
 export function GateCard({ gate, prUrl, previewUrl, onDone, compact, hideQuestion }: { gate: GateView; prUrl?: string; previewUrl?: string; onDone?: (decision: string) => void; compact?: boolean; hideQuestion?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [note, setNote] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
+  const [retry, setRetry] = useState<SpecRetryOptions>();
+  const [model, setModel] = useState("");
   const isQuestion = gate.kind === "question" && !gate.command;
   const options = isQuestion ? questionOptions(gate) : [];
   const prompt = isQuestion ? questionPrompt(gate.question) : gate.question;
@@ -43,6 +48,30 @@ export function GateCard({ gate, prUrl, previewUrl, onDone, compact, hideQuestio
       router.refresh();
     });
   };
+
+  const openRetry = () =>
+    start(async () => {
+      const r = await specRetryOptions(gate.id);
+      if (!r.ok) {
+        toast.error("Could not load the spec agent's models", { description: r.error });
+        return;
+      }
+      setRetry(r.options);
+      setModel(r.options.model ?? "");
+    });
+
+  const sendRetry = () =>
+    start(async () => {
+      const r = await retrySpec({ gateId: gate.id, model: retryModel(model, retry?.model) });
+      if (!r.ok) {
+        toast.error("Could not retry the spec", { description: r.error });
+        return;
+      }
+      toast.success("Writing the spec again");
+      setRetry(undefined);
+      onDone?.("retry");
+      router.refresh();
+    });
 
   const toggle = (label: string) => setPicked((p) => (gate.multiSelect ? (p.includes(label) ? p.filter((x) => x !== label) : [...p, label]) : [label]));
 
@@ -138,7 +167,30 @@ export function GateCard({ gate, prUrl, previewUrl, onDone, compact, hideQuestio
                 )}
               </>
             )}
+            {canRetrySpec(gate) && !retry && (
+              <Button variant="ghost" disabled={pending} onClick={openRetry}>
+                <RotateCcw className="size-3.5" /> Retry
+              </Button>
+            )}
           </div>
+          {retry && (
+            <div className="mt-3 rounded-lg border p-3">
+              <div className="mb-2 text-sm text-muted-foreground">
+                Write the spec again from scratch, without the notes so far.{retry.writtenWith ? ` This one was written by ${retry.writtenWith}.` : ""}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="min-w-56 flex-1">
+                  <ModelSelect value={model} onChange={setModel} harness={retry.harness} routers={retry.routers} defaultModel={retry.model} inheritLabel={retry.model ? undefined : ""} placeholder={`${retry.agent}'s model`} disabled={pending} />
+                </div>
+                <Button disabled={pending} onClick={sendRetry}>
+                  Retry spec
+                </Button>
+                <Button variant="ghost" disabled={pending} onClick={() => setRetry(undefined)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

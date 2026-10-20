@@ -76,9 +76,31 @@ describe("github forge", () => {
     });
     const pr = await gh.openPullRequest({ repo, head: "kiln/a", title: "T", body: "B", labels: ["factory:web"] });
     expect(pr).toMatchObject({ number: 7, labels: ["factory:web"], state: "open" });
-    expect(seen.map((s) => `${s.method} ${new URL(s.url).pathname}`)).toEqual(["POST /repos/acme/web/pulls", "POST /repos/acme/web/issues/7/labels"]);
+    expect(seen.map((s) => `${s.method} ${new URL(s.url).pathname}`)).toEqual(["GET /repos/acme/web", "POST /repos/acme/web/pulls", "POST /repos/acme/web/issues/7/labels"]);
     expect((await gh.checks(repo, "kiln/a")).status).toBe("failure");
     expect(gh.cloneUrl(repo, "tok")).toBe("https://x-access-token:tok@github.com/acme/web.git");
+  });
+
+  it("opens pull requests against the repository's default branch", async () => {
+    const seen: { url: string; method: string; body?: unknown }[] = [];
+    const gh = new GitHubForge({
+      token: "t",
+      fetch: fakeFetch(
+        {
+          "/pulls": { number: 8, html_url: "https://github.com/acme/web/pull/8", title: "T", body: "B", head: { ref: "kiln/b", sha: "def" }, base: { ref: "prod" }, state: "open", user: { login: "kiln[bot]" } },
+          "/repos/acme/web": { default_branch: "prod" },
+        },
+        seen,
+      ),
+    });
+    await gh.openPullRequest({ repo, head: "kiln/b", title: "T", body: "B" });
+    await gh.openPullRequest({ repo, head: "kiln/c", title: "T", body: "B" });
+    const posts = seen.filter((s) => s.method === "POST");
+    expect(posts.map((s) => (s.body as { base: string }).base)).toEqual(["prod", "prod"]);
+    // Looked up once.
+    expect(seen.filter((s) => s.method === "GET" && s.url.endsWith("/repos/acme/web"))).toHaveLength(1);
+    await gh.openPullRequest({ repo, head: "kiln/d", title: "T", body: "B", base: "release" });
+    expect((seen.at(-1)!.body as { base: string }).base).toBe("release");
   });
 });
 

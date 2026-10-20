@@ -145,9 +145,51 @@ const DESTRUCTIVE = [/\brm\s+-[a-z]*r[a-z]*f?\s+(\/|~|\*|\.)/, /\bmkfs\b/, /\bdd
 const RISKY = [/\bgit\s+push\b/, /\bnpm\s+publish\b/, /\bcurl\b.*\|\s*(sh|bash)/, /\bchmod\s+-R\b/, /\bsudo\b/, /\brm\s+-/];
 const REMOTE = [/\bssh\b/, /\bcurl\b.*\|\s*(sh|bash)/, /\bkubectl\b/, /\bterraform\s+apply\b/];
 
-/** A transparent regex heuristic, used by FakeProvider in dev so the guardrail works offline. */
+/** Transparent heuristics so every built-in decision works offline (dev mode and tests). */
 export function heuristicRule(request: DecisionRequest): Answers | undefined {
-  const command = String(request.state.command ?? "");
+  const st = request.state;
+  const text = `${st.title ?? ""}\n${st.body ?? ""}`;
+  const bullets = (String(st.body ?? "").match(/^\s*[-*]\s+/gm) ?? []).length;
+  const sizeOf = () => {
+    if (/\b(large|epic|redesign|platform|migration|rewrite)\b/i.test(text)) return "l";
+    if (bullets > 5) return "l";
+    if (bullets >= 2) return "m";
+    if (/\b(typo|copy|rename|bump|flag)\b/i.test(text) && text.length < 200) return "xs";
+    return "s";
+  };
+  const choice = (options: string[], pick: string, p = 0.85) => Object.fromEntries(options.map((o) => [o, o === pick ? p : (1 - p) / (options.length - 1)]));
+  switch (request.decision) {
+    case "command-guard":
+    case undefined:
+      break;
+    case "triage": {
+      const kind = /\b(bug|fix|crash|error|broken|regression|typo)\b/i.test(text) ? "bug" : /\b(chore|bump|upgrade|rename)\b/i.test(text) ? "chore" : /\?\s*$/.test(String(st.title ?? "")) ? "question" : "feature";
+      return { kind: choice(["feature", "bug", "chore", "incident", "question"], kind), size: choice(["xs", "s", "m", "l", "xl"], sizeOf()), duplicate_of_recent: 0.05 };
+    }
+    case "foreman-routing": {
+      const size = String(st.size ?? sizeOf());
+      return { next_stage: choice(["triage", "plan", "build", "review", "handoff"], "build", 0.6), needs_spec: ["m", "l", "xl"].includes(size) ? 0.9 : ["xs", "s"].includes(size) ? 0.05 : 0.5, needs_human: 0.05 };
+    }
+    case "spec-check": {
+      const vague = /\b(fast|nice|good|better|intuitive|user-friendly|etc|somehow|maybe|properly|robust)\b/i.test(String(st.criterion ?? ""));
+      return { is_testable: vague ? 0.3 : 0.9, is_ambiguous: vague ? 0.7 : 0.1 };
+    }
+    case "review-risk": {
+      const high = /\b(auth|login|payment|billing|security|secret|migration|delete)\b/i.test(text);
+      return { risk_tier: choice(["low", "medium", "high"], high ? "high" : "low", 0.8), touches_sensitive_area: high ? 0.8 : 0.1 };
+    }
+    case "model-router": {
+      const size = sizeOf();
+      return { complexity: choice(["easy", "medium", "hard"], size === "xs" || size === "s" ? "easy" : size === "l" ? "hard" : "medium") };
+    }
+    case "failure-category":
+      return { failure_category: choice(["instructions", "skills", "tooling", "model", "app_code", "flaky"], /flak|timeout/i.test(String(st.summary ?? "")) ? "flaky" : "instructions", 0.8) };
+    case "inbox-urgency":
+      return { urgency: st.kind === "question" ? 0.85 : st.kind === "merge" ? 0.4 : 0.6 };
+    default:
+      return undefined;
+  }
+  const command = String(st.command ?? "");
   if (!command) return undefined;
   const destructive = DESTRUCTIVE.some((r) => r.test(command));
   const risky = !destructive && RISKY.some((r) => r.test(command));

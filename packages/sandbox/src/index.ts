@@ -36,10 +36,13 @@ export interface Sandbox {
   /** Path of the workspace inside the sandbox; each repo is cloned into <workdir>/<repo name>. */
   readonly workdir: string;
   readonly startedInMs: number;
-  exec(command: string, opts?: { cwd?: string; env?: Record<string, string> }): Promise<ExecResult>;
+  /** Shell command. Agent commands pass the guardrail; `trusted` marks Kiln's own commands (push, setup). */
+  exec(command: string, opts?: { cwd?: string; env?: Record<string, string>; trusted?: boolean }): Promise<ExecResult>;
   spawn(cmd: string, args: string[], opts?: { cwd?: string; env?: Record<string, string> }): Proc;
   writeFile(path: string, content: string): Promise<void>;
   readFile(path: string): Promise<string | undefined>;
+  /** Binary read, for videos and other artifacts. */
+  readBytes(path: string): Promise<Uint8Array | undefined>;
   snapshot(store: ObjectStore): Promise<SnapshotRef>;
   destroy(): Promise<void>;
 }
@@ -114,7 +117,7 @@ export class LocalSandboxProvider implements SandboxProvider {
       if (repo.branch) await this.runner.run("git", ["checkout", "-q", "-B", repo.branch], { cwd: join(workdir, repo.name) });
     }
     for (const cmd of spec.runner.setupCommands) {
-      const r = await sandbox.exec(cmd);
+      const r = await sandbox.exec(cmd, { trusted: true });
       if (r.code !== 0) throw new Error(`setup command failed: ${cmd}\n${r.stderr}`);
     }
     sandbox.startedInMs = Date.now() - started;
@@ -154,8 +157,8 @@ class LocalSandbox implements Sandbox {
     return path.startsWith("/") ? path : join(this.workdir, path);
   }
 
-  async exec(command: string, opts: { cwd?: string; env?: Record<string, string> } = {}) {
-    await guarded(this.spec, command);
+  async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
+    if (!opts.trusted) await guarded(this.spec, command);
     return this.runner.run("sh", ["-c", command], {
       cwd: opts.cwd ? this.resolvePath(opts.cwd) : this.workdir,
       env: { ...this.spec.env, ...opts.env },
@@ -178,6 +181,11 @@ class LocalSandbox implements Sandbox {
   async readFile(path: string) {
     const full = this.resolvePath(path);
     return existsSync(full) ? readFileSync(full, "utf8") : undefined;
+  }
+
+  async readBytes(path: string) {
+    const full = this.resolvePath(path);
+    return existsSync(full) ? new Uint8Array(readFileSync(full)) : undefined;
   }
 
   async snapshot(store: ObjectStore): Promise<SnapshotRef> {
@@ -248,7 +256,7 @@ export class DockerSandboxProvider implements SandboxProvider {
       if (repo.branch) await this.must(["exec", "-w", `/workspace/${repo.name}`, name, "git", "checkout", "-q", "-B", repo.branch]);
     }
     for (const cmd of spec.runner.setupCommands) {
-      const r = await sandbox.exec(cmd);
+      const r = await sandbox.exec(cmd, { trusted: true });
       if (r.code !== 0) throw new Error(`setup command failed: ${cmd}\n${r.stderr}`);
     }
     sandbox.startedInMs = Date.now() - started;
@@ -291,8 +299,8 @@ class DockerSandbox implements Sandbox {
     return Object.entries(env ?? {}).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
   }
 
-  async exec(command: string, opts: { cwd?: string; env?: Record<string, string> } = {}) {
-    await guarded(this.spec, command);
+  async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
+    if (!opts.trusted) await guarded(this.spec, command);
     const cwd = opts.cwd ? (opts.cwd.startsWith("/") ? opts.cwd : `/workspace/${opts.cwd}`) : "/workspace";
     return this.runner.run("docker", ["exec", "-w", cwd, ...this.envArgs(opts.env), this.container, "sh", "-lc", command]);
   }
@@ -316,6 +324,16 @@ class DockerSandbox implements Sandbox {
     const full = path.startsWith("/") ? path : `/workspace/${path}`;
     const r = await this.runner.run("docker", ["exec", this.container, "cat", full]);
     return r.code === 0 ? r.stdout : undefined;
+  }
+
+  async readBytes(path: string) {
+    const full = path.startsWith("/") ? path : `/workspace/${path}`;
+    const host = mkdtempSync(join(this.options.hostTmp ?? tmpdir(), "kiln-cp-"));
+    const target = join(host, "file");
+    const r = await this.runner.run("docker", ["cp", `${this.container}:${full}`, target]);
+    const bytes = r.code === 0 && existsSync(target) ? new Uint8Array(readFileSync(target)) : undefined;
+    rmSync(host, { recursive: true, force: true });
+    return bytes;
   }
 
   async snapshot(store: ObjectStore): Promise<SnapshotRef> {
@@ -432,7 +450,7 @@ export class KubernetesSandboxProvider implements SandboxProvider {
       await this.kubectl(["exec", name, "--", "git", "clone", "--quiet", repo.url, `/workspace/${repo.name}`]);
     }
     for (const cmd of spec.runner.setupCommands) {
-      const r = await sandbox.exec(cmd);
+      const r = await sandbox.exec(cmd, { trusted: true });
       if (r.code !== 0) throw new Error(`setup command failed: ${cmd}\n${r.stderr}`);
     }
     sandbox.startedInMs = Date.now() - started;
@@ -472,8 +490,8 @@ class KubernetesSandbox implements Sandbox {
     return ["-n", this.namespace, "exec", "-i", this.pod, "--"];
   }
 
-  async exec(command: string, opts: { cwd?: string; env?: Record<string, string> } = {}) {
-    await guarded(this.spec, command);
+  async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
+    if (!opts.trusted) await guarded(this.spec, command);
     const cwd = opts.cwd ? (opts.cwd.startsWith("/") ? opts.cwd : `/workspace/${opts.cwd}`) : "/workspace";
     const env = Object.entries(opts.env ?? {}).map(([k, v]) => `${k}=${shellQuote(v)}`).join(" ");
     return this.runner.run("kubectl", [...this.base(), "sh", "-lc", `cd ${shellQuote(cwd)} && ${env} ${command}`]);
@@ -495,6 +513,16 @@ class KubernetesSandbox implements Sandbox {
     const full = path.startsWith("/") ? path : `/workspace/${path}`;
     const r = await this.runner.run("kubectl", [...this.base(), "cat", full]);
     return r.code === 0 ? r.stdout : undefined;
+  }
+
+  async readBytes(path: string) {
+    const full = path.startsWith("/") ? path : `/workspace/${path}`;
+    const host = mkdtempSync(join(tmpdir(), "kiln-cp-"));
+    const target = join(host, "file");
+    const r = await this.runner.run("kubectl", ["-n", this.namespace, "cp", `${this.pod}:${full}`, target]);
+    const bytes = r.code === 0 && existsSync(target) ? new Uint8Array(readFileSync(target)) : undefined;
+    rmSync(host, { recursive: true, force: true });
+    return bytes;
   }
 
   async snapshot(store: ObjectStore): Promise<SnapshotRef> {

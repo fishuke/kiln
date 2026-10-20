@@ -10,8 +10,8 @@ import { createApp, type AppOptions } from "./app";
 
 const pw = "correct horse battery";
 
-function setup(opts: AppOptions & { harnessCost?: number; serverAdmins?: string[] } = {}) {
-  const t = createTestKiln({ preview: false, webUrl: "http://web.test", publicUrl: "http://kiln.test", serverAdmins: opts.serverAdmins, ...(opts.harnessCost !== undefined ? { harness: () => new FakeHarness(async () => ({ summary: "ok", costUsd: opts.harnessCost })) } : {}) });
+function setup(opts: AppOptions & { harnessCost?: number; serverAdmins?: string[]; ownerEmail?: string } = {}) {
+  const t = createTestKiln({ preview: false, webUrl: "http://web.test", publicUrl: "http://kiln.test", serverAdmins: opts.serverAdmins, ownerEmail: opts.ownerEmail, ...(opts.harnessCost !== undefined ? { harness: () => new FakeHarness(async () => ({ summary: "ok", costUsd: opts.harnessCost })) } : {}) });
   let app: ReturnType<typeof createApp>;
   const inProcess = async (input: string | URL | Request, init?: RequestInit) => app.fetch(new Request(input as string, init));
   app = createApp(t.kiln, { mcp: createMcpHandler("http://kiln.test", inProcess), ...opts });
@@ -33,6 +33,15 @@ async function people(s: ReturnType<typeof setup>) {
 }
 
 describe("auth API", () => {
+  it("lets only KILN_OWNER_EMAIL claim a fresh server", async () => {
+    const s = setup({ ownerEmail: "Olga@Acme.test" });
+    const anon = s.client();
+    await expect(anon.signup({ email: "mallory@evil.test", password: pw })).rejects.toMatchObject({ status: 403, message: "this server is waiting for its owner to sign up" });
+    expect((await anon.authProviders()).needsOwner).toBe(true);
+    const first = await anon.signup({ email: "olga@acme.test", password: pw });
+    expect(first.teams).toEqual([expect.objectContaining({ role: "owner" })]);
+  });
+
   it("signs up the first owner, then logs in and out", async () => {
     const s = setup();
     const anon = s.client();

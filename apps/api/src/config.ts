@@ -27,7 +27,7 @@ import {
   VercelPreview,
   type Forge,
 } from "@kiln/integrations";
-import { DockerSandboxProvider, KubernetesSandboxProvider, LocalSandboxProvider } from "@kiln/sandbox";
+import { DEFAULT_EGRESS, DockerSandboxProvider, KubernetesSandboxProvider, LocalSandboxProvider } from "@kiln/sandbox";
 import { FileObjectStore, FileStore } from "@kiln/store";
 
 export type ServerConfig = {
@@ -85,7 +85,7 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     harness: realAgents ? undefined : fakeAgents(),
     sandboxes: {
       local: new LocalSandboxProvider(join(dataDir, "sandboxes")),
-      ...(backend === "docker" ? { docker: new DockerSandboxProvider() } : {}),
+      ...(backend === "docker" ? { docker: new DockerSandboxProvider(undefined, { egress: { network: env.KILN_EGRESS_NETWORK || DEFAULT_EGRESS.network, proxy: env.KILN_EGRESS_PROXY || DEFAULT_EGRESS.proxy } }) } : {}),
       ...(backend === "kubernetes" ? { kubernetes: new KubernetesSandboxProvider(undefined, env.KILN_SANDBOX_NAMESPACE) } : {}),
     },
     defaultBackend: backend,
@@ -95,6 +95,8 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     secretKey: env.KILN_SECRET_KEY,
     storageRoot: join(dataDir, "storage"),
     mailer: env.KILN_SMTP_URL ? new SmtpMailer(parseSmtpUrl(env.KILN_SMTP_URL, env.KILN_MAIL_FROM)) : undefined,
+    defaultImage: env.KILN_RUNNER_IMAGE || undefined,
+    ownerEmail: env.KILN_OWNER_EMAIL || undefined,
     serverAdmins: (env.KILN_ADMIN_EMAILS ?? "").split(",").map((e) => e.trim()).filter(Boolean),
     forgeToken: env.GITHUB_TOKEN,
     connectionProviders: connectionProviders({

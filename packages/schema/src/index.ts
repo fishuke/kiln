@@ -300,6 +300,18 @@ export const Runner = z
     shape: z.object({ vcpus: z.number().int().positive(), memoryGb: z.number().positive() }).strict().optional(),
     setupCommands: z.array(z.string()).default([]),
     egress: z.array(z.string()).default([]),
+    platform: z
+      .object({
+        linux: z
+          .object({
+            /** A team secret of type docker_registry or aws_ecr used to pull a private image; its host must match the image's registry. */
+            registryCredentialSecretName: z.string().min(1).optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type Runner = z.infer<typeof Runner>;

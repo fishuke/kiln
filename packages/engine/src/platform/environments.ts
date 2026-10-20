@@ -2,7 +2,7 @@ import type { Kiln } from "../kiln";
 import { newId } from "../types";
 import { P, PlatformError, type EnvironmentTemplate } from "./types";
 
-export type EnvironmentInput = Pick<EnvironmentTemplate, "name"> & Partial<Pick<EnvironmentTemplate, "description" | "image" | "repos" | "setupCommands" | "secrets">>;
+export type EnvironmentInput = Pick<EnvironmentTemplate, "name"> & Partial<Pick<EnvironmentTemplate, "description" | "image" | "repos" | "setupCommands" | "secrets" | "registryCredentialSecretName">>;
 
 /** Team-wide environment templates: an image, repos, setup commands and secrets that runs start from. */
 export class EnvironmentService {
@@ -31,6 +31,7 @@ export class EnvironmentService {
       repos: input.repos ?? [],
       setupCommands: input.setupCommands ?? [],
       secrets: input.secrets ?? [],
+      registryCredentialSecretName: input.registryCredentialSecretName,
       createdBy: by,
       createdAt: now,
       updatedAt: now,

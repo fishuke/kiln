@@ -112,12 +112,14 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       const r = parse(src) as Record<string, unknown>;
       const platform = (r.platform ?? {}) as Record<string, Record<string, unknown> | string>;
       const image = (platform.linux as Record<string, unknown> | undefined)?.dockerImage;
+      const registry = (platform.linux as Record<string, unknown> | undefined)?.registryCredentialSecretName;
       if (platform.os && platform.os !== "linux") warnings.push(`${file}: ${platform.os} runners are not supported; using linux`);
       out[file] = stringify({
         ...(r.description ? { description: r.description } : {}),
         image: image ?? "ubuntu:24.04",
         ...(r.instanceShape ? { shape: r.instanceShape } : {}),
         setupCommands: r.setupCommands ?? [],
+        ...(typeof registry === "string" ? { platform: { linux: { registryCredentialSecretName: registry } } } : {}),
       });
     } else if (/^scorers\/[^/]+\/scorer\.md$/.test(file)) {
       out[file] = frontmatter(file, src, (fm) => {

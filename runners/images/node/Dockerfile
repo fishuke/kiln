@@ -2,7 +2,7 @@
 # browser MCP server for computer use (with the Chromium build it expects).
 # Pin CLI versions here so adapter contract tests and real runs agree.
 FROM mcr.microsoft.com/playwright:v1.56.0-noble
-ARG CLAUDE_CODE_VERSION=2.1.0
+ARG CLAUDE_CODE_VERSION=2.1.290
 ARG CODEX_VERSION=0.45.0
 ARG OPENCODE_VERSION=0.15.0
 ARG PLAYWRIGHT_MCP_VERSION=0.0.83

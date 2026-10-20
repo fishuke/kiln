@@ -77,7 +77,8 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
 | POST | `/api/v1/connections/github/app-manifest` | — | Start creating Kiln's own GitHub App from a manifest (admins); post `manifest` to `action` from the browser |
-| GET | `/api/v1/connections/github/app` | — | Kiln's GitHub App, if one was created here (no secrets) |
+| GET | `/api/v1/connections/github/app` | — | Kiln's first GitHub App, if one was created here (no secrets) |
+| GET | `/api/v1/connections/github/apps` | — | Every GitHub App created here, one per account or organization (no secrets) |
 | GET | `/api/v1/connections` | `admin` | Workspace connections to every provider, with status |
 | POST | `/api/v1/connections/{provider}/start` | `admin` | Start connecting: an OAuth/install URL and setup steps |
 | POST | `/api/v1/connections/{provider}/complete` | `admin` | Finish connecting (OAuth code + state, or manual fields) |

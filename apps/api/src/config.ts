@@ -59,7 +59,7 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
   // A GitHub App (installation tokens minted per call) or a plain token; otherwise the local git-backed forge.
   const privateKey = env.GITHUB_APP_PRIVATE_KEY?.includes("BEGIN") ? env.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, "\n") : env.GITHUB_APP_PRIVATE_KEY ? Buffer.from(env.GITHUB_APP_PRIVATE_KEY, "base64").toString("utf8") : undefined;
   const appAuth = env.GITHUB_APP_ID && privateKey ? new HttpGitHubAppAuth({ appId: env.GITHUB_APP_ID, privateKey, installationId: env.GITHUB_APP_INSTALLATION_ID }) : undefined;
-  let forgeImpl: Forge = appAuth ? appForge(appAuth) : env.GITHUB_TOKEN ? new GitHubForge({ token: env.GITHUB_TOKEN }) : new FakeForge(join(dataDir, "forge"), ["main"], true);
+  let forgeImpl: Forge = appAuth ? appForge(() => [appAuth]) : env.GITHUB_TOKEN ? new GitHubForge({ token: env.GITHUB_TOKEN }) : new FakeForge(join(dataDir, "forge"), ["main"], true);
   // Delegates to the current forge, so a GitHub App created from the web app takes over without a restart.
   const forge = new Proxy({} as Forge, {
     get: (_t, prop) => {
@@ -127,9 +127,15 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
   /** Kiln's own GitHub App (created from the web app) when the environment configures none. */
   function useGitHubApp(app: GitHubAppCredentials) {
     if (env.GITHUB_APP_ID || env.GITHUB_TOKEN) return;
-    forgeImpl = appForge(new HttpGitHubAppAuth({ appId: app.appId, privateKey: app.privateKey, installationId: kiln.githubApp.credentials()?.installationId }));
-    Object.assign(githubConfig, { appSlug: app.slug, appId: app.appId, privateKey: app.privateKey });
+    // Every app created here: the new one joins the ones already connected.
+    const auths = new Map(appAuths.map((a) => [a.slug, a]));
+    for (const c of kiln.githubApp.allCredentials()) if (!auths.has(c.slug)) auths.set(c.slug, { slug: c.slug, auth: new HttpGitHubAppAuth({ appId: c.appId, privateKey: c.privateKey, installationId: c.installationId }) });
+    if (!auths.has(app.slug)) auths.set(app.slug, { slug: app.slug, auth: new HttpGitHubAppAuth({ appId: app.appId, privateKey: app.privateKey }) });
+    appAuths = [...auths.values()];
+    forgeImpl = appForge(() => appAuths.map((a) => a.auth));
+    if (!githubConfig.appId) Object.assign(githubConfig, { appSlug: app.slug, appId: app.appId, privateKey: app.privateKey });
   }
+  let appAuths: { slug: string; auth: HttpGitHubAppAuth }[] = [];
   const ownApp = kiln.githubApp.credentials();
   if (ownApp) useGitHubApp(ownApp);
 
@@ -234,15 +240,20 @@ export async function seedDemo(kiln: Kiln, root: string) {
 }
 
 /**
- * A GitHub App forge that works across accounts: API calls use the installation of the repository's
- * owner, and sandboxes get a token scoped to the one repository they clone.
+ * A GitHub App forge across accounts and organizations: each repository's calls use the app
+ * installed on its owner (several apps can be connected, one per account), and sandboxes get a
+ * token scoped to the one repository they clone.
  */
-function appForge(auth: HttpGitHubAppAuth): Forge {
+function appForge(apps: () => HttpGitHubAppAuth[]): Forge {
+  const forOwner = async (owner: string) => {
+    for (const a of apps()) if (await a.installedOn(owner)) return a;
+    return apps()[0]!;
+  };
   return new GitHubForge({
-    token: (path) => {
+    token: async (path) => {
       const owner = /^\/repos\/([^/]+)\//.exec(path)?.[1];
-      return owner ? auth.tokenForOwner(owner) : auth.installationToken();
+      return owner ? (await forOwner(owner)).tokenForOwner(owner) : apps()[0]!.installationToken();
     },
-    sandboxToken: (repo) => auth.repoToken(repo.owner, repo.name),
+    sandboxToken: async (repo) => (await forOwner(repo.owner)).repoToken(repo.owner, repo.name),
   });
 }

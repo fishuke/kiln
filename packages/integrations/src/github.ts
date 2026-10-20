@@ -203,7 +203,8 @@ export class FakeGitHubAppAuth implements GitHubAppAuth {
 
 export class HttpGitHubAppAuth implements GitHubAppAuth {
   private readonly cache = new Map<string, { token: string; expiresAt: number }>();
-  private readonly owners = new Map<string, string | undefined>();
+  /** Installation per account or organization; misses are retried after five minutes. */
+  private readonly owners = new Map<string, { id?: string; at: number }>();
 
   constructor(private readonly options: { appId: string; privateKey: string; installationId?: string; baseUrl?: string; fetch?: Fetch; now?: () => number }) {}
 
@@ -228,15 +229,23 @@ export class HttpGitHubAppAuth implements GitHubAppAuth {
 
   async installationFor(owner: string) {
     const list = await this.app<{ id: number; account: { login: string } }[]>("GET", "/app/installations?per_page=100");
-    for (const i of list) this.owners.set(i.account.login.toLowerCase(), i.id.toString());
+    for (const i of list) this.owners.set(i.account.login.toLowerCase(), { id: i.id.toString(), at: this.now() });
     return list.find((i) => i.account.login.toLowerCase() === owner.toLowerCase())?.id.toString();
   }
 
-  /** The installation on an account or organization (cached), else the configured one. */
-  async installationForOwner(owner: string) {
+  /** This app's installation on an account or organization, if it has one (cached). */
+  async installedOn(owner: string): Promise<string | undefined> {
     const key = owner.toLowerCase();
-    if (!this.owners.has(key)) this.owners.set(key, await this.installationFor(owner));
-    return this.owners.get(key) ?? this.options.installationId;
+    const hit = this.owners.get(key);
+    if (hit && (hit.id || this.now() - hit.at < 5 * 60_000)) return hit.id;
+    const id = await this.installationFor(owner);
+    this.owners.set(key, { id, at: this.now() });
+    return id;
+  }
+
+  /** The installation on an account or organization, else the configured one. */
+  async installationForOwner(owner: string) {
+    return (await this.installedOn(owner)) ?? this.options.installationId;
   }
 
   async tokenForOwner(owner: string) {
@@ -335,10 +344,14 @@ export class HttpGitHubManifests implements GitHubManifestClient {
 /** Test double: every code converts to the same app. */
 export class FakeGitHubManifests implements GitHubManifestClient {
   readonly codes: string[] = [];
-  constructor(private readonly app: GitHubAppCredentials = { appId: "4242", slug: "kiln-test", privateKey: "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----\n", webhookSecret: "whsec-fake", owner: "acme" }) {}
+  /** The app the next conversion returns; tests set it to create a second app. */
+  next: GitHubAppCredentials;
+  constructor(app: GitHubAppCredentials = { appId: "4242", slug: "kiln-test", privateKey: "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----\n", webhookSecret: "whsec-fake", owner: "acme" }) {
+    this.next = app;
+  }
   async convert(code: string) {
     this.codes.push(code);
     if (code === "expired") throw new Error("GitHub did not return the app; the code may have expired (it is valid for an hour)");
-    return this.app;
+    return this.next;
   }
 }

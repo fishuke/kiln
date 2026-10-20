@@ -41,7 +41,9 @@ function StateBadge({ row }: { row: Row }) {
   return null;
 }
 
-export function IntegrationsList({ rows, publicUrl, canAdmin, connectionsApi }: { rows: Row[]; publicUrl: string; canAdmin: boolean; connectionsApi: boolean }) {
+type GitHubApp = { slug: string; owner?: string; installationId?: string; installUrl: string };
+
+export function IntegrationsList({ rows, publicUrl, canAdmin, connectionsApi, githubApps = [] }: { rows: Row[]; publicUrl: string; canAdmin: boolean; connectionsApi: boolean; githubApps?: GitHubApp[] }) {
   const [open, setOpen] = useState<string>();
   const [removing, setRemoving] = useState<Row>();
   const [pending, run] = useAction();
@@ -123,13 +125,13 @@ export function IntegrationsList({ rows, publicUrl, canAdmin, connectionsApi }: 
       />
 
       <Sheet open={Boolean(current)} onOpenChange={(o) => !o && setOpen(undefined)}>
-        <SheetContent className="w-full overflow-y-auto sm:max-w-lg">{current && <ConfigureSheet row={current} publicUrl={publicUrl} canAdmin={canAdmin} connectionsApi={connectionsApi} onDone={() => setOpen(undefined)} />}</SheetContent>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-lg">{current && <ConfigureSheet row={current} publicUrl={publicUrl} canAdmin={canAdmin} connectionsApi={connectionsApi} githubApps={githubApps} onDone={() => setOpen(undefined)} />}</SheetContent>
       </Sheet>
     </>
   );
 }
 
-function ConfigureSheet({ row, publicUrl, canAdmin, connectionsApi, onDone }: { row: Row; publicUrl: string; canAdmin: boolean; connectionsApi: boolean; onDone: () => void }) {
+function ConfigureSheet({ row, publicUrl, canAdmin, connectionsApi, githubApps, onDone }: { row: Row; publicUrl: string; canAdmin: boolean; connectionsApi: boolean; githubApps: GitHubApp[]; onDone: () => void }) {
   const { spec } = row;
   const [start, setStart] = useState<Start>();
   const [values, setValues] = useState<Record<string, string>>({});
@@ -210,7 +212,28 @@ function ConfigureSheet({ row, publicUrl, canAdmin, connectionsApi, onDone }: { 
           )}
         </section>
 
-        {canAdmin && spec.connection === "github" && !connected && connectionsApi && <CreateGitHubApp />}
+        {spec.connection === "github" && githubApps.length > 0 && (
+          <section className="space-y-2">
+            <h3 className="font-semibold">GitHub Apps</h3>
+            <ul className="divide-y rounded-lg border">
+              {githubApps.map((a) => (
+                <li key={a.slug} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <span className="min-w-0">
+                    <a href={`https://github.com/apps/${a.slug}`} target="_blank" rel="noreferrer" className="font-medium hover:underline">
+                      {a.slug}
+                    </a>
+                    <span className="block text-xs text-muted-foreground">{a.owner ? `Owned by ${a.owner}` : ""}{a.installationId ? " · installed" : " · not installed yet"}</span>
+                  </span>
+                  <a href={a.installUrl} target="_blank" rel="noreferrer" className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground">
+                    {a.installationId ? "Repositories" : "Install"}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {canAdmin && spec.connection === "github" && connectionsApi && <CreateGitHubApp another={githubApps.length > 0 || connected} />}
 
         {start && (
           <section className="space-y-3">
@@ -293,7 +316,7 @@ function ConfigureSheet({ row, publicUrl, canAdmin, connectionsApi, onDone }: { 
  * One click to Kiln's own GitHub App: GitHub creates it from Kiln's manifest (permissions, events,
  * webhook), hands its key to the Kiln server, then asks where to install it.
  */
-function CreateGitHubApp() {
+function CreateGitHubApp({ another }: { another: boolean }) {
   const [org, setOrg] = useState("");
   const [pending, run] = useAction();
   const create = () =>
@@ -314,8 +337,10 @@ function CreateGitHubApp() {
     });
   return (
     <section className="space-y-3 rounded-lg border p-4">
-      <h3 className="font-semibold">Create a GitHub App for Kiln</h3>
-      <p className="text-muted-foreground">GitHub creates the app with the permissions, events and webhook Kiln needs and gives its key to this server. You then pick the repositories to install it on. Nothing to copy.</p>
+      <h3 className="font-semibold">{another ? "Add a GitHub account or organization" : "Create a GitHub App for Kiln"}</h3>
+      <p className="text-muted-foreground">
+        {another ? "Each account or organization gets its own private app. " : ""}GitHub creates the app with the permissions, events and webhook Kiln needs and gives its key to this server. You then pick the repositories to install it on. Nothing to copy.
+      </p>
       <label className="grid gap-1.5">
         <span className="font-medium">
           Organization <span className="font-normal text-muted-foreground">(optional; empty creates it on your account)</span>

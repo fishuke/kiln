@@ -16,6 +16,10 @@ export function registerGitHubAppRoutes({ app, kiln, need, who }: RouteContext) 
     need(c, "admin", "*");
     return c.json(kiln.githubApp.info() ?? null);
   });
+  app.get("/api/v1/connections/github/apps", (c) => {
+    need(c, "admin", "*");
+    return c.json(kiln.githubApp.list());
+  });
 }
 
 /** GitHub's browser redirects after Create and after Install. Public; the single-use state is the check. */
@@ -38,7 +42,9 @@ export function registerGitHubAppCallbacks({ app, kiln }: RouteContext) {
       const installationId = c.req.query("installation_id") ?? "";
       if (!/^\d+$/.test(installationId)) throw new KilnError("invalid_request", "GitHub did not say which installation was made");
       const { by } = kiln.githubApp.installed(installationId, c.req.query("state") ?? "");
-      await kiln.connections.complete("github", { params: { installation_id: installationId }, by, ...urls(kiln, c, "github") });
+      // The first app makes the GitHub connection; later ones (other accounts and organizations) join it.
+      const connected = kiln.connections.list().find((p) => p.provider === "github")?.connection?.status === "connected";
+      if (!connected) await kiln.connections.complete("github", { params: { installation_id: installationId }, by, ...urls(kiln, c, "github") });
       return c.redirect(`${web()}/integrations?provider=github&connected=1`, 302);
     } catch (err) {
       return c.redirect(fail(err), 302);

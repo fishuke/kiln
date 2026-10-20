@@ -7,7 +7,7 @@ import { IntegrationsList, type Row } from "./integrations-list";
 export const metadata: Metadata = { title: "Integrations" };
 
 export default async function Integrations() {
-  const [conns, legacy, me] = await Promise.all([safe(() => api.connections(), null), safe(() => api.integrations(), undefined), safe(() => api.me(), null)]);
+  const [conns, legacy, me, githubApps] = await Promise.all([safe(() => api.connections(), null), safe(() => api.integrations(), undefined), safe(() => api.me(), null), safe(() => api.githubApps(), [])]);
   const byProvider = new Map((conns ?? []).map((c) => [c.provider, c]));
   const rows: Row[] = INTEGRATIONS.map((spec) => {
     const c = spec.connection ? byProvider.get(spec.connection) : undefined;
@@ -30,7 +30,7 @@ export default async function Integrations() {
       <PageHeader crumbs={[{ label: "Integrations" }]} />
       <div className="mx-auto w-full max-w-[672px] px-6 py-6">
         <p className="mb-6 text-sm text-muted-foreground">Connect and manage integrations across all factories for this workspace. Each factory then opts in to the ones it uses in its settings.</p>
-        <IntegrationsList rows={rows} publicUrl={publicUrl} canAdmin={canAdmin} connectionsApi={conns !== null} />
+        <IntegrationsList rows={rows} publicUrl={publicUrl} canAdmin={canAdmin} connectionsApi={conns !== null} githubApps={githubApps} />
         {conns === null && (
           <p className="mt-4 text-xs text-muted-foreground">This server does not offer browser connections yet, so status comes from its environment. Open Configure on a provider for the variables and webhook URLs to set.</p>
         )}

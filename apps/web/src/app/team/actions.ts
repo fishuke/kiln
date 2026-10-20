@@ -100,22 +100,26 @@ export async function deleteModelKey(team: string, provider: ModelKeyProvider): 
 }
 
 /** The Claude subscription token is a typed team secret; Claude Code runs pick it up automatically. */
-export async function setClaudeToken(value: string, exists: boolean): Promise<ActionResult> {
-  const r = await attempt(
-    () =>
-      exists
-        ? api.updateManagedSecret("team", CLAUDE_TOKEN_SECRET, { value: value.trim() })
-        : api.createManagedSecret({ scope: "team", name: CLAUDE_TOKEN_SECRET, type: "claude_oauth_token", value: value.trim(), description: "Claude subscription token from `claude setup-token`" }),
-    "Token saved",
-  );
+export async function deleteClaudeToken(name: string = CLAUDE_TOKEN_SECRET): Promise<ActionResult> {
+  const r = await attempt(() => api.deleteManagedSecret("team", name), "Token removed");
   if (r.ok) refresh();
   return plain(r);
 }
 
-export async function deleteClaudeToken(): Promise<ActionResult> {
-  const r = await attempt(() => api.deleteManagedSecret("team", CLAUDE_TOKEN_SECRET), "Token removed");
+/** Another subscription token in the team's pool (a teammate's `claude setup-token`). */
+export async function addClaudeToken(name: string, value: string): Promise<ActionResult> {
+  const r = await attempt(() => api.createManagedSecret({ scope: "team", name: name.trim(), type: "claude_oauth_token", value: value.trim(), description: "Claude subscription token from `claude setup-token`" }), "Token added");
   if (r.ok) refresh();
   return plain(r);
+}
+
+/** One minimal run with the token: whether it works and how much of its windows is used. */
+export async function checkClaudeToken(team: string, name: string): Promise<ActionResult> {
+  const r = await attempt(() => api.checkClaudeToken(team, name));
+  if (r.ok) refresh();
+  if (!r.ok) return r;
+  const e = r.data!;
+  return e.status === "invalid" ? { ok: false, error: `${name} was rejected: ${e.error ?? "invalid token"}` } : { ok: true, message: `${name} works${e.fiveHour ? `, ${Math.round(e.fiveHour.utilization * 100)}% of its 5-hour window used` : ""}` };
 }
 
 export async function addFactoryMember(factory: string, userId: string, role: FactoryRole): Promise<ActionResult> {

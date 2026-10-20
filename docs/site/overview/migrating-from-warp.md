@@ -80,9 +80,8 @@ Every change that drops something is reported as a warning.
 
 ## Check after converting
 
-- **GitHub filters on `repos`.** Warp automations often filter on `repos: [owner/name]`. Kiln's GitHub events carry the repository as `repo`, so rename the key to `repo` or the trigger will not match.
 - **Models.** Warp model names such as `gpt-6-sol-high` pass through unchanged. Make sure your model gateway serves them, or change them.
-- **Runners.** Add `egress` hosts to each runner. A runner with no egress gets no network. See [Sandboxes](../infrastructure/sandboxes.md).
+- **Runners.** Warp runners have no egress list. Kiln always allows the hosts of the repositories a run clones; add every other host the run needs, such as package registries and your model gateway, to `egress`. See [Sandboxes](../infrastructure/sandboxes.md).
 - **Self-improvement threshold.** Kiln's `failedRunThreshold` must be between 1 and 50.
 - **Validate.** Run `kiln validate` on the converted tree. It reports `file:line: message` for every problem.
 

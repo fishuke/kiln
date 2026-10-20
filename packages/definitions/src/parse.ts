@@ -105,7 +105,7 @@ const KINDS: { pattern: RegExp; kind: string; spec: Kind }[] = [
 ];
 
 /** Files that may live in a tree without being definitions. */
-const IGNORED = [/^README\.md$/i, /^\.gitkeep$/, /(^|\/)\.gitkeep$/, /^skills\/[^/]+\/.+/, /^agents\/[^/]+\/skills\/[^/]+\/.+/];
+const IGNORED = [/^README\.md$/i, /^\.github\//, /^LICENSE$/, /^\.gitkeep$/, /(^|\/)\.gitkeep$/, /^skills\/[^/]+\/.+/, /^agents\/[^/]+\/skills\/[^/]+\/.+/];
 
 export function parseTree(tree: DefinitionTree): ParsedFactory {
   const out: ParsedFactory = {

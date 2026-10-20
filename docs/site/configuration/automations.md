@@ -44,8 +44,9 @@ Each trigger has a `provider`, an `event`, and an optional `filter`. Schedule tr
 | `jira` | `issue_created`, `issue_assigned`, `issue_mentioned` |
 | `schedule` | any event name you choose, such as `cron_fired` |
 | `webhook` | `received` |
+| `factory` | `work_item_stage_changed` |
 
-The schema also accepts the providers `gitlab`, `factory` and `kiln`. Kiln does not produce events for them yet.
+The schema also accepts the providers `gitlab` and `kiln`. Kiln does not produce events for them yet.
 
 A Slack `app_mention` trigger without a `mentioned` filter only fires for the factory whose alias is mentioned, or for every factory when the message only mentions the bot.
 
@@ -69,12 +70,31 @@ Fields you can filter on:
 
 | Provider | Fields |
 | --- | --- |
-| GitHub | `repo` (`owner/name`), `number`, `labels`, `label` (the label just added), `mentioned`, `author`, `assignee`, `head` (branch), `state` (review state), `conclusion` |
+| GitHub | `repo` (`owner/name`), `repos` (the same, as a list, for Warp-style filters), `number`, `labels`, `label` (the label just added), `mentioned`, `author`, `assignee`, `head` (branch), `state` (review state), `conclusion` |
 | Slack | `channel`, `mentioned`, `author`, `reaction` |
 | Linear | `team_ids`, `labels`, `mentioned`, `assignee` |
 | Jira | `project`, `labels`, `mentioned`, `assignee` |
 
-`mentioned` holds the lowercased `@handles` found in the text. Warp-style filters on `repos` do not match; use `repo`.
+`mentioned` holds the lowercased `@handles` found in the text.
+
+## Stage changes
+
+A `factory` trigger reacts when a work item in the same factory changes state. Its event carries `from`, `to` and `workItemId`, so you can filter on them:
+
+```markdown
+---
+agent: notifier
+triggers:
+  - provider: factory
+    event: work_item_stage_changed
+    filter: { to: [handed_off] }
+---
+Summarize the handed-off work for the release notes.
+```
+
+- Only automations of the factory where the change happened fire. Other factories never see it.
+- The new work item's title is the original title followed by `→ <state>`, and its body is the original body.
+- Work started this way has the automation name `stage:<name>` as its source. Its own state changes do not trigger stage automations again, so there are no loops.
 
 ## Schedules
 
@@ -98,9 +118,9 @@ To accept events from any other system, add a webhook file and an automation tha
 ```yaml
 # webhooks/sentry.yaml
 authMode: signature
-signatureScheme: standard_webhooks
+signatureScheme: sentry
 secretName: SENTRY_WEBHOOK_SECRET
-deliveryIdHeader: webhook-id
+deliveryIdHeader: request-id
 ```
 
 ```markdown
@@ -120,7 +140,14 @@ The endpoint is `POST /webhooks/<factory>/<webhook-name>`. The secret is read fr
 | --- | --- |
 | `token` (default) | `Authorization: Bearer <secret>` |
 | `url_token` | `?token=<secret>` in the URL |
-| `signature` | A signature header. `signatureScheme: github` checks `X-Hub-Signature-256`. Other schemes check Standard Webhooks headers (`webhook-id`, `webhook-timestamp`, `webhook-signature`). |
+| `signature` | A signature header, checked by `signatureScheme`. See below. |
+
+| `signatureScheme` | Header and check |
+| --- | --- |
+| `github` | `X-Hub-Signature-256: sha256=<hex HMAC-SHA256 of the body>` |
+| `standard_webhooks` | `webhook-id`, `webhook-timestamp` and `webhook-signature` (`v1,<base64 HMAC>` over `<id>.<timestamp>.<body>`). A `whsec_` secret prefix is accepted. |
+| `stripe` | `Stripe-Signature: t=<time>,v1=<hex HMAC-SHA256 of "<time>.<body>">`. Signatures older than five minutes are refused. |
+| `sentry` | `Sentry-Hook-Signature: <hex HMAC-SHA256 of the body>` |
 
 `signatureScheme` is required when `authMode` is `signature`. The work item's title comes from the payload's `title` or `summary` field, and the body is the payload. A `webhook` trigger without `filter.webhook` naming a file in `webhooks/` fails validation.
 
@@ -132,7 +159,19 @@ Before it starts new work, Kiln checks whether the event belongs to a work item 
 
 - "approve", "approved", "lgtm", "ship it" or "accept" approves an open spec or preview gate.
 - "reject", "changes:" or "request changes" rejects it, with the rest of the message as feedback.
-- Other text answers an open question, or is added to the conversation for the next agent run.
+- Other text answers an open question. If there is none and an agent is running on the work item, the text steers that run. Otherwise it is added to the conversation for the next agent run.
+
+### Who may decide from a reply
+
+Text in a thread or comment is content, not authority. A reply approves, rejects or answers a gate only when its author is one of the gate's assignees, or the gate has no assignees. Otherwise the reply is treated like any other message.
+
+Gate assignees are people, such as `po@acme.test`, while Slack and the forges report their own user IDs. The server option `identities` maps one to the other, keyed by `<provider>:<user>`:
+
+```json
+{ "slack:U024BE7LH": "po@acme.test", "github:alice": "alice@acme.test" }
+```
+
+A mapped reply is recorded under the person's name. An unmapped reply is recorded under the provider's user ID.
 
 Labeled events never continue existing work. A merged pull request completes its work item.
 

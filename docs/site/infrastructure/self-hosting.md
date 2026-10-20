@@ -12,17 +12,59 @@ Kiln runs on your own infrastructure: a single host with Docker for small instal
 | Component | Purpose |
 | --- | --- |
 | Node 22 and pnpm 10 | Kiln's services are TypeScript on Node. |
-| Postgres 16 | Runtime state: work items, runs, gates, scores, tokens, audit log. |
-| Temporal | Durable workflows, gate timers and retries. |
-| S3-compatible object storage (MinIO works) | Videos, reports, run artifacts and sandbox snapshots. |
-| NATS JetStream | Event fan-out to integrations, the scorer and the web app. |
-| A model gateway (LiteLLM, Bedrock or Vertex) | Model access for harnesses and the LLM fallback for typed decisions. |
-| Docker, or Kubernetes with a `gvisor` RuntimeClass | Sandboxes for agent runs. |
-| An egress proxy | Enforces each runner's `egress` host list. See [Sandboxes](sandboxes.md#egress). |
+| A data directory (a volume) | Runtime state (work items, runs, gates, scores, tokens, audit log) in `kiln.json`, and objects (videos, reports, snapshots) under `objects/`. Back it up by copying it. |
+| Docker, or Kubernetes with a `gvisor` RuntimeClass | Sandboxes for agent runs. Without either, runs use host directories (development only). |
+| An egress proxy | Enforces each runner's `egress` host list. Included in `docker-compose.yml` and the Helm chart. See [Sandboxes](sandboxes.md#egress). |
+| Optional: an OpenAI-compatible gateway (LiteLLM) | The LLM fallback for typed decisions and judges. |
+
+Postgres, Temporal, NATS and S3 are not required in v1; see ADR-002 and ADR-005 for why and for the path to them.
 
 ## Install
 
-> **TODO:** This section is being written. It will cover installing with Docker Compose and with the Helm chart.
+### Try it locally
+
+```bash
+git clone https://github.com/fishuke/klin kiln && cd kiln
+pnpm install
+pnpm dev            # API on :4000 with demo data, web app on :3000
+```
+
+Open http://localhost:3000. Demo factories run on a git-backed local forge with scripted agents, so nothing needs an account.
+
+### One machine with Docker Compose
+
+```bash
+cp .env.example .env          # add your keys: CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, or API keys
+echo KILN_AGENTS=real >> .env  # run Claude Code, Codex and OpenCode instead of scripted agents
+docker build -t kiln-runner-node runners/images/node
+docker compose up -d --build
+pnpm health
+```
+
+The API prints a bootstrap admin token on first start (also in the data volume as `admin-token`). Put it in `.env` as `KILN_TOKEN` so the web app can call the API, then restart `web`.
+
+### Kubernetes with Helm
+
+```bash
+kubectl create secret generic kiln-env --from-env-file=.env
+helm install kiln deploy/helm/kiln \
+  --set publicUrl=https://kiln.example.com --set webUrl=https://kiln.example.com \
+  --set ingress.host=kiln.example.com
+```
+
+The chart creates the `kiln-sandboxes` namespace with the restricted pod security level, a `gvisor` RuntimeClass (handler `runsc`, which your nodes must provide), the egress proxy, a default-deny NetworkPolicy, and a Role that lets the API create sandbox pods there.
+
+### First factory
+
+```bash
+pnpm kiln init my-factory --template sdlc
+# edit my-factory/factory.yaml: repositories, alias, integrations
+pnpm kiln validate my-factory
+KILN_URL=http://localhost:4000 KILN_TOKEN=... pnpm kiln apply my-factory
+pnpm kiln send "Fix the typo in the README" --factory <alias>
+```
+
+Or push the folder to a GitHub repo and connect it under Create factory; merges to its default branch then apply automatically.
 
 ## Connect your systems
 
@@ -52,6 +94,10 @@ Admins can set secrets through the API; values are never returned, only names. S
 ### Model credentials
 
 Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscription token from `claude setup-token`) or `ANTHROPIC_API_KEY` for Claude Code, `OPENAI_API_KEY` or `CODEX_API_KEY` for Codex, and the keys OpenCode's providers need. You can store them as Kiln secrets or set them as plain environment variables on the server. Agents can also name their own secret with `harness.auth`. See [Harnesses](harnesses.md#credentials).
+
+### Identities
+
+Gate assignees are people, such as `po@acme.test`. To let replies in Slack or on issues decide gates, map provider users to people with the server option `identities`, keyed by `<provider>:<user>`, for example `slack:U024BE7LH` → `po@acme.test`. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 
 ### Roles
 
@@ -94,9 +140,9 @@ Kiln runs a timer pass that:
 | Symptom | Check |
 | --- | --- |
 | A definition push did not apply | The factory's last error shows the first validation error. Run `kiln validate`. |
-| An automation never fires | The trigger's `provider` and `event` match the event name exactly, and every filter key matches. GitHub events use `repo`, not `repos`. |
+| An automation never fires | The trigger's `provider` and `event` match the event name exactly, and every filter key matches (GitHub events carry both `repo` and `repos`). |
 | A work item is `blocked` | Its blocked reason says why: an expired gate, a stage that failed too often, the budget, or an error. Answer the open question to resume. |
-| A run fails at clone or install | The runner's `egress` list is missing the forge or package registry. |
+| A run fails at install | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed. |
 | Verify waits forever | CI checks on the branch are still pending. Kiln checks again on each timer pass. |
 | Every command is blocked | The Claude Code hook cannot reach the public URL, so it blocks by design. |
 | Webhooks return 401 | The secret in Kiln does not match the provider's. |

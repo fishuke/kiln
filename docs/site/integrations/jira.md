@@ -41,7 +41,7 @@ The issue key, such as `KIL-42`, links the work item to the issue.
 ## What Kiln does in Jira
 
 - **Updates.** Gate requests, reminders, "Ready to merge" and "Done" are posted as comments.
-- **Replies.** Comments on the issue continue the work item, decide an open spec or preview gate, or answer an open question. See [Automations](../configuration/automations.md#dedupe-and-follow-ups).
+- **Replies.** Comments on the issue continue the work item. They decide an open spec or preview gate, answer an open question, steer a running agent, or are added to the conversation. Map Jira users to people with the server's `identities` option (`jira:<user>`). Replies decide a gate only when their author is one of its assignees; see [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 - **States.** At hand-off, Kiln moves the issue through the first transition into the "In Progress" status category. On completion, it uses the first transition into the "Done" category.
 - **Duplicates.** Triage reads the project's 20 most recently created issues to spot duplicates.
 - **Text.** Kiln writes descriptions and comments in Atlassian Document Format, one paragraph per blank-line-separated block.

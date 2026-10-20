@@ -130,12 +130,11 @@ setupCommands:
   - corepack enable
   - pnpm install --frozen-lockfile
 egress:
-  - github.com
   - registry.npmjs.org
   - llm-gateway.internal.acme.com
 ```
 
-Only these hosts are reachable. See [Sandboxes](../infrastructure/sandboxes.md).
+Only these hosts and the hosts of the cloned repositories, here `github.com`, are reachable. See [Sandboxes](../infrastructure/sandboxes.md).
 
 ## 6. A stricter command guard
 

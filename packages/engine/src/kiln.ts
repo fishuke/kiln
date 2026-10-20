@@ -43,6 +43,8 @@ export type KilnOptions = {
   /** Where people open links (inbox, runs). */
   webUrl?: string;
   roles?: Record<string, string[]>;
+  /** Maps provider identities to people, e.g. { "slack:U024BE7LH": "po@acme.test", "github:alice": "alice@acme.test" }. */
+  identities?: Record<string, string>;
   askHumanTimeoutMs?: number;
   defaultBackend?: "local" | "docker" | "kubernetes";
   scoreAllRuns?: boolean;

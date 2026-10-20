@@ -103,9 +103,9 @@ Steering sends a message to a running agent.
 | Codex | Queued. When the current turn ends, Kiln resumes the session (`codex exec resume --last`) with the message. |
 | OpenCode | Queued. When the current turn ends, Kiln continues the session (`opencode run --continue`) with the message. |
 
-You can steer from the run page, the API or the Kiln MCP. Each steering message is saved on the run, counted as a human touch on the work item, and written to the audit log. Steering a run that has finished fails.
+You can steer from the run page, the API, the Kiln MCP, or by replying where the work started: a Slack thread, a Linear or Jira issue, or a GitHub issue or pull request. A reply steers the running agent when it does not decide a gate or answer an open question. When no agent is running, the reply is added to the conversation instead, and the next agent run sees it under "Messages from people".
 
-Messages posted in a work item's Slack thread or issue while an agent runs do not steer that run. They are added to the conversation, and the next agent run sees them under "Messages from people".
+Each steering message is kept on the run record, counted as a human touch on the work item, and written to the audit log. A resumed run gets the steering messages so far. Steering a run that has finished fails.
 
 ## Related pages
 

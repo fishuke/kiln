@@ -29,7 +29,7 @@ egress:
 | `backend` | `docker` | `docker`, `kubernetes` or `local`. |
 | `shape` | none | `vcpus` and `memoryGb`. Sets CPU and memory limits. |
 | `setupCommands` | `[]` | Run in order after the repositories are cloned. A failing command fails the run. |
-| `egress` | `[]` | Host names the sandbox may reach. Empty means no network. |
+| `egress` | `[]` | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed. |
 | `description` | none | |
 
 An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses `node:22-bookworm` on the server's default backend, which is `local` unless the server sets another.
@@ -47,9 +47,7 @@ Each run is a container started with `sleep infinity` and `/workspace` as its wo
 - labels `kiln.sandbox=1`, `kiln.dev/run` and `kiln.dev/factory`,
 - `--cpus` and `--memory` from `shape`,
 - `--security-opt no-new-privileges` and `--cap-drop ALL`,
-- no network when `egress` is empty, or the `kiln-egress` network with `HTTPS_PROXY` and `HTTP_PROXY` set to `http://kiln-egress-proxy:3128` and `KILN_EGRESS_ALLOW` set to the host list.
-
-Repositories are cloned inside the container, so include your forge (for example `github.com`) and your package registries in `egress`.
+- the `kiln-egress` network with `HTTPS_PROXY` and `HTTP_PROXY` set to `http://kiln-egress-proxy:3128` and `KILN_EGRESS_ALLOW` set to the allowed hosts: the runner's `egress` list plus the hosts of the cloned repositories. With no hosts at all, the container gets `--network none`.
 
 ### Kubernetes with gVisor
 
@@ -61,7 +59,7 @@ Each run is a pod in the `kiln-sandboxes` namespace, plus a NetworkPolicy for th
 - requests and limits from `shape`,
 - an `emptyDir` volume at `/workspace`.
 
-The NetworkPolicy blocks all ingress. With `egress` empty, it blocks all egress too. Otherwise it allows only DNS (UDP 53 to `kube-dns`) and TCP 3128 to the pod labeled `app.kubernetes.io/name: kiln-egress-proxy`, which enforces the host list.
+The NetworkPolicy blocks all ingress. When there are no allowed hosts at all, it blocks all egress too. Otherwise it allows only DNS (UDP 53 to `kube-dns`) and TCP 3128 to the pod labeled `app.kubernetes.io/name: kiln-egress-proxy`, which enforces the host list.
 
 Kiln waits up to 120 seconds for the pod to be ready. Your cluster needs a `gvisor` RuntimeClass and the egress proxy deployed.
 
@@ -69,7 +67,8 @@ Kiln waits up to 120 seconds for the pod to be ready. Your cluster needs a `gvis
 
 Agents need the network to clone, install packages and call model APIs. Kiln keeps that surface small:
 
-- List each host the run needs in `egress`. Nothing else is reachable.
+- The hosts of the repositories the run clones, such as `github.com`, are always allowed.
+- List every other host the run needs in `egress`, such as `registry.npmjs.org`. Nothing else is reachable.
 - The proxy enforces host names, so you do not have to track IP addresses.
 - Keep model traffic going to your model gateway, and list only the gateway.
 

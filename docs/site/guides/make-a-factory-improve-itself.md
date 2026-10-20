@@ -82,13 +82,13 @@ Kiln opens a pull request titled "Self-improvement: implement (instructions)" or
 
 Then either:
 
-- **Merge it.** The push applies it to all new work items.
-- **Approve it in Kiln instead.** Kiln applies it as a 10% canary first. This needs `definitions:write` on the factory. The pull request stays open; merging it later applies the change to everyone.
+- **Merge it.** If you merge it unchanged, the push applies it as a 10% canary and marks the proposal merged. If you edited the branch first, the push applies it to all new work items.
+- **Approve it in Kiln instead.** Kiln applies it as a 10% canary without merging. This needs `definitions:write` on the factory. The pull request stays open; merging it later applies the change to everyone.
 - **Reject it, with a reason.** The improver will not repeat a rejected lesson.
 
 ## 7. Watch the canary
 
-If you approved in Kiln, compare the candidate with the applied definition in the per-definition metrics. After 7 days, Kiln promotes the candidate if its pass rate is within 2 points of the applied one, and rolls it back otherwise. You can promote or roll back sooner. See [Replay and canary](../measure-and-improve/replay-and-canary.md).
+Compare the candidate with the applied definition in the per-definition metrics. After 7 days, Kiln promotes the candidate if its pass rate is within 2 points of the applied one, and rolls it back otherwise. You can promote or roll back sooner. See [Replay and canary](../measure-and-improve/replay-and-canary.md).
 
 ## 8. Keep the loop honest
 

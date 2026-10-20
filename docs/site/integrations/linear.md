@@ -39,13 +39,13 @@ A comment that mentions the factory's alias starts foreman work in a factory wit
 ## What Kiln does in Linear
 
 - **Updates.** Gate requests, reminders, "Ready to merge" and "Done" are posted as comments on the issue.
-- **Replies.** Comments on the issue continue the work item. A comment starting with `approve` or `reject` decides an open spec or preview gate, and other text answers an open question. See [Automations](../configuration/automations.md#dedupe-and-follow-ups).
+- **Replies.** Comments on the issue continue the work item. A comment starting with `approve` or `reject` decides an open spec or preview gate, and other text answers an open question, steers a running agent, or is added to the conversation. Map Linear users to people with the server's `identities` option (`linear:<user>`). Replies decide a gate only when their author is one of its assignees; see [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 - **States.** At hand-off, Kiln moves the issue to the team's first `started` state. When the work completes, it moves it to the first `completed` state.
 - **Duplicates.** Triage reads the team's 20 most recent issues to spot duplicates.
 
 ## Planning
 
-The [planning agent](../product-owners/planning.md) creates its roadmap in Linear: one issue per epic, with a sub-issue for each piece of work. Each sub-issue has an "Acceptance criteria" checklist and a "Factory: @<alias>" line. The Linear adapter does not set labels yet.
+The [planning agent](../product-owners/planning.md) creates its roadmap in Linear: one issue per epic, with a sub-issue for each piece of work. The epic is labeled `epic`. Each sub-issue has an "Acceptance criteria" checklist, a `factory:<alias>` label and a "Factory: @<alias>" line. Kiln looks labels up by name and creates any that are missing on the team.
 
 ## Related pages
 

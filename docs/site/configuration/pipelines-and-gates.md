@@ -46,7 +46,7 @@ stages:
 | `requires` | Any of `ci_green`, `criteria_videos`, `tests_pass`. |
 | `on_fail` | An earlier stage's `id` to go back to when this stage fails. |
 | `max_loops` | 1–10. Default 3. |
-| `advisory` | Accepted by the schema. It does not change behavior yet. |
+| `advisory` | For review stages. When `true`, review findings never park the work item. See below. |
 
 ### What each stage does
 
@@ -58,7 +58,7 @@ A stage's behavior comes from its agent's `agentType` or its action:
 | `SPEC` | Writes the spec as a draft pull request, checks each criterion with the `spec-check` decision, rewrites failing criteria once, then opens the stage's gate. |
 | `IMPLEMENT` or `CUSTOM` | Builds the change. Two failed attempts open a `build-failed` question and park the item. |
 | `VERIFY` | Runs the verify agent and checks `requires`. |
-| `REVIEW` | Reviews the pull request. `changes_requested` with findings loops back with `on_fail`. |
+| `REVIEW` | Reviews the pull request. `changes_requested` with findings loops back with `on_fail`. For an advisory stage without `on_fail`, or with its loops used up, Kiln posts the findings on the pull request as "Advisory review findings:" and moves on. `needs_human` posts the findings for a person and moves on. |
 | `preview.deploy` | Deploys a preview, posts a card to the pull request and opens the stage's gate. Skipped when no preview provider is set or there is no pull request. |
 | `handoff` | Marks the pull request ready, labels it and opens the merge gate. |
 
@@ -70,7 +70,7 @@ A stage's behavior comes from its agent's `agentType` or its action:
 | `criteria_videos` | Every acceptance criterion in the spec has a passing Playwright test with a video. |
 | `tests_pass` | The verify agent's result file says `"testsPassed": true`. |
 
-When a stage fails, Kiln goes back to `on_fail`. After `max_loops` failures, or when the stage has no `on_fail`, Kiln opens a `<stage>-stuck` question and parks the item as `blocked`. Answering the question resets the loop counters and retries the stage that stopped; rejecting it cancels the item.
+When a stage fails, Kiln goes back to `on_fail`. After `max_loops` failures, or when the stage has no `on_fail`, Kiln opens a `<stage>-stuck` question and parks the item as `blocked`. The exception is a review stage with `advisory: true`: it posts its findings on the pull request and continues to hand-off instead of parking. Answering the question resets the loop counters and retries the stage that stopped; rejecting it cancels the item.
 
 ### Expressions in `skip_if`
 
@@ -119,7 +119,7 @@ The foreman's default path uses `spec-approval` and `preview-acceptance`. Hand-o
 
 ### Deciding a gate
 
-A gate can be approved or rejected from the [inbox](../management/inbox.md), a reply in the source thread, the API or the Kiln MCP. All of them use the same code path and record who decided and through which surface. Only question gates take free-text answers.
+A gate can be approved or rejected from the [inbox](../management/inbox.md), a reply in the source thread, the API or the Kiln MCP. All of them use the same code path and record who decided and through which surface. A reply in a Slack thread or on an issue or pull request decides a gate only when its author is one of the gate's assignees, or the gate has none. See [Who may decide from a reply](automations.md#who-may-decide-from-a-reply). Only question gates take free-text answers.
 
 | Decision | Spec gate | Preview gate | Question gate | Merge gate |
 | --- | --- | --- | --- | --- |

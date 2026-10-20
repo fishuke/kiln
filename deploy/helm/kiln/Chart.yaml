@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kiln
+description: Self-hosted Kiln software factories (control plane, web app, sandboxes under gVisor)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

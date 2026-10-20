@@ -64,11 +64,13 @@ Reply in the thread to act on the work item:
 | --- | --- |
 | `approve`, `approved`, `lgtm`, `ship it` or `accept` | Approves the open spec or preview gate. |
 | `reject`, `changes:` or `request changes` | Rejects it. The rest of your message is the feedback. |
-| Anything else | Answers an open question, or is added to the conversation for the next agent run. |
+| Anything else | Answers an open question. If there is none and an agent is running on the work item, it steers that agent. Otherwise it is added to the conversation for the next agent run. |
 
-Decisions from Slack are recorded with your Slack user and `slack` as the surface, exactly like decisions from the web.
+Approve, reject and answer only count when you are one of the gate's assignees, or the gate has none. Kiln matches your Slack user to a person through the server's `identities` map, for example `slack:U024BE7LH` to `po@acme.test`. Without a mapping, your Slack user ID must itself be an assignee. Replies that cannot decide the gate are handled like other text. See [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
 
-A reply does not steer an agent that is already running. To steer a running agent, use the run page, the API or the Kiln MCP. See [Harnesses](../infrastructure/harnesses.md#steering).
+Decisions from Slack are recorded with your person (or Slack user ID) and `slack` as the surface, exactly like decisions from the web.
+
+Steering from the thread works like steering from the run page. See [Harnesses](../infrastructure/harnesses.md#steering).
 
 ## Related pages
 

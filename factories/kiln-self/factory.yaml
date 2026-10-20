@@ -1,10 +1,10 @@
 schemaVersion: kiln/v1
 name: Kiln
 alias: kiln
-description: The factory that builds Kiln. Issues labeled kiln-ready in fishuke/klin come here.
+description: The factory that builds Kiln. Issues labeled kiln-ready in fishuke/kiln come here.
 project: kiln
 repositories:
-  - { owner: fishuke, name: klin }
+  - { owner: fishuke, name: kiln }
 integrations: [github, linear]
 agentDefaults:
   harness: { type: claude-code, model: router:by-task }

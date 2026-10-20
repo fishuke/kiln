@@ -7,7 +7,7 @@ import { BUILTIN_GATES } from "./gates";
 import type { Kiln } from "./kiln";
 import { isActive, transition } from "./state";
 import { fileUrl } from "./media";
-import { C, newId, type Attachment, type Gate, type Run, type RunMode, type Source, type WorkItem, type WorkItemState } from "./types";
+import { C, newId, type Attachment, type ExecutionOverrides, type Gate, type Run, type RunMode, type Source, type WorkItem, type WorkItemState } from "./types";
 
 export type StageKind = "triage" | "spec" | "build" | "verify" | "review" | "preview" | "handoff" | "custom" | "blueprint";
 export type PlanStage = PipelineStage & { kind: StageKind };
@@ -88,6 +88,7 @@ export class Workflow {
     mode?: RunMode;
     /** Work on this branch instead of a generated kiln/<id>-<slug> one. */
     branch?: string;
+    execution?: ExecutionOverrides;
   }): Promise<WorkItem> {
     const id = newId("wi");
     const sha = this.k.defs.shaFor(input.factory, id);
@@ -110,6 +111,7 @@ export class Workflow {
       budgetUsd: input.budgetUsd ?? resolved.factory.budgets?.perWorkItemUsd,
       projectId: input.projectId,
       trackerKey: input.trackerKey,
+      execution: input.execution,
       pipeline: input.pipeline ?? resolved.factory.defaultPipeline,
       ...(input.conversationId ? { conversationId: input.conversationId } : {}),
       ...(input.mode && input.mode !== "normal" ? { mode: input.mode } : {}),
@@ -312,6 +314,7 @@ export class Workflow {
       push: opts.push ?? true,
       collect: opts.collect,
       mode,
+      overrides: wi.execution,
     });
     const fresh = this.get(wi.id)!;
     fresh.costUsd += run.costUsd;

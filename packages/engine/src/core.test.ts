@@ -245,7 +245,7 @@ describe("factory wizard", () => {
   it("creates a full factory: agents, skills, scorers, automations; and refuses alias clashes", async () => {
     const { kiln } = createTestKiln();
     const r = await kiln.wizard.create(
-      { name: "Shop Front", repos: [{ owner: "acme", name: "web" }], communications: { slack: true }, tracker: { type: "linear", scopes: ["team-1"] }, costPreset: "efficient", agents: { review: false }, automationTemplates: ["ci-autofix", "linear-duplicate-check", "pr-auto-review"] },
+      { name: "Shop Front", repos: [{ owner: "acme", name: "web" }], communications: { slack: true }, tracker: { type: "linear" }, costPreset: "efficient", agents: { review: false }, automationTemplates: ["autofix-ci-failures", "linear-duplicate-check", "auto-review-prs"] },
       "lead@acme.test",
     );
     expect(r.factory?.id).toBe("shop-front");
@@ -256,12 +256,11 @@ describe("factory wizard", () => {
     expect(Object.keys(resolved.parsed.skills).sort()).toEqual(["code-review", "github", "linear", "slack", "ui-verification"]);
     expect(Object.keys(resolved.parsed.scorers).sort()).toEqual(["code-quality", "efficiency", "procedure-compliance", "task-compliance", "task-correctness", "verbosity"]);
     expect(resolved.parsed.scorers["task-compliance"]!.frontmatter.agents).not.toContain("review");
-    expect(resolved.automations["pr-auto-review"]!.agent).toBe("foreman");
-    expect(resolved.automations["linear-duplicate-check"]!.agent).toBe("triage");
-    expect(Object.keys(resolved.automations)).toEqual(expect.arrayContaining(["github-issue-labeled", "linear-agent-sessions", "slack-mentions", "ci-autofix"]));
+    expect(resolved.automations["auto-review-prs"]!.agent).toBe("foreman");
+    expect(Object.keys(resolved.automations)).toEqual(expect.arrayContaining(["github-issue-labeled", "linear-agent-sessions", "slack-app-mentions", "autofix-ci-failures", "linear-duplicate-check"]));
     await expect(kiln.wizard.create({ name: "Other", alias: "Shop-Front", repos: [{ owner: "acme", name: "web" }] }, "x")).rejects.toThrow(/already used/);
     await expect(kiln.wizard.create({ name: "Other", alias: "shop front", repos: [{ owner: "acme", name: "web" }] }, "x")).rejects.toThrow(/already exists/);
-    await expect(kiln.wizard.create({ name: "J", repos: [{ owner: "acme", name: "web" }], automationTemplates: ["linear-duplicate-check"] }, "x")).rejects.toThrow(/needs Linear/);
+    await expect(kiln.wizard.create({ name: "J", repos: [{ owner: "acme", name: "web" }], automationTemplates: ["linear-duplicate-check"] }, "x")).rejects.toThrow(/needs linear/);
   });
 });
 

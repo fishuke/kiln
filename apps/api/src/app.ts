@@ -1,24 +1,12 @@
 import { can, issueToken, SCOPES, teamRoleAllows, verifyToken, type ApiToken, type GitHubOAuth, type Scope } from "@kiln/auth";
 import { guardCommand } from "@kiln/decide";
 import { BudgetExceededError, KilnError, PlatformError, resolveAccess, slug, type Access, type Gate, type Kiln, type Run, type Team, type User } from "@kiln/engine";
-import {
-  normalizeGitHub,
-  normalizeJira,
-  normalizeLinear,
-  normalizeSlack,
-  verifyGitHub,
-  verifyLinear,
-  verifySentry,
-  verifySlack,
-  verifyStandardWebhook,
-  verifyStripe,
-} from "@kiln/integrations";
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { openApiDocument } from "./openapi";
 import { agentMayCall, inOwnTree, isPublicPath, runTokenAuth, type RunPrincipal } from "./run-auth";
-import { registerModules } from "./routes";
+import { registerModules, registerPublicRoutes } from "./routes";
 import * as S from "./schemas";
 
 export type Env = { Variables: { token: ApiToken; access: Access; run?: RunPrincipal } };
@@ -115,100 +103,7 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     return c.json({ verdict });
   });
 
-  // ---- webhooks: verified by provider signature, deduplicated by delivery id ----
-  app.post("/webhooks/github", async (c) => {
-    const body = await c.req.text();
-    const secret = serverSecret(kiln, "GITHUB_WEBHOOK_SECRET");
-    if (secret && !verifyGitHub(secret, body, c.req.header("x-hub-signature-256"))) throw new HttpError(401, "bad signature");
-    const ev = normalizeGitHub(c.req.header("x-github-event") ?? "", JSON.parse(body), c.req.header("x-github-delivery"));
-    return c.json(ev ? summarize(await kiln.automations.handle(ev)) : { ignored: true });
-  });
-  app.post("/webhooks/slack", async (c) => {
-    const body = await c.req.text();
-    const payload = JSON.parse(body);
-    if (payload.type === "url_verification") return c.json({ challenge: payload.challenge });
-    const secret = serverSecret(kiln, "SLACK_SIGNING_SECRET");
-    if (secret && !verifySlack(secret, body, c.req.header("x-slack-request-timestamp"), c.req.header("x-slack-signature"))) throw new HttpError(401, "bad signature");
-    const ev = normalizeSlack(payload);
-    // Slack wants an answer within 3 s; work continues in the background.
-    if (ev) void kiln.automations.handle(ev);
-    return c.json({ ok: true });
-  });
-  app.post("/webhooks/linear", async (c) => {
-    const body = await c.req.text();
-    const secret = serverSecret(kiln, "LINEAR_WEBHOOK_SECRET");
-    if (secret && !verifyLinear(secret, body, c.req.header("linear-signature"))) throw new HttpError(401, "bad signature");
-    const ev = normalizeLinear(JSON.parse(body), c.req.header("linear-delivery"));
-    return c.json(ev ? summarize(await kiln.automations.handle(ev)) : { ignored: true });
-  });
-  app.post("/webhooks/jira", async (c) => {
-    const secret = serverSecret(kiln, "JIRA_WEBHOOK_TOKEN");
-    if (secret && c.req.query("token") !== secret) throw new HttpError(401, "bad token");
-    const ev = normalizeJira(await c.req.json(), c.req.header("x-atlassian-webhook-identifier"));
-    return c.json(ev ? summarize(await kiln.automations.handle(ev)) : { ignored: true });
-  });
-  app.post("/webhooks/:factory/:name", async (c) => {
-    const { factory, name } = c.req.param();
-    const resolved = kiln.defs.current(factory);
-    const hook = resolved.parsed.webhooks[name];
-    if (!hook || !hook.enabled) throw new HttpError(404, `unknown webhook ${name}`);
-    const body = await c.req.text();
-    const secret = kiln.secrets.getSecret(hook.secretName);
-    if (!secret) throw new HttpError(401, `secret ${hook.secretName} is not set`);
-    const ok =
-      hook.authMode === "signature"
-        ? hook.signatureScheme === "github"
-          ? verifyGitHub(secret, body, c.req.header("x-hub-signature-256"))
-          : hook.signatureScheme === "stripe"
-            ? verifyStripe(secret, body, c.req.header("stripe-signature"))
-            : hook.signatureScheme === "sentry"
-              ? verifySentry(secret, body, c.req.header("sentry-hook-signature"))
-              : verifyStandardWebhook(secret, c.req.header("webhook-id"), c.req.header("webhook-timestamp"), body, c.req.header("webhook-signature"))
-        : hook.authMode === "url_token"
-          ? c.req.query("token") === secret
-          : c.req.header("authorization") === `Bearer ${secret}`;
-    if (!ok) throw new HttpError(401, "webhook authentication failed");
-    let payload: unknown = body;
-    try {
-      payload = JSON.parse(body);
-    } catch {
-      /* plain text payloads are fine */
-    }
-    const deliveryId = hook.deliveryIdHeader ? c.req.header(hook.deliveryIdHeader) : undefined;
-    const p = payload as Record<string, unknown>;
-    const ev = { provider: "webhook" as const, event: "received", deliveryId, data: { webhook: name, title: String(p?.title ?? p?.summary ?? `${name} webhook`), body: typeof payload === "string" ? payload : JSON.stringify(payload, null, 2), payload } };
-    return c.json(summarize(await kiln.automations.handle(ev)));
-  });
-
-  // ---- MCP (streamable HTTP) ----
-  if (options.mcp) app.all("/mcp", (c) => options.mcp!(c.req.raw));
-
-  // ---- authenticated API ----
-  app.use("/api/v1/*", async (c, next) => {
-    const raw = c.req.header("authorization")?.replace(/^Bearer\s+/i, "");
-    // Agents call with their run token: limited to their own factory, task and run tree.
-    const agent = runTokenAuth(kiln, raw);
-    if (agent) {
-      const denied = agentMayCall(kiln, agent.principal, c.req.method, c.req.path);
-      if (denied) throw new HttpError(403, denied);
-      const a = resolveAccess(kiln, { ...agent.token, teamId: kiln.teams.factoryTeam(agent.principal.factory) });
-      c.set("access", { ...a, token: agent.token, teamScoped: false });
-      c.set("token", agent.token);
-      c.set("run", agent.principal);
-      return next();
-    }
-    const verified = raw ? verifyToken(kiln.store, raw, kiln.clock.now()) : undefined;
-    const token = verified ?? devToken;
-    if (!token) {
-      if (PUBLIC_ROUTES.some((r) => r.test(c.req.path)) || isPublicPath(c.req.path)) return next();
-      throw new HttpError(401, "missing or invalid token");
-    }
-    const access = resolveAccess(kiln, token, c.req.header("x-kiln-team") || undefined);
-    c.set("access", access);
-    c.set("token", access.token);
-    return next();
-  });
-
+  // Auth helpers for route modules (closures over the access the middleware below sets).
   const access = (c: Context<Env>) => {
     const a = c.get("access");
     if (!a) throw new HttpError(401, "missing or invalid token");
@@ -274,6 +169,40 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     if (!canSendRun(c, run)) throw new HttpError(403, `token lacks send on ${run.factory}`);
     return run;
   };
+  const ctx: RouteContext = { app, kiln, options, need, who, visible, access, user, team, canReadRun, canSendRun, adopt, checkOrgs };
+
+  // ---- webhooks and OAuth callbacks: public, verified per provider (routes/webhooks.ts) ----
+  registerPublicRoutes(ctx);
+
+  // ---- MCP (streamable HTTP) ----
+  if (options.mcp) app.all("/mcp", (c) => options.mcp!(c.req.raw));
+
+  // ---- authenticated API ----
+  app.use("/api/v1/*", async (c, next) => {
+    const raw = c.req.header("authorization")?.replace(/^Bearer\s+/i, "");
+    // Agents call with their run token: limited to their own factory, task and run tree.
+    const agent = runTokenAuth(kiln, raw);
+    if (agent) {
+      const denied = agentMayCall(kiln, agent.principal, c.req.method, c.req.path);
+      if (denied) throw new HttpError(403, denied);
+      const a = resolveAccess(kiln, { ...agent.token, teamId: kiln.teams.factoryTeam(agent.principal.factory) });
+      c.set("access", { ...a, token: agent.token, teamScoped: false });
+      c.set("token", agent.token);
+      c.set("run", agent.principal);
+      return next();
+    }
+    const verified = raw ? verifyToken(kiln.store, raw, kiln.clock.now()) : undefined;
+    const token = verified ?? devToken;
+    if (!token) {
+      if (PUBLIC_ROUTES.some((r) => r.test(c.req.path)) || isPublicPath(c.req.path)) return next();
+      throw new HttpError(401, "missing or invalid token");
+    }
+    const access = resolveAccess(kiln, token, c.req.header("x-kiln-team") || undefined);
+    c.set("access", access);
+    c.set("token", access.token);
+    return next();
+  });
+
 
   // factories and definitions
   app.get("/api/v1/factories", (c) =>
@@ -703,17 +632,8 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     return c.json({ ok: true });
   });
 
-  registerModules({ app, kiln, options, need, who, visible, access, user, team, canReadRun, canSendRun, adopt, checkOrgs });
+  registerModules(ctx);
   return app;
-}
-
-/** Server-side secrets (webhook signing keys) come from the environment or the store, never from agents. */
-function serverSecret(kiln: Kiln, name: string): string | undefined {
-  return process.env[name] ?? kiln.secrets.getSecret(name);
-}
-
-function summarize(r: { started: { id: string; factory: string }[]; continued: string[]; duplicate: boolean }) {
-  return { started: r.started.map((w) => ({ id: w.id, factory: w.factory })), continued: r.continued, duplicate: r.duplicate };
 }
 
 function summarizeItem(kiln: Kiln, id: string) {

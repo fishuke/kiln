@@ -102,7 +102,6 @@ export const routes: Route[] = [
   { method: "post", path: `${F}/avatar`, summary: "Set the avatar from an uploaded image (file key)", scope: "definitions:write", body: Avatar, tag: "Definitions" },
   { method: "post", path: `${F}/migrate`, summary: "Move a Kiln-managed factory to a GitHub repo (opens a PR; the merge switches it over)", scope: "definitions:write", body: Migrate, tag: "Definitions" },
   { method: "post", path: `${F}/migrate/complete`, summary: "Finish the move once the migration PR merged", scope: "definitions:write", tag: "Definitions" },
-  { method: "delete", path: F, summary: "Delete the factory (irreversible; cancels active tasks)", scope: "admin", tag: "Definitions" },
 ];
 
 /** Read and edit factory definitions file by file, and the high-level endpoints the UI uses. */
@@ -261,14 +260,5 @@ export function register({ app, kiln, need, who }: RouteContext) {
     need(c, "definitions:write", id);
     const switched = await kiln.editor.completeMigration(id, who(c));
     return c.json({ switched, factory: kiln.defs.require(id) });
-  });
-  app.delete("/api/v1/factories/:id", async (c) => {
-    const id = c.req.param("id");
-    need(c, "admin", id);
-    const result = await kiln.editor.deleteFactory(id, who(c));
-    // Integrations remove what they set up for the factory (Slack app, factory labels) when they can.
-    const hub = (kiln as unknown as { integrations?: { cleanupFactory?: (factory: string) => Promise<unknown> } }).integrations;
-    if (hub?.cleanupFactory) await hub.cleanupFactory(id).catch((err: unknown) => kiln.audit(who(c), "factory.cleanup_failed", id, { error: String(err) }));
-    return c.json(result);
   });
 }

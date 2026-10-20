@@ -1,11 +1,11 @@
 import type { DefinitionTree } from "@kiln/definitions";
 import { stringify } from "yaml";
-import { AUTOMATION_TEMPLATES, automationFile, defaultAutomations } from "./defaults/automations";
+import { renderTemplates } from "./automation-templates";
 import { DEFAULT_AGENT_DESCRIPTIONS, foremanPrompt, implementPrompt, learningPrompt, reviewPrompt, specPrompt, triagePrompt, type DefaultAgentRole } from "./defaults/prompts";
 import { DEFAULT_SCORERS, scorerFile } from "./defaults/scorers";
 import { CODE_REVIEW_SKILL, githubSkill, JIRA_SKILL, LINEAR_SKILL, SLACK_SKILL, UI_VERIFICATION_SKILL, type SkillDoc } from "./defaults/skills";
 import { slug } from "./definitions";
-import { frontmatterFile } from "./editing";
+import { frontmatterFile, readFrontmatter } from "./editing";
 import { KilnError } from "./errors";
 import type { Kiln } from "./kiln";
 import { C, type Attachment, type FactoryBinding, type Run } from "./types";
@@ -13,7 +13,8 @@ import { C, type Attachment, type FactoryBinding, type Run } from "./types";
 export type CostPreset = "quality" | "efficient";
 
 export const PRESET_MODELS: Record<CostPreset, Record<DefaultAgentRole, string>> = {
-  quality: { foreman: "claude-opus-5-5", triage: "claude-sonnet-5-5", spec: "claude-opus-5-5", implement: "claude-opus-5-5", review: "claude-sonnet-5-5" },
+  // Claude Fable 5.1 is the most capable model: it plans and orchestrates; Opus implements; another model reviews.
+  quality: { foreman: "claude-fable-5-1", triage: "claude-sonnet-5-5", spec: "claude-fable-5-1", implement: "claude-opus-5-5", review: "claude-sonnet-5-5" },
   efficient: { foreman: "claude-sonnet-5-5", triage: "claude-haiku-5-5", spec: "claude-sonnet-5-5", implement: "claude-sonnet-5-5", review: "claude-haiku-5-5" },
 };
 
@@ -46,10 +47,6 @@ const ROLE_TYPE: Record<DefaultAgentRole, string> = { foreman: "FOREMAN", triage
  */
 export class FactoryWizard {
   constructor(private readonly k: Kiln) {}
-
-  templates() {
-    return AUTOMATION_TEMPLATES.map(({ id, title, description, role, needs }) => ({ id, title, description, role, needs }));
-  }
 
   /** The tree the wizard would create, without applying it. */
   tree(input: CreateFactoryInput): { tree: DefinitionTree; alias: string; id: string } {
@@ -106,16 +103,29 @@ export class FactoryWizard {
       tree[`scorers/${doc.slug}/scorer.md`] = scorerFile(doc, agents.length ? agents : ["foreman"], JUDGE_MODEL);
     }
 
-    for (const [name, a] of Object.entries(defaultAutomations({ alias, github, slack, tracker, trackerScopes: input.tracker?.scopes }))) {
-      tree[`automations/${name}/automation.md`] = automationFile({ triggers: a.triggers }, a.prompt);
-    }
+    // Default automations for the connected tools, plus the suggestions the person picked (shared templates).
+    const connected = new Set([github ? "github" : "gitlab", ...(slack ? ["slack"] : []), ...(tracker ? [tracker] : [])]);
+    const rendered = renderTemplates({ alias, linearTeams: tracker === "linear" ? input.tracker?.scopes : undefined, jiraProjects: tracker === "jira" ? input.tracker?.scopes : undefined });
+    // Without picked teams or projects, a template listens to all of them: drop the unfilled filter.
+    const unfill = (files: Record<string, string>) =>
+      Object.fromEntries(
+        Object.entries(files).map(([path, src]) => {
+          if (!src.includes("{{")) return [path, src];
+          const { front, body } = readFrontmatter(src);
+          for (const t of (front.triggers as { filter?: Record<string, unknown> }[] | undefined) ?? []) {
+            for (const [k, v] of Object.entries(t.filter ?? {})) if (JSON.stringify(v).includes("{{")) delete t.filter![k];
+            if (t.filter && !Object.keys(t.filter).length) delete t.filter;
+          }
+          return [path, frontmatterFile(front, body)];
+        }),
+      );
+    for (const t of rendered.filter((x) => x.category === "default" && x.requires.every((r) => connected.has(r)))) Object.assign(tree, unfill(t.files));
     for (const tid of input.automationTemplates ?? []) {
-      const t = AUTOMATION_TEMPLATES.find((x) => x.id === tid);
+      const t = rendered.find((x) => x.id === tid);
       if (!t) throw new KilnError("invalid_request", `unknown automation template ${tid}`);
-      if (t.needs === "linear" && tracker !== "linear") throw new KilnError("integration_not_configured", `${t.title} needs Linear`, { integrationName: "linear" });
-      if (t.needs === "jira" && tracker !== "jira") throw new KilnError("integration_not_configured", `${t.title} needs Jira`, { integrationName: "jira" });
-      const agent = roles.includes(t.role) ? t.role : "foreman";
-      tree[`automations/${t.id}/automation.md`] = automationFile({ ...(agent !== "foreman" ? { agent } : {}), displayName: t.title, triggers: t.triggers }, t.prompt);
+      const missing = t.requires.find((r) => !connected.has(r));
+      if (missing) throw new KilnError("integration_not_configured", `${t.title} needs ${missing}`, { integrationName: missing });
+      Object.assign(tree, unfill(t.files));
     }
     return { tree, alias, id };
   }
@@ -145,7 +155,7 @@ export class FactoryWizard {
     const prompt = learningPrompt({
       alias: resolved.factory.alias ?? factory,
       repos: resolved.factory.repositories.map((r) => `${r.owner}/${r.name}`),
-      tools: resolved.factory.integrations,
+      tools: resolved.factory.integrations.map((i) => (typeof i === "string" ? i : i.type)),
     });
     const handle = (run: Run) => {
       for (const m of (run.result?.memories as { title: string; body: string; tags?: string[] }[] | undefined) ?? []) this.k.memories.propose(factory, { ...m, author: `agent:${foreman.name}`, sourceRunId: run.id });

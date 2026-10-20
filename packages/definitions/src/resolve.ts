@@ -1,3 +1,4 @@
+import { requiredRepoRef } from "@kiln/schema";
 import type { AgentType, CredentialStrategy, Factory, Harness, NetworkPolicy } from "@kiln/schema";
 import type { z } from "zod";
 import type { ParsedFactory } from "./parse";
@@ -112,7 +113,7 @@ function toExecution(p: Partial): Execution {
   };
 }
 
-const repoRefs = (refs: { owner: string; name: string }[] | undefined) => (refs ?? []).map(({ owner, name }) => ({ owner, name }));
+const repoRefs = (refs: Parameters<typeof requiredRepoRef>[0][] | undefined) => (refs ?? []).map(requiredRepoRef);
 
 export function resolve(parsed: ParsedFactory): ResolvedFactory {
   if (!parsed.factory) throw new Error("cannot resolve a tree without factory.yaml");

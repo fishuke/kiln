@@ -24,7 +24,6 @@ export const CreateFactory = z.object({
 
 export const routes: Route[] = [
   { method: "post", path: "/api/v1/factories", summary: "Create a factory (the setup wizard in one call): repos, agents, communications, tracker, cost preset, self-improvement, automation templates", scope: "definitions:write", body: CreateFactory, tag: "Factories" },
-  { method: "get", path: "/api/v1/factory-templates/automations", summary: "Starter automation templates the wizard offers", tag: "Factories" },
   { method: "post", path: "/api/v1/factories/{id}/learning", summary: "Enable learning: a run that studies the repos and tools and proposes memories and prompt changes", scope: "definitions:write", tag: "Factories" },
   { method: "get", path: "/api/v1/forge/repositories", summary: "Repositories the code forge can reach (for the wizard and list_forge_repositories)", tag: "Factories" },
   { method: "get", path: "/api/v1/tracker/scopes", summary: "Tracker teams or projects (for the wizard and list_tracker_scopes)", tag: "Factories" },
@@ -58,7 +57,6 @@ export function register({ app, kiln, need, who, adopt, checkOrgs }: RouteContex
     if (!body.dryRun) adopt(c, before);
     return c.json(r, body.dryRun ? 200 : 201);
   });
-  app.get("/api/v1/factory-templates/automations", (c) => c.json({ templates: kiln.wizard.templates() }));
   app.post("/api/v1/factories/:id/learning", async (c) => {
     const id = c.req.param("id");
     need(c, "definitions:write", id);

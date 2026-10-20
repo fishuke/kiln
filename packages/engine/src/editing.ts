@@ -338,13 +338,4 @@ export class DefinitionEditor {
     return true;
   }
 
-  /** Irreversible: stops active work and removes the factory. Runs and audit history stay. */
-  async deleteFactory(factory: string, by: string) {
-    this.k.defs.require(factory);
-    const active = this.k.workflow.list({ factory }).filter((w: WorkItem) => !["complete", "cancelled", "failed"].includes(w.state));
-    for (const w of active) await this.k.tasks.cancel(w.id, by).catch(() => undefined);
-    this.k.store.delete(C.factories, factory);
-    this.k.audit(by, "factory.deleted", factory, { cancelled: active.map((w) => w.id) });
-    return { deleted: factory, cancelledTasks: active.length };
-  }
 }

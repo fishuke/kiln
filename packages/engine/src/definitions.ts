@@ -106,9 +106,15 @@ export class DefinitionService {
       return { ok: false, factory: factoryId, sha, errors, keptSha: factoryId ? this.get(factoryId)?.appliedSha : undefined };
     }
     const id = factoryId!;
+    // Alias filters (teams, channels, …) must resolve against the connected providers.
+    const aliasErrors = this.k.automations.resolveAliases(result.resolved, { save: !opts.dryRun }).errors;
+    if (aliasErrors.length) {
+      if (!opts.dryRun) this.k.audit(opts.author, "definition.rejected", id, { sha, errors: aliasErrors });
+      return { ok: false, factory: id, sha, errors: aliasErrors, keptSha: this.get(id)?.appliedSha };
+    }
     const existing = this.get(id);
     const diff = diffTrees(existing?.appliedSha ? this.tree(existing.appliedSha) : undefined, tree);
-    const warnings = result.warnings.map((w) => `${w.file}:${w.line}: ${w.message}`);
+    const warnings = [...result.warnings.map((w) => `${w.file}:${w.line}: ${w.message}`), ...this.k.automations.webhookWarnings(result.resolved, id)];
     if (opts.dryRun) return { ok: true, factory: id, sha, diff, dryRun: true, warnings, canaryPercent: opts.canaryPercent };
 
     this.k.store.transaction((s) => {
@@ -171,6 +177,31 @@ export class DefinitionService {
     const definitionRepo = { owner: repo.owner, name: repo.name, ref: repo.ref ?? "main", dir: repo.dir ?? "" };
     const tree = await this.k.forge.readTree(definitionRepo, definitionRepo.ref, definitionRepo.dir);
     return this.applyAny(tree, { author: by, definitionRepo });
+  }
+
+  /**
+   * Delete a factory: cancel its open work, drop its binding, members and managed webhooks, and
+   * remove what it set up in connected systems (the `factory:<alias>` labels). Stored definitions,
+   * runs and audit history stay for the record. Irreversible.
+   */
+  async remove(factory: string, by: string): Promise<{ factory: string; cancelled: string[] }> {
+    const b = this.require(factory);
+    const repos = b.appliedSha ? this.resolved(b.appliedSha).factory.repositories.map((r) => ({ owner: r.owner, name: r.name, forge: r.forge })) : [];
+    const cancelled: string[] = [];
+    for (const wi of this.k.workflow.list({ factory })) {
+      if (["complete", "cancelled", "failed"].includes(wi.state)) continue;
+      await this.k.workflow.cancel(wi.id, by).catch(() => undefined);
+      cancelled.push(wi.id);
+    }
+    await this.k.integrations.cleanupFactory(b, repos.filter((r) => r.forge === "github" || r.forge === "gitlab"));
+    for (const w of this.k.store.list<{ id: string; factory: string; secretName: string }>(C.webhookSources, (x) => x.factory === factory)) {
+      this.k.store.delete(C.webhookSources, w.id);
+      this.k.store.delete(C.secrets, w.secretName);
+    }
+    for (const m of this.k.store.list<{ id: string; factory: string }>("factory_members", (x) => x.factory === factory)) this.k.store.delete("factory_members", m.id);
+    this.k.store.delete(C.factories, factory);
+    this.k.audit(by, "factory.deleted", factory, { name: b.name, alias: b.alias, cancelled });
+    return { factory, cancelled };
   }
 
   /** Accept kiln/v1 and v1alpha1 trees alike. */

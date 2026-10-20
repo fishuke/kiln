@@ -3,7 +3,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export type RepoRef = { owner: string; name: string; forge?: "github" | "gitlab" };
+export type ForgeKind = "github" | "gitlab" | "azure_devops" | "bitbucket";
+export type RepoRef = { owner: string; name: string; forge?: ForgeKind };
 export const repoKey = (r: RepoRef) => `${r.owner}/${r.name}`;
 
 export type PullRequest = {
@@ -41,7 +42,23 @@ export interface Forge {
   getIssue(repo: RepoRef, number: number): Promise<ForgeIssue | undefined>;
   /** Read every file under `dir` at `ref`: how definition trees are pulled from config repos. */
   readTree(repo: RepoRef, ref?: string, dir?: string): Promise<Record<string, string>>;
+  /** Create a repository label if it is missing (routing labels such as factory:<alias>). */
+  ensureLabel?(repo: RepoRef, name: string, opts?: { color?: string; description?: string }): Promise<void>;
+  deleteLabel?(repo: RepoRef, name: string): Promise<void>;
+  /** Report a check (e.g. kiln/factory-config) on a commit. */
+  createCheckRun?(repo: RepoRef, input: CheckRunInput): Promise<{ id: string }>;
 }
+
+export type CheckRunInput = {
+  name: string;
+  headSha: string;
+  status: "queued" | "in_progress" | "completed";
+  conclusion?: "success" | "failure" | "neutral" | "action_required";
+  title: string;
+  summary: string;
+  text?: string;
+  detailsUrl?: string;
+};
 
 const git = (cwd: string, args: string[], env: Record<string, string> = {}) =>
   execFileSync("git", args, { cwd, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] }).toString();
@@ -57,6 +74,8 @@ export class FakeForge implements Forge {
   readonly pulls: PullRequest[] = [];
   readonly issues: ForgeIssue[] = [];
   readonly comments: { repo: string; number: number; body: string; id: string }[] = [];
+  readonly labels = new Map<string, Set<string>>();
+  readonly checkRuns: (CheckRunInput & { repo: string; id: string })[] = [];
   private readonly checkStatus = new Map<string, CheckStatus>();
   private readonly counters = new Map<string, number>();
   private readonly listeners: ((e: { type: "merged" | "closed"; pr: PullRequest }) => void)[] = [];
@@ -236,6 +255,22 @@ done
     return Object.fromEntries(files.map((f) => [f.slice(prefix.length), git(bare, ["show", `${ref}:${f}`])]));
   }
 
+  async ensureLabel(repo: RepoRef, name: string) {
+    const set = this.labels.get(repoKey(repo)) ?? new Set<string>();
+    set.add(name);
+    this.labels.set(repoKey(repo), set);
+  }
+
+  async deleteLabel(repo: RepoRef, name: string) {
+    this.labels.get(repoKey(repo))?.delete(name);
+  }
+
+  async createCheckRun(repo: RepoRef, input: CheckRunInput) {
+    const id = `check_${this.checkRuns.length + 1}`;
+    this.checkRuns.push({ ...input, repo: repoKey(repo), id });
+    return { id };
+  }
+
   /** A person merges a pull request; agents never can. */
   async merge(repo: RepoRef, number: number, by: string): Promise<PullRequest> {
     if (by.startsWith("kiln-agent")) throw new Error("agents cannot merge pull requests");
@@ -374,6 +409,28 @@ export class GitHubForge implements Forge {
     return i
       ? { repo: repoKey(repo), number: i.number, url: i.html_url, title: i.title, body: i.body ?? "", labels: (i.labels ?? []).map((l: { name: string }) => l.name), state: i.state }
       : undefined;
+  }
+
+  async ensureLabel(repo: RepoRef, name: string, opts: { color?: string; description?: string } = {}) {
+    const existing = await this.api<{ name: string } | undefined>("GET", `/repos/${repoKey(repo)}/labels/${encodeURIComponent(name)}`);
+    if (existing) return;
+    await this.api("POST", `/repos/${repoKey(repo)}/labels`, { name, color: opts.color ?? "5319e7", description: opts.description ?? "Routes mentions to a Kiln factory" });
+  }
+
+  async deleteLabel(repo: RepoRef, name: string) {
+    await this.api("DELETE", `/repos/${repoKey(repo)}/labels/${encodeURIComponent(name)}`);
+  }
+
+  async createCheckRun(repo: RepoRef, input: CheckRunInput) {
+    const r = await this.api<{ id: number }>("POST", `/repos/${repoKey(repo)}/check-runs`, {
+      name: input.name,
+      head_sha: input.headSha,
+      status: input.status,
+      ...(input.conclusion ? { conclusion: input.conclusion } : {}),
+      ...(input.detailsUrl ? { details_url: input.detailsUrl } : {}),
+      output: { title: input.title, summary: input.summary, ...(input.text ? { text: input.text } : {}) },
+    });
+    return { id: String(r.id) };
   }
 
   async readTree(repo: RepoRef, ref = "main", dir = "") {

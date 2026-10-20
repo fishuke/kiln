@@ -4,4 +4,4 @@ default: claude-sonnet-5-5
 routing:
   easy: claude-haiku-5-5
   medium: claude-sonnet-5-5
-  hard: claude-opus-5-5
+  hard: claude-fable-5-1

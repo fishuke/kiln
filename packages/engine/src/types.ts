@@ -27,7 +27,7 @@ export function newId(prefix: string): string {
 }
 
 export type Source = {
-  provider: "github" | "gitlab" | "linear" | "jira" | "slack" | "teams" | "discord" | "kiln" | "mcp" | "schedule" | "webhook" | "api" | "cli";
+  provider: "github" | "gitlab" | "azure_devops" | "bitbucket" | "linear" | "jira" | "slack" | "teams" | "discord" | "kiln" | "mcp" | "schedule" | "webhook" | "api" | "cli";
   url?: string;
   repo?: string;
   number?: number;
@@ -35,6 +35,28 @@ export type Source = {
   channel?: string;
   thread?: string;
   automation?: string;
+  /** Linear agent session the work reports progress into. */
+  sessionId?: string;
+  /** The provider user who asked (Slack/Discord/Teams user id), for DMs. */
+  user?: string;
+  /** Teams: where the conversation lives. */
+  serviceUrl?: string;
+  /** GitLab: the discussion to reply in. */
+  discussionId?: string;
+  deliveryId?: string;
+};
+
+/** Per-automation execution overrides carried by the work items it starts. */
+export type ExecutionOverrides = {
+  harness?: string;
+  model?: string;
+  runner?: string;
+  secrets?: string[];
+  mcpServers?: string[];
+  environmentId?: string;
+  workerHost?: string;
+  idleTimeoutMinutes?: number;
+  requiredRepos?: string[];
 };
 
 export type Attachment = { key: string; name: string; contentType: string; size: number };
@@ -85,6 +107,8 @@ export type WorkItem = {
   blockedReason?: string;
   projectId?: string;
   trackerKey?: string;
+  /** Set when an automation with execution overrides started this item. */
+  execution?: ExecutionOverrides;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
@@ -481,4 +505,14 @@ export const C = {
   inboxState: "inbox_state",
   workers: "workers",
   scorerMeta: "scorer_meta",
+  connections: "connections",
+  connectionStates: "connection_oauth_states",
+  approvalLinks: "connection_approval_links",
+  identityLinks: "identity_links",
+  linkTokens: "identity_link_tokens",
+  webhookSources: "webhooks",
+  webhookDeliveries: "webhook_deliveries",
+  eventDeliveries: "event_deliveries",
+  deliveriesSeen: "deliveries_seen",
+  aliasMaps: "alias_maps",
 } as const;

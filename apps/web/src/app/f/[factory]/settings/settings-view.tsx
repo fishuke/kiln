@@ -349,9 +349,9 @@ function ResourceList({ value, onChange, kind, secrets, mcps }: { value: string[
 }
 
 function AgentDefaults({ factory, yaml, secrets, mcps, workers, runners, runnerFiles, routers, readOnly, onRunner }: Pick<Props, "factory" | "yaml" | "secrets" | "mcps" | "workers" | "runners" | "runnerFiles" | "routers" | "readOnly"> & { onRunner: (name?: string) => void }) {
-  const d = yaml.agentDefaults ?? {};
-  const initial = useMemo(
-    () => ({
+  const initial = useMemo(() => {
+    const d = yaml.agentDefaults ?? {};
+    return {
       harness: d.harness?.type ?? "",
       authSecret: d.harness?.auth?.secretName ?? "",
       model: d.harness?.model ?? d.model ?? "",
@@ -359,9 +359,8 @@ function AgentDefaults({ factory, yaml, secrets, mcps, workers, runners, runnerF
       runner: d.runner ?? "",
       secrets: d.secrets ?? [],
       mcpServers: d.mcpServers ?? [],
-    }),
-    [d],
-  );
+    };
+  }, [yaml.agentDefaults]);
   const [s, setS] = useState(initial);
   const [pending, save] = useSave(factory);
   const backend = (runnerFiles[s.runner] as { backend?: string } | undefined)?.backend ?? "docker";
@@ -416,8 +415,10 @@ function AgentDefaults({ factory, yaml, secrets, mcps, workers, runners, runnerF
 }
 
 function ScorerDefaults({ factory, yaml, secrets, mcps, runners, readOnly, onRunner }: Pick<Props, "factory" | "yaml" | "secrets" | "mcps" | "runners" | "readOnly"> & { onRunner: (name?: string) => void }) {
-  const d = yaml.scorerDefaults ?? {};
-  const initial = useMemo(() => ({ runner: d.runner ?? "", secrets: d.secrets ?? null, mcpServers: d.mcpServers ?? null }), [d]);
+  const initial = useMemo(() => {
+    const d = yaml.scorerDefaults ?? {};
+    return { runner: d.runner ?? "", secrets: d.secrets ?? null, mcpServers: d.mcpServers ?? null };
+  }, [yaml.scorerDefaults]);
   const [s, setS] = useState<{ runner: string; secrets: string[] | null; mcpServers: string[] | null }>(initial);
   const [pending, save] = useSave(factory);
   const inherited = <span className="text-xs text-muted-foreground">From Agent defaults</span>;
@@ -480,8 +481,10 @@ const REVIEWERS = { none: "No assignment", admins: "Team admins", team: "All tea
 const REVIEWER_HINT: Record<string, string> = { none: "Pull requests are opened without a reviewer.", admins: "One eligible team admin is randomly chosen to review.", team: "One team member is randomly chosen to review.", custom: "One person from the list is randomly chosen to review." };
 
 function SelfImprovement({ factory, yaml, routers, scorers, readOnly }: Pick<Props, "factory" | "yaml" | "routers" | "scorers" | "readOnly">) {
-  const si = yaml.selfImprovement ?? {};
-  const initial = useMemo(() => ({ model: si.model ?? "", threshold: si.failedRunThreshold ?? 25, reviewers: si.reviewers?.type ?? "admins", emails: (si.reviewers?.emails ?? []).join(", "), scorers: si.scorers ?? scorers.map((x) => x.slug) }), [si, scorers]);
+  const initial = useMemo(() => {
+    const si = yaml.selfImprovement ?? {};
+    return { model: si.model ?? "", threshold: si.failedRunThreshold ?? 25, reviewers: si.reviewers?.type ?? "admins", emails: (si.reviewers?.emails ?? []).join(", "), scorers: si.scorers ?? scorers.map((x) => x.slug) };
+  }, [yaml.selfImprovement, scorers]);
   const [s, setS] = useState(initial);
   const [pending, save] = useSave(factory);
   const thresholdOk = Number.isInteger(s.threshold) && s.threshold >= 1 && s.threshold <= 50;

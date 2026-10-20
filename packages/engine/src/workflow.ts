@@ -6,7 +6,7 @@ import { BUILTIN_GATES } from "./gates";
 import type { Kiln } from "./kiln";
 import { isActive, transition } from "./state";
 import { fileUrl } from "./runs";
-import { C, newId, type Attachment, type Gate, type Run, type Source, type WorkItem, type WorkItemState } from "./types";
+import { C, newId, type Attachment, type ExecutionOverrides, type Gate, type Run, type Source, type WorkItem, type WorkItemState } from "./types";
 
 export type StageKind = "triage" | "spec" | "build" | "verify" | "review" | "preview" | "handoff" | "custom";
 export type PlanStage = PipelineStage & { kind: StageKind };
@@ -74,6 +74,7 @@ export class Workflow {
     directAgent?: string;
     prompt?: string;
     attachments?: Attachment[];
+    execution?: ExecutionOverrides;
   }): Promise<WorkItem> {
     const id = newId("wi");
     const sha = this.k.defs.shaFor(input.factory, id);
@@ -96,6 +97,7 @@ export class Workflow {
       budgetUsd: input.budgetUsd ?? resolved.factory.budgets?.perWorkItemUsd,
       projectId: input.projectId,
       trackerKey: input.trackerKey,
+      execution: input.execution,
       pipeline: input.pipeline ?? resolved.factory.defaultPipeline,
       createdAt: now,
       updatedAt: now,
@@ -289,6 +291,7 @@ export class Workflow {
       branch: this.branch(wi),
       push: opts.push ?? true,
       collect: opts.collect,
+      overrides: wi.execution,
     });
     const fresh = this.get(wi.id)!;
     fresh.costUsd += run.costUsd;

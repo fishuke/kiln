@@ -105,9 +105,15 @@ export class DefinitionService {
       return { ok: false, factory: factoryId, sha, errors, keptSha: factoryId ? this.get(factoryId)?.appliedSha : undefined };
     }
     const id = factoryId!;
+    // Alias filters (teams, channels, …) must resolve against the connected providers.
+    const aliasErrors = this.k.automations.resolveAliases(result.resolved, { save: !opts.dryRun }).errors;
+    if (aliasErrors.length) {
+      if (!opts.dryRun) this.k.audit(opts.author, "definition.rejected", id, { sha, errors: aliasErrors });
+      return { ok: false, factory: id, sha, errors: aliasErrors, keptSha: this.get(id)?.appliedSha };
+    }
     const existing = this.get(id);
     const diff = diffTrees(existing?.appliedSha ? this.tree(existing.appliedSha) : undefined, tree);
-    const warnings = result.warnings.map((w) => `${w.file}:${w.line}: ${w.message}`);
+    const warnings = [...result.warnings.map((w) => `${w.file}:${w.line}: ${w.message}`), ...this.k.automations.webhookWarnings(result.resolved, id)];
     if (opts.dryRun) return { ok: true, factory: id, sha, diff, dryRun: true, warnings, canaryPercent: opts.canaryPercent };
 
     this.k.store.transaction((s) => {

@@ -10,7 +10,7 @@ export type HarnessEvent =
   | { type: "steer"; text: string }
   | { type: "cost"; usd: number }
   /** Subscription usage (Claude Code with a `claude setup-token` token): share of each window used, 0..1. */
-  | { type: "rate_limit"; status: string; fiveHour?: UsageWindow; sevenDay?: UsageWindow }
+  | { type: "rate_limit"; status: string; fiveHour?: UsageWindow; sevenDay?: UsageWindow; others?: Record<string, UsageWindow> }
   | { type: "error"; text: string };
 
 export type UsageWindow = { utilization: number; resetsAt?: string };
@@ -267,7 +267,14 @@ class ClaudeSession extends CliSession {
         typeof w?.utilization === "number" ? { utilization: w.utilization, ...(w.resetsAt ? { resetsAt: new Date(w.resetsAt * 1000).toISOString() } : {}) } : undefined;
       const fiveHour = window(info.unifiedWindows?.five_hour);
       const sevenDay = window(info.unifiedWindows?.seven_day);
-      this.emit({ type: "rate_limit", status: String(info.status ?? "allowed"), ...(fiveHour ? { fiveHour } : {}), ...(sevenDay ? { sevenDay } : {}) });
+      // Other windows Claude Code reports (a model's own weekly limit, for example), by their names.
+      const others = Object.fromEntries(
+        Object.entries((info.unifiedWindows ?? {}) as Record<string, { utilization?: number; resetsAt?: number }>)
+          .filter(([k]) => k !== "five_hour" && k !== "seven_day")
+          .map(([k, w]) => [k, window(w)])
+          .filter((e): e is [string, UsageWindow] => Boolean(e[1])),
+      );
+      this.emit({ type: "rate_limit", status: String(info.status ?? "allowed"), ...(fiveHour ? { fiveHour } : {}), ...(sevenDay ? { sevenDay } : {}), ...(Object.keys(others).length ? { others } : {}) });
     } else if (msg.type === "result") {
       this.costUsd = Number(msg.total_cost_usd ?? 0);
       this.summary = String(msg.result ?? "");

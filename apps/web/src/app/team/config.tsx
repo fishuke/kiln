@@ -11,7 +11,7 @@ import { useAction } from "@/components/kiln/use-action";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { byHeadroom, resetsIn, tokenStatus, usageLine } from "@/lib/claude-tokens";
+import { byHeadroom, resetsIn, tokenStatus, usageLine, windowTitle } from "@/lib/claude-tokens";
 import { cn } from "@/lib/utils";
 import * as A from "./actions";
 
@@ -75,6 +75,9 @@ function ClaudeTokenPool({ team, pool, canEdit }: { team: string; pool: PoolEntr
                 <ConnectedBadge tone={s.tone}>{s.label}</ConnectedBadge>
                 <UsageBar label="5h" window={t.fiveHour} />
                 <UsageBar label="7d" window={t.sevenDay} />
+                {Object.entries(t.others ?? {}).map(([k, w]) => (
+                  <UsageBar key={k} label={windowTitle(k).short} window={w} />
+                ))}
                 {t.status === "limited" && t.resetsAt && <span className="text-xs text-muted-foreground">usable {resetsIn(t.resetsAt)}</span>}
                 {t.status === "invalid" && t.error && <span className="w-full truncate text-xs text-destructive" title={t.error}>{t.error}</span>}
                 {canEdit && (

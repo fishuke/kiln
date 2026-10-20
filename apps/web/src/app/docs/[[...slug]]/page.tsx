@@ -47,7 +47,9 @@ export default async function Docs({ params }: { params: Promise<{ slug?: string
     return `href="/docs/${stack.join("/")}${hash}"`;
   });
   const pages = list();
-  const sections = [...new Set(pages.filter((p) => p.slug !== "index").map((p) => p.section))];
+  const ORDER = ["Overview", "Factory configuration", "Infrastructure", "Code forges and integrations", "Integrations", "Product owners", "Measure and improve", "Developer tools", "Management", "Guides"];
+  const rank = (s: string) => (ORDER.indexOf(s) + 1 || 99);
+  const sections = [...new Set(pages.filter((p) => p.slug !== "index").map((p) => p.section))].sort((a, b) => rank(a) - rank(b));
   const title = pages.find((p) => p.slug === path)?.title ?? "Docs";
   return (
     <>

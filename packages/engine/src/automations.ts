@@ -140,6 +140,10 @@ export class AutomationService {
           if (!this.reaches(ev, f.id, f.alias, resolved, aliases)) continue;
           const t = a.triggers.find((tr) => evaluateTrigger(tr, ev, { aliases: aliasMap[a.name] }).ok);
           if (!t) continue;
+          if (!this.linearAllowed(ev, resolved)) {
+            await this.refuseLinear(ev, f.alias, resolved);
+            break;
+          }
           started.push(await this.start(f.id, resolved, a, ev, opts));
           matched.push({ factory: f.id, automation: a.name, event: ev.event });
           break;
@@ -176,6 +180,25 @@ export class AutomationService {
       return settings["microsoft-teams"].teams.some((t) => (ev.data.team_ids ?? []).includes(t.teamId) && t.channelIds.some((c) => (ev.data.channel_ids ?? []).includes(c)));
     }
     return true;
+  }
+
+  /** A factory's Linear allowUsers and blockUsers: whether the person behind a Linear event may start work there. */
+  private linearAllowed(ev: IncomingEvent, resolved: ResolvedFactory): boolean {
+    const s = ev.provider === "linear" ? resolved.factory.integrations.find((i) => i.type === "linear")?.linear : undefined;
+    if (!s?.allowUsers?.length && !s?.blockUsers?.length) return true;
+    const keys = ((ev.data.user_keys as string[] | undefined) ?? []).map((k) => k.toLowerCase());
+    const listed = (list: string[] = []) => list.some((u) => keys.includes(u.toLowerCase()));
+    return !listed(s.blockUsers) && (!s.allowUsers?.length || listed(s.allowUsers));
+  }
+
+  /** Tell the person in their Linear session why no work started. */
+  private async refuseLinear(ev: IncomingEvent, alias: string, resolved: ResolvedFactory) {
+    const api = this.k.integrations.linearAgent;
+    if (!ev.data.sessionId || !api) return;
+    const name = String(ev.data.author ?? (ev.data.user_keys as string[] | undefined)?.at(-1) ?? "You");
+    const blocked = !resolved.factory.integrations.find((i) => i.type === "linear")?.linear?.allowUsers?.length;
+    const body = `${name}, you are not allowed to send work to ${alias} from Linear.${blocked ? "" : " Ask an admin to add you to the factory's Linear allowUsers."}`;
+    await api.activity(String(ev.data.sessionId), { type: "response", body }).catch(() => {});
   }
 
   private mentionsFactory(event: IncomingEvent, alias: string) {

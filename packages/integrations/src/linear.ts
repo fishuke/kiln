@@ -40,10 +40,12 @@ export function normalizeLinearEvents(payload: Payload, deliveryId?: string, opt
   const actor = payload.actor ?? {};
   const isSelf = Boolean(options.appUserId && actor.id === options.appUserId) || actor.type === "OauthClient";
   const self = { author: actor.name ?? actor.email ?? actor.id, authorIsSelf: isSelf, authorIsBot: isSelf || actor.type === "integration" || actor.type === "OauthClient" };
+  // Who sent the event, by id, email and name, for a factory's allowUsers and blockUsers.
+  const who = (...people: Payload[]) => ({ user_keys: uniq(people.flatMap((p) => [p?.id, p?.email, p?.name])) });
   const d = payload.data ?? {};
   const ev = (event: string, data: IncomingEvent["data"]): IncomingEvent => ({ provider: "linear", event, deliveryId, data: { ...self, ...data } });
   if (payload.type === "Issue") {
-    const fields = { ...issueFields(d), url: payload.url ?? d.url };
+    const fields = { ...issueFields(d), url: payload.url ?? d.url, ...who(actor) };
     if (payload.action === "create") return [ev("issue_created", fields)];
     if (payload.action !== "update") return [];
     const from = payload.updatedFrom ?? {};
@@ -65,6 +67,7 @@ export function normalizeLinearEvents(payload: Payload, deliveryId?: string, opt
         text: d.body,
         commentId: d.id,
         creator_ids: uniq([d.userId ?? d.user?.id]),
+        ...who(actor, d.user ?? { id: d.userId }),
         mentioned_user_ids: uniq([...String(d.body ?? "").matchAll(/linear\.app\/[^/]+\/profiles\/([\w-]+)/g)].map((m) => m[1])),
         mentioned: mentionsIn(d.body),
         url: payload.url ?? d.url,
@@ -74,7 +77,7 @@ export function normalizeLinearEvents(payload: Payload, deliveryId?: string, opt
   if (payload.type === "AgentSessionEvent") {
     const s = payload.agentSession ?? {};
     const issue = s.issue ?? {};
-    const fields = { ...issueFields(issue), sessionId: s.id, creator_ids: uniq([s.creatorId ?? s.creator?.id]) };
+    const fields = { ...issueFields(issue), sessionId: s.id, creator_ids: uniq([s.creatorId ?? s.creator?.id]), ...who(actor, s.creator ?? { id: s.creatorId }) };
     if (payload.action === "created") return [ev("agent_session_created", { ...fields, text: s.comment?.body ?? payload.promptContext, authorIsSelf: false, authorIsBot: false })];
     if (payload.action === "prompted") return [ev("agent_session_prompted", { ...fields, text: payload.agentActivity?.content?.body ?? payload.agentActivity?.body, authorIsSelf: false, authorIsBot: false })];
   }

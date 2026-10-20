@@ -422,3 +422,32 @@ describe("questions in linear sessions", () => {
     expect(linear.activities.some((a) => a.activity.type === "response" && a.activity.body.includes("What should the footer say?"))).toBe(true);
   });
 });
+
+describe("who may delegate from linear", () => {
+  const withAccess = (access: string) => {
+    const tree = sampleTree({
+      "automations/linear/automation.md": "---\nagent: foreman\ntriggers:\n  - provider: linear\n    event: agent_session_created\n---\nHandle the request.\n",
+    });
+    tree["factory.yaml"] = tree["factory.yaml"]!.replace("integrations: [github, slack, linear]", `integrations: [github, slack, { type: linear, linear: ${access} }]`);
+    return tree;
+  };
+  const session = (keys: string[], delivery: string) => ev("linear", "agent_session_created", { issueId: "i1", title: "Add a footer", sessionId: "as1", team_ids: ["t1"], user_keys: keys }, delivery);
+
+  it("starts work only for allowed people and tells the others why", async () => {
+    const linear = new FakeLinearAgentApi();
+    const { kiln } = createTestKiln({ tree: withAccess("{ allowUsers: [ann@acme.test, U-lead] }"), adapters: { linearAgent: linear }, preview: false });
+    const denied = await kiln.automations.handle(session(["u9", "bob@acme.test", "Bob"], "a1"));
+    expect(denied.started).toEqual([]);
+    expect(linear.activities).toContainEqual({ sessionId: "as1", activity: { type: "response", body: "Bob, you are not allowed to send work to webapp from Linear. Ask an admin to add you to the factory's Linear allowUsers." } });
+    expect((await kiln.automations.handle(session(["u1", "Ann@acme.test", "Ann"], "a2"))).started).toHaveLength(1);
+  });
+
+  it("blocks listed people, and lets everyone in without lists", async () => {
+    const { kiln } = createTestKiln({ tree: withAccess("{ blockUsers: [Bob] }"), adapters: { linearAgent: new FakeLinearAgentApi() }, preview: false });
+    expect((await kiln.automations.handle(session(["u9", "Bob"], "b1"))).started).toEqual([]);
+    expect((await kiln.automations.handle(session(["u1", "Ann"], "b2"))).started).toHaveLength(1);
+    const open = createTestKiln({ tree: withAccess("{ teams: [Engineering] }"), adapters: { linearAgent: new FakeLinearAgentApi() }, preview: false }).kiln;
+    open.connections.setDirectory("linear", { teams: { Engineering: "t1" } });
+    expect((await open.automations.handle(session(["u9", "Bob"], "b3"))).started).toHaveLength(1);
+  });
+});

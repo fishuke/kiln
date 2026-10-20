@@ -146,6 +146,10 @@ export const FactoryIntegration = z.union([
           teamIds: z.array(z.string()).optional(),
           /** Workflow states, by name, to move issues to at hand-off and when the work is done (instead of the first started and completed ones). */
           states: z.object({ handoff: z.string().min(1).optional(), done: z.string().min(1).optional() }).strict().optional(),
+          /** Linear users (id, email or name) who may start work here; unset lets everyone. */
+          allowUsers: z.array(z.string().min(1)).optional(),
+          /** Linear users (id, email or name) who may not start work here. */
+          blockUsers: z.array(z.string().min(1)).optional(),
         })
         .strict()
         .optional(),
@@ -167,7 +171,7 @@ export type IntegrationSettings = {
   slack?: { autoRespondToThreadReplies?: boolean; channels?: string[] };
   "microsoft-teams"?: { autoRespondToThreadReplies?: boolean; teams?: { teamId: string; channelIds: string[] }[] };
   discord?: { autoRespondToThreadReplies?: boolean; guildIds?: string[]; channelIds?: string[] };
-  linear?: { teams?: string[]; teamIds?: string[]; states?: { handoff?: string; done?: string } };
+  linear?: { teams?: string[]; teamIds?: string[]; states?: { handoff?: string; done?: string }; allowUsers?: string[]; blockUsers?: string[] };
   jira?: { projects?: string[]; projectKeys?: string[] };
 };
 

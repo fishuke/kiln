@@ -99,6 +99,9 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
       ...(backend === "kubernetes" ? { kubernetes: new KubernetesSandboxProvider(undefined, env.KILN_SANDBOX_NAMESPACE) } : {}),
     },
     defaultBackend: backend,
+    // Computer use: the sandbox image has the browser MCP server installed; elsewhere npx fetches it.
+    ...(backend !== "local" ? { browserMcp: { command: "playwright-mcp" } } : {}),
+    ...(env.KILN_COMPUTER_USE === "0" ? { browserMcp: false as const } : {}),
     publicUrl,
     webUrl: env.KILN_WEB_URL ?? "http://localhost:3000",
     roles: parseRoles(env.KILN_ROLES ?? "po=po@kiln.local;code-owners=lead@kiln.local;admins=admin@kiln.local"),

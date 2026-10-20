@@ -181,7 +181,7 @@ describe("MCP servers and environments", () => {
     expect(kiln.mcp.builtins(team.id).find((b) => b.kiln_id === "github")).toMatchObject({ connected: false, missing: ["GITHUB_MCP_TOKEN"] });
     const sha = kiln.defs.require("webapp").appliedSha!;
     const run = await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "x", push: false });
-    expect(seen[0]!.mcpServers).toEqual([
+    expect(seen[0]!.mcpServers!.filter((s) => s.name !== "browser")).toEqual([
       { name: "figma", url: "https://mcp.figma.test/mcp", headers: { Authorization: "Bearer figma-secret" } },
       { name: "sentry", command: "npx", args: ["sentry-mcp"], env: { SENTRY_TOKEN: "${SENTRY_TOKEN}" } },
       { name: "linear", url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer lin_api_x" } },

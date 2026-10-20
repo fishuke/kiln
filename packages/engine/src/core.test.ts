@@ -355,3 +355,27 @@ describe("factory files: schemas and validation", () => {
     expect(() => validateFiles(Array.from({ length: 257 }, (_, i) => ({ path: `f${i}`, content: "" })))).toThrow(/at most 256/);
   });
 });
+
+describe("computer use", () => {
+  it("gives Claude Code agents a recorded browser unless the agent turns it off, and attaches what it saves to the pull request", async () => {
+    const seen: Record<string, { servers: string[]; args: string[]; instructions: string }> = {};
+    const harness = new FakeHarness(async (ctx) => {
+      const browser = ctx.opts.mcpServers?.find((s) => s.name === "browser");
+      seen[ctx.opts.env?.KILN_AGENT_TYPE ?? "?"] = { servers: (ctx.opts.mcpServers ?? []).map((s) => s.name), args: browser && "command" in browser ? (browser.args ?? []) : [], instructions: ctx.opts.instructions };
+      if (ctx.opts.env?.KILN_AGENT_TYPE === "VERIFY") await ctx.opts.sandbox.writeBytes(`${ctx.opts.cwd ? `${ctx.opts.cwd}/` : ""}.kiln/artifacts/browser/checkout.png`, new Uint8Array([137, 80, 78, 71]));
+      return fakeAgentScript(ctx);
+    });
+    const tree = sampleTree({ "agents/review/agent.md": "---\nagentType: REVIEW\ncomputerUse: false\n---\nReview adversarially.\n" });
+    const { kiln, forge } = createTestKiln({ harness: () => harness, tree, preview: false, browserMcp: { command: "playwright-mcp" } });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix the checkout button", body: "It is misaligned", source: { provider: "api" }, requester: "po@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    await waitFor(kiln, wi.id, ["handed_off"]);
+    expect(seen.VERIFY!.servers).toContain("browser");
+    expect(seen.VERIFY!.args).toEqual(expect.arrayContaining(["--headless", "--caps=devtools,vision", "--output-dir", ".kiln/artifacts/browser"]));
+    expect(seen.VERIFY!.instructions).toContain("browser_start_video");
+    expect(seen.REVIEW!.servers).not.toContain("browser");
+    const pr = (await forge.listPullRequests({ owner: "acme", name: "web" }, { state: "all" }))[0]!;
+    expect(pr.body).toContain("## Evidence");
+    expect(pr.body).toMatch(/\[checkout\.png\]\(http.*\/files\/.*checkout\.png\)/);
+  });
+});

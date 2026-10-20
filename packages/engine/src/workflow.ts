@@ -287,6 +287,9 @@ export class Workflow {
   }
 
   private async step(wi: Item): Promise<StepResult> {
+    // Waiting at a gate: nothing to do until it is decided.
+    const waitingOn = wi.state === "awaiting_spec" ? "spec" : wi.state === "awaiting_preview" ? "preview" : undefined;
+    if (waitingOn && this.k.gates.list({ workItemId: wi.id, state: "open" }).some((g) => g.kind === waitingOn)) return "wait";
     if (!wi.plan) {
       wi.plan = this.initialPlan(wi);
       this.save(wi);

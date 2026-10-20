@@ -253,3 +253,14 @@ describe("Kiln instances share nothing", () => {
     expect(typeof fakeAgentScript).toBe("function");
   });
 });
+
+describe("idempotent advances", () => {
+  it("advancing an item that waits at a gate opens no second gate", async () => {
+    const { kiln } = createTestKiln();
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix typo", body: "", source: { provider: "api" }, requester: "a" });
+    await kiln.workflow.advance(wi.id);
+    expect(kiln.workflow.get(wi.id)!.state).toBe("awaiting_preview");
+    await Promise.all([kiln.workflow.advance(wi.id), kiln.workflow.advance(wi.id)]);
+    expect(kiln.gates.list({ workItemId: wi.id }).filter((g) => g.kind === "preview")).toHaveLength(1);
+  });
+});

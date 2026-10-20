@@ -617,21 +617,38 @@ export class Workflow {
     return failing;
   }
 
-  private async ensurePullRequest(wi: Item, draft: boolean) {
-    const repo = this.resolved(wi).factory.repositories[0]!;
+  /** Screenshots and videos the work item's runs saved (computer use, Playwright), linked from the pull request. */
+  private evidenceLines(wi: Item): string[] {
+    const media = this.k.runs
+      .list({ workItemId: wi.id })
+      .flatMap((r) => r.artifacts)
+      .filter((a) => (a.kind === "image" || a.kind === "video") && a.key);
+    const unique = media.filter((a, i) => media.findIndex((b) => b.key === a.key) === i);
+    return unique.length ? ["", "## Evidence", ...unique.map((a) => `- ${a.kind === "video" ? "Video" : "Screenshot"}: [${a.name}](${this.k.link(`/files/${a.key}`)})`)] : [];
+  }
+
+  /** The pull request description: the request, criteria, evidence (screenshots and videos) and who opened it. */
+  private prBody(wi: Item): string {
     const alias = this.resolved(wi).factory.alias ?? wi.factory;
-    const body = [
+    return [
       `Work item: ${this.k.link(`/runs/${wi.id}`)}`,
       wi.source.url ? `Source: ${wi.source.url}` : "",
       wi.trackerKey ? `Tracker: ${wi.trackerKey}` : "",
       "",
       wi.body,
       ...(wi.spec?.criteria.length ? ["", "## Acceptance criteria", ...wi.spec.criteria.map((c) => `- [ ] ${c}`)] : []),
+      ...this.evidenceLines(wi),
       "",
       `Opened by the Kiln factory \`${alias}\`. A person reviews and merges.`,
     ]
       .filter((l) => l !== undefined)
       .join("\n");
+  }
+
+  private async ensurePullRequest(wi: Item, draft: boolean) {
+    const repo = this.resolved(wi).factory.repositories[0]!;
+    const alias = this.resolved(wi).factory.alias ?? wi.factory;
+    const body = this.prBody(wi);
     const branch = this.branch(wi);
     if (!(await this.k.forge.listPullRequests(repo, { state: "all", head: branch })).length && !this.k.forgeHasBranch(repo, branch)) return undefined;
     if (wi.pr) {
@@ -696,6 +713,8 @@ export class Workflow {
       const fresh = this.get(wi.id)!;
       fresh.evidence = wi.evidence;
       Object.assign(wi, fresh);
+      // What verification recorded goes into the pull request description.
+      if (wi.pr) await this.k.forge.updatePullRequest(repo, wi.pr.number, { body: this.prBody(wi) }).catch(() => undefined);
       if (requires.includes("tests_pass") && run.result?.testsPassed !== true) problems.push("tests did not pass");
     }
     if (requires.includes("criteria_videos") && wi.spec?.criteria.length) {

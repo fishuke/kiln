@@ -90,6 +90,24 @@ export function resultProtocol(agentType: string): string {
 }
 
 /** Extra instructions for the plan and orchestrate modes. */
+/** Where the browser saves screenshots and videos; collected with the run's other artifacts. */
+const BROWSER_OUT = ".kiln/artifacts/browser";
+
+export const BROWSER_INSTRUCTIONS = [
+  "## Browser",
+  "You have a browser (the `browser` MCP server). Use it to check UI changes the way a person would.",
+  `- For each acceptance criterion you can show in the UI, record a video: browser_start_video, then browser_video_show_actions so clicks and typing are annotated, browser_video_chapter with the criterion's id (AC1, AC2 …) before each part, and browser_stop_video when done.`,
+  "- Take a screenshot (browser_take_screenshot) of the final state of each change.",
+  `- Files land in \`${BROWSER_OUT}/\`. Kiln attaches them to the run and the pull request.`,
+].join("\n");
+
+/** The browser for computer use: Claude Code agents unless the agent sets `computerUse: false`. */
+export function browserServer(k: Pick<Kiln, "options">, harness: HarnessType, agent: Pick<ResolvedAgent, "computerUse">) {
+  const mcp = k.options.browserMcp ?? { command: "npx", args: ["-y", "@playwright/mcp@0.0.83"] };
+  if (mcp === false || harness !== "claude-code" || agent.computerUse === false) return undefined;
+  return { name: "browser", command: mcp.command, args: [...(mcp.args ?? []), "--headless", "--isolated", "--no-sandbox", "--caps=devtools,vision", "--output-dir", BROWSER_OUT, "--viewport-size", "1280,720"] };
+}
+
 export function modeInstructions(mode: RunMode | undefined): string {
   if (mode === "plan")
     return [
@@ -336,7 +354,8 @@ export class RunService {
     if (attachments.length) prompt = `${prompt}\n\nAttached files:\n${attachments.map((a) => `- .kiln/attachments/${a.name} (${a.contentType}, ${Math.ceil(a.size / 1024)} KB)`).join("\n")}`;
     run.startState.prompt = prompt;
     const memories = input.workItem || input.kind === "work" ? this.k.memories.promptBlock(input.factory, input.prompt) : "";
-    const instructions = [agent.instructions, memories, input.extraInstructions ?? "", modeInstructions(input.mode), resultProtocol(agent.agentType)].filter(Boolean).join("\n\n");
+    const browser = browserServer(this.k, harnessType, agent) ? BROWSER_INSTRUCTIONS : "";
+    const instructions = [agent.instructions, memories, input.extraInstructions ?? "", modeInstructions(input.mode), browser, resultProtocol(agent.agentType)].filter(Boolean).join("\n\n");
     run.startState.instructions = instructions;
     this.save(run);
     // A private image: the runner's (or else the environment's) registry credential, checked against the image's registry.
@@ -602,7 +621,8 @@ export class RunService {
       ...(p.workerHost ? { KILN_WORKER_HOST: p.workerHost } : {}),
       ...(p.run.idleTimeoutMinutes ? { KILN_IDLE_TIMEOUT_MINUTES: String(p.run.idleTimeoutMinutes) } : {}),
     };
-    return { env: { ...mcp.env, ...credentials, ...overrideEnv }, mcpServers: [...this.mcpServers(p.token), ...mcp.servers] };
+    const browser = browserServer(this.k, p.harnessType, p.agent);
+    return { env: { ...mcp.env, ...credentials, ...overrideEnv }, mcpServers: [...this.mcpServers(p.token), ...(browser ? [browser] : []), ...mcp.servers] };
   }
 
   private mcpServers(token: string) {

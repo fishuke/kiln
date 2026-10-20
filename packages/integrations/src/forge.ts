@@ -31,6 +31,8 @@ export type CheckStatus = { status: "success" | "failure" | "pending"; runs: { n
 export interface Forge {
   readonly name: string;
   cloneUrl(repo: RepoRef, token?: string): string;
+  /** A short-lived credential a sandbox clones and pushes this repository with (GitHub: a repo-scoped installation token). */
+  sandboxToken?(repo: RepoRef): Promise<string | undefined>;
   openPullRequest(input: { repo: RepoRef; head: string; base?: string; title: string; body: string; labels?: string[]; draft?: boolean; author?: string }): Promise<PullRequest>;
   updatePullRequest(repo: RepoRef, number: number, patch: { title?: string; body?: string; draft?: boolean }): Promise<PullRequest>;
   getPullRequest(repo: RepoRef, number: number): Promise<PullRequest | undefined>;
@@ -306,14 +308,23 @@ type Fetch = typeof fetch;
 export class GitHubForge implements Forge {
   readonly name = "github";
 
-  constructor(private readonly options: { token: string | (() => Promise<string> | string); baseUrl?: string; fetch?: Fetch }) {}
+  /**
+   * `token` gets the request path, so an app can answer with the installation of the repository's
+   * owner; `sandboxToken` mints what a sandbox clones and pushes with.
+   */
+  constructor(private readonly options: { token: string | ((path: string) => Promise<string> | string); sandboxToken?: (repo: RepoRef) => Promise<string>; baseUrl?: string; fetch?: Fetch }) {}
+
+  async sandboxToken(repo: RepoRef): Promise<string | undefined> {
+    if (this.options.sandboxToken) return this.options.sandboxToken(repo);
+    return typeof this.options.token === "string" ? this.options.token : undefined;
+  }
 
   private async api<T>(method: string, path: string, body?: unknown): Promise<T> {
     const doFetch = this.options.fetch ?? fetch;
     const res = await doFetch(`${this.options.baseUrl ?? "https://api.github.com"}${path}`, {
       method,
       headers: {
-        authorization: `Bearer ${typeof this.options.token === "string" ? this.options.token : await this.options.token()}`,
+        authorization: `Bearer ${typeof this.options.token === "string" ? this.options.token : await this.options.token(path)}`,
         accept: "application/vnd.github+json",
         "x-github-api-version": "2022-11-28",
         ...(body ? { "content-type": "application/json" } : {}),

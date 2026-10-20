@@ -153,6 +153,8 @@ export class RunService {
   private readonly sessions = new Map<string, HarnessSession>();
   private readonly remotes = new Map<string, RemoteSession>();
   private readonly sandboxes = new Map<string, Sandbox>();
+  /** Forge credentials given to a run's sandbox, redacted from its output. */
+  private readonly forgeTokens = new Map<string, string[]>();
   private readonly specs = new Map<string, Runner>();
   /** The in-memory record of each live run, so steering and cost updates land on the copy that is saved last. */
   private readonly live = new Map<string, Run>();
@@ -392,6 +394,7 @@ export class RunService {
       this.record(run, "error", `${error.code}: ${error.message}`, { code: error.code, retryable: error.retryable });
     } finally {
       this.redactions.delete(run.id);
+      this.forgeTokens.delete(run.id);
       this.sessions.delete(run.id);
       this.remotes.delete(run.id);
       this.live.delete(run.id);
@@ -431,7 +434,7 @@ export class RunService {
     sandbox = await provider.create({
       registryAuth: p.registryAuth,
       runner: effective,
-      repos: repos.map((r) => ({ name: r.name, url: this.k.forge.cloneUrl(r, token) })),
+      repos: await Promise.all(repos.map(async (r) => ({ name: r.name, url: this.k.forge.cloneUrl(r, await this.cloneToken(run.id, r, token)) }))),
       env: { KILN_RUN_ID: run.id },
       labels: { "kiln.dev/run": run.id, "kiln.dev/factory": input.factory },
       deniedHosts: p.deniedHosts,
@@ -614,7 +617,7 @@ export class RunService {
     }
     const mcp = this.k.mcp.resolve(p.team, p.input.overrides?.mcpServers ?? p.agent.mcpServers, resolver);
     for (const s of mcp.skipped) this.record(p.run, "mcp_skipped", s);
-    this.redactions.set(p.run.id, [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope)].filter((v) => v.length >= 6))]);
+    this.redactions.set(p.run.id, [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope), ...(this.forgeTokens.get(p.run.id) ?? [])].filter((v) => v.length >= 6))]);
     const overrideEnv: Record<string, string> = {
       ...cloudProviderEnv(p.resolved.factory),
       ...(p.envRef ? { KILN_ENVIRONMENT_ID: p.envRef } : {}),
@@ -623,6 +626,14 @@ export class RunService {
     };
     const browser = browserServer(this.k, p.harnessType, p.agent);
     return { env: { ...mcp.env, ...credentials, ...overrideEnv }, mcpServers: [...this.mcpServers(p.token), ...(browser ? [browser] : []), ...mcp.servers] };
+  }
+
+  /** The forge's sandbox credential for a repository (GitHub: repo-scoped, an hour), else the run token. */
+  private async cloneToken(runId: string, repo: RepoRef, runToken: string) {
+    const t = await this.k.forge.sandboxToken?.(repo);
+    if (!t) return runToken;
+    this.forgeTokens.set(runId, [...(this.forgeTokens.get(runId) ?? []), t]);
+    return t;
   }
 
   private mcpServers(token: string) {

@@ -3,9 +3,18 @@ import { resolve } from "node:path";
 import { createMcpHandler } from "@kiln/mcp";
 import { createApp } from "./app";
 import { kilnFromEnv, seedDemo } from "./config";
+import { bridgeEvents, engineTelemetry, listenEgressLogs } from "./telemetry";
 
 const config = kilnFromEnv();
 const { kiln } = config;
+
+// Engine events (stages, runs, run events) and the egress proxy's access log go to the OTLP backend too.
+if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+  const telemetry = engineTelemetry();
+  bridgeEvents(kiln.bus, { run: (id) => kiln.runs.get(id) }, telemetry);
+  void listenEgressLogs(Number(process.env.KILN_EGRESS_LOG_PORT ?? 5140), telemetry.egressLogger);
+  process.once("SIGTERM", () => void telemetry.shutdown());
+}
 
 let app: ReturnType<typeof createApp>;
 // MCP calls the API in-process with the caller's token, so scopes are enforced in one place.
@@ -17,7 +26,7 @@ serve({ fetch: app.fetch, port: config.port }, () => {
   console.log(`MCP endpoint: ${config.publicUrl}/mcp`);
   if (config.devAuth) console.log("Dev auth is on: every request without a token acts as dev@kiln.local, owner of the default team.");
   else if (kiln.accounts.needsOwner()) console.log(`No team owner yet: the first signup (POST /api/v1/auth/signup) owns the default team.`);
-  else if (config.adminToken) console.log(`Admin token (also in ${config.dataDir}/admin-token): ${config.adminToken}`);
+  else if (config.adminToken) console.log(`Admin token: in ${config.dataDir}/admin-token`);
 });
 
 if (process.env.KILN_DEMO !== "0") {

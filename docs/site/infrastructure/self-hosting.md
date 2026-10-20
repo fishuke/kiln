@@ -203,7 +203,16 @@ Kiln runs a timer pass that:
 
 ## OpenTelemetry
 
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` (OTLP over HTTP, for example `https://otel.example.com`) and the API sends traces, metrics and logs there: HTTP requests, outgoing calls to GitHub, model providers and webhooks, host metrics, and every console line as a log record linked to its trace. `OTEL_EXPORTER_OTLP_HEADERS` carries the collector's auth, `OTEL_SERVICE_NAME` defaults to `kiln-api`. Works with SigNoz, Grafana, Honeycomb and any OTLP collector; nothing is sent when the endpoint is unset.
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` (OTLP over HTTP, for example `https://otel.example.com`) and Kiln sends traces, metrics and logs there. `OTEL_EXPORTER_OTLP_HEADERS` carries the collector's auth. Works with SigNoz, Grafana, Honeycomb and any OTLP collector; nothing is sent when the endpoint is unset.
+
+| Service             | What it sends                                                                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kiln-api`          | HTTP requests, outgoing calls (GitHub, model providers, webhooks), host metrics and every console line. `OTEL_SERVICE_NAME` changes the name.                         |
+| `kiln-api` (engine) | One trace per task: a span for each stage and each agent run, with the run's status, cost and failure reason. Every run event (messages, tool calls, errors, guard verdicts) is a log record on its run's span. Other events (gates, pull requests, decisions) are log records in the task's trace. |
+| `kiln-web`          | Next.js routes and rendering, its calls to the API (which continue in the API's traces), metrics and console lines.                                                  |
+| `kiln-egress-proxy` | Every request a sandbox made, allowed or denied, as a log record. A denied host is a warning.                                                                       |
+
+Run event text is redacted the same way as in the run view. The proxy sends its log to the API over UDP (port `KILN_EGRESS_LOG_PORT`, default 5140); `docker-compose.prod.yml` wires this up when the endpoint is set.
 
 ## Workers and monitoring
 

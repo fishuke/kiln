@@ -60,6 +60,11 @@ services:
     environment:
       KILN_API_URL: http://api:4000
       KILN_PUBLIC_URL: ${KILN_PUBLIC_URL}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: kiln-web
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-deployment.environment.name=prod}
+      SOURCE_COMMIT: ${SOURCE_COMMIT:-}
     expose: ["3000"]
     # Starts alongside the API (not after it is healthy) so the two restarts overlap during a deploy.
     depends_on:
@@ -87,6 +92,11 @@ services:
     restart: unless-stopped
     environment:
       KILN_EGRESS_ALLOW: ${KILN_EGRESS_ALLOW:-github.com,codeload.github.com,objects.githubusercontent.com,registry.npmjs.org,api.anthropic.com,api.openai.com,openrouter.ai}
+      # With OpenTelemetry on, the access log goes to the API, which sends it on as the kiln-egress-proxy service.
+      KILN_EGRESS_LOG: ${OTEL_EXPORTER_OTLP_ENDPOINT:+udp://api:5140}
+    # Squid resolves the API's address once, so it restarts whenever a deploy replaces the API.
+    depends_on:
+      api: { condition: service_started, restart: true }
     networks:
       default: {}
       egress:

@@ -1,3 +1,4 @@
+import type { CreateFactoryInput } from "@kiln/sdk-ts";
 import { stringify } from "yaml";
 import { AGENT_TEMPLATES, MODELS, type HarnessId } from "./agent-catalog";
 import { writeFrontmatter } from "./frontmatter";
@@ -40,6 +41,33 @@ export const MODEL_PRESETS: Record<WizardInput["preset"], Record<string, string>
   quality: { foreman: "claude-opus-5-5", triage: "claude-sonnet-5-5", spec: "claude-opus-5-5", implement: "claude-opus-5-5", review: "gpt-6" },
   cost: { foreman: "claude-sonnet-5-5", triage: "claude-haiku-5-5", spec: "claude-sonnet-5-5", implement: "claude-sonnet-5-5", review: "gpt-6-mini" },
 };
+
+/**
+ * The wizard input as `POST /api/v1/factories` takes it, or null when the API's wizard cannot express
+ * it (no GitHub/GitLab repo, chat other than Slack, chosen channels, custom models, unknown agents):
+ * then the caller builds the tree here and applies it.
+ */
+export function toCreateFactoryInput(input: WizardInput): CreateFactoryInput | null {
+  const forge = input.forge;
+  if ((forge !== "github" && forge !== "gitlab") || !input.repositories.length) return null;
+  if (input.chat.some((c) => c.type !== "slack" || c.channels.length)) return null;
+  const preset = MODEL_PRESETS[input.preset];
+  if (["foreman", ...input.agents].some((a) => input.models[a] !== undefined && input.models[a] !== preset[a])) return null;
+  return {
+    name: input.name.trim(),
+    alias: input.alias,
+    ...(input.description ? { description: input.description } : {}),
+    ...(input.avatarKey ? { avatar: input.avatarKey } : {}),
+    repos: input.repositories.map((r) => ({ owner: r.owner, name: r.name, forge })),
+    agents: { triage: input.agents.includes("triage"), spec: input.agents.includes("spec"), implement: input.agents.includes("implement"), review: input.agents.includes("review") },
+    ...(input.chat.length ? { communications: { slack: true } } : {}),
+    ...(input.tracker ? { tracker: { type: input.tracker.type, ...(input.tracker.keys.length ? { scopes: input.tracker.keys } : {}) } } : {}),
+    costPreset: input.preset === "cost" ? "efficient" : "quality",
+    selfImprovement: input.selfImprovement,
+    automationTemplates: input.automations,
+    ...(input.setupCommands.length ? { runner: { setupCommands: input.setupCommands } } : {}),
+  };
+}
 
 const AGENT_TYPE: Record<string, string> = { foreman: "FOREMAN", triage: "TRIAGE", spec: "SPEC", implement: "IMPLEMENT", review: "REVIEW" };
 

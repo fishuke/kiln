@@ -65,7 +65,7 @@ export function WebhookList({ factory, rows, addButton }: { factory: string; row
                     <Link href={`/f/${factory}/webhooks/${encodeURIComponent(w.uid)}`} className="font-medium hover:underline">
                       {w.name}
                     </Link>
-                    <div className="truncate font-mono text-xs text-muted-foreground">{w.source === "file" ? `webhooks/${w.uid}.yaml` : w.url}</div>
+                    <div className="truncate font-mono text-xs text-muted-foreground">{w.source === "file" ? `webhooks/${w.name}.yaml` : w.url}</div>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{authLabel(w.authMode, w.signatureScheme)}</td>
                   <td className="px-4 py-3 text-muted-foreground">{w.automations || "None"}</td>

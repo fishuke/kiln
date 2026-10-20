@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { isMissingEndpoint } from "@/lib/api/missing";
-import { runAutomation, testFilter, type FilterTestResult } from "@/lib/api/automations";
-import { webhookDeliveries, type Delivery } from "@/lib/api/webhooks";
-import { automationPath, parseAutomation, serializeAutomation, serializeTrigger, type AutomationModel, type TriggerModel } from "@/lib/automations/model";
+import { listWebhooks, webhookDeliveries, type Delivery } from "@/lib/api/webhooks";
+import { automationPath, parseAutomation, serializeAutomation, type AutomationModel } from "@/lib/automations/model";
+import { filterTestView, type FilterTestView } from "@/lib/automations/test-filter";
 import { resourceName } from "@/lib/frontmatter";
 import { api } from "@/lib/kiln";
 import { failure, write, type ActionResult, type WriteResult } from "@/lib/write-result";
@@ -74,9 +74,10 @@ export async function deleteAutomation(factory: string, name: string): Promise<W
 /** Start the automation now. Falls back to sending its prompt to the factory when the run endpoint is missing. */
 export async function runAutomationNow(factory: string, name: string): Promise<ActionResult<{ href?: string; fallback?: boolean }>> {
   try {
-    const r = await runAutomation(factory, name);
+    const r = await api.runAutomation(factory, name);
     refresh(factory);
-    return { ok: true, href: r.workItemId ? `/runs/${r.workItemId}` : r.runId ? `/runs/${r.runId}` : undefined };
+    // A duplicate of open work returns that work item; either way it is the task page.
+    return { ok: true, href: `/runs/${r.workItemId}` };
   } catch (e) {
     if (!isMissingEndpoint(e)) return failure(e);
   }
@@ -90,13 +91,16 @@ export async function runAutomationNow(factory: string, name: string): Promise<A
   }
 }
 
+/** Deliveries of a webhook a trigger names by uid or by name. */
 export async function recentDeliveries(factory: string, webhook: string): Promise<Delivery[]> {
-  return webhookDeliveries(factory, webhook);
+  const w = (await listWebhooks(factory)).webhooks.find((x) => x.id === webhook || x.name === webhook);
+  return w ? webhookDeliveries(w.id) : [];
 }
 
-export async function testAutomationFilter(factory: string, name: string, trigger: TriggerModel, deliveryId?: string): Promise<ActionResult<{ result: FilterTestResult }>> {
+/** Evaluates the saved automation's triggers against a stored delivery; `index` picks the trigger to show. */
+export async function testAutomationFilter(factory: string, name: string, deliveryId: string, index?: number): Promise<ActionResult<{ result: FilterTestView }>> {
   try {
-    return { ok: true, result: await testFilter(factory, name, { trigger: serializeTrigger(trigger), deliveryId }) };
+    return { ok: true, result: filterTestView(await api.testFilter(factory, name, deliveryId), index) };
   } catch (e) {
     if (isMissingEndpoint(e)) return { ok: false, error: "Filter testing is not available on this server yet." };
     return failure(e);

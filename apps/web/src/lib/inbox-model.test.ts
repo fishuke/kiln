@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInbox, filterInbox, gateEntry, primaryAction, questionOptions, questionPrompt, type GateLike } from "./inbox-model";
+import { buildInbox, filterInbox, gateEntry, INBOX_KINDS, primaryAction, questionOptions, questionPrompt, type GateLike } from "./inbox-model";
 
 const gate = (over: Partial<GateLike> = {}): GateLike => ({ id: "g1", workItemId: "wi_1", factory: "kiln", kind: "spec", title: "Approve the spec", state: "open", evidence: [], openedAt: "2026-10-20T10:00:00Z", assignees: [], ...over });
 
@@ -27,8 +27,18 @@ describe("buildInbox", () => {
         { id: "wi_8", factory: "kiln", title: "z", state: "building", updatedAt: "2026-10-20T09:00:00Z" },
       ],
     );
-    expect(entries.map((e) => e.kind).sort()).toEqual(["answered_question", "failed", "pr_review", "spec_review"]);
+    expect(entries.map((e) => e.kind).sort()).toEqual(["answer_question", "failed", "pr_review", "spec_review"]);
     expect(entries.find((e) => e.gateId === "g2")!.previewUrl).toBe("https://p");
+  });
+
+  it("uses the API's inbox item ids and kinds", () => {
+    const entries = buildInbox([gate(), gate({ id: "g3", kind: "question", state: "answered", workItemId: "wi_3" })], [{ id: "wi_9", factory: "kiln", title: "y", state: "failed", updatedAt: "2026-10-20T09:00:00Z" }]);
+    expect(entries.map((e) => [e.id, e.kind]).sort()).toEqual([
+      ["answer:g3", "answer_question"],
+      ["g1", "spec_review"],
+      ["task:wi_9:failed", "failed"],
+    ]);
+    expect(INBOX_KINDS).toEqual(["question", "answer_question", "spec_review", "pr_review", "blocked", "failed"]);
   });
 
   it("filters by read state, kind, factory and text", () => {

@@ -72,14 +72,9 @@ export async function addDefaultScorers(factory: string, slugs: string[], model:
 /** Score (or re-score) a run with one scorer; a re-score replaces the previous result. */
 export async function rescoreRun(factory: string, scorer: string, runId: string): Promise<ActionResult> {
   try {
-    await api.request("POST", `/api/v1/factories/${encodeURIComponent(factory)}/scorers/${encodeURIComponent(scorer)}/score`, { runId });
+    await api.scoreRuns(factory, scorer, [runId]);
   } catch (e) {
-    if (!isMissingEndpoint(e)) return failure(e);
-    try {
-      await api.request("POST", `/api/v1/runs/${encodeURIComponent(runId)}/score`, { scorer });
-    } catch (e2) {
-      return isMissingEndpoint(e2) ? { ok: false, error: "On-demand scoring is not available on this server yet." } : failure(e2);
-    }
+    return isMissingEndpoint(e) ? { ok: false, error: "On-demand scoring is not available on this server yet." } : failure(e);
   }
   refresh(factory);
   return { ok: true };

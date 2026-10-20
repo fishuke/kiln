@@ -1,5 +1,6 @@
 import "server-only";
 import { KilnApiError } from "@kiln/sdk-ts";
+import { isMissingEndpoint } from "@/lib/api/missing";
 import { api } from "@/lib/kiln";
 
 export type FileChange = { path: string; content: string | null };
@@ -14,28 +15,21 @@ export class DefinitionWriteError extends Error {
   }
 }
 
-const base = () => (process.env.KILN_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
-
 /**
  * Writes definition files of a factory. Uses `POST /api/v1/factories/:id/files:batch` (Kiln-managed
- * factories apply atomically; repo-backed factories get a pull request). Until that endpoint exists it
- * falls back to applying the full modified tree with `POST /api/v1/definitions/apply`.
+ * factories apply atomically; repo-backed factories get a pull request). Servers without that
+ * endpoint get the full modified tree through `POST /api/v1/definitions/apply`.
  */
 export async function writeDefinitionFiles(factory: string, changes: FileChange[], message: string): Promise<WriteResult> {
-  const res = await fetch(`${base()}/api/v1/factories/${encodeURIComponent(factory)}/files:batch`, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json", ...(process.env.KILN_TOKEN ? { authorization: `Bearer ${process.env.KILN_TOKEN}` } : {}) },
-    body: JSON.stringify({ changes, message }),
-    cache: "no-store",
-  }).catch(() => null);
-  if (res && res.ok) {
-    const data = (await res.json().catch(() => ({}))) as { applied?: string; sha?: string; pullRequest?: string | { url: string } };
+  try {
+    const data = await api.request<{ applied?: string; sha?: string; pullRequest?: string | { url: string } }>("POST", `/api/v1/factories/${encodeURIComponent(factory)}/files:batch`, { changes, message });
     if (data.pullRequest) return { pullRequest: typeof data.pullRequest === "string" ? data.pullRequest : data.pullRequest.url };
     return { applied: data.applied ?? data.sha ?? "" };
-  }
-  if (res && res.status !== 404 && res.status !== 405 && res.status !== 501) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string; errors?: string[] };
-    throw new DefinitionWriteError(body.error ?? `Saving failed (${res.status})`, body.errors ?? []);
+  } catch (e) {
+    if (e instanceof KilnApiError && !isMissingEndpoint(e)) {
+      const body = e.body as { error?: string; errors?: string[] } | undefined;
+      throw new DefinitionWriteError(body?.error ?? `Saving failed (${e.status})`, body?.errors ?? []);
+    }
   }
   return applyTree(factory, changes);
 }

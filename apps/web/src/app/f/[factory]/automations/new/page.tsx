@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "New Automation" };
 export default async function NewAutomation({ params, searchParams }: { params: Promise<{ factory: string }>; searchParams: Promise<{ suggestion?: string; variant?: string }> }) {
   const { factory } = await params;
   const { suggestion } = await searchParams;
-  const [ctx, templates] = await Promise.all([loadEditorContext(factory), suggestion ? automationTemplates() : Promise.resolve([])]);
+  const [ctx, templates] = await Promise.all([loadEditorContext(factory), suggestion ? automationTemplates(factory) : Promise.resolve([])]);
   if (!ctx) notFound();
   const t = suggestion ? templates.find((x) => x.slug === suggestion) : undefined;
   const agent = t?.agentType ? ctx.resources.agents.find((a) => a.agentType === t.agentType)?.name : undefined;

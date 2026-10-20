@@ -34,9 +34,10 @@ export async function loadAgentContext(factory: string) {
     f,
     tree,
     secrets: secrets.map((s) => ({ name: s.name, description: s.description, type: s.type })),
-    mcps: mcps.map((m) => ({ name: m.name, description: m.description, managed: m.managed })),
-    workers: workers.map((w) => ({ id: w.id, name: w.name })),
-    runners: Object.entries(runnerFiles).map(([name, r]) => ({ name, os: r.platform ?? "linux", description: r.description })),
+    mcps: mcps.map((m) => ({ name: m.name, description: m.description, managed: m.mode === "managed" })),
+    // Runs route to a worker id (`workerHost`); several instances can share one.
+    workers: [...new Set(workers.map((w) => w.workerId))].map((id) => ({ id, name: id })),
+    runners: Object.entries(runnerFiles).map(([name, r]) => ({ name, os: r.platform?.os ?? "linux", description: r.description })),
     runnerFiles,
     routers: Object.keys(f.routers),
     defaults: {

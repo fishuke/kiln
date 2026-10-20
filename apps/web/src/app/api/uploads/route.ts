@@ -1,6 +1,6 @@
-import { authHeaders, KILN_API_URL } from "@/lib/api/raw";
+import { API_BASE, apiHeaders } from "@/lib/proxy";
 
-/** Browser uploads go through here so the API token never reaches the client: forwards to POST /api/v1/uploads. */
+/** Browser uploads go through here so the session token never reaches the client: forwards to POST /api/v1/uploads as the signed-in user. */
 export async function POST(req: Request) {
   const form = await req.formData();
   const file = form.get("file");
@@ -8,7 +8,7 @@ export async function POST(req: Request) {
   const out = new FormData();
   out.set("file", file, file.name);
   try {
-    const res = await fetch(`${KILN_API_URL}/api/v1/uploads`, { method: "POST", headers: authHeaders(), body: out, cache: "no-store" });
+    const res = await fetch(`${API_BASE}/api/v1/uploads`, { method: "POST", headers: await apiHeaders(), body: out, cache: "no-store" });
     const text = await res.text();
     if (!res.ok) {
       const msg = res.status === 404 ? "Uploads are not available on this Kiln API yet" : (safeJson(text)?.error ?? `Upload failed (${res.status})`);

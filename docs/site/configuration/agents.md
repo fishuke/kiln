@@ -33,8 +33,9 @@ The directory name is the agent's name. Other files refer to the agent by that n
 | `harness` | object | inherited | `type` (`claude-code`, `codex`, `opencode`), optional `model`, optional `reasoningLevel` (`low`, `medium`, `high`), optional `auth`. See [Harness credentials](../infrastructure/harnesses.md#credentials). |
 | `model` | string | inherited | A model name, or `router:<name>` for a router in `routers/`. |
 | `runner` | string | inherited | A file name in `runners/`, without `.yaml`. |
-| `secrets` | list | inherited | Names of Kiln secrets. Each one that is set is passed to the run as an environment variable with the same name. |
-| `mcpServers` | list | inherited | MCP server names. |
+| `secrets` | list | inherited | Names of Kiln secrets. A raw secret that is set is passed to the run as an environment variable with the same name. A typed secret passes its provider variables. See [Secrets](../management/secrets-mcps-environments.md#secrets). |
+| `mcpServers` | list | inherited | Names or ids of the team's MCP servers, or built-in ids such as `linear` and `github`. See [MCP servers](../management/secrets-mcps-environments.md#mcp-servers-mcps-and-apps). |
+| `environmentId` | string | inherited | A team environment (id or name): image, repositories, setup commands and secrets. See [Environments](../management/secrets-mcps-environments.md#environments). |
 
 Unknown keys are errors.
 
@@ -92,7 +93,7 @@ A `prompt` router picks the entry whose description shares the most words (four 
 
 ## Inheritance
 
-Execution settings (`harness`, `model`, `runner`, `secrets`, `mcpServers`) are layered:
+Execution settings (`harness`, `model`, `runner`, `secrets`, `mcpServers`, `environmentId`) are layered:
 
 1. `agentDefaults` in `factory.yaml`
 2. the agent's frontmatter

@@ -29,6 +29,7 @@ export * from "./skills";
 export * from "./files";
 export * from "./tasks";
 export * from "./dedupe";
+export * from "./github-app";
 export * from "./inbox";
 export * from "./editing";
 export * from "./definition-changes";

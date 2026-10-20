@@ -23,6 +23,7 @@ import { usageRoutes } from "./usage";
 import { registerWebhookSourceRoutes } from "./webhook-sources";
 import { registerWebhookRoutes } from "./webhooks";
 import * as workers from "./workers";
+import { registerGitHubAppCallbacks, registerGitHubAppRoutes } from "./github-app";
 
 /**
  * Route modules, one file per area. The factory-core modules export `register` and their
@@ -40,13 +41,14 @@ const PLATFORM: ((ctx: RouteContext) => void)[] = [
   environmentRoutes,
   usageRoutes,
   registerConnectionRoutes,
+  registerGitHubAppRoutes,
   registerAutomationRoutes,
   registerWebhookSourceRoutes,
   factoryDeleteRoutes,
 ];
 
 /** Public routes (provider webhooks, OAuth callbacks): registered before the API's auth middleware. */
-const PUBLIC_MODULES: ((ctx: RouteContext) => void)[] = [registerWebhookRoutes];
+const PUBLIC_MODULES: ((ctx: RouteContext) => void)[] = [registerWebhookRoutes, registerGitHubAppCallbacks];
 
 export function registerModules(ctx: RouteContext) {
   for (const register of PLATFORM) register(ctx);

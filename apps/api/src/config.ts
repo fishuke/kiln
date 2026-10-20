@@ -14,6 +14,7 @@ import {
   FakePreview,
   FakeTracker,
   GitHubForge,
+  type GitHubAppCredentials,
   GitLabForge,
   HttpGitHubAppAuth,
   HttpJiraCloudApi,
@@ -58,7 +59,16 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
   // A GitHub App (installation tokens minted per call) or a plain token; otherwise the local git-backed forge.
   const privateKey = env.GITHUB_APP_PRIVATE_KEY?.includes("BEGIN") ? env.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, "\n") : env.GITHUB_APP_PRIVATE_KEY ? Buffer.from(env.GITHUB_APP_PRIVATE_KEY, "base64").toString("utf8") : undefined;
   const appAuth = env.GITHUB_APP_ID && privateKey ? new HttpGitHubAppAuth({ appId: env.GITHUB_APP_ID, privateKey, installationId: env.GITHUB_APP_INSTALLATION_ID }) : undefined;
-  const forge: Forge = appAuth ? new GitHubForge({ token: () => appAuth.installationToken() }) : env.GITHUB_TOKEN ? new GitHubForge({ token: env.GITHUB_TOKEN }) : new FakeForge(join(dataDir, "forge"), ["main"], true);
+  let forgeImpl: Forge = appAuth ? new GitHubForge({ token: () => appAuth.installationToken() }) : env.GITHUB_TOKEN ? new GitHubForge({ token: env.GITHUB_TOKEN }) : new FakeForge(join(dataDir, "forge"), ["main"], true);
+  // Delegates to the current forge, so a GitHub App created from the web app takes over without a restart.
+  const forge = new Proxy({} as Forge, {
+    get: (_t, prop) => {
+      const value = (forgeImpl as unknown as Record<PropertyKey, unknown>)[prop];
+      return typeof value === "function" ? value.bind(forgeImpl) : value;
+    },
+    getPrototypeOf: () => Object.getPrototypeOf(forgeImpl),
+  });
+  const githubConfig = { appSlug: env.GITHUB_APP_SLUG, appId: env.GITHUB_APP_ID, privateKey, clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET };
   const tracker = env.LINEAR_API_KEY && env.LINEAR_TEAM_ID
     ? new LinearTracker({ apiKey: env.LINEAR_API_KEY, teamId: env.LINEAR_TEAM_ID })
     : env.JIRA_BASE_URL && env.JIRA_API_TOKEN
@@ -100,15 +110,26 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     serverAdmins: (env.KILN_ADMIN_EMAILS ?? "").split(",").map((e) => e.trim()).filter(Boolean),
     forgeToken: env.GITHUB_TOKEN,
     connectionProviders: connectionProviders({
-      github: { appSlug: env.GITHUB_APP_SLUG, appId: env.GITHUB_APP_ID, privateKey, clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET },
+      github: githubConfig,
       slack: { clientId: env.SLACK_CLIENT_ID, clientSecret: env.SLACK_CLIENT_SECRET },
       linear: { clientId: env.LINEAR_CLIENT_ID, clientSecret: env.LINEAR_CLIENT_SECRET },
       jira: { clientId: env.JIRA_CLIENT_ID, clientSecret: env.JIRA_CLIENT_SECRET },
       discord: { applicationId: env.DISCORD_APPLICATION_ID },
     }),
     adapters: adaptersFromEnv(env),
+    onGitHubApp: (app) => useGitHubApp(app),
   };
   const kiln = new Kiln(options);
+
+  /** Kiln's own GitHub App (created from the web app) when the environment configures none. */
+  function useGitHubApp(app: GitHubAppCredentials) {
+    if (env.GITHUB_APP_ID || env.GITHUB_TOKEN) return;
+    const auth = new HttpGitHubAppAuth({ appId: app.appId, privateKey: app.privateKey });
+    forgeImpl = new GitHubForge({ token: () => auth.installationToken(kiln.githubApp.credentials()?.installationId) });
+    Object.assign(githubConfig, { appSlug: app.slug, appId: app.appId, privateKey: app.privateKey });
+  }
+  const ownApp = kiln.githubApp.credentials();
+  if (ownApp) useGitHubApp(ownApp);
 
   let adminToken: string | undefined;
   const tokenFile = join(dataDir, "admin-token");
@@ -123,7 +144,7 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
   kiln.teams.ensureDefaultTeam();
   const github = env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET ? new GitHubOAuthClient({ clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET, baseUrl: env.GITHUB_OAUTH_URL, apiUrl: env.GITHUB_API_URL }) : undefined;
 
-  return { kiln, devAuth: env.KILN_DEV_AUTH === "1", port, publicUrl, dataDir, mode: env.GITHUB_TOKEN || appAuth ? "connected" : "local", adminToken, github, openSignup: env.KILN_OPEN_SIGNUP === "1" };
+  return { kiln, devAuth: env.KILN_DEV_AUTH === "1", port, publicUrl, dataDir, mode: env.GITHUB_TOKEN || appAuth || ownApp ? "connected" : "local", adminToken, github, openSignup: env.KILN_OPEN_SIGNUP === "1" };
 }
 
 /**

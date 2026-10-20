@@ -1,5 +1,6 @@
 import { createSign } from "node:crypto";
 import { mentionsIn, uniq, type IncomingEvent } from "./events";
+import { jsonRequest } from "./http";
 
 /** The handle people mention on GitHub, and the prefix of the routing label (`factory:<alias>`). */
 export const GITHUB_BOT_HANDLE = "kiln-factory";
@@ -254,4 +255,65 @@ export async function githubExchangeCode(input: { clientId: string; clientSecret
   if (!body.access_token) throw new Error(`GitHub OAuth failed: ${body.error ?? res.status}`);
   const me = (await (await doFetch("https://api.github.com/user", { headers: { authorization: `Bearer ${body.access_token}`, accept: "application/vnd.github+json" } })).json()) as { login: string; email?: string };
   return { accessToken: body.access_token, login: me.login, email: me.email ?? undefined };
+}
+
+/** What GitHub hands back when a manifest becomes an app: everything Kiln needs to act as it. */
+export type GitHubAppCredentials = { appId: string; slug: string; privateKey: string; webhookSecret: string; clientId?: string; clientSecret?: string; owner?: string; htmlUrl?: string };
+
+/** Turns a GitHub App manifest into an app (POST /app-manifests/{code}/conversions). */
+export interface GitHubManifestClient {
+  convert(code: string): Promise<GitHubAppCredentials>;
+}
+
+/**
+ * The app Kiln asks GitHub to create: the permissions agents and reviews need, every event
+ * automations listen to, webhooks to the API, and a setup URL that brings the installation back.
+ */
+export function githubAppManifest(input: { name: string; publicUrl: string; webUrl: string }) {
+  const api = input.publicUrl.replace(/\/$/, "");
+  return {
+    name: input.name.slice(0, 34),
+    url: input.webUrl,
+    hook_attributes: { url: `${api}/webhooks/github`, active: true },
+    redirect_url: `${api}/oauth/github/app/callback`,
+    setup_url: `${api}/oauth/github/app/installed`,
+    callback_urls: [`${api}/api/v1/auth/github/callback`],
+    setup_on_update: true,
+    public: false,
+    default_permissions: { contents: "write", issues: "write", pull_requests: "write", checks: "write", statuses: "read", actions: "read", metadata: "read", members: "read" },
+    default_events: ["issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment", "check_suite", "check_run", "status", "workflow_run", "push"],
+  };
+}
+
+/** Where the browser posts the manifest: a personal account, or an organization when `org` is set. */
+export function githubManifestAction(state: string, org?: string, baseUrl = "https://github.com") {
+  const path = org ? `/organizations/${encodeURIComponent(org)}/settings/apps/new` : "/settings/apps/new";
+  return `${baseUrl}${path}?state=${encodeURIComponent(state)}`;
+}
+
+export class HttpGitHubManifests implements GitHubManifestClient {
+  constructor(private readonly opts: { apiUrl?: string; fetch?: Fetch } = {}) {}
+
+  async convert(code: string): Promise<GitHubAppCredentials> {
+    const r = await jsonRequest<{ id: number; slug: string; pem: string; webhook_secret: string; client_id?: string; client_secret?: string; owner?: { login: string }; html_url?: string }>(
+      "GitHub",
+      this.opts.fetch ?? fetch,
+      "POST",
+      `${this.opts.apiUrl ?? "https://api.github.com"}/app-manifests/${encodeURIComponent(code)}/conversions`,
+      { accept: "application/vnd.github+json" },
+    );
+    if (!r?.id || !r.pem) throw new Error("GitHub did not return the app; the code may have expired (it is valid for an hour)");
+    return { appId: String(r.id), slug: r.slug, privateKey: r.pem, webhookSecret: r.webhook_secret, clientId: r.client_id, clientSecret: r.client_secret, owner: r.owner?.login, htmlUrl: r.html_url };
+  }
+}
+
+/** Test double: every code converts to the same app. */
+export class FakeGitHubManifests implements GitHubManifestClient {
+  readonly codes: string[] = [];
+  constructor(private readonly app: GitHubAppCredentials = { appId: "4242", slug: "kiln-test", privateKey: "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----\n", webhookSecret: "whsec-fake", owner: "acme" }) {}
+  async convert(code: string) {
+    this.codes.push(code);
+    if (code === "expired") throw new Error("GitHub did not return the app; the code may have expired (it is valid for an hour)");
+    return this.app;
+  }
 }

@@ -1,7 +1,7 @@
 import { createHmac, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { issueToken } from "@kiln/auth";
 import { createTestKiln, sampleTree } from "@kiln/engine";
-import { FakeBotFrameworkVerifier, FakeChat, FakeConnectionProvider, unzipStored } from "@kiln/integrations";
+import { FakeBotFrameworkVerifier, FakeChat, FakeConnectionProvider, FakeGitHubManifests, unzipStored } from "@kiln/integrations";
 import { KilnClient } from "@kiln/sdk-ts";
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app";
@@ -378,5 +378,63 @@ describe("custom webhooks API", () => {
     const r = await admin.addAutomationFromTemplate("webapp", "audit-dependencies");
     expect(r.applied).toBe(true);
     expect(Object.keys(kiln.defs.current("webapp").automations)).toContain("audit-dependencies");
+  });
+});
+
+describe("Kiln's own GitHub App from a manifest", () => {
+  function appSetup() {
+    const manifests = new FakeGitHubManifests();
+    const configured: string[] = [];
+    const t = createTestKiln({
+      publicUrl: "https://kiln-api.acme.test",
+      webUrl: "https://kiln.acme.test",
+      secretKey: "test-secret-key",
+      githubManifests: manifests,
+      onGitHubApp: (a) => configured.push(a.slug),
+      connectionProviders: { github: new FakeConnectionProvider("github", "GitHub") },
+    });
+    const app = createApp(t.kiln);
+    const inProcess = async (input: string | URL | Request, init?: RequestInit) => app.fetch(new Request(input as string, init));
+    const tok = (subject: string, scope: string) => issueToken(t.kiln.store, { name: subject, subject, grants: [{ scope: scope as never, factory: "*" }] }).token;
+    const client = (token: string) => new KilnClient({ baseUrl: "http://kiln.test", token, fetch: inProcess as typeof fetch });
+    return { ...t, app, manifests, configured, admin: client(tok("admin@acme.test", "admin")), reader: client(tok("viewer@acme.test", "read")) };
+  }
+
+  it("creates the app, keeps its key out of reach of agents, and connects after install", async () => {
+    const { app, kiln, manifests, configured, admin, reader } = appSetup();
+    await expect(reader.request("POST", "/api/v1/connections/github/app-manifest", {})).rejects.toMatchObject({ status: 403 });
+    const start = await admin.request<{ action: string; state: string; manifest: { hook_attributes: { url: string }; redirect_url: string; setup_url: string; default_permissions: Record<string, string> } }>("POST", "/api/v1/connections/github/app-manifest", { org: "acme" });
+    expect(start.action).toBe(`https://github.com/organizations/acme/settings/apps/new?state=${start.state}`);
+    expect(start.manifest).toMatchObject({ hook_attributes: { url: "https://kiln-api.acme.test/webhooks/github" }, redirect_url: "https://kiln-api.acme.test/oauth/github/app/callback", setup_url: "https://kiln-api.acme.test/oauth/github/app/installed" });
+    expect(start.manifest.default_permissions).toMatchObject({ contents: "write", pull_requests: "write", issues: "write" });
+
+    const created = await app.request(`/oauth/github/app/callback?code=abc&state=${start.state}`);
+    expect(created.status).toBe(302);
+    const install = new URL(created.headers.get("location")!);
+    expect(install.origin + install.pathname).toBe("https://github.com/apps/kiln-test/installations/new");
+    expect(manifests.codes).toEqual(["abc"]);
+    expect(configured).toEqual(["kiln-test"]);
+    // The state is single use.
+    expect((await app.request(`/oauth/github/app/callback?code=abc&state=${start.state}`)).headers.get("location")).toContain("error=");
+    // The key is not a named secret: neither the server secrets nor a run's resolver can return it.
+    expect(JSON.stringify(kiln.store.list("github_app"))).not.toContain("BEGIN RSA");
+    expect(kiln.secrets.getSecret("GITHUB_APP_PRIVATE_KEY")).toBeUndefined();
+    expect(kiln.vault.resolver({}).get("GITHUB_APP_PRIVATE_KEY")).toBeUndefined();
+    expect(await admin.request("GET", "/api/v1/connections/github/app")).toMatchObject({ slug: "kiln-test", appId: "4242", createdBy: "admin@acme.test" });
+
+    const installed = await app.request(`/oauth/github/app/installed?installation_id=987&setup_action=install&state=${install.searchParams.get("state")}`);
+    expect(decodeURIComponent(installed.headers.get("location")!)).toBe("https://kiln.acme.test/integrations?provider=github&connected=1");
+    expect(kiln.githubApp.info()).toMatchObject({ installationId: "987" });
+    expect(kiln.connections.list().find((p) => p.provider === "github")?.connection?.status).toBe("connected");
+    // Webhooks are now verified with the app's secret.
+    const unsigned = await app.request("/webhooks/github", { method: "POST", body: "{}", headers: { "x-github-event": "ping" } });
+    expect(unsigned.status).toBe(401);
+  });
+
+  it("sends people back to Integrations when GitHub's code has expired", async () => {
+    const { app, admin } = appSetup();
+    const { state } = await admin.request<{ state: string }>("POST", "/api/v1/connections/github/app-manifest");
+    const r = await app.request(`/oauth/github/app/callback?code=expired&state=${state}`);
+    expect(r.headers.get("location")).toMatch(/^https:\/\/kiln\.acme\.test\/integrations\?provider=github&error=GitHub%20did%20not%20return/);
   });
 });

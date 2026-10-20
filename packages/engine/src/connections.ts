@@ -1,0 +1,334 @@
+import { randomBytes } from "node:crypto";
+import { CONNECTION_PROVIDERS, type ConnectionProvider, type ConnectionProviderId, type ConnectionStatus, type StartResult, type TestResult } from "@kiln/integrations";
+import type { Kiln } from "./kiln";
+import { LINK_PROVIDERS, P, type LinkProvider, type User } from "./platform/types";
+import { C } from "./types";
+
+/** A workspace-level connection to one external system. Factories opt in from factory.yaml. */
+export type Connection = {
+  id: ConnectionProviderId;
+  provider: ConnectionProviderId;
+  status: ConnectionStatus;
+  account?: { id: string; name: string; url?: string };
+  installation: Record<string, string | number | boolean | undefined>;
+  scopes: string[];
+  connectedBy?: string;
+  connectedAt?: string;
+  error?: string;
+  lastTest?: TestResult & { at: string };
+  /** Names → ids for alias filters and pickers: teams, projects, states, channels, users. */
+  directory?: Record<string, Record<string, string>>;
+  /** Credential key → name of the Kiln secret holding it. */
+  secretNames: Record<string, string>;
+};
+
+export type ApprovalLink = {
+  id: string;
+  provider: ConnectionProviderId;
+  token: string;
+  email?: string;
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string;
+  state: "open" | "used" | "revoked";
+  sentCount: number;
+};
+
+type OAuthState = { id: string; provider: ConnectionProviderId; by: string; createdAt: string; approvalLink?: string };
+
+const APPROVAL_TTL_MS = 7 * 86_400_000;
+const STATE_TTL_MS = 30 * 60_000;
+const secretName = (provider: string, key: string) => `KILN_CONN_${provider.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_${key.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase()}`;
+
+/** Which connection resolves alias names for a trigger provider. */
+const DIRECTORY_OF: Record<string, ConnectionProviderId> = { linear: "linear", slack: "slack", jira: "jira", teams: "microsoft-teams", discord: "discord", github: "github", gitlab: "gitlab", azure_devops: "azure_devops" };
+
+export class ConnectionError extends Error {}
+
+export class ConnectionService {
+  constructor(
+    private readonly k: Kiln,
+    private readonly providers: Partial<Record<ConnectionProviderId, ConnectionProvider>> = {},
+  ) {}
+
+  private now() {
+    return this.k.clock.now();
+  }
+
+  private provider(id: string): ConnectionProvider {
+    if (!(CONNECTION_PROVIDERS as readonly string[]).includes(id)) throw new ConnectionError(`unknown provider ${id}`);
+    const p = this.providers[id as ConnectionProviderId];
+    if (!p) throw new ConnectionError(`${id} is not available on this server`);
+    return p;
+  }
+
+  /** Every provider, with its connection when there is one. */
+  list(): { provider: ConnectionProviderId; label: string; mode?: string; available: boolean; connection?: Connection; pendingApprovals: number }[] {
+    return CONNECTION_PROVIDERS.map((id) => {
+      const p = this.providers[id];
+      return {
+        provider: id,
+        label: p?.label ?? id,
+        mode: p?.mode,
+        available: Boolean(p),
+        connection: this.get(id),
+        pendingApprovals: this.approvalLinks(id).filter((l) => l.state === "open").length,
+      };
+    });
+  }
+
+  get(id: string): Connection | undefined {
+    return this.k.store.get<Connection>(C.connections, id);
+  }
+
+  isConnected(id: string): boolean {
+    return this.get(id)?.status === "connected";
+  }
+
+  /** Credentials of a connection, read from Kiln secrets. */
+  credentials(id: string): Record<string, string> {
+    const c = this.get(id);
+    const out: Record<string, string> = {};
+    for (const [key, name] of Object.entries(c?.secretNames ?? {})) {
+      const v = this.k.secrets.getSecret(name);
+      if (v) out[key] = v;
+    }
+    return out;
+  }
+
+  /** Begin connecting: an OAuth/install URL and/or setup steps, plus the state to send back. */
+  start(id: string, by: string, urls: { redirectUri: string; webhookUrl: string }, approvalLink?: string): StartResult & { provider: string; state: string } {
+    const p = this.provider(id);
+    const state: OAuthState = { id: randomBytes(16).toString("hex"), provider: p.id, by, createdAt: this.now().toISOString(), approvalLink };
+    this.k.store.put(C.connectionStates, state);
+    return { provider: p.id, state: state.id, ...p.start({ state: state.id, redirectUri: urls.redirectUri, webhookUrl: urls.webhookUrl }) };
+  }
+
+  /** Finish connecting: OAuth code + state, or the manual fields. */
+  async complete(id: string, input: { code?: string; state?: string; params?: Record<string, string>; by: string; redirectUri: string; webhookUrl: string }): Promise<Connection> {
+    const p = this.provider(id);
+    let by = input.by;
+    let approval: string | undefined;
+    if (input.state) {
+      const st = this.k.store.get<OAuthState>(C.connectionStates, input.state);
+      if (!st || st.provider !== p.id || this.now().getTime() - Date.parse(st.createdAt) > STATE_TTL_MS) throw new ConnectionError("the connection link expired or was already used; start again");
+      this.k.store.delete(C.connectionStates, st.id);
+      by = st.by;
+      approval = st.approvalLink;
+    } else if (input.code) {
+      throw new ConnectionError("state is required with an OAuth code");
+    }
+    const now = this.now().toISOString();
+    try {
+      const r = await p.complete({ code: input.code, state: input.state, params: input.params, redirectUri: input.redirectUri, webhookUrl: input.webhookUrl });
+      const secretNames: Record<string, string> = {};
+      for (const [key, value] of Object.entries(r.secrets)) {
+        if (!value) continue;
+        const name = secretName(p.id, key);
+        this.k.secrets.setSecret(name, value);
+        secretNames[key] = name;
+      }
+      const conn: Connection = { id: p.id, provider: p.id, status: "connected", account: r.account, installation: r.installation, scopes: r.scopes, connectedBy: by, connectedAt: now, secretNames, directory: this.get(p.id)?.directory };
+      this.k.store.put(C.connections, conn);
+      if (approval) {
+        const link = this.k.store.get<ApprovalLink>(C.approvalLinks, approval);
+        if (link) this.k.store.put(C.approvalLinks, { ...link, state: "used" });
+      }
+      this.k.audit(by, "connection.connected", p.id, { account: r.account.name, viaApproval: Boolean(approval) });
+      await this.refreshDirectory(p.id);
+      return this.get(p.id) ?? conn;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const prev = this.get(p.id);
+      this.k.store.put(C.connections, { ...(prev ?? { id: p.id, provider: p.id, installation: {}, scopes: [], secretNames: {} }), status: "error", error: message } satisfies Connection);
+      this.k.audit(by, "connection.failed", p.id, { error: message });
+      throw new ConnectionError(`${p.label}: ${message}`);
+    }
+  }
+
+  async test(id: string): Promise<TestResult> {
+    const p = this.provider(id);
+    const c = this.get(id);
+    if (!c) throw new ConnectionError(`${p.label} is not connected`);
+    let result: TestResult;
+    try {
+      result = await p.test({ installation: c.installation, secrets: this.credentials(id) });
+    } catch (err) {
+      result = { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+    this.k.store.put(C.connections, { ...c, status: result.ok ? "connected" : "error", error: result.ok ? undefined : result.message, lastTest: { ...result, at: this.now().toISOString() } });
+    if (result.ok) await this.refreshDirectory(id);
+    return result;
+  }
+
+  /** Reload names → ids (Linear teams, projects, states, users; Jira projects) for alias filters. Best effort. */
+  async refreshDirectory(id: string) {
+    try {
+      if (id === "linear" && this.k.integrations.linearAgent) this.setDirectory("linear", await this.k.integrations.linearAgent.directory());
+      if (id === "jira" && this.k.integrations.jira) this.setDirectory("jira", { projects: await this.k.integrations.jira.projects() });
+    } catch (err) {
+      this.k.audit("kiln", "connection.directory_failed", id, { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  disconnect(id: string, by: string): boolean {
+    const c = this.get(id);
+    if (!c) return false;
+    for (const name of Object.values(c.secretNames)) this.k.store.delete(C.secrets, name);
+    this.k.store.delete(C.connections, id);
+    for (const l of this.approvalLinks(id)) if (l.state === "open") this.k.store.put(C.approvalLinks, { ...l, state: "revoked" });
+    this.k.audit(by, "connection.disconnected", id);
+    return true;
+  }
+
+  /** Names → ids used to resolve alias filters (refreshed when the connection is tested or set by an admin). */
+  setDirectory(id: ConnectionProviderId, directory: Record<string, Record<string, string>>) {
+    const c = this.get(id) ?? ({ id, provider: id, status: "connected", installation: {}, scopes: [], secretNames: {} } satisfies Connection);
+    this.k.store.put(C.connections, { ...c, directory });
+  }
+
+  /** Resolve one alias name (e.g. linear teams "Engineering") to ids. */
+  resolveName(triggerProvider: string, key: string, name: string): string[] | undefined {
+    const conn = this.get(DIRECTORY_OF[triggerProvider] ?? triggerProvider);
+    const kind = key === "itemUsers" ? "users" : key;
+    const dir = conn?.directory?.[kind];
+    if (!dir) return undefined;
+    const hit = dir[name] ?? Object.entries(dir).find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1];
+    return hit ? [hit] : undefined;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // "Someone else" approval links (a site admin finishes the connection; expire after 7 days)
+
+  approvalLinks(provider?: string): ApprovalLink[] {
+    return this.k.store
+      .list<ApprovalLink>(C.approvalLinks, (l) => !provider || l.provider === provider)
+      .map((l) => (l.state === "open" && Date.parse(l.expiresAt) < this.now().getTime() ? { ...l, state: "revoked" as const } : l))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  createApprovalLink(id: string, by: string, email?: string): ApprovalLink {
+    const p = this.provider(id);
+    const now = this.now();
+    const link: ApprovalLink = { id: `apl_${randomBytes(6).toString("hex")}`, provider: p.id, token: randomBytes(24).toString("base64url"), email, createdBy: by, createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + APPROVAL_TTL_MS).toISOString(), state: "open", sentCount: 1 };
+    this.k.store.put(C.approvalLinks, link);
+    const c = this.get(p.id);
+    if (!c || c.status !== "connected") this.k.store.put(C.connections, { ...(c ?? { id: p.id, provider: p.id, installation: {}, scopes: [], secretNames: {} }), status: "pending_approval" } satisfies Connection);
+    this.k.audit(by, "connection.approval_requested", p.id, { email });
+    return link;
+  }
+
+  /** Resend: a fresh token and another 7 days. */
+  resendApprovalLink(linkId: string, by: string): ApprovalLink {
+    const link = this.k.store.get<ApprovalLink>(C.approvalLinks, linkId);
+    if (!link || link.state !== "open") throw new ConnectionError("unknown or closed approval link");
+    const next = { ...link, token: randomBytes(24).toString("base64url"), expiresAt: new Date(this.now().getTime() + APPROVAL_TTL_MS).toISOString(), sentCount: link.sentCount + 1 };
+    this.k.store.put(C.approvalLinks, next);
+    this.k.audit(by, "connection.approval_resent", link.provider);
+    return next;
+  }
+
+  revokeApprovalLink(linkId: string, by: string) {
+    const link = this.k.store.get<ApprovalLink>(C.approvalLinks, linkId);
+    if (!link) throw new ConnectionError("unknown approval link");
+    this.k.store.put(C.approvalLinks, { ...link, state: "revoked" });
+    const c = this.get(link.provider);
+    if (c?.status === "pending_approval" && !this.approvalLinks(link.provider).some((l) => l.state === "open" && l.id !== link.id)) this.k.store.delete(C.connections, c.id);
+    this.k.audit(by, "connection.approval_revoked", link.provider);
+  }
+
+  /** The approver opened the link: start the provider flow on behalf of the link's creator. */
+  openApprovalLink(token: string, urls: { redirectUri: string; webhookUrl: string }) {
+    const link = this.k.store.list<ApprovalLink>(C.approvalLinks, (l) => l.token === token)[0];
+    if (!link || link.state !== "open") throw new ConnectionError("this approval link was revoked or already used");
+    if (Date.parse(link.expiresAt) < this.now().getTime()) throw new ConnectionError("this approval link expired; ask for a new one");
+    return this.start(link.provider, link.createdBy, urls, link.id);
+  }
+}
+
+/**
+ * Sign-in flows on top of users' linked accounts (`User.linkedAccounts`, the one store of who a
+ * provider identity is): chat `sign in` tokens for Slack, Teams and Discord, and GitHub OAuth for a
+ * signed-in user. Lookups go through the users service.
+ */
+export type IdentityLink = { id: string; provider: string; externalId: string; subject: string; userId: string; displayName?: string; linkedAt: string };
+type LinkToken = { id: string; provider: string; externalId: string; displayName?: string; userId?: string; createdAt: string };
+
+const asLinkProvider = (provider: string): LinkProvider => {
+  if (!(LINK_PROVIDERS as readonly string[]).includes(provider)) throw new ConnectionError(`accounts from ${provider} can't be linked`);
+  return provider as LinkProvider;
+};
+
+export class IdentityService {
+  constructor(private readonly k: Kiln) {}
+
+  /** The person (email) behind a provider identity, when one is linked or the identity is an email. */
+  lookup(provider: string, externalId: string): string | undefined {
+    const linked = this.k.users.byIdentity(provider, externalId);
+    if (linked) return linked.email;
+    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(externalId) ? externalId : undefined;
+  }
+
+  /** Every linked account, flattened (optionally for one person). */
+  list(subject?: string): IdentityLink[] {
+    return this.k.store
+      .list<User>(P.users, (u) => !subject || u.email === subject)
+      .flatMap((u) => u.linkedAccounts.map((a) => ({ id: `${a.provider}:${a.externalId}`, provider: a.provider, externalId: a.externalId, subject: u.email, userId: u.id, displayName: a.handle, linkedAt: a.linkedAt })));
+  }
+
+  /** A one-hour token a chat user opens in the browser to link their account (the `sign in` command). */
+  startLink(provider: string, externalId: string, extra: { displayName?: string } = {}): { token: string; url: string } {
+    asLinkProvider(provider);
+    const t: LinkToken = { id: randomBytes(18).toString("base64url"), provider, externalId, createdAt: this.k.clock.now().toISOString(), ...extra };
+    this.k.store.put(C.linkTokens, t);
+    return { token: t.id, url: this.k.link(`/link?token=${t.id}`) };
+  }
+
+  private take(token: string): LinkToken {
+    const t = this.k.store.get<LinkToken>(C.linkTokens, token);
+    if (!t || this.k.clock.now().getTime() - Date.parse(t.createdAt) > 3600_000) throw new ConnectionError("this link expired; ask for a new one");
+    this.k.store.delete(C.linkTokens, token);
+    return t;
+  }
+
+  /** The signed-in user claims a chat sign-in token: the chat account joins their linked accounts. */
+  claim(token: string, userId: string): User {
+    const t = this.take(token);
+    if (t.userId) throw new ConnectionError("this link is not a chat sign-in link");
+    return this.k.users.link(userId, asLinkProvider(t.provider), t.externalId, t.displayName);
+  }
+
+  /** Link an account for the user with this email (admin tools, tests, migrations). */
+  link(provider: string, externalId: string, subject: string, extra: { displayName?: string } = {}): User {
+    const user = this.k.users.byEmail(subject);
+    if (!user) throw new ConnectionError(`no Kiln user ${subject}`);
+    return this.k.users.link(user.id, asLinkProvider(provider), externalId, extra.displayName);
+  }
+
+  /** Teams `sign out`: unlink that account. Returns how many links were removed. */
+  unlink(provider: string, externalId: string): number {
+    const user = this.k.users.byIdentity(provider, externalId);
+    if (!user) return 0;
+    this.k.users.unlink(user.id, asLinkProvider(provider));
+    return 1;
+  }
+
+  /** A state for OAuth account linking (GitHub user OAuth) on behalf of a signed-in user. */
+  startOAuthLink(provider: string, userId: string): string {
+    asLinkProvider(provider);
+    const t: LinkToken = { id: `oauth_${randomBytes(18).toString("base64url")}`, provider, externalId: "", userId, createdAt: this.k.clock.now().toISOString() };
+    this.k.store.put(C.linkTokens, t);
+    return t.id;
+  }
+
+  completeOAuthLink(state: string, provider: string, externalId: string, handle?: string): User {
+    const t = this.take(state);
+    if (!t.userId || t.provider !== provider) throw new ConnectionError("this link request is not for this provider; start again");
+    return this.k.users.link(t.userId, asLinkProvider(provider), externalId, handle);
+  }
+
+  /** The provider id linked to a person (for DMs). */
+  externalFor(provider: string, subject: string): string | undefined {
+    return this.k.users.byEmail(subject)?.linkedAccounts.find((a) => a.provider === provider)?.externalId;
+  }
+}

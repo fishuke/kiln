@@ -6,7 +6,7 @@
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fileKinds, jsonSchemaFor, type FileKind } from "@kiln/schema";
+import { fileKinds, jsonSchemaFor, TRIGGER_CATALOG, type FileKind, type MatcherKind } from "@kiln/schema";
 import { KilnClient } from "@kiln/sdk-ts";
 import { createKilnMcpServer } from "../apps/mcp/src/index";
 import { ROUTES } from "../apps/api/src/openapi";
@@ -202,6 +202,49 @@ ${rows(jsonSchemaFor(kind) as JSONSchema).join("\n")}`,
 - [Definitions as code](definitions-as-code.md)
 - [Agents](agents.md)
 - [Automations](automations.md)
+`,
+  ),
+);
+
+// Automation triggers (from the trigger catalogue)
+const MATCHER: Record<MatcherKind, string> = {
+  string: "list or `{in, not_in}`",
+  string_in: "list or `{in}`",
+  int: "list of integers or `{in, not_in}`",
+  alias: "list of names (resolved on apply)",
+  int_alias: "list of numbers (resolved on apply)",
+  bots: "`all` \\| `self` \\| `none`",
+  payload: "payload pattern",
+  webhook_ids: "exactly one webhook",
+};
+write(
+  "configuration/automation-triggers.md",
+  page(
+    "Automation triggers",
+    "Every trigger provider, event and filter key, generated from the trigger catalogue.",
+    "Factory configuration",
+    `Generated from \`packages/schema/src/triggers.ts\`. A trigger names a \`provider\` and an \`event\`; its \`filter\` accepts only the keys listed for that pair. Every key must match (AND); any value in a list matches (OR). See [Automations](automations.md) for the matcher grammar, alias resolution and bot policy.
+
+${Object.entries(TRIGGER_CATALOG as Record<string, Record<string, Record<string, MatcherKind>>>)
+  .filter(([provider]) => provider !== "kiln")
+  .map(
+    ([provider, events]) => `## ${provider}
+
+| Event | Filter keys |
+| --- | --- |
+${Object.entries(events)
+  .map(([event, keys]) => `| \`${event}\` | ${Object.entries(keys).map(([k, kind]) => `\`${k}\` (${MATCHER[kind]})`).join(", ") || "none"} |`)
+  .join("\n")}`,
+  )
+  .join("\n\n")}
+
+Server-managed keys are rejected in definitions: GitLab \`bot_mentioned\` fills \`mentioned\` with the factory's bot, and \`schedule_ids\` is set from each inline schedule.
+
+## Related pages
+
+- [Automations](automations.md)
+- [Custom webhooks](../integrations/custom-webhooks.md)
+- [Connections](../integrations/connections.md)
 `,
   ),
 );

@@ -3,8 +3,28 @@ import { join, resolve } from "node:path";
 import { GitHubOAuthClient, issueToken, type GitHubOAuth } from "@kiln/auth";
 import { FakeProvider, JevProvider, LlmProvider, type DecisionProvider } from "@kiln/decide";
 import { loadTree } from "@kiln/definitions";
-import { DecisionJudge, fakeAgents, FakeJudge, Kiln, sampleTree, type KilnOptions } from "@kiln/engine";
-import { FakeChat, FakeForge, FakePreview, FakeTracker, GitHubForge, JiraTracker, LinearTracker, SlackChat, VercelPreview, type Forge } from "@kiln/integrations";
+import { DecisionJudge, fakeAgents, FakeJudge, Kiln, sampleTree, type IntegrationAdapters, type KilnOptions } from "@kiln/engine";
+import {
+  AzureDevOpsForge,
+  BitbucketForge,
+  connectionProviders,
+  DiscordChat,
+  FakeChat,
+  FakeForge,
+  FakePreview,
+  FakeTracker,
+  GitHubForge,
+  GitLabForge,
+  HttpGitHubAppAuth,
+  HttpJiraCloudApi,
+  HttpLinearAgentApi,
+  JiraTracker,
+  LinearTracker,
+  SlackChat,
+  TeamsChat,
+  VercelPreview,
+  type Forge,
+} from "@kiln/integrations";
 import { DockerSandboxProvider, KubernetesSandboxProvider, LocalSandboxProvider } from "@kiln/sandbox";
 import { FileObjectStore, FileStore } from "@kiln/store";
 
@@ -33,7 +53,10 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
   const port = Number(env.PORT ?? 4000);
   const publicUrl = env.KILN_PUBLIC_URL ?? `http://localhost:${port}`;
 
-  const forge: Forge = env.GITHUB_TOKEN ? new GitHubForge({ token: env.GITHUB_TOKEN }) : new FakeForge(join(dataDir, "forge"), ["main"], true);
+  // A GitHub App (installation tokens minted per call) or a plain token; otherwise the local git-backed forge.
+  const privateKey = env.GITHUB_APP_PRIVATE_KEY?.includes("BEGIN") ? env.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, "\n") : env.GITHUB_APP_PRIVATE_KEY ? Buffer.from(env.GITHUB_APP_PRIVATE_KEY, "base64").toString("utf8") : undefined;
+  const appAuth = env.GITHUB_APP_ID && privateKey ? new HttpGitHubAppAuth({ appId: env.GITHUB_APP_ID, privateKey, installationId: env.GITHUB_APP_INSTALLATION_ID }) : undefined;
+  const forge: Forge = appAuth ? new GitHubForge({ token: () => appAuth.installationToken() }) : env.GITHUB_TOKEN ? new GitHubForge({ token: env.GITHUB_TOKEN }) : new FakeForge(join(dataDir, "forge"), ["main"], true);
   const tracker = env.LINEAR_API_KEY && env.LINEAR_TEAM_ID
     ? new LinearTracker({ apiKey: env.LINEAR_API_KEY, teamId: env.LINEAR_TEAM_ID })
     : env.JIRA_BASE_URL && env.JIRA_API_TOKEN
@@ -69,6 +92,14 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     roles: parseRoles(env.KILN_ROLES ?? "po=po@kiln.local;code-owners=lead@kiln.local;admins=admin@kiln.local"),
     secretKey: env.KILN_SECRET_KEY,
     forgeToken: env.GITHUB_TOKEN,
+    connectionProviders: connectionProviders({
+      github: { appSlug: env.GITHUB_APP_SLUG, appId: env.GITHUB_APP_ID, privateKey, clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET },
+      slack: { clientId: env.SLACK_CLIENT_ID, clientSecret: env.SLACK_CLIENT_SECRET },
+      linear: { clientId: env.LINEAR_CLIENT_ID, clientSecret: env.LINEAR_CLIENT_SECRET },
+      jira: { clientId: env.JIRA_CLIENT_ID, clientSecret: env.JIRA_CLIENT_SECRET },
+      discord: { applicationId: env.DISCORD_APPLICATION_ID },
+    }),
+    adapters: adaptersFromEnv(env),
   };
   const kiln = new Kiln(options);
 
@@ -85,7 +116,23 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
   kiln.teams.ensureDefaultTeam();
   const github = env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET ? new GitHubOAuthClient({ clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET, baseUrl: env.GITHUB_OAUTH_URL, apiUrl: env.GITHUB_API_URL }) : undefined;
 
-  return { kiln, devAuth: env.KILN_DEV_AUTH === "1", port, publicUrl, dataDir, mode: env.GITHUB_TOKEN ? "connected" : "local", adminToken, github, openSignup: env.KILN_OPEN_SIGNUP === "1" };
+  return { kiln, devAuth: env.KILN_DEV_AUTH === "1", port, publicUrl, dataDir, mode: env.GITHUB_TOKEN || appAuth ? "connected" : "local", adminToken, github, openSignup: env.KILN_OPEN_SIGNUP === "1" };
+}
+
+/**
+ * Adapters for providers configured by environment variables. Providers connected later through
+ * the API are picked up from their stored credentials without a restart.
+ */
+export function adaptersFromEnv(env: NodeJS.ProcessEnv): IntegrationAdapters {
+  const adapters: IntegrationAdapters = { chats: {}, forges: {} };
+  if (env.GITLAB_TOKEN) adapters.forges!.gitlab = new GitLabForge({ token: env.GITLAB_TOKEN, baseUrl: env.GITLAB_BASE_URL });
+  if (env.AZURE_DEVOPS_ORG && env.AZURE_DEVOPS_TOKEN) adapters.forges!.azure_devops = new AzureDevOpsForge({ organization: env.AZURE_DEVOPS_ORG, token: env.AZURE_DEVOPS_TOKEN });
+  if (env.BITBUCKET_TOKEN) adapters.forges!.bitbucket = new BitbucketForge({ token: env.BITBUCKET_TOKEN, username: env.BITBUCKET_USERNAME });
+  if (env.TEAMS_APP_ID && env.TEAMS_APP_PASSWORD) adapters.chats!.teams = new TeamsChat({ appId: env.TEAMS_APP_ID, appPassword: env.TEAMS_APP_PASSWORD, tenantId: env.TEAMS_TENANT_ID });
+  if (env.DISCORD_BOT_TOKEN) adapters.chats!.discord = new DiscordChat({ botToken: env.DISCORD_BOT_TOKEN, applicationId: env.DISCORD_APPLICATION_ID });
+  if (env.LINEAR_ACCESS_TOKEN) adapters.linearAgent = new HttpLinearAgentApi({ token: env.LINEAR_ACCESS_TOKEN });
+  if (env.JIRA_CLOUD_ID && env.JIRA_ACCESS_TOKEN) adapters.jira = new HttpJiraCloudApi({ cloudId: env.JIRA_CLOUD_ID, accessToken: env.JIRA_ACCESS_TOKEN });
+  return adapters;
 }
 
 function parseRoles(spec: string): Record<string, string[]> {

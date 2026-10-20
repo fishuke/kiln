@@ -179,7 +179,7 @@ deliveryIdHeader: webhook-id
 triggers:
   - provider: webhook
     event: received
-    filter: { webhook: alerts }
+    filter: { webhook_ids: [alerts] }
 ---
 An alert fired. Find the cause, then fix it with a regression test.
 ```

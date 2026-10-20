@@ -24,8 +24,11 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
     }
   };
   const harnessMap: Record<string, string> = { oz: "opencode", claude: "claude-code", "claude-code": "claude-code", codex: "codex" };
-  const execution = (file: string, obj: Record<string, unknown>) => {
-    drop(file, obj, ["workerHost", "computerUseModel", "credentialStrategy", "required_repos"]);
+  const execution = (file: string, obj: Record<string, unknown>, keepOverrides = false) => {
+    drop(file, obj, keepOverrides ? ["credentialStrategy"] : ["workerHost", "computerUseModel", "credentialStrategy", "required_repos"]);
+    if (keepOverrides && Array.isArray(obj.required_repos)) {
+      obj.required_repos = obj.required_repos.map((r) => (typeof r === "string" ? r : `${(r as { owner: string }).owner}/${(r as { name: string }).name}`));
+    }
     if (obj.harness && typeof obj.harness === "object") {
       const h = obj.harness as Record<string, unknown>;
       h.type = harnessMap[String(h.type)] ?? "claude-code";
@@ -54,15 +57,23 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       f.schemaVersion = "kiln/v1";
       f.name = String(f.name ?? "factory");
       f.alias = slug(String(f.alias ?? f.name)).slice(0, 60);
+      const primary = String(((f.codeForges as string[] | undefined) ?? ["GITHUB"])[0] ?? "GITHUB").toLowerCase();
       f.repositories = ((f.repositories as Record<string, unknown>[]) ?? []).map((r) => ({
-        forge: String(r.codeForge ?? "GITHUB").toLowerCase() === "gitlab" ? "gitlab" : "github",
+        forge: String(r.codeForge ?? primary).toLowerCase(),
         owner: r.owner,
         name: r.name,
         ...(r.deferred ? { deferred: true } : {}),
       }));
-      f.integrations = ((f.integrations as { type: string }[]) ?? [])
-        .map((i) => i.type)
-        .filter((t) => ["slack", "linear", "jira"].includes(t));
+      // Keep each integration's settings; legacy teamIds/projectKeys are accepted and kept as-is.
+      const simple = (i: Record<string, unknown>) => Object.keys(i).length === 1;
+      f.integrations = ((f.integrations as Record<string, unknown>[]) ?? [])
+        .filter((i) => ["slack", "linear", "jira", "microsoft-teams", "discord"].includes(String(i.type)))
+        .map((i) => (simple(i) ? String(i.type) : i));
+      if (f.providers && !f.cloudProviders) {
+        f.cloudProviders = f.providers;
+        warnings.push(`${file}: providers renamed to cloudProviders`);
+      }
+      delete f.providers;
       if (f.selfImprovement) {
         const si = f.selfImprovement as Record<string, unknown>;
         f.selfImprovement = {
@@ -77,12 +88,12 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       drop(file, f, [
         "codeForges",
         "credentialStrategy",
-        "automations",
         "benchmarkRepoSubstitutions",
         "secrets",
         "mcpServers",
-        "cloudProviders",
         "scorerDefaults",
+        "networkPolicy",
+        "experimental",
       ]);
       out[file] = stringify(f);
     } else if (/^agents\/[^/]+\/agent\.md$/.test(file)) {
@@ -93,14 +104,10 @@ export function importV1alpha1(tree: DefinitionTree): { tree: DefinitionTree; wa
       });
     } else if (/^automations\/[^/]+\/automation\.md$/.test(file)) {
       out[file] = frontmatter(file, src, (fm) => {
-        drop(file, fm, ["idleTimeoutMinutes"]);
-        execution(file, fm);
-        for (const t of (fm.triggers as Record<string, unknown>[]) ?? []) {
-          if (t.provider === "azure_devops" || t.provider === "teams") {
-            warnings.push(`${file}: trigger provider ${t.provider} is not supported`);
-          }
-        }
+        execution(file, fm, true);
       });
+    } else if (/^automations\/[^/]+\.md$/.test(file)) {
+      out[file] = frontmatter(file, src, (fm) => execution(file, fm, true));
     } else if (/^runners\/[^/]+\.yaml$/.test(file)) {
       const r = parse(src) as Record<string, unknown>;
       const platform = (r.platform ?? {}) as Record<string, Record<string, unknown> | string>;

@@ -76,9 +76,10 @@ export function validateTree(tree: DefinitionTree): ValidationResult {
     if (agent && !agentNames.has(agent)) err(key, ["agent"], "ref", `agent ${agent} is not defined in agents/`);
     for (const [i, t] of au.frontmatter.triggers.entries()) {
       if (t.provider === "webhook") {
-        const id = (t.filter as { webhook?: string } | undefined)?.webhook;
-        if (!id || !parsed.webhooks[id]) {
-          err(key, ["triggers", i, "filter"], "ref", `webhook triggers need filter.webhook naming a file in webhooks/`);
+        // A file webhook is named by its file; a managed webhook by its uid (wh_…), checked when it fires.
+        const id = webhookIdOf(t.filter);
+        if (!id || (!id.startsWith("wh_") && !parsed.webhooks[id])) {
+          err(key, ["triggers", i, "filter"], "ref", `webhook triggers need filter.webhook_ids naming a file in webhooks/ or a managed webhook uid`);
         }
       }
     }
@@ -174,6 +175,15 @@ export function validateTree(tree: DefinitionTree): ValidationResult {
 
   if (errors.length > 0) return { ok: false, errors: dedupe(errors), parsed, warnings: parsed.warnings };
   return { ok: true, resolved: resolve(parsed), parsed, warnings: parsed.warnings };
+}
+
+/** The webhook a trigger names: `webhook_ids: [x]`, `webhook_ids: { in: [x] }` or the legacy `webhook: x`. */
+export function webhookIdOf(filter: Record<string, unknown> | undefined): string | undefined {
+  if (!filter) return undefined;
+  if (typeof filter.webhook === "string") return filter.webhook;
+  const ids = filter.webhook_ids;
+  const list = Array.isArray(ids) ? ids : (ids as { in?: unknown[] } | undefined)?.in;
+  return typeof list?.[0] === "string" ? list[0] : undefined;
 }
 
 function dedupe(errors: DefinitionError[]): DefinitionError[] {

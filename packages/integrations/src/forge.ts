@@ -3,7 +3,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export type RepoRef = { owner: string; name: string; forge?: "github" | "gitlab" };
+export type ForgeKind = "github" | "gitlab" | "azure_devops" | "bitbucket";
+export type RepoRef = { owner: string; name: string; forge?: ForgeKind };
 export const repoKey = (r: RepoRef) => `${r.owner}/${r.name}`;
 
 export type PullRequest = {

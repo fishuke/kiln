@@ -29,7 +29,7 @@ describe("regressions found while writing the docs", () => {
   it("stage changes trigger factory automations", async () => {
     const tree = sampleTree({
       "agents/notifier/agent.md": "---\ndescription: notes\n---\nWrite release notes.\n",
-      "automations/on-handoff/automation.md": "---\nagent: notifier\ntriggers:\n  - provider: factory\n    event: work_item_stage_changed\n    filter: { to: [handed_off] }\n---\nDraft release notes for the hand-off.\n",
+      "automations/on-handoff/automation.md": "---\nagent: notifier\ntriggers:\n  - provider: factory\n    event: work_item_stage_changed\n    filter: { stages: [handed_off] }\n---\nDraft release notes for the hand-off.\n",
     });
     const { kiln } = createTestKiln({ tree, preview: false });
     const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix typo", body: "", source: { provider: "api" }, requester: "a" });

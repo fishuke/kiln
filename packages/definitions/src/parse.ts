@@ -82,6 +82,7 @@ const KINDS: { pattern: RegExp; kind: string; spec: Kind }[] = [
     kind: "automation",
     spec: { schema: AutomationFrontmatter, frontmatter: true },
   },
+  { pattern: /^automations\/([^/]+)\.md$/, kind: "automation", spec: { schema: AutomationFrontmatter, frontmatter: true } },
   { pattern: /^pipelines\/([^/]+)\.yaml$/, kind: "pipeline", spec: { schema: Pipeline, frontmatter: false } },
   { pattern: /^gates\/([^/]+)\.yaml$/, kind: "gate", spec: { schema: Gate, frontmatter: false } },
   { pattern: /^policies\/([^/]+)\.yaml$/, kind: "policy", spec: { schema: Policy, frontmatter: false } },

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRIGGER_PROVIDERS, validateSchedules, validateTrigger, type TriggerProviderName } from "./triggers";
 
 export const SCHEMA_VERSION = "kiln/v1" as const;
 
@@ -36,14 +37,91 @@ const executionShape = {
   mcpServers: z.array(z.string()).nullable().optional(),
 };
 
+export const ForgeName = z.enum(["github", "gitlab", "azure_devops", "bitbucket"]);
+export type ForgeName = z.infer<typeof ForgeName>;
+
 export const Repository = z
   .object({
-    forge: z.enum(["github", "gitlab"]).default("github"),
+    forge: ForgeName.default("github"),
     owner: z.string().min(1),
     name: z.string().min(1),
     deferred: z.boolean().default(false),
   })
   .strict();
+
+const ChatSettings = {
+  /** When true (default), plain replies in a factory thread continue the work; when false a mention is required. */
+  autoRespondToThreadReplies: z.boolean().optional(),
+};
+
+export const IntegrationType = z.enum(["slack", "microsoft-teams", "discord", "linear", "jira"]);
+export type IntegrationType = z.infer<typeof IntegrationType>;
+
+const TeamsChannelId = z.string().regex(/^19:.+@thread\.(tacv2|skype)$/, "use a Teams channel id (19:…@thread.tacv2)");
+
+/** One entry of factory.yaml `integrations`; settings live under the key named after the type. */
+export const FactoryIntegration = z.union([
+  z.enum(["github", "gitlab", "slack", "linear", "jira", "discord", "microsoft-teams", "teams", "azure_devops", "bitbucket"]),
+  z
+    .object({
+      type: z.string().min(1),
+      slack: z.object({ ...ChatSettings, channels: z.array(z.string()).optional() }).strict().optional(),
+      "microsoft-teams": z
+        .object({ ...ChatSettings, teams: z.array(z.object({ teamId: z.string().min(1), channelIds: z.array(TeamsChannelId).min(1) }).strict()).optional() })
+        .strict()
+        .optional(),
+      discord: z.object({ ...ChatSettings, guildIds: z.array(z.string()).optional(), channelIds: z.array(z.string()).optional() }).strict().optional(),
+      linear: z.object({ teams: z.array(z.string()).optional(), teamIds: z.array(z.string()).optional() }).strict().optional(),
+      jira: z.object({ projects: z.array(z.string()).optional(), projectKeys: z.array(z.string()).optional() }).strict().optional(),
+    })
+    .strict()
+    .superRefine((i, ctx) => {
+      for (const key of ["slack", "microsoft-teams", "discord", "linear", "jira"] as const) {
+        if (i[key] && i.type !== key) ctx.addIssue({ code: "custom", path: [key], message: `${key} settings are only valid when type is ${key}` });
+      }
+      if (!["slack", "microsoft-teams", "teams", "discord", "linear", "jira", "github", "gitlab", "azure_devops", "bitbucket"].includes(i.type)) {
+        ctx.addIssue({ code: "custom", path: ["type"], message: `unknown integration ${i.type}; use slack, microsoft-teams, discord, linear or jira` });
+      }
+    }),
+]);
+
+export type IntegrationSettings = {
+  type: IntegrationType;
+  slack?: { autoRespondToThreadReplies?: boolean; channels?: string[] };
+  "microsoft-teams"?: { autoRespondToThreadReplies?: boolean; teams?: { teamId: string; channelIds: string[] }[] };
+  discord?: { autoRespondToThreadReplies?: boolean; guildIds?: string[]; channelIds?: string[] };
+  linear?: { teams?: string[]; teamIds?: string[] };
+  jira?: { projects?: string[]; projectKeys?: string[] };
+};
+
+/** Bare names and objects alike become `{ type, ...settings }`; forges come from repositories and are dropped. */
+function normalizeIntegrations(list: z.infer<typeof FactoryIntegration>[]): IntegrationSettings[] {
+  const out: IntegrationSettings[] = [];
+  for (const entry of list) {
+    const obj = typeof entry === "string" ? { type: entry } : entry;
+    const type = obj.type === "teams" ? "microsoft-teams" : obj.type;
+    if (!(IntegrationType.options as string[]).includes(type)) continue;
+    out.push({ ...obj, type } as IntegrationSettings);
+  }
+  return out;
+}
+
+/** Cloud identity federation passed to runs (AWS_ROLE_ARN, GCP workload identity). */
+export const CloudProviders = z
+  .object({
+    aws: z.object({ roleArn: z.string().regex(/^arn:aws[a-z-]*:iam::\d{12}:role\/.+/, "use an IAM role ARN") }).strict().optional(),
+    gcp: z
+      .object({
+        projectNumber: z.string().regex(/^\d+$/, "quote the project number so YAML keeps it a string"),
+        workloadIdentityFederationPoolId: z.string().min(1),
+        workloadIdentityFederationProviderId: z.string().min(1),
+        serviceAccountEmail: z.string().email().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type CloudProviders = z.infer<typeof CloudProviders>;
 
 export const Factory = z
   .object({
@@ -53,7 +131,13 @@ export const Factory = z
     description: z.string().optional(),
     project: z.string().optional(),
     repositories: z.array(Repository).min(1),
-    integrations: z.array(z.enum(["github", "gitlab", "slack", "linear", "jira"])).default([]),
+    /** Integrations this factory opts into (connected once per workspace). Bare names are the legacy form. */
+    integrations: z.array(FactoryIntegration).default([]).transform(normalizeIntegrations),
+    github: z.object({ factoryConfigChecks: z.enum(["main", "all"]).default("main") }).strict().optional(),
+    automations: z.object({ githubOnboardingNotices: z.boolean().default(true) }).strict().optional(),
+    cloudProviders: CloudProviders.optional(),
+    /** Legacy alias of cloudProviders. */
+    providers: CloudProviders.optional(),
     agentDefaults: z.object(executionShape).strict(),
     selfImprovement: z
       .object({
@@ -75,7 +159,16 @@ export const Factory = z
       .strict()
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((f, ctx) => {
+    const types = f.integrations.map((i) => i.type);
+    if (types.includes("linear") && types.includes("jira")) {
+      ctx.addIssue({ code: "custom", path: ["integrations"], message: "a factory can use Linear or Jira, not both" });
+    }
+    const dupes = types.filter((t, i) => types.indexOf(t) !== i);
+    if (dupes.length) ctx.addIssue({ code: "custom", path: ["integrations"], message: `integration ${dupes[0]} is listed twice` });
+    if (f.cloudProviders && f.providers) ctx.addIssue({ code: "custom", path: ["providers"], message: "set cloudProviders (providers is its legacy alias), not both" });
+  });
 export type Factory = z.infer<typeof Factory>;
 
 export const AgentType = z.enum([
@@ -102,30 +195,23 @@ export const AgentFrontmatter = z
   .strict();
 export type AgentFrontmatter = z.infer<typeof AgentFrontmatter>;
 
-export const TriggerProvider = z.enum([
-  "github",
-  "gitlab",
-  "linear",
-  "jira",
-  "slack",
-  "factory",
-  "schedule",
-  "webhook",
-  "kiln",
-]);
+export const TriggerProvider = z.enum(TRIGGER_PROVIDERS as [TriggerProviderName, ...TriggerProviderName[]]);
 
+/** One trigger: provider and event from the catalogue, a filter whose keys depend on both, and an inline schedule for cron. */
 export const Trigger = z
   .object({
     provider: TriggerProvider,
     event: z.string().min(1),
-    filter: z.record(z.string(), z.unknown()).optional(),
-    schedule: z.object({ cron: z.string(), name: z.string().optional() }).strict().optional(),
+    filter: z
+      .record(z.string(), z.unknown())
+      .nullable()
+      .optional()
+      .transform((f) => f ?? undefined),
+    schedule: z.object({ cron: z.string().min(1), name: z.string().min(1).optional() }).strict().optional(),
   })
   .strict()
   .superRefine((t, ctx) => {
-    if (t.provider === "schedule" && !t.schedule) {
-      ctx.addIssue({ code: "custom", message: "schedule triggers need a schedule.cron", path: ["schedule"] });
-    }
+    for (const p of validateTrigger(t)) ctx.addIssue({ code: "custom", message: p.message, path: p.path });
   });
 export type Trigger = z.infer<typeof Trigger>;
 
@@ -136,8 +222,18 @@ export const AutomationFrontmatter = z
     displayName: z.string().nullable().optional(),
     triggers: z.array(Trigger).min(1),
     ...executionShape,
+    /** Execution overrides for runs this automation starts. */
+    environmentId: z.string().min(1).nullable().optional(),
+    workerHost: z.string().min(1).nullable().optional(),
+    computerUseModel: z.string().min(1).nullable().optional(),
+    idleTimeoutMinutes: z.number().int().min(1).max(60).optional(),
+    /** Repositories (owner/name) prepared for every run, in addition to the agent's own. */
+    required_repos: z.array(z.string().regex(/^[^/\s]+\/[^/\s]+$/, "use owner/name")).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((a, ctx) => {
+    for (const p of validateSchedules(a.triggers)) ctx.addIssue({ code: "custom", message: p.message, path: ["triggers", ...p.path] });
+  });
 export type AutomationFrontmatter = z.infer<typeof AutomationFrontmatter>;
 
 export const PipelineStage = z
@@ -290,17 +386,34 @@ export const SkillFrontmatter = z
   .strict();
 export type SkillFrontmatter = z.infer<typeof SkillFrontmatter>;
 
+export const SignatureScheme = z.enum(["github", "pagerduty", "sentry", "standard_webhooks", "stripe", "vercel"]);
+export type SignatureScheme = z.infer<typeof SignatureScheme>;
+export const WebhookAuthMode = z.enum(["token", "url_token", "signature"]);
+export type WebhookAuthMode = z.infer<typeof WebhookAuthMode>;
+
+/** Headers that carry credentials or signatures can't serve as a delivery id. */
+const CREDENTIAL_HEADERS = /^(authorization|proxy-authorization|cookie|set-cookie|x-hub-signature(-256)?|stripe-signature|sentry-hook-signature|x-vercel-signature|x-pagerduty-signature|webhook-signature|x-api-key)$/i;
+export const DeliveryIdHeader = z
+  .string()
+  .max(64)
+  .regex(/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/, "use a valid HTTP header name")
+  .refine((h) => !CREDENTIAL_HEADERS.test(h), "this header can carry a credential; use the sender's delivery id header");
+
 export const Webhook = z
   .object({
     enabled: z.boolean().default(true),
-    authMode: z.enum(["token", "url_token", "signature"]).default("token"),
-    signatureScheme: z.enum(["github", "standard_webhooks", "stripe", "sentry"]).optional(),
-    secretName: z.string(),
-    deliveryIdHeader: z.string().optional(),
+    authMode: WebhookAuthMode.default("token"),
+    signatureScheme: SignatureScheme.optional(),
+    secretName: z.string().min(1),
+    deliveryIdHeader: DeliveryIdHeader.optional(),
   })
   .strict()
   .refine((w) => w.authMode !== "signature" || Boolean(w.signatureScheme), {
     message: "signatureScheme is required when authMode is signature",
+    path: ["signatureScheme"],
+  })
+  .refine((w) => w.authMode === "signature" || !w.signatureScheme, {
+    message: "signatureScheme is only valid when authMode is signature",
     path: ["signatureScheme"],
   });
 export type Webhook = z.infer<typeof Webhook>;
@@ -358,3 +471,5 @@ export function jsonSchemaFor(kind: FileKind): Record<string, unknown> {
   return z.toJSONSchema(fileKinds[kind], { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
 }
 export * from "./expr";
+export * from "./triggers";
+export * from "./cron";

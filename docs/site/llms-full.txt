@@ -429,6 +429,10 @@ The older `filter: { webhook: sentry }` is still accepted. Authentication, deliv
 
 Kiln keeps a log of recent provider deliveries (`GET /api/v1/deliveries`, admins) and of custom webhook deliveries. `POST /api/v1/factories/<id>/automations/<name>/test-filter` with `{ "deliveryId": "<id>" }` evaluates the automation's triggers against one of them and returns `wouldTrigger` with every check's outcome.
 
+## Run now
+
+`POST /api/v1/factories/<id>/automations/<name>/run` (the **Run now** button) starts an enabled automation by hand, with its prompt and execution overrides, as the person who asked. It needs `send` on the factory, answers `{ "workItemId": "…" }`, and refuses a disabled automation with 409.
+
 ## Dedupe and follow-ups
 
 Providers retry deliveries. Kiln remembers each delivery ID (GitHub's `X-GitHub-Delivery`, Slack's `event_id`, Linear's `Linear-Delivery`, Jira's `X-Atlassian-Webhook-Identifier`, GitLab's `X-Gitlab-Event-UUID`, and so on) for 7 days and ignores repeats, across restarts.
@@ -1148,6 +1152,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `configurations[].agents[].harness.model` | string |  |  |
 | `configurations[].agents[].harness.reasoningLevel` | `low` \| `medium` \| `high` \| `xhigh` \| `max` |  |  |
 | `configurations[].agents[].harness.auth` | object \| object \| object \| object \| null |  |  |
+| `configurations[].runner` | string |  |  |
 | `tasks` | list of string | yes |  |
 
 ## benchmark-task
@@ -1847,6 +1852,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/factories/{id}/automations/from-template` | `definitions:write` | Add a template to a Kiln-managed factory |
 | GET | `/api/v1/automation-catalog` | — | Every trigger provider, event and filter key |
 | GET | `/api/v1/deliveries` | `admin` | Recent provider deliveries |
+| POST | `/api/v1/factories/{id}/automations/{name}/run` | `send` | Run an automation now, as the caller |
 | POST | `/api/v1/factories/{id}/automations/{name}/test-filter` | `read` | Test an automation's triggers against a stored delivery |
 
 ## Custom webhooks
@@ -4859,7 +4865,7 @@ tasks: [t0, t1]
 | --- | --- |
 | `name`, `description` | |
 | `agent` | The agent under test. Must exist. |
-| `configurations` | 1 to 6, with unique names. A configuration without `agents` uses the agent as defined. An entry for the suite's agent overrides its `model` or `harness`. |
+| `configurations` | 1 to 6, with unique names. A configuration without `agents` uses the agent as defined. An entry for the suite's agent overrides its `model` or `harness`. `runner` names the runner for agents that do not set one. |
 | `tasks` | Task names. Each needs `tasks/<name>.yaml` in the suite folder. |
 
 ## A task

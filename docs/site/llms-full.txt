@@ -4052,7 +4052,13 @@ Replies in the session continue the same work item.
 
 - **Updates.** Gate requests, reminders, "Ready to merge" and "Done" are posted as comments on the issue.
 - **Replies.** Comments on the issue continue the work item. A comment starting with `approve` or `reject` decides an open spec or preview gate, and other text answers an open question, steers a running agent, or is added to the conversation. Linear users with an email map to the person with that email; the server's `identities` option (`linear:<user>`) also works. Replies decide a gate only when their author is one of its assignees; see [Who may decide from a reply](../configuration/automations.md#who-may-decide-from-a-reply).
-- **States.** At hand-off, Kiln moves the issue to the team's first `started` state. When the work completes, it moves it to the first `completed` state.
+- **States.** At hand-off, Kiln moves the issue to the team's first `started` state. When the work completes, it moves it to the first `completed` state. To use your own workflow states, name them in the factory's Linear settings. Kiln then moves issues that came from Linear to those states by name, and tells the requester if a name does not exist on the team:
+
+  ```yaml
+  integrations:
+    - type: linear
+      linear: { teams: [Engineering], states: { handoff: "UAT Test", done: Released } }
+  ```
 - **Duplicates.** Triage reads the team's 20 most recent issues to spot duplicates.
 
 ## Planning

@@ -1,7 +1,7 @@
 import { hashPassword, verifyPassword } from "@kiln/auth";
 import type { Kiln } from "../kiln";
 import { newId } from "../types";
-import { INBOX_KINDS, P, PlatformError, type Appearance, type LinkProvider, type NotificationPrefs, type PublicUser, type User } from "./types";
+import { avatarKey, INBOX_KINDS, P, PlatformError, type Appearance, type LinkProvider, type NotificationPrefs, type PublicUser, type User } from "./types";
 
 export const DEV_USER_EMAIL = "dev@kiln.local";
 
@@ -96,7 +96,7 @@ export class UserService {
 
   async setAvatar(id: string, bytes: Uint8Array, contentType: string): Promise<User> {
     const u = this.require(id);
-    const key = `avatars/users/${id}`;
+    const key = avatarKey("users", id, contentType);
     await this.k.objects.put(key, bytes, contentType);
     const next = { ...u, avatarKey: key, avatar: `/api/v1/users/${id}/avatar?v=${Date.now().toString(36)}` };
     this.k.store.put(P.users, next);

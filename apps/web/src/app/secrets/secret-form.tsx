@@ -144,7 +144,7 @@ export function SecretForm({ existing, canTeam, initialScope, initialType }: { e
                 aria-checked={scope === v}
                 disabled={editing || Boolean(disabled)}
                 onClick={() => setScope(v)}
-                className={cn("rounded-lg border p-3 text-left transition-colors enabled:hover:bg-muted disabled:cursor-not-allowed", scope === v ? "border-foreground ring-1 ring-foreground" : "disabled:opacity-50")}
+                className={cn("flex flex-col justify-start rounded-lg border p-3 text-left transition-colors enabled:hover:bg-muted disabled:cursor-not-allowed", scope === v ? "border-foreground ring-1 ring-foreground" : "disabled:opacity-50")}
               >
                 <div className="text-sm font-medium">{label}</div>
                 <div className="text-xs text-muted-foreground">{hint}</div>

@@ -70,7 +70,7 @@ function ExecutionOverrides({ overrides, onChange, res }: { overrides: Overrides
       </button>
       {open && (
         <div className="mt-3 grid gap-4 rounded-xl border p-4 sm:grid-cols-2">
-          <p className="text-xs text-muted-foreground sm:col-span-2">Values left empty come from the agent, then from the factory's agent defaults. Secrets and MCP servers set here replace the inherited list.</p>
+          <p className="text-xs text-muted-foreground sm:col-span-2">Values left empty come from the agent, then from the factory&apos;s agent defaults. Secrets and MCP servers set here replace the inherited list.</p>
           <Field label="Model">
             <OverrideSelect label="Model" value={typeof overrides.model === "string" ? overrides.model : undefined} options={res.models} onChange={(v) => set("model", v)} inheritLabel="From agent" />
           </Field>

@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { Empty, Page, PageHeader, Section } from "@/components/kiln/ui";
 import { Badge } from "@/components/ui/badge";
 import { api, safe } from "@/lib/kiln";
+import { AreaTabs } from "../automations/_components/area-tabs";
 
 type Stage = { id: string; agent?: string; action?: string; gate?: string; skip_if?: string; fan_out?: string; requires?: string[]; on_fail?: string; max_loops?: number; advisory?: boolean };
 
@@ -13,10 +15,13 @@ export default async function Pipelines({ params }: { params: Promise<{ factory:
   const pipelines = Object.entries(f.pipelines) as [string, { stages: Stage[] }][];
   return (
     <>
-      <PageHeader crumbs={[{ label: f.factory.name, href: `/f/${factory}` }, { label: "Pipelines" }]} />
+      <PageHeader crumbs={[{ label: f.factory.name, href: `/f/${factory}/dashboard` }, { label: "Automations", href: `/f/${factory}/automations` }, { label: "Pipelines" }]} />
+      <div className="px-4 pt-6 sm:px-6">
+        <AreaTabs factory={factory} active="pipelines" />
+      </div>
       <Page>
         <p className="mb-6 text-sm text-muted-foreground">
-          Without a pipeline the foreman picks the shortest path: triage → spec (if needed, approved) → build → verify → preview → review → hand-off. A pipeline in <code>pipelines/*.yaml</code> fixes the graph with typed gates.
+          Without a pipeline the foreman picks the shortest path: triage → spec (if needed, approved) → build → verify → preview → review → hand-off. A pipeline in <Link className="underline" href={`/f/${factory}/definition`}><code>pipelines/*.yaml</code></Link> fixes the graph with typed gates.
         </p>
         {pipelines.length === 0 && <Empty title="Foreman-driven">This factory has no pipeline; the foreman chooses the path for each work item.</Empty>}
         {pipelines.map(([name, p]) => (

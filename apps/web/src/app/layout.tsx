@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
 import { Sidebar } from "@/components/kiln/sidebar";
 import { THEME_SCRIPT } from "@/components/kiln/theme";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { api, safe } from "@/lib/kiln";
 import "./globals.css";
@@ -32,6 +33,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <Sidebar factories={factories} inboxCount={inbox.length} user={user} team={me?.team} teams={me?.teams} />
             <main className="min-w-0 flex-1">{children}</main>
           </div>
+          <Toaster position="bottom-right" />
         </TooltipProvider>
       </body>
     </html>

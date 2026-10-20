@@ -157,7 +157,12 @@ export class DefinitionService {
     const b = this.require(factory);
     if (!b.definitionRepo) throw new Error(`${factory} has no definition repo`);
     const tree = await this.k.forge.readTree(b.definitionRepo, b.definitionRepo.ref, b.definitionRepo.dir);
-    return this.applyAny(tree, { author: by, factory });
+    const incoming = /schemaVersion:\s*v1alpha1/.test(tree["factory.yaml"] ?? "") ? importWarp(tree).tree : tree;
+    // A merged self-improvement PR ships as a canary first, like an approval inside Kiln.
+    const proposal = this.k.improvement.list(factory).find((p) => p.state === "open" && p.candidateSha === treeSha(incoming));
+    const r = this.apply(incoming, { author: by, factory, canaryPercent: proposal ? (this.k.options.canaryPercent ?? 10) : undefined });
+    if (proposal && r.ok) this.k.store.put("proposals", { ...proposal, state: "merged" });
+    return r;
   }
 
   /** Bind a factory to a config repo and apply what is on its default branch. */

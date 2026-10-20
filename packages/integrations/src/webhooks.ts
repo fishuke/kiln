@@ -30,6 +30,22 @@ export function verifyStandardWebhook(secret: string, id: string | undefined, ti
   return signature.split(" ").some((s) => safeEqual(s.replace(/^v1,/, ""), expected));
 }
 
+/** Stripe: "t=<ts>,v1=<hex hmac of '<ts>.<body>'>". */
+export function verifyStripe(secret: string, body: string, header: string | undefined, now = Date.now()): boolean {
+  if (!header) return false;
+  const parts = Object.fromEntries(header.split(",").map((p) => p.split("=") as [string, string]));
+  const t = parts.t;
+  if (!t || Math.abs(now / 1000 - Number(t)) > 300) return false;
+  const expected = createHmac("sha256", secret).update(`${t}.${body}`).digest("hex");
+  return header.split(",").some((p) => p.startsWith("v1=") && safeEqual(p.slice(3), expected));
+}
+
+/** Sentry: hex HMAC-SHA256 of the body in the sentry-hook-signature header. */
+export function verifySentry(secret: string, body: string, signature: string | undefined): boolean {
+  if (!signature) return false;
+  return safeEqual(createHmac("sha256", secret).update(body).digest("hex"), signature);
+}
+
 /**
  * A provider event in the shape automation filters read: `repos`, `labels`, `mentioned`,
  * `team_ids`, `channel`, plus the text and links a work item needs.
@@ -40,6 +56,7 @@ export type IncomingEvent = {
   deliveryId?: string;
   data: {
     repo?: string;
+    repos?: string[];
     number?: number;
     labels?: string[];
     mentioned?: string[];
@@ -67,6 +84,7 @@ export function normalizeGitHub(eventName: string, payload: Record<string, any>,
   const issue = payload.issue ?? payload.pull_request;
   const base = {
     repo,
+    repos: repo ? [repo] : [],
     number: issue?.number,
     labels: (issue?.labels ?? []).map((l: { name: string }) => l.name),
     title: issue?.title,
@@ -100,7 +118,7 @@ export function normalizeGitHub(eventName: string, payload: Record<string, any>,
       if (payload.action !== "completed") return undefined;
       return ev("check_suite_completed", { conclusion: payload.check_suite?.conclusion, head: payload.check_suite?.head_branch, sha: payload.check_suite?.head_sha });
     case "push":
-      return { provider: "github", event: "push", deliveryId, data: { repo, ref: payload.ref, head: String(payload.ref ?? "").replace("refs/heads/", ""), sha: payload.after } };
+      return { provider: "github", event: "push", deliveryId, data: { repo, repos: repo ? [repo] : [], ref: payload.ref, head: String(payload.ref ?? "").replace("refs/heads/", ""), sha: payload.after } };
     default:
       return undefined;
   }

@@ -104,8 +104,12 @@ describe("M2-T8 pausable sandboxes", () => {
     const { kiln } = createTestKiln({ harness: () => harness, sandboxes: { local: nodeA } });
     const wi = await kiln.workflow.create({ factory: "webapp", title: "Long task", body: "", source: { provider: "api" }, requester: "alice" });
     const running = kiln.runs.execute({ factory: "webapp", sha: wi.definitionSha, agent: "implement", prompt: "long", workItem: wi, push: false });
-    await new Promise((r) => setTimeout(r, 300));
-    const runId = kiln.runs.list({ workItemId: wi.id })[0]!.id;
+    let runId: string | undefined;
+    for (let i = 0; i < 200 && !runId; i++) {
+      await new Promise((r) => setTimeout(r, 25));
+      runId = kiln.runs.list({ workItemId: wi.id }).find((r) => kiln.runs.isActive(r.id))?.id;
+    }
+    if (!runId) throw new Error("run never started");
     const ref = await kiln.runs.pause(runId, "alice");
     expect((await running).status).toBe("paused");
     const resumed = await kiln.runs.resume(runId, "alice", nodeB);

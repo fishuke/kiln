@@ -166,6 +166,19 @@ export class AutomationService {
     return wi;
   }
 
+  /** Factory-internal events (stage changes) only reach automations of the same factory. */
+  async handleFactoryEvent(factory: string, event: IncomingEvent): Promise<WorkItem[]> {
+    const f = this.k.defs.get(factory);
+    if (!f?.appliedSha) return [];
+    const resolved = this.k.defs.resolved(f.appliedSha);
+    const started: WorkItem[] = [];
+    for (const a of Object.values(resolved.automations)) {
+      if (!a.enabled || !a.triggers.some((t) => this.triggerMatches(t, event, f.alias))) continue;
+      started.push(await this.start(factory, `stage:${a.name}`, a.agent, a.prompt, event, resolved.agents[a.agent]?.agentType === "FOREMAN"));
+    }
+    return started;
+  }
+
   /** Thread replies, comments and merges that belong to work already in flight. */
   private async continueExisting(event: IncomingEvent): Promise<string[]> {
     const d = event.data;
@@ -202,7 +215,9 @@ export class AutomationService {
     } else if (question) {
       await this.k.gates.decide(question.id, { decision: "answer", answer: text, by: author, via: event.provider });
     } else {
-      this.k.workflow.addMessage(match.id, author, text);
+      const live = this.k.runs.list({ workItemId: match.id }).find((r) => this.k.runs.isActive(r.id));
+      if (live) await this.k.runs.steer(live.id, text, author);
+      else this.k.workflow.addMessage(match.id, author, text);
     }
     return [match.id];
   }

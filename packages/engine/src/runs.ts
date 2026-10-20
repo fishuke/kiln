@@ -58,6 +58,8 @@ export class RunService {
   private readonly sessions = new Map<string, HarnessSession>();
   private readonly sandboxes = new Map<string, Sandbox>();
   private readonly specs = new Map<string, Runner>();
+  /** The in-memory record of each live run, so steering and cost updates land on the copy that is saved last. */
+  private readonly live = new Map<string, Run>();
 
   constructor(private readonly k: Kiln) {}
 
@@ -143,6 +145,7 @@ export class RunService {
       startedAt: now,
     };
     this.save(run);
+    this.live.set(run.id, run);
     const token = this.k.secrets.issueRunToken(run.id, repos.map(repoKey));
     const decisions = resolved.parsed.decisions["command-guard"] ?? BUILTIN_DECISIONS["command-guard"]!;
     const provider = this.provider(input.backend ?? runner.backend);
@@ -248,6 +251,7 @@ export class RunService {
       this.record(run, "error", run.summary);
     } finally {
       this.sessions.delete(run.id);
+      this.live.delete(run.id);
       run.finishedAt = this.k.clock.now().toISOString();
       if (run.status !== "paused") {
         this.sandboxes.delete(run.id);
@@ -322,7 +326,7 @@ export class RunService {
   /** Live steering from the run page, a Slack thread or MCP. */
   async steer(runId: string, text: string, by: string) {
     const session = this.sessions.get(runId);
-    const run = this.get(runId);
+    const run = this.live.get(runId) ?? this.get(runId);
     if (!session || !run) throw new Error(`run ${runId} is not running`);
     await session.steer(text);
     run.steering.push(text);

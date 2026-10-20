@@ -210,17 +210,33 @@ class LocalSandbox implements Sandbox {
   }
 }
 
+/** The runner's egress list plus the hosts of the repos the sandbox clones. */
+export function egressAllowlist(spec: SandboxSpec): string[] {
+  const hosts = spec.repos
+    .map((r) => {
+      try {
+        return new URL(r.url).hostname;
+      } catch {
+        return /^[^@]+@([^:]+):/.exec(r.url)?.[1];
+      }
+    })
+    .filter((h): h is string => Boolean(h));
+  return [...new Set([...spec.runner.egress, ...hosts])];
+}
+
 /** Docker CLI arguments for a runner: resources, egress and labels. Exported for tests and docs. */
 export function dockerRunArgs(name: string, spec: SandboxSpec): string[] {
   const args = ["run", "-d", "--name", name, "--label", "kiln.sandbox=1", "-w", "/workspace"];
   for (const [k, v] of Object.entries(spec.labels ?? {})) args.push("--label", `${k}=${v}`);
   if (spec.runner.shape) args.push("--cpus", String(spec.runner.shape.vcpus), "--memory", `${spec.runner.shape.memoryGb}g`);
-  // No egress → no network. Otherwise traffic goes through the egress proxy, which enforces the allowlist.
-  if (spec.runner.egress.length === 0) args.push("--network", "none");
+  // Repos are cloned inside the sandbox, so their hosts are always allowed. Nothing to reach → no network;
+  // otherwise traffic goes through the egress proxy, which enforces the allowlist.
+  const allow = egressAllowlist(spec);
+  if (allow.length === 0) args.push("--network", "none");
   else {
     args.push("--network", "kiln-egress");
     args.push("-e", "HTTPS_PROXY=http://kiln-egress-proxy:3128", "-e", "HTTP_PROXY=http://kiln-egress-proxy:3128");
-    args.push("-e", `KILN_EGRESS_ALLOW=${spec.runner.egress.join(",")}`);
+    args.push("-e", `KILN_EGRESS_ALLOW=${allow.join(",")}`);
   }
   args.push("--security-opt", "no-new-privileges", "--cap-drop", "ALL");
   for (const [k, v] of Object.entries(spec.env ?? {})) args.push("-e", `${k}=${v}`);
@@ -408,7 +424,7 @@ export function kubernetesManifests(name: string, namespace: string, spec: Sandb
         ingress: [],
         // DNS plus the egress proxy; the proxy enforces the hostname allowlist.
         egress:
-          spec.runner.egress.length === 0
+          egressAllowlist(spec).length === 0
             ? []
             : [
                 { to: [{ namespaceSelector: {}, podSelector: { matchLabels: { "k8s-app": "kube-dns" } } }], ports: [{ protocol: "UDP", port: 53 }] },

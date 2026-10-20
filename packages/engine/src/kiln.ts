@@ -115,6 +115,14 @@ export class Kiln {
     this.memories = new MemoryService(this);
     this.skills = new SkillService(this);
 
+    // `provider: factory, event: work_item_stage_changed` automations react to stage changes in their own factory.
+    this.bus.subscribe("work_item.stage_changed", async (e) => {
+      const { factory, workItemId, from, to } = e.payload;
+      const wi = this.workflow.get(workItemId);
+      if (!wi || wi.source.automation?.startsWith("stage:")) return;
+      await this.automations.handleFactoryEvent(factory, { provider: "factory", event: "work_item_stage_changed", data: { from, to, workItemId, title: `${wi.title} → ${to}`, body: wi.body } });
+    });
+
     if (options.autoScore !== false) {
       this.bus.subscribe("run.finished", async (e) => {
         const run = this.runs.get(e.payload.runId);

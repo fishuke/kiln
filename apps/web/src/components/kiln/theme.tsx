@@ -13,7 +13,17 @@ function apply(pref: ThemePreference) {
   document.documentElement.classList.toggle("dark", dark);
 }
 
-export function useTheme(): [ThemePreference, (p: ThemePreference) => void] {
+/** Save the choice on the account too, so other browsers pick it up. Best effort: failures are ignored. */
+export function persistAppearance(p: ThemePreference): Promise<void> {
+  return fetch("/api/me/appearance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ appearance: p }) }).then(
+    () => undefined,
+    () => undefined,
+  );
+}
+
+/** The theme preference. With `persist`, the setter also saves it to the account (PATCH /api/v1/me). */
+export function useTheme(options: { persist?: boolean } = {}): [ThemePreference, (p: ThemePreference) => void] {
+  const persist = Boolean(options.persist);
   const [pref, setPref] = useState<ThemePreference>("system");
   useEffect(() => {
     try {
@@ -37,6 +47,7 @@ export function useTheme(): [ThemePreference, (p: ThemePreference) => void] {
       /* storage blocked */
     }
     apply(p);
-  }, []);
+    if (persist) void persistAppearance(p);
+  }, [persist]);
   return [pref, set];
 }

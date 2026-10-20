@@ -169,7 +169,8 @@ function FactoryRow({ f, pinned, onPin }: { f: ShellFactory; pinned: boolean; on
 }
 
 function AccountMenu({ user, team, teams }: { user?: ShellUser; team?: ShellTeam; teams: ShellTeam[] }) {
-  const [pref, setPref] = useTheme();
+  // Signed-in people keep their choice on the account as well as in this browser.
+  const [pref, setPref] = useTheme({ persist: Boolean(user?.email) });
   const name = user?.name ?? "You";
   return (
     <DropdownMenu>

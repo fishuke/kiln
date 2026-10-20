@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ApiDown, PageHeader } from "@/components/kiln/ui";
 import { Field, SettingsColumn, SettingsSection } from "@/components/kiln/settings-blocks";
 import { api, safe } from "@/lib/kiln";
-import { ApiKeys, AppearancePicker, LinkedAccounts, NotificationsMatrix, PasswordForm, ProfileForm } from "./sections";
+import { ApiKeys, AppearancePicker, DigestForm, LinkedAccounts, NotificationHistory, NotificationsMatrix, PasswordForm, ProfileForm } from "./sections";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -21,7 +21,11 @@ export default async function UserSettings() {
   const me = await safe(() => api.me(), null);
   if (!me) return <ApiDown />;
   const team = me.currentTeam?.id;
-  const [keys, settings] = await Promise.all([safe(() => api.apiKeys(), []), team ? safe(() => api.teamSettings(team), null) : Promise.resolve(null)]);
+  const [keys, settings, sent] = await Promise.all([
+    safe(() => api.apiKeys(), []),
+    team ? safe(() => api.teamSettings(team), null) : Promise.resolve(null),
+    me.user ? safe(() => api.notifications(20), []) : Promise.resolve([]),
+  ]);
   const user = me.user;
   const canTeamKeys = me.role === "owner" || me.role === "admin";
   return (
@@ -49,6 +53,12 @@ export default async function UserSettings() {
             <SettingsSection id="notifications" title="Notifications">
               <Field label="Inbox notifications" description="Where Kiln tells you that something waits for you. The inbox in Kiln always shows everything.">
                 <NotificationsMatrix prefs={user.notifications} />
+              </Field>
+              <Field label="Daily digest" description="A summary of open decisions once a day, by the channels you pick. Hours are in UTC.">
+                <DigestForm digest={user.digest} />
+              </Field>
+              <Field label="Recently sent" description="What Kiln sent you, and whether it arrived. Email needs KILN_SMTP_URL on the server; Slack and Discord need a linked account.">
+                <NotificationHistory items={sent} />
               </Field>
             </SettingsSection>
             <SettingsSection id="linked-accounts" title="Linked accounts">

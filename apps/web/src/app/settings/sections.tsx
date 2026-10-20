@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound, Laptop, Moon, Plus, Sun, Trash2, Upload, X } from "lucide-react";
-import type { ApiKeyRow, LinkedAccount, LinkProvider, NotificationPrefs } from "@kiln/sdk-ts";
+import type { ApiKeyRow, DigestPrefs, LinkedAccount, LinkProvider, NotificationPrefs, NotificationRecord } from "@kiln/sdk-ts";
 import { ConfirmAction, CopyButton } from "@/components/kiln/confirm-action";
 import { LINK_META } from "@/components/kiln/provider-meta";
 import { AvatarBox, ConnectedBadge, Field } from "@/components/kiln/settings-blocks";
@@ -15,7 +15,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { NOTIFICATION_CHANNELS, NOTIFICATION_KINDS, notificationLabel, withDefaults } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 import * as A from "./actions";
 
@@ -162,21 +164,11 @@ export function PasswordForm({ hasPassword }: { hasPassword: boolean }) {
   );
 }
 
-const KINDS: { key: keyof NotificationPrefs; label: string; hint: string }[] = [
-  { key: "spec", label: "Spec approvals", hint: "A spec waits for your approval" },
-  { key: "preview", label: "Preview reviews", hint: "A preview is ready to check" },
-  { key: "question", label: "Questions", hint: "An agent asks you something" },
-  { key: "merge", label: "Merge confirmations", hint: "A pull request is ready to merge" },
-  { key: "custom", label: "Other requests", hint: "Custom gates from automations" },
-];
-const CHANNELS = [
-  ["email", "Email"],
-  ["slack", "Slack"],
-  ["discord", "Discord"],
-] as const;
+const KINDS = NOTIFICATION_KINDS;
+const CHANNELS = NOTIFICATION_CHANNELS;
 
 export function NotificationsMatrix({ prefs }: { prefs: NotificationPrefs }) {
-  const [state, setState] = useState(prefs);
+  const [state, setState] = useState(() => withDefaults(prefs));
   const [, run] = useAction();
   return (
     <div className="overflow-hidden rounded-lg border bg-background">
@@ -212,6 +204,105 @@ export function NotificationsMatrix({ prefs }: { prefs: NotificationPrefs }) {
                   />
                 </TableCell>
               ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+
+export function DigestForm({ digest }: { digest?: Partial<DigestPrefs> }) {
+  const [state, setState] = useState<DigestPrefs>({ daily: false, hourUtc: 8, channels: ["email"], only: false, ...digest });
+  const [, run] = useAction();
+  const save = (patch: Partial<DigestPrefs>) => {
+    const next = { ...state, ...patch };
+    setState(next);
+    void run(() => A.saveDigest(patch));
+  };
+  return (
+    <div className="space-y-4 rounded-lg border bg-background p-4">
+      <label className="flex items-center justify-between gap-4 text-sm">
+        <span>
+          <span className="block font-medium">Daily digest</span>
+          <span className="block text-xs text-muted-foreground">One message a day with every decision waiting on you.</span>
+        </span>
+        <Switch aria-label="Daily digest" checked={state.daily} onCheckedChange={(v) => save({ daily: Boolean(v) })} />
+      </label>
+      <div className={cn("space-y-4", !state.daily && "pointer-events-none opacity-50")}>
+        <div className="flex items-center justify-between gap-4 text-sm">
+          <span className="font-medium">Send at (UTC)</span>
+          <Select value={String(state.hourUtc)} onValueChange={(v) => save({ hourUtc: Number(v) })} disabled={!state.daily}>
+            <SelectTrigger aria-label="Digest hour (UTC)" className="w-28">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {HOURS.map((h) => (
+                <SelectItem key={h} value={String(h)}>
+                  {String(h).padStart(2, "0")}:00
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center justify-between gap-4 text-sm">
+          <span className="font-medium">Channels</span>
+          <span className="flex gap-4">
+            {CHANNELS.map(([ch, label]) => (
+              <label key={ch} className="flex items-center gap-2">
+                <Checkbox
+                  aria-label={`Digest by ${label}`}
+                  disabled={!state.daily}
+                  checked={state.channels.includes(ch)}
+                  onCheckedChange={(v) => {
+                    const channels = v ? [...new Set([...state.channels, ch])] : state.channels.filter((c) => c !== ch);
+                    if (channels.length) save({ channels });
+                  }}
+                />
+                {label}
+              </label>
+            ))}
+          </span>
+        </div>
+        <label className="flex items-center justify-between gap-4 text-sm">
+          <span>
+            <span className="block font-medium">Digest only</span>
+            <span className="block text-xs text-muted-foreground">Skip the messages above and get only the daily digest.</span>
+          </span>
+          <Switch aria-label="Digest only" disabled={!state.daily} checked={state.only} onCheckedChange={(v) => save({ only: Boolean(v) })} />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+export function NotificationHistory({ items }: { items: NotificationRecord[] }) {
+  if (items.length === 0) return <p className="text-sm text-muted-foreground">Nothing sent yet.</p>;
+  return (
+    <div className="overflow-hidden rounded-lg border bg-background">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="pl-4">When</TableHead>
+            <TableHead>What</TableHead>
+            <TableHead>Channel</TableHead>
+            <TableHead>Status</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((n) => (
+            <TableRow key={n.id}>
+              <TableCell className="pl-4 whitespace-nowrap text-muted-foreground">{new Date(n.at).toLocaleString()}</TableCell>
+              <TableCell>{notificationLabel(n.kind)}</TableCell>
+              <TableCell className="capitalize">{n.channel}</TableCell>
+              <TableCell>
+                <Badge variant={n.status === "sent" ? "secondary" : "destructive"} title={n.error}>
+                  {n.status}
+                </Badge>
+                {n.error && <div className="mt-1 max-w-xs truncate text-xs text-muted-foreground">{n.error}</div>}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>

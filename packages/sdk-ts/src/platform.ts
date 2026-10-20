@@ -1,5 +1,6 @@
 import type {
   Appearance,
+  DigestPrefs,
   EnvironmentTemplate,
   FactoryMember,
   Invite,
@@ -18,7 +19,7 @@ import type {
   UsageSummary,
 } from "@kiln/engine";
 
-export type { Appearance, EnvironmentTemplate, FactoryMember, Invite, LinkedAccount, LinkProvider, McpServer, Membership, NotificationPrefs, NotificationRecord, PublicUser, SecretMeta, SecretType, TeamSettings, UsageEntry, UsageSummary };
+export type { Appearance, DigestPrefs, EnvironmentTemplate, FactoryMember, Invite, LinkedAccount, LinkProvider, McpServer, Membership, NotificationPrefs, NotificationRecord, PublicUser, SecretMeta, SecretType, TeamSettings, UsageEntry, UsageSummary };
 
 export type TeamRole = "owner" | "admin" | "member";
 export type FactoryRole = "user" | "editor" | "admin";

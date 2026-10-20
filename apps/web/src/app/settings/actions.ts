@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Appearance, LinkProvider, NotificationPrefs } from "@kiln/sdk-ts";
+import type { Appearance, DigestPrefs, LinkProvider, NotificationPrefs } from "@kiln/sdk-ts";
 import { attempt, type ActionResult } from "@/lib/action-result";
 import { api } from "@/lib/kiln";
 
@@ -41,6 +41,13 @@ export async function changePassword(input: { current?: string; next: string }):
 
 export async function saveNotifications(prefs: Partial<NotificationPrefs>): Promise<ActionResult> {
   const r = await attempt(() => api.updateMe({ notifications: prefs }));
+  if (r.ok) revalidatePath("/settings");
+  return r.ok ? { ok: true } : r;
+}
+
+export async function saveDigest(digest: Partial<DigestPrefs>): Promise<ActionResult> {
+  if (digest.hourUtc !== undefined && (digest.hourUtc < 0 || digest.hourUtc > 23)) return { ok: false, error: "Pick an hour from 0 to 23." };
+  const r = await attempt(() => api.updateMe({ digest }));
   if (r.ok) revalidatePath("/settings");
   return r.ok ? { ok: true } : r;
 }

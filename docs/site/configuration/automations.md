@@ -1,11 +1,11 @@
 ---
 title: Automations
-description: Start work from GitHub, Slack, Linear, Jira, schedules and webhooks with automation files, filters and delivery dedupe.
+description: Start work from forges, chat, trackers, schedules and webhooks with automation files, filters, execution overrides and delivery dedupe.
 owner: docs
 section: Factory configuration
 ---
 
-An automation is a file at `automations/<name>/automation.md` that starts a work item when one of its triggers matches an incoming event.
+An automation is a file at `automations/<name>/automation.md` (or `automations/<name>.md`) that starts a work item when one of its triggers matches an incoming event.
 
 ## An automation file
 
@@ -16,7 +16,7 @@ triggers:
   - provider: github
     event: issue_labeled
     filter:
-      repo: [acme/web]
+      repos: [acme/web]
       labels: [kiln-ready]
 ---
 Take the labeled issue through the factory.
@@ -30,56 +30,83 @@ The body is the automation's prompt. Kiln appends it to the work item's body as 
 | `agent` | the foreman | When this is the `FOREMAN` agent, the work item takes the foreman's path. Any other agent runs directly on the work item. |
 | `displayName` | none | |
 | `triggers` | required | At least one. |
-| `harness`, `model`, `runner`, `secrets`, `mcpServers` | inherited from the agent | Override settings for work this automation starts. See [Inheritance](agents.md#inheritance). |
+
+### Execution overrides
+
+These apply to every run of work this automation starts, over the agent's own settings.
+
+| Key | Effect |
+| --- | --- |
+| `harness`, `model` | Set one: `harness` replaces the agent's harness and model, `model` keeps the harness. See [Inheritance](agents.md#inheritance). |
+| `runner` | A file in `runners/`. |
+| `secrets` | Extra secret names, added to the agent's own. |
+| `mcpServers` | MCP server names, passed to the run as `KILN_MCP_SERVERS`. |
+| `environmentId` | Passed to the run as `KILN_ENVIRONMENT_ID`. |
+| `workerHost` | A self-hosted worker, passed as `KILN_WORKER_HOST`. |
+| `computerUseModel` | Accepted for compatibility. |
+| `idleTimeoutMinutes` | 1–60, passed as `KILN_IDLE_TIMEOUT_MINUTES`. |
+| `required_repos` | `owner/name` repositories prepared for every run, even when `deferred` in `factory.yaml`. |
 
 ## Triggers
 
-Each trigger has a `provider`, an `event`, and an optional `filter`. Schedule triggers also need `schedule`.
+Each trigger has a `provider`, an `event` and an optional `filter`. The providers are `github`, `gitlab`, `azure_devops`, `bitbucket`, `slack`, `teams`, `discord`, `linear`, `jira`, `webhook`, `schedule` and `factory`. Each event accepts its own filter keys, and validation rejects unknown events and keys. The full list is in [Automation triggers](automation-triggers.md).
 
-| Provider | Events Kiln produces |
-| --- | --- |
-| `github` | `issue_opened`, `issue_labeled`, `issue_assigned`, `issue_mentioned`, `pull_request_mentioned`, `pull_request_opened`, `pull_request_labeled`, `pull_request_review_submitted`, `pull_request_merged`, `pull_request_closed`, `check_suite_completed`, `push` |
-| `slack` | `app_mention`, `direct_message`, `thread_reply`, `reaction_added` |
-| `linear` | `issue_created`, `issue_assigned`, `issue_mentioned`, `agent_session_created` |
-| `jira` | `issue_created`, `issue_assigned`, `issue_mentioned` |
-| `schedule` | any event name you choose, such as `cron_fired` |
-| `webhook` | `received` |
-| `factory` | `work_item_stage_changed` |
+- One event can match several automations; each starts its own work item.
+- An automation fires at most once per delivery, even when several of its triggers match. A GitHub comment with a mention is both `issue_commented` and `issue_mentioned`, but starts one work item per automation.
+- Two automations can still both fire for one action: an app mention plus a channel message on the same channel, or a Linear session plus `comment_created`. Pick one.
 
-The schema also accepts the providers `gitlab` and `kiln`. Kiln does not produce events for them yet.
-
-A Slack `app_mention` trigger without a `mentioned` filter only fires for the factory whose alias is mentioned, or for every factory when the message only mentions the bot.
+Ready-made automations for every connected tool, and suggestions such as auto-fixing CI failures, auto-reviewing pull requests or auditing dependencies, are listed by `GET /api/v1/automation-templates` (`?factory=<id>` fills in the alias, Linear teams and Jira projects). `POST /api/v1/factories/<id>/automations/from-template` adds one to a Kiln-managed factory.
 
 ## Filters
 
-A filter compares its keys with fields of the event. Matching ignores case.
-
 ```yaml
 filter:
-  labels: [kiln-ready, bug]          # the event has at least one of these
-  in: { team_ids: [TEAM-UUID] }      # explicit form of the same rule
-  not_in: { labels: [wontfix] }      # the event has none of these
+  repos: [acme/web]                       # bare list: any of these
+  labels: { in: [bug], not_in: [wontfix] }
+  base_branches: [main, "release/*"]
+  skip_bots: self
 ```
 
-- A plain key matches when the event's value, or any item of it, is in the list. An empty list matches anything.
-- `in` holds keys with the same "at least one" rule.
-- `not_in` holds keys whose values must all be absent.
-- Every key must match.
+- Every key must match (AND). Within a key, any listed value matches (OR).
+- A bare list means `in`. `{ in, not_in }` adds exclusions: `not_in` fails when any of its values is present.
+- A missing or empty list adds no restriction, but provider defaults still apply.
+- Matching ignores case. `keywords` matches text in the title, body or message. `paths`, `branches` and `base_branches` accept globs (`api/**`, `release/*`).
+- Teams `team_ids` and `channel_ids` take only `in`.
+- camelCase `baseBranches` and `prNumbers` are accepted, but not next to their snake_case twins.
+- Filters decide what starts work. They do not control access.
 
-Fields you can filter on:
+### Bots
 
-| Provider | Fields |
+`skip_bots` is `all`, `self` or `none`.
+
+| Value | Skips |
 | --- | --- |
-| GitHub | `repo` (`owner/name`), `repos` (the same, as a list; GitHub events carry both `repo` and `repos`), `number`, `labels`, `label` (the label just added), `mentioned`, `author`, `assignee`, `head` (branch), `state` (review state), `conclusion` |
-| Slack | `channel`, `mentioned`, `author`, `reaction` |
-| Linear | `team_ids`, `labels`, `mentioned`, `assignee` |
-| Jira | `project`, `labels`, `mentioned`, `assignee` |
+| `all` | Events from any bot. The default for GitHub. |
+| `self` | Only events from Kiln's own apps. The default everywhere else. |
+| `none` | Nothing. Admitting Kiln's own events can cause loops. |
 
-`mentioned` holds the lowercased `@handles` found in the text.
+### Alias filters
+
+`teams`, `projects`, `states`, `channels`, `users` and `itemUsers` take plain names instead of IDs, and `issues` takes Linear issue numbers:
+
+```yaml
+filter: { teams: [Engineering], states: [Todo] }
+```
+
+Kiln resolves the names against the connected provider's directory when you apply the definition, and the apply fails on a name it can't resolve, so connect the provider first. A name list and its ID key (`teams` and `team_ids`) can't be used together. See [Connections](../integrations/connections.md#alias-directory).
 
 ## Stage changes
 
-A `factory` trigger reacts when a work item in the same factory changes state. Its event carries `from`, `to` and `workItemId`, so you can filter on them:
+A `factory` trigger reacts when a work item in the same factory changes stage. Filter on `stages`, with task stages or Kiln's states:
+
+| Stage | States |
+| --- | --- |
+| `TRIAGE` | `received`, `triaging` |
+| `SPEC` | `planning`, `awaiting_spec` |
+| `IMPLEMENT` | `building`, `awaiting_preview` |
+| `REVIEW` | `reviewing`, `handed_off` |
+| `COMPLETE` | `complete` |
+| `CANCELLED` | `cancelled`, `failed` |
 
 ```markdown
 ---
@@ -87,7 +114,7 @@ agent: notifier
 triggers:
   - provider: factory
     event: work_item_stage_changed
-    filter: { to: [handed_off] }
+    filter: { stages: [handed_off] }
 ---
 Summarize the handed-off work for the release notes.
 ```
@@ -105,57 +132,40 @@ triggers:
     schedule: { cron: "0 9 * * 1", name: weekly }
 ```
 
-- `cron` takes five fields (minute, hour, day of month, month, day of week) in UTC, or one of `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`.
+- `cron` takes five fields (minute, hour, day of month, month, day of week), one of `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`, or `@every <duration>` such as `@every 5m` or `@every 1h30m` (at least one minute).
+- Schedules are always UTC. A `CRON_TZ=` or `TZ=` prefix and six-field (seconds) expressions are rejected.
 - Fields accept `*`, numbers, ranges (`1-5`), lists (`1,15`) and steps (`*/15`). Day of week runs 0–6 from Sunday; 7 also means Sunday.
-- Kiln checks schedules on each timer tick. A schedule fires once when it is due, even if several due times passed since the last check.
-- The first due time is counted from when Kiln first saw the schedule, not from the past.
-- `name` identifies the schedule. Keep it stable, or Kiln treats the schedule as new.
+- `schedule` is only valid on `schedule`/`cron_fired` triggers. At most one schedule per automation may omit `name`.
+- `name` is the schedule's identity (`<factory>/<automation>/<name>`). Changing only `cron` keeps it and its last fire time; changing `name` makes a new schedule. `schedule_ids` is managed by Kiln and can't be set in a definition.
+- Kiln checks schedules on each timer tick. A schedule fires once when it is due, even if several due times passed since the last check. The first due time is counted from when Kiln first saw the schedule.
 
 ## Webhooks
 
-To accept events from any other system, add a webhook file and an automation that names it.
-
-```yaml
-# webhooks/sentry.yaml
-authMode: signature
-signatureScheme: sentry
-secretName: SENTRY_WEBHOOK_SECRET
-deliveryIdHeader: request-id
-```
+To accept events from any other system, add a webhook and an automation that names it in `webhook_ids` (exactly one: a file name, a managed webhook's name, or its UID), with an optional `payload` filter on the body:
 
 ```markdown
 ---
-agent: foreman
 triggers:
   - provider: webhook
     event: received
-    filter: { webhook: sentry }
+    filter:
+      webhook_ids: [sentry]
+      payload: { data: { issue: { level: [fatal] } } }
 ---
 Investigate the alert in the payload.
 ```
 
-The endpoint is `POST /webhooks/<factory>/<webhook-name>`. The secret is read from Kiln's secrets store by `secretName`, or from the server's environment variable `KILN_SECRET_<secretName>`. A missing secret rejects every call.
+The older `filter: { webhook: sentry }` is still accepted. Authentication, delivery rules and the payload filter reference are on [Custom webhooks](../integrations/custom-webhooks.md).
 
-| `authMode` | The caller sends |
-| --- | --- |
-| `token` (default) | `Authorization: Bearer <secret>` |
-| `url_token` | `?token=<secret>` in the URL |
-| `signature` | A signature header, checked by `signatureScheme`. See below. |
+## Test filter
 
-| `signatureScheme` | Header and check |
-| --- | --- |
-| `github` | `X-Hub-Signature-256: sha256=<hex HMAC-SHA256 of the body>` |
-| `standard_webhooks` | `webhook-id`, `webhook-timestamp` and `webhook-signature` (`v1,<base64 HMAC>` over `<id>.<timestamp>.<body>`). A `whsec_` secret prefix is accepted. |
-| `stripe` | `Stripe-Signature: t=<time>,v1=<hex HMAC-SHA256 of "<time>.<body>">`. Signatures older than five minutes are refused. |
-| `sentry` | `Sentry-Hook-Signature: <hex HMAC-SHA256 of the body>` |
-
-`signatureScheme` is required when `authMode` is `signature`. The work item's title comes from the payload's `title` or `summary` field, and the body is the payload. A `webhook` trigger without `filter.webhook` naming a file in `webhooks/` fails validation.
+Kiln keeps a log of recent provider deliveries (`GET /api/v1/deliveries`, admins) and of custom webhook deliveries. `POST /api/v1/factories/<id>/automations/<name>/test-filter` with `{ "deliveryId": "<id>" }` evaluates the automation's triggers against one of them and returns `wouldTrigger` with every check's outcome.
 
 ## Dedupe and follow-ups
 
-Providers retry deliveries. Kiln remembers each delivery ID (GitHub's `X-GitHub-Delivery`, Slack's `event_id`, Linear's `Linear-Delivery`, Jira's `X-Atlassian-Webhook-Identifier`, or your webhook's `deliveryIdHeader`) for 24 hours and ignores repeats.
+Providers retry deliveries. Kiln remembers each delivery ID (GitHub's `X-GitHub-Delivery`, Slack's `event_id`, Linear's `Linear-Delivery`, Jira's `X-Atlassian-Webhook-Identifier`, GitLab's `X-Gitlab-Event-UUID`, and so on) for 7 days and ignores repeats, across restarts.
 
-Before it starts new work, Kiln checks whether the event belongs to a work item in flight: the same Slack thread, the same Linear or Jira issue, or the same GitHub issue or pull request. If so, the event continues that item:
+Before it starts new work, Kiln checks whether a comment, reply or session message belongs to a work item in flight: the same Slack, Teams or Discord thread, the same Linear session or issue, the same Jira issue, or the same issue or pull request on any forge. If so, the event continues that item. In chat, a plain thread reply continues the work only while the factory's `autoRespondToThreadReplies` is on (the default); otherwise it needs a mention.
 
 - "approve", "approved", "lgtm", "ship it" or "accept" approves an open spec or preview gate.
 - "reject", "changes:" or "request changes" rejects it, with the rest of the message as feedback.
@@ -165,7 +175,7 @@ Before it starts new work, Kiln checks whether the event belongs to a work item 
 
 Text in a thread or comment is content, not authority. A reply approves, rejects or answers a gate only when its author is one of the gate's assignees, or the gate has no assignees. Otherwise the reply is treated like any other message.
 
-Gate assignees are people, such as `po@acme.test`, while Slack and the forges report their own user IDs. The server option `identities` maps one to the other, keyed by `<provider>:<user>`:
+Gate assignees are people, such as `po@acme.test`, while chat tools and forges report their own user IDs. [Linked accounts](../integrations/connections.md#linked-accounts) map them, and so does the server option `identities`, keyed by `<provider>:<user>`:
 
 ```json
 { "slack:U024BE7LH": "po@acme.test", "github:alice": "alice@acme.test" }
@@ -173,13 +183,16 @@ Gate assignees are people, such as `po@acme.test`, while Slack and the forges re
 
 A mapped reply is recorded under the person's name. An unmapped reply is recorded under the provider's user ID.
 
-Labeled events never continue existing work. A merged pull request completes its work item.
+Labels, pushes and state changes never continue existing work. A merged pull request, on any forge, completes its work item.
 
-A factory with no automations still answers mentions of its alias in Slack, GitHub, Linear and Jira by starting foreman work.
+A factory with no automations still answers direct mentions of its alias by starting foreman work.
 
 ## Related pages
 
 - [Factory agents](agents.md)
+- [Automation triggers](automation-triggers.md)
+- [Custom webhooks](../integrations/custom-webhooks.md)
+- [Connections](../integrations/connections.md)
 - [GitHub](../integrations/github.md)
 - [Slack](../integrations/slack.md)
 - [Linear](../integrations/linear.md)

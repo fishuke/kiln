@@ -20,11 +20,31 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `description` | string |  |  |
 | `project` | string |  |  |
 | `repositories` | list of object | yes |  |
-| `repositories[].forge` | `github` \| `gitlab` |  | default `"github"` |
+| `repositories[].forge` | `github` \| `gitlab` \| `azure_devops` \| `bitbucket` |  | default `"github"` |
 | `repositories[].owner` | string | yes |  |
 | `repositories[].name` | string | yes |  |
 | `repositories[].deferred` | boolean |  | default `false` |
-| `integrations` | list of `github` \| `gitlab` \| `slack` \| `linear` \| `jira` |  | default `[]` |
+| `integrations` | list of `github` \| `gitlab` \| `slack` \| `linear` \| `jira` \| `discord` \| `microsoft-teams` \| `teams` \| `azure_devops` \| `bitbucket` \| object |  | default `[]` |
+| `github` | object |  |  |
+| `github.factoryConfigChecks` | `main` \| `all` |  | default `"main"` |
+| `automations` | object |  |  |
+| `automations.githubOnboardingNotices` | boolean |  | default `true` |
+| `cloudProviders` | object |  |  |
+| `cloudProviders.aws` | object |  |  |
+| `cloudProviders.aws.roleArn` | string | yes | pattern `^arn:aws[a-z-]*:iam::\d{12}:role\/.+` |
+| `cloudProviders.gcp` | object |  |  |
+| `cloudProviders.gcp.projectNumber` | string | yes | pattern `^\d+$` |
+| `cloudProviders.gcp.workloadIdentityFederationPoolId` | string | yes |  |
+| `cloudProviders.gcp.workloadIdentityFederationProviderId` | string | yes |  |
+| `cloudProviders.gcp.serviceAccountEmail` | string |  | pattern `^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$` |
+| `providers` | object |  |  |
+| `providers.aws` | object |  |  |
+| `providers.aws.roleArn` | string | yes | pattern `^arn:aws[a-z-]*:iam::\d{12}:role\/.+` |
+| `providers.gcp` | object |  |  |
+| `providers.gcp.projectNumber` | string | yes | pattern `^\d+$` |
+| `providers.gcp.workloadIdentityFederationPoolId` | string | yes |  |
+| `providers.gcp.workloadIdentityFederationProviderId` | string | yes |  |
+| `providers.gcp.serviceAccountEmail` | string |  | pattern `^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$` |
 | `agentDefaults` | object | yes |  |
 | `agentDefaults.harness` | object \| null |  |  |
 | `agentDefaults.harness.type` | `claude-code` \| `codex` \| `opencode` | yes |  |
@@ -82,9 +102,9 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `agent` | string |  |  |
 | `displayName` | string \| null |  |  |
 | `triggers` | list of object | yes |  |
-| `triggers[].provider` | `github` \| `gitlab` \| `linear` \| `jira` \| `slack` \| `factory` \| `schedule` \| `webhook` \| `kiln` | yes |  |
+| `triggers[].provider` | `azure_devops` \| `bitbucket` \| `discord` \| `factory` \| `github` \| `gitlab` \| `jira` \| `kiln` \| `linear` \| `schedule` \| `slack` \| `teams` \| `webhook` | yes |  |
 | `triggers[].event` | string | yes |  |
-| `triggers[].filter` | object |  |  |
+| `triggers[].filter` | object \| null |  |  |
 | `triggers[].schedule` | object |  |  |
 | `triggers[].schedule.cron` | string | yes |  |
 | `triggers[].schedule.name` | string |  |  |
@@ -100,6 +120,11 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `runner` | string \| null |  |  |
 | `secrets` | list of string \| null |  |  |
 | `mcpServers` | list of string \| null |  |  |
+| `environmentId` | string \| null |  |  |
+| `workerHost` | string \| null |  |  |
+| `computerUseModel` | string \| null |  |  |
+| `idleTimeoutMinutes` | integer |  | min 1, max 60 |
+| `required_repos` | list of string |  |  |
 
 ## pipeline
 
@@ -251,9 +276,9 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | --- | --- | --- | --- |
 | `enabled` | boolean |  | default `true` |
 | `authMode` | `token` \| `url_token` \| `signature` |  | default `"token"` |
-| `signatureScheme` | `github` \| `standard_webhooks` \| `stripe` \| `sentry` |  |  |
+| `signatureScheme` | `github` \| `pagerduty` \| `sentry` \| `standard_webhooks` \| `stripe` \| `vercel` |  |  |
 | `secretName` | string | yes |  |
-| `deliveryIdHeader` | string |  |  |
+| `deliveryIdHeader` | string |  | pattern `^[A-Za-z0-9!#$%&'*+.^_`|~-]+$` |
 
 ## decision
 

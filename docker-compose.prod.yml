@@ -32,6 +32,12 @@ services:
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       LINEAR_API_KEY: ${LINEAR_API_KEY:-}
       LINEAR_WEBHOOK_SECRET: ${LINEAR_WEBHOOK_SECRET:-}
+      # Decisions (command guard, triage, review risk): Jev first, an OpenAI-compatible LLM gateway as fallback; neither set means built-in rules.
+      JEV_API_URL: ${JEV_API_URL:-}
+      JEV_API_KEY: ${JEV_API_KEY:-}
+      LLM_GATEWAY_URL: ${LLM_GATEWAY_URL:-}
+      LLM_GATEWAY_KEY: ${LLM_GATEWAY_KEY:-}
+      KILN_DECISION_MODEL: ${KILN_DECISION_MODEL:-claude-haiku-5-5}
       KILN_SMTP_URL: ${KILN_SMTP_URL:-}
       # OpenTelemetry (traces, metrics, logs over OTLP/HTTP); empty endpoint means off.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}

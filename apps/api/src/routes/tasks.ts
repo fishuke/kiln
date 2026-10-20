@@ -38,6 +38,8 @@ export const Dispatch = z.object({
   attachments: Attachments.optional(),
   pipeline: z.string().optional(),
   budgetUsd: z.number().positive().optional(),
+  correlation_key: z.string().min(1).max(200).optional(),
+  dedupe: z.boolean().optional(),
 });
 export const Handback = z.object({ note: z.string().min(1), branch: z.string().optional(), prUrl: z.string().optional() });
 
@@ -70,7 +72,7 @@ export function register({ app, kiln, need, who, visible }: RouteContext) {
     need(c, "send", factory);
     const body = Dispatch.parse(await c.req.json());
     const attachments = body.attachments?.length ? kiln.files.resolveAttachments(body.attachments, who(c), factory) : undefined;
-    const r = await kiln.tasks.dispatch(factory, { prompt: body.prompt, title: body.title, ticketRef: body.ticket_ref, ticketUrl: body.ticket_url, branch: body.branch, mode: body.mode, attachments, by: who(c), pipeline: body.pipeline, budgetUsd: body.budgetUsd });
+    const r = await kiln.tasks.dispatch(factory, { prompt: body.prompt, title: body.title, ticketRef: body.ticket_ref, ticketUrl: body.ticket_url, branch: body.branch, mode: body.mode, attachments, by: who(c), pipeline: body.pipeline, budgetUsd: body.budgetUsd, correlationKey: body.correlation_key, dedupe: body.dedupe });
     return c.json(r, 201);
   });
 

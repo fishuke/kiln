@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
-import { fileKinds, jsonSchemaFor, type FileKind } from "./index";
+import { fileKinds, jsonSchemaFor, Runner, type FileKind } from "./index";
 
 const fixtures = new URL("../fixtures/", import.meta.url);
 
@@ -35,6 +35,12 @@ describe("definition schemas", () => {
       const result = fileKinds[kind].safeParse({ ...data, notAKey: true });
       expect(result.success, kind).toBe(false);
     }
+  });
+
+  it("leaves a runner's image unset when it names none, so the server's runner image applies (#13)", () => {
+    expect(Runner.parse({ setupCommands: ["pnpm install"] }).image).toBeUndefined();
+    expect(Runner.parse({ platform: { os: "linux", linux: { dockerImage: "ghcr.io/acme/runner:1" } } }).image).toBe("ghcr.io/acme/runner:1");
+    expect(Runner.parse({ image: "node:22-bookworm" }).image).toBe("node:22-bookworm");
   });
 
   it("exports a JSON Schema for every kind", () => {

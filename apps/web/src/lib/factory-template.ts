@@ -121,7 +121,7 @@ export function buildFactoryTree(input: WizardInput): Record<string, string> {
 
   tree["runners/default.yaml"] = stringify({
     description: "Default Linux runner",
-    image: "node:22-bookworm",
+    // No image: runs use the server's runner image (KILN_RUNNER_IMAGE), which carries the harness CLIs.
     backend: "docker",
     setupCommands: input.setupCommands.length ? input.setupCommands : ["corepack enable || true"],
   });

@@ -77,7 +77,8 @@ export class FactoryWizard {
     });
     tree["runners/default.yaml"] = stringify({
       description: "Default Linux runner for every agent",
-      image: input.runner?.image ?? "node:22-bookworm",
+      // No image unless one is given: runs use the server's runner image, which carries the harness CLIs.
+      ...(input.runner?.image ? { image: input.runner.image } : {}),
       setupCommands: input.runner?.setupCommands ?? [],
     });
 

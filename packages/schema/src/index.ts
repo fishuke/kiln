@@ -437,14 +437,17 @@ const RunnerInput = z
   })
   .strict();
 
-type RunnerOut = Omit<z.infer<typeof RunnerInput>, "image" | "shape"> & { image: string; shape?: z.infer<typeof Shape> };
+/** `image` is unset when the runner names none: each run then uses the server's runner image (KILN_RUNNER_IMAGE). */
+type RunnerOut = Omit<z.infer<typeof RunnerInput>, "image" | "shape"> & { image?: string; shape?: z.infer<typeof Shape> };
 
 export const Runner = RunnerInput.transform((r): RunnerOut => {
   const shape = r.shape ?? r.instanceShape;
   // One place for the pull credential: the top-level v1alpha1 key is folded into platform.linux.
   const registry = r.platform?.linux?.registryCredentialSecretName ?? r.registryCredentialSecretName;
   const platform = registry ? { ...(r.platform ?? { os: "linux" as const }), linux: { ...r.platform?.linux, registryCredentialSecretName: registry } } : r.platform;
-  return { ...r, image: r.image ?? r.platform?.linux?.dockerImage ?? "node:22-bookworm", ...(shape ? { shape } : {}), ...(platform ? { platform } : {}) };
+  const image = r.image ?? r.platform?.linux?.dockerImage;
+  const { image: _image, ...rest } = r;
+  return { ...rest, ...(image ? { image } : {}), ...(shape ? { shape } : {}), ...(platform ? { platform } : {}) };
 });
 export type Runner = z.infer<typeof Runner>;
 

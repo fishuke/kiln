@@ -1,5 +1,6 @@
 import { EventStream, type StartOptions } from "@kiln/harness";
-import type { HarnessType, Runner } from "@kiln/schema";
+import type { SandboxRunner } from "@kiln/sandbox";
+import type { HarnessType } from "@kiln/schema";
 import { KilnError } from "./errors";
 import type { Kiln } from "./kiln";
 import { C, type WorkerRecord } from "./types";
@@ -16,7 +17,7 @@ export type WorkerJob = {
   instructions: string;
   prompt: string;
   skills: { name: string; body: string; description?: string }[];
-  runner: Runner;
+  runner: SandboxRunner;
   /** `url` carries the run's scoped token; `key` is owner/name. */
   repos: { name: string; key: string; url: string }[];
   branch?: string;

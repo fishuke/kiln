@@ -43,7 +43,7 @@ export async function saveRunner(factory: string, input: RunnerInput, isNew: boo
   if (isNew && existing !== undefined) return { ok: false, error: `A runner named ${name} already exists.` };
   const patch: Record<string, unknown> = {
     description: input.description?.trim() || undefined,
-    image: input.image.trim(),
+    image: input.image.trim() || undefined,
     // Only platform.os: an existing platform.linux block (image, pull credential) is kept.
     "platform.os": input.os === "linux" ? undefined : input.os,
     registryCredentialSecretName: input.registryCredentialSecretName || undefined,

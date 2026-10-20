@@ -38,7 +38,7 @@ budgets: { perWorkItemUsd: 30, monthlyUsd: 3000 }
 | `pipelines/feature.yaml` | Triage, spec (skipped for `xs` and `s`), build per user story, verify with CI and a video per criterion (up to 3 loops), preview, an advisory review whose findings are posted on the pull request, hand-off |
 | `gates/` | Spec approval and preview acceptance by the requester or the `po` role, nudged after 24h, parked after 72h |
 | `routers/by-task.yaml` | A complexity router: Haiku for easy, Sonnet for medium and by default, Opus for hard |
-| `runners/linux-node.yaml` | `node:22-bookworm` on Docker, 4 vCPUs and 8 GB, `pnpm install`, egress to the npm registry, `github.com` and `api.github.com` |
+| `runners/linux-node.yaml` | Kiln's runner image on Docker, 4 vCPUs and 8 GB, `pnpm install`, egress to the npm registry, `github.com` and `api.github.com` |
 | `skills/repository-conventions` | Named exports, zod at every boundary, one behavior per test |
 | `decisions/command-guard.yaml` | The command guard with the standard thresholds |
 | `automations/` | `ready` (GitHub `issue_labeled` with `kiln-ready`), `review-comments` (review submitted) and `slack` (mentions) |

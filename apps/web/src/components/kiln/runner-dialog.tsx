@@ -19,7 +19,6 @@ export type RunnerFile = { description?: string; image?: string; platform?: { os
 
 const VCPUS = [1, 2, 4, 8, 16, 32];
 const MEMORY = [1, 2, 4, 8, 16, 32, 64];
-const DEFAULT_IMAGE = "node:22-bookworm";
 const OS_ITEMS = { linux: "Linux", macos: "macOS", windows: "Windows" };
 
 function Stepper({ label, values, unit, value, onChange }: { label: string; values: number[]; unit: (n: number) => string; value: number | undefined; onChange: (n: number) => void }) {
@@ -46,7 +45,7 @@ export function RunnerDialog({ factory, open, onOpenChange, name, runner, isDefa
     name: name ?? "",
     description: runner?.description ?? "",
     os: runner?.platform?.os ?? "linux",
-    image: runner?.image ?? (isNew ? "" : DEFAULT_IMAGE),
+    image: runner?.image ?? "",
     registryCredentialSecretName: runner?.registryCredentialSecretName ?? runner?.platform?.linux?.registryCredentialSecretName ?? "",
     setupCommands: runner?.setupCommands?.length ? runner.setupCommands : isNew ? [""] : [],
     keepSessionAfterFailure: !!runner?.failureSessionRetentionMinutes,
@@ -62,10 +61,6 @@ export function RunnerDialog({ factory, open, onOpenChange, name, runner, isDefa
   const set = (p: Partial<RunnerInput>) => setForm((f) => ({ ...f, ...p }));
   const submit = () =>
     start(async () => {
-      if (!form.image.trim() && form.os === "linux") {
-        toast.error("Enter a Docker image.");
-        return;
-      }
       const r = await saveRunner(factory, form, isNew);
       if (!r.ok) {
         toast.error(r.error);
@@ -123,13 +118,13 @@ export function RunnerDialog({ factory, open, onOpenChange, name, runner, isDefa
             <>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium" htmlFor="runner-image">
-                  Docker image <span className="text-red-600">*</span>
+                  Docker image
                 </label>
                 <div className="relative">
                   <Container className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input id="runner-image" value={form.image} onChange={(e) => set({ image: e.target.value })} placeholder={DEFAULT_IMAGE} className="h-10 pl-9 font-mono" />
+                  <Input id="runner-image" value={form.image} onChange={(e) => set({ image: e.target.value })} placeholder="Kiln's runner image" className="h-10 pl-9 font-mono" />
                 </div>
-                <p className="text-xs text-muted-foreground">The container image used to set up this runner.</p>
+                <p className="text-xs text-muted-foreground">The container image used to set up this runner. Leave it empty to use Kiln&apos;s runner image, which has the agent CLIs.</p>
               </div>
               <div className="space-y-1.5">
                 <div className="text-sm font-medium">Private image credential</div>

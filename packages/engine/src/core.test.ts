@@ -66,6 +66,20 @@ describe("default runner image", () => {
     await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "foreman", prompt: "route this", push: false });
     expect(egress[0]).toContain("kiln-api.acme.test");
   });
+
+  it("runs a declared runner without an image on KILN_RUNNER_IMAGE; an explicit image still wins (#13)", async () => {
+    const run = async (runnerYaml: string) => {
+      const images: string[] = [];
+      const local = new LocalSandboxProvider();
+      const recording: SandboxProvider = { name: "docker", create: (spec) => (images.push(spec.runner.image), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })), resume: (ref, spec, store) => local.resume(ref, spec, store) };
+      const tree = sampleTree({ "runners/plain.yaml": runnerYaml, "agents/plain/agent.md": "---\nagentType: CUSTOM\nrunner: plain\n---\nDo it.\n" });
+      const { kiln } = createTestKiln({ tree, sandboxes: { local, docker: recording }, defaultBackend: "docker", defaultImage: "ghcr.io/acme/kiln-runner:1" });
+      await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "plain", prompt: "go", push: false });
+      return images;
+    };
+    expect(await run("backend: docker\nsetupCommands: []\n")).toEqual(["ghcr.io/acme/kiln-runner:1"]);
+    expect(await run("image: ghcr.io/acme/custom:2\nbackend: docker\n")).toEqual(["ghcr.io/acme/custom:2"]);
+  });
 });
 
 describe("runs: sources, metadata, follow-ups, interrupts and subagent trees", () => {
@@ -280,6 +294,8 @@ describe("factory wizard", () => {
     expect(Object.keys(resolved.parsed.scorers).sort()).toEqual(["code-quality", "efficiency", "procedure-compliance", "task-compliance", "task-correctness", "verbosity"]);
     expect(resolved.parsed.scorers["task-compliance"]!.frontmatter.agents).not.toContain("review");
     expect(resolved.automations["auto-review-prs"]!.agent).toBe("foreman");
+    // No pinned image: the server's runner image (which carries the harness CLIs) applies (#13).
+    expect(resolved.parsed.runners.default!.image).toBeUndefined();
     expect(Object.keys(resolved.automations)).toEqual(expect.arrayContaining(["github-issue-labeled", "linear-agent-sessions", "slack-app-mentions", "autofix-ci-failures", "linear-duplicate-check"]));
     await expect(kiln.wizard.create({ name: "Other", alias: "Shop-Front", repos: [{ owner: "acme", name: "web" }] }, "x")).rejects.toThrow(/already used/);
     await expect(kiln.wizard.create({ name: "Other", alias: "shop front", repos: [{ owner: "acme", name: "web" }] }, "x")).rejects.toThrow(/already exists/);

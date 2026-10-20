@@ -123,7 +123,6 @@ After two failed verify loops, Kiln opens a `verify-stuck` question in the threa
 
 ```yaml
 # runners/linux-node.yaml
-image: node:22-bookworm
 backend: docker
 shape: { vcpus: 2, memoryGb: 4 }
 setupCommands:

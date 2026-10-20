@@ -10,8 +10,11 @@ export * from "./process";
 
 export type GuardVerdict = "allow" | "ask_human" | "block";
 
+/** A runner with its image resolved (the run's runner, environment or server default). */
+export type SandboxRunner = Runner & { image: string };
+
 export type SandboxSpec = {
-  runner: Runner;
+  runner: SandboxRunner;
   repos: { name: string; url: string; branch?: string }[];
   env?: Record<string, string>;
   /** Pre-exec hook: every shell command passes through it before running. */

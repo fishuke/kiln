@@ -3,7 +3,7 @@ import { BUILTIN_DECISIONS, guardCommand, runDecision } from "@kiln/decide";
 import type { DefinitionTree, ResolvedAgent, ResolvedFactory } from "@kiln/definitions";
 import type { HarnessSession } from "@kiln/harness";
 import { repoKey, type RepoRef } from "@kiln/integrations";
-import { hashDir, type RegistryAuth, type Sandbox, type SandboxProvider, type SnapshotRef } from "@kiln/sandbox";
+import { hashDir, type RegistryAuth, type Sandbox, type SandboxProvider, type SandboxRunner, type SnapshotRef } from "@kiln/sandbox";
 import type { HarnessType, Runner } from "@kiln/schema";
 import { classifyError, KilnError, retriesAutomatically, runStatusFor } from "./errors";
 import type { Kiln } from "./kiln";
@@ -125,7 +125,7 @@ export function modeInstructions(mode: RunMode | undefined): string {
   return "";
 }
 
-const DEFAULT_RUNNER = (backend: Runner["backend"]): Runner => ({ image: "node:22-bookworm", backend, setupCommands: [], egress: [] });
+const DEFAULT_RUNNER = (backend: Runner["backend"]): SandboxRunner => ({ image: "node:22-bookworm", backend, setupCommands: [], egress: [] });
 
 type Prepared = {
   run: Run;
@@ -134,7 +134,7 @@ type Prepared = {
   agent: ResolvedAgent;
   harnessType: HarnessType;
   model?: string;
-  runner: Runner;
+  runner: SandboxRunner;
   deniedHosts: string[];
   repos: RepoRef[];
   token: string;
@@ -156,7 +156,7 @@ export class RunService {
   private readonly sandboxes = new Map<string, Sandbox>();
   /** Forge credentials given to a run's sandbox, redacted from its output. */
   private readonly forgeTokens = new Map<string, string[]>();
-  private readonly specs = new Map<string, Runner>();
+  private readonly specs = new Map<string, SandboxRunner>();
   /** The in-memory record of each live run, so steering and cost updates land on the copy that is saved last. */
   private readonly live = new Map<string, Run>();
   /** Secret values each live run was given; redacted from its events and summary. */
@@ -298,12 +298,14 @@ export class RunService {
     const teamSettings = team ? this.k.teams.settings(team) : undefined;
     const host = teamSettings?.defaultSandboxHost;
     const teamBackend = host === "local" || host === "docker" || host === "kubernetes" ? host : undefined;
-    const base: Runner = declared ?? { ...DEFAULT_RUNNER(teamBackend ?? this.k.options.defaultBackend ?? "local"), image: environment?.image ?? this.k.options.defaultImage ?? "node:22-bookworm" };
+    // The image: the runner's own, else the team environment's, else the server's runner image (KILN_RUNNER_IMAGE).
+    const image = declared?.image ?? environment?.image ?? this.k.options.defaultImage ?? "node:22-bookworm";
+    const base: SandboxRunner = declared ? { ...declared, image } : { ...DEFAULT_RUNNER(teamBackend ?? this.k.options.defaultBackend ?? "local"), image };
     const policy = agent.networkPolicy;
     // Environment setup commands run after the runner's own; the team's egress allowlist and the agent's allowed hosts add to the runner's.
     // Kiln's own host is always allowed: the command guard and the Kiln MCP server live there.
     const kilnHost = this.k.options.publicUrl ? new URL(this.k.options.publicUrl).hostname : undefined;
-    const runner: Runner = {
+    const runner: SandboxRunner = {
       ...base,
       setupCommands: [...(base.setupCommands ?? []), ...(environment?.setupCommands ?? [])],
       egress: [...new Set([...(base.egress ?? []), ...(teamSettings?.egressAllowlist ?? []), ...(policy?.allowedHosts ?? []), ...(kilnHost ? [kilnHost] : [])])],
@@ -445,7 +447,7 @@ export class RunService {
     const decisions = resolved.parsed.decisions["command-guard"] ?? BUILTIN_DECISIONS["command-guard"]!;
     const provider = this.provider(input.backend ?? runner.backend);
     // Setup commands target the runner's image; when Kiln falls back to the host they are skipped.
-    const effective: Runner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [] };
+    const effective: SandboxRunner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [] };
     let sandbox: Sandbox | undefined;
     sandbox = await provider.create({
       registryAuth: p.registryAuth,

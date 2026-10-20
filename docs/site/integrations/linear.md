@@ -56,7 +56,7 @@ When work starts from a session, Kiln keeps the session up to date:
 
 - a thought right after the session is created, and one each time the work moves to another stage,
 - every agent run's work as it happens: what the agent says and thinks as thoughts, each tool call as an action with its main argument (the file, command, pattern or URL) and a short result, and errors, including why a run failed,
-- the factory's messages (questions, gate requests, "Ready to merge") as responses,
+- the factory's messages (questions, gate requests, "Ready to merge") as responses. A question with one single-select question (an agent's `ask_user` with options) is asked with Linear's select signal instead: the person picks an option, and the pick answers the question,
 - an action and an attachment on the issue when the pull request opens.
 
 Run activity is posted in the order the run produced it. Long text is shortened, secrets are redacted as in the run log, and a failure to reach Linear never fails the run. Bookkeeping events, such as queueing, costs and steering, are not posted.

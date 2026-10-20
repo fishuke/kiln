@@ -26,7 +26,7 @@ import { importV1alpha1 } from "@kiln/definitions";
 import type { Kiln } from "./kiln";
 import { LinearActivityStream } from "./linear-activity";
 import { STAGE_OF_STATE } from "./matchers";
-import type { FactoryBinding, WorkItem } from "./types";
+import type { FactoryBinding, GateQuestion, WorkItem } from "./types";
 
 /** Adapters per provider, beyond the primary forge/tracker/chat. */
 export type IntegrationAdapters = {
@@ -129,7 +129,8 @@ export class IntegrationHub {
   }
 
   /** Post back where the work started. Returns false when there is nowhere to post. */
-  async notify(wi: WorkItem, text: string): Promise<boolean> {
+  /** `question`: a single-select question to ask where the surface can show choices (a Linear select). */
+  async notify(wi: WorkItem, text: string, opts: { question?: GateQuestion } = {}): Promise<boolean> {
     const s = wi.source ?? { provider: "kiln" };
     if ((s.provider === "slack" || s.provider === "discord" || s.provider === "teams") && s.channel) {
       const chat = this.chat(s.provider);
@@ -149,7 +150,8 @@ export class IntegrationHub {
       return true;
     }
     if (s.provider === "linear" && s.sessionId && this.linearAgent) {
-      await this.linearAgent.activity(s.sessionId, { type: "response", body: text });
+      const q = opts.question;
+      await this.linearAgent.activity(s.sessionId, q ? { type: "elicitation", body: text, options: q.options } : { type: "response", body: text });
       return true;
     }
     if (s.provider === "jira" && (s.issueId ?? wi.trackerKey) && this.jira) {

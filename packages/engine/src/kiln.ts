@@ -37,7 +37,7 @@ import { DecisionJudge, ScoringService, type Judge } from "./scoring";
 import { SecretsBroker } from "./secrets";
 import { SkillService } from "./skills";
 import { TaskService } from "./tasks";
-import { C, newId, systemClock, type AuditEntry, type Clock, type DecisionLog, type WorkItem } from "./types";
+import { C, newId, systemClock, type AuditEntry, type Clock, type DecisionLog, type GateQuestion, type WorkItem } from "./types";
 import { WorkerRegistry } from "./workers";
 import { Workflow } from "./workflow";
 import { FactoryWizard } from "./wizard";
@@ -326,12 +326,12 @@ export class Kiln {
   }
 
   /** Post back where the work started: the Slack thread, the issue or the PR. */
-  async notify(wi: WorkItem, text: string, opts: { only?: WorkItem["source"] } = {}) {
+  async notify(wi: WorkItem, text: string, opts: { only?: WorkItem["source"]; question?: GateQuestion } = {}) {
     // Every place the work was reported hears about it (an incident's alert channel and the user's thread).
     const sources = opts.only ? [opts.only] : [wi.source, ...(this.workflow.get(wi.id)?.linkedSources ?? wi.linkedSources ?? [])];
     for (const source of sources) {
       try {
-        await this.integrations.notify({ ...wi, source }, text);
+        await this.integrations.notify({ ...wi, source }, text, { question: opts.question });
       } catch (err) {
         this.audit("kiln", "notify.failed", wi.id, { error: err instanceof Error ? err.message : String(err), provider: source.provider });
       }

@@ -301,10 +301,12 @@ export class RunService {
     const base: Runner = declared ?? { ...DEFAULT_RUNNER(teamBackend ?? this.k.options.defaultBackend ?? "local"), image: environment?.image ?? this.k.options.defaultImage ?? "node:22-bookworm" };
     const policy = agent.networkPolicy;
     // Environment setup commands run after the runner's own; the team's egress allowlist and the agent's allowed hosts add to the runner's.
+    // Kiln's own host is always allowed: the command guard and the Kiln MCP server live there.
+    const kilnHost = this.k.options.publicUrl ? new URL(this.k.options.publicUrl).hostname : undefined;
     const runner: Runner = {
       ...base,
       setupCommands: [...(base.setupCommands ?? []), ...(environment?.setupCommands ?? [])],
-      egress: [...new Set([...(base.egress ?? []), ...(teamSettings?.egressAllowlist ?? []), ...(policy?.allowedHosts ?? [])])],
+      egress: [...new Set([...(base.egress ?? []), ...(teamSettings?.egressAllowlist ?? []), ...(policy?.allowedHosts ?? []), ...(kilnHost ? [kilnHost] : [])])],
     };
     // required_repos (the agent's and an automation's) makes deferred repositories eager for this run.
     const required = [...agent.requiredRepos.map((r) => `${r.owner}/${r.name}`), ...(input.overrides?.requiredRepos ?? [])].map((r) => r.toLowerCase());

@@ -1,4 +1,9 @@
 import type { ExecResult, Proc, Sandbox, SnapshotRef } from "@kiln/sandbox";
+import { spawn } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ClaudeCodeAdapter,
@@ -291,6 +296,74 @@ describe("claude code through the agent sdk", () => {
     await session.stop();
     await collect(session.events);
     expect((await session.result).outcome).toBe("cancelled");
+  });
+});
+
+describe("command guard hook", () => {
+  const listen = (server: Server) => new Promise<number>((r) => server.listen(0, "127.0.0.1", () => r((server.address() as { port: number }).port)));
+
+  async function hookFor(guardUrl: string) {
+    const { sandbox, files } = scriptedSandbox();
+    await (
+      await new ClaudeCodeAdapter().start({ ...base, sandbox, guardUrl })
+    ).result;
+    const path = join(mkdtempSync(join(tmpdir(), "kiln-guard-")), "kiln-guard.mjs");
+    writeFileSync(path, files[".kiln/kiln-guard.mjs"]!);
+    return path;
+  }
+
+  // Asynchronous, so the fake servers in this process keep answering while the hook runs.
+  const runHook = (path: string, env: Record<string, string>) =>
+    new Promise<{ status: number | null; stderr: string }>((resolve) => {
+      const child = spawn(process.execPath, [path], { env: { PATH: process.env.PATH ?? "", KILN_RUN_TOKEN: "run-token", ...env } });
+      let stderr = "";
+      child.stderr.on("data", (d) => (stderr += String(d)));
+      child.on("close", (status) => resolve({ status, stderr }));
+      child.stdin.end(JSON.stringify({ tool_input: { command: "pnpm test" } }));
+    });
+
+  it("reaches the guard through the sandbox's egress proxy (Node's fetch ignores HTTPS_PROXY)", async () => {
+    const seen: { url?: string; auth?: string; body?: string } = {};
+    // A forwarding proxy: the request line carries the absolute guard URL.
+    const proxy = createServer((req, res) => {
+      let body = "";
+      req.on("data", (d) => (body += d));
+      req.on("end", () => {
+        Object.assign(seen, { url: req.url, auth: req.headers.authorization, body });
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ verdict: "allow" }));
+      });
+    });
+    const port = await listen(proxy);
+    try {
+      const hook = await hookFor("http://kiln.example/api/v1/guard");
+      const r = await runHook(hook, { HTTP_PROXY: `http://127.0.0.1:${port}` });
+      expect(r.status).toBe(0);
+      expect(seen.url).toBe("http://kiln.example/api/v1/guard");
+      expect(seen.auth).toBe("Bearer run-token");
+      expect(JSON.parse(seen.body!).command).toBe("pnpm test");
+    } finally {
+      proxy.close();
+    }
+  });
+
+  it("tunnels to an https guard with CONNECT, and blocks when the proxy refuses", async () => {
+    let connectTo = "";
+    const proxy = createServer();
+    proxy.on("connect", (req, socket) => {
+      connectTo = req.url ?? "";
+      socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+    });
+    const port = await listen(proxy);
+    try {
+      const hook = await hookFor("https://kiln-api.example/api/v1/guard");
+      const r = await runHook(hook, { HTTPS_PROXY: `http://127.0.0.1:${port}` });
+      expect(connectTo).toBe("kiln-api.example:443");
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain("Kiln guard unreachable");
+    } finally {
+      proxy.close();
+    }
   });
 });
 

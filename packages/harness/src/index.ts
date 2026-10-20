@@ -89,6 +89,42 @@ export class EventStream<T> implements AsyncIterable<T> {
 function guardHook(url: string): string {
   return `#!/usr/bin/env node
 // Kiln command guard: Claude Code PreToolUse hook. Exit code 2 blocks the tool call.
+import http from "node:http";
+import https from "node:https";
+import tls from "node:tls";
+
+const GUARD = new URL(${JSON.stringify(url)});
+
+// Sandboxes reach the network only through the egress proxy, and Node's fetch ignores HTTPS_PROXY.
+function post(body) {
+  const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
+  const headers = { "content-type": "application/json", "content-length": Buffer.byteLength(body), authorization: "Bearer " + (process.env.KILN_RUN_TOKEN || "") };
+  const read = (resolve, reject) => (res) => {
+    let text = "";
+    res.on("data", (d) => (text += d));
+    res.on("end", () => (res.statusCode < 300 ? resolve(JSON.parse(text)) : reject(new Error("guard answered " + res.statusCode))));
+  };
+  return new Promise((resolve, reject) => {
+    if (!proxy) return void fetch(GUARD, { method: "POST", headers, body }).then((r) => r.json()).then(resolve, reject);
+    const p = new URL(proxy);
+    if (GUARD.protocol === "http:") {
+      const req = http.request({ host: p.hostname, port: p.port || 80, method: "POST", path: GUARD.href, headers: { ...headers, host: GUARD.host } }, read(resolve, reject));
+      req.on("error", reject);
+      return void req.end(body);
+    }
+    const target = GUARD.hostname + ":" + (GUARD.port || 443);
+    const connect = http.request({ host: p.hostname, port: p.port || 80, method: "CONNECT", path: target, headers: { host: target } });
+    connect.on("connect", (res, socket) => {
+      if (res.statusCode !== 200) return reject(new Error("proxy answered " + res.statusCode));
+      const req = https.request(GUARD, { method: "POST", headers, createConnection: () => tls.connect({ socket, servername: GUARD.hostname }) }, read(resolve, reject));
+      req.on("error", reject);
+      req.end(body);
+    });
+    connect.on("error", reject);
+    connect.end();
+  });
+}
+
 let input = "";
 process.stdin.on("data", (d) => (input += d));
 process.stdin.on("end", async () => {
@@ -96,12 +132,7 @@ process.stdin.on("end", async () => {
   const command = event.tool_input?.command;
   if (!command) process.exit(0);
   try {
-    const res = await fetch(${JSON.stringify(url)}, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: "Bearer " + (process.env.KILN_RUN_TOKEN || "") },
-      body: JSON.stringify({ command, cwd: process.cwd() }),
-    });
-    const { verdict } = await res.json();
+    const { verdict } = await post(JSON.stringify({ command, cwd: process.cwd() }));
     if (verdict === "allow") process.exit(0);
     console.error(verdict === "block" ? "Blocked by the Kiln guardrail: " + command : "Waiting for a human to approve: " + command);
     process.exit(2);

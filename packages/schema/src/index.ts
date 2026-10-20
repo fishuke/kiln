@@ -7,11 +7,23 @@ const name = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "use lowercase letters, di
 export const HarnessType = z.enum(["claude-code", "codex", "opencode"]);
 export type HarnessType = z.infer<typeof HarnessType>;
 
+/**
+ * Bring your own keys. `secret` names a Kiln secret whose value is passed to the harness, e.g. a
+ * Claude subscription token from `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN) or an API key.
+ * `worker` uses credentials already present on a self-hosted worker.
+ */
+export const HarnessAuth = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("secret"), secretName: z.string().min(1), env: z.string().optional() }).strict(),
+  z.object({ source: z.literal("worker") }).strict(),
+]);
+export type HarnessAuth = z.infer<typeof HarnessAuth>;
+
 export const Harness = z
   .object({
     type: HarnessType,
     model: z.string().optional(),
     reasoningLevel: z.enum(["low", "medium", "high"]).optional(),
+    auth: HarnessAuth.optional(),
   })
   .strict();
 

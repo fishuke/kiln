@@ -190,6 +190,7 @@ export class RunService {
       this.k.bus.publish("run.started", { runId: run.id, workItemId: run.workItemId, agent: run.agent, harness: harnessType });
       this.record(run, "started", `${agent.name} (${harnessType}${model ? `, ${model}` : ""})`);
       const adapter = this.k.harnessFor(harnessType, agent.agentType);
+      const credentials = this.credentials(harnessType, agent);
       const session = await adapter.start({
         sandbox,
         cwd,
@@ -200,6 +201,7 @@ export class RunService {
         mcpServers: this.k.options.publicUrl ? [{ name: "kiln", url: `${this.k.options.publicUrl}/mcp`, headers: { authorization: `Bearer ${token}` } }] : [],
         guardUrl: this.k.options.publicUrl ? `${this.k.options.publicUrl}/api/v1/guard` : undefined,
         env: {
+          ...credentials,
           KILN_RUN_ID: run.id,
           KILN_RUN_TOKEN: token,
           KILN_FACTORY: input.factory,
@@ -254,6 +256,42 @@ export class RunService {
       this.k.bus.publish("run.finished", { runId: run.id, outcome: run.status === "succeeded" ? "succeeded" : run.status === "failed" ? "failed" : "cancelled", costUsd: run.costUsd });
     }
     return run;
+  }
+
+  /**
+   * Bring-your-own-keys: the harness credential and the agent's declared secrets, read from Kiln's
+   * secrets and passed only to this run's sandbox. Claude Code prefers a subscription token from
+   * `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN) and falls back to ANTHROPIC_API_KEY.
+   */
+  credentials(type: HarnessType, agent: ResolvedAgent): Record<string, string> {
+    const env: Record<string, string> = {};
+    const get = (name: string) => this.k.secrets.getSecret(name);
+    for (const name of agent.secrets) {
+      const v = get(name);
+      if (v) env[name] = v;
+    }
+    const auth = agent.harness.auth;
+    if (auth?.source === "worker") return env;
+    if (auth?.source === "secret") {
+      const v = get(auth.secretName);
+      if (!v) throw new Error(`secret ${auth.secretName} for the ${type} harness is not set`);
+      const target = auth.env ?? (type === "claude-code" ? (v.startsWith("sk-ant-oat") ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY") : type === "codex" ? "OPENAI_API_KEY" : auth.secretName);
+      env[target] = v;
+      return env;
+    }
+    const defaults: Record<HarnessType, string[]> = {
+      "claude-code": ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
+      codex: ["OPENAI_API_KEY", "CODEX_API_KEY"],
+      opencode: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"],
+    };
+    for (const name of defaults[type]) {
+      const v = get(name);
+      if (v) {
+        env[name] = v;
+        if (type !== "opencode") break;
+      }
+    }
+    return env;
   }
 
   /** Commit leftovers and push `branch` with the run's scoped token. Never touches main. */

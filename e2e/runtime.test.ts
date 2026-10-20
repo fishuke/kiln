@@ -264,3 +264,48 @@ describe("idempotent advances", () => {
     expect(kiln.gates.list({ workItemId: wi.id }).filter((g) => g.kind === "preview")).toHaveLength(1);
   });
 });
+
+describe("bring your own keys", () => {
+  it("passes a Claude subscription token from claude setup-token to Claude Code, and only the agent's secrets", async () => {
+    const seen: Record<string, string | undefined>[] = [];
+    const harness = new FakeHarness(async (ctx) => void seen.push(ctx.opts.env ?? {}));
+    const tree = sampleTree({ "agents/implement/agent.md": "---\nagentType: IMPLEMENT\nsecrets: [NPM_TOKEN]\n---\nBuild.\n" });
+    const { kiln } = createTestKiln({ harness: () => harness, tree });
+    kiln.secrets.setSecret("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-subscription");
+    kiln.secrets.setSecret("ANTHROPIC_API_KEY", "sk-ant-api-key");
+    kiln.secrets.setSecret("NPM_TOKEN", "npm_x");
+    kiln.secrets.setSecret("UNRELATED", "nope");
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "x", push: false });
+    expect(seen[0]).toMatchObject({ CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-subscription", NPM_TOKEN: "npm_x" });
+    expect(seen[0]!.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(seen[0]!.UNRELATED).toBeUndefined();
+  });
+
+  it("uses a per-agent harness secret and fails clearly when it is missing", async () => {
+    const tree = sampleTree({ "agents/review/agent.md": "---\nagentType: REVIEW\nharness: { type: codex, auth: { source: secret, secretName: TEAM_OPENAI } }\n---\nReview.\n" });
+    const seen: Record<string, string | undefined>[] = [];
+    const { kiln } = createTestKiln({ harness: () => new FakeHarness(async (ctx) => void seen.push(ctx.opts.env ?? {})), tree });
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    const failed = await kiln.runs.execute({ factory: "webapp", sha, agent: "review", prompt: "x", push: false });
+    expect(failed.summary).toBe("secret TEAM_OPENAI for the codex harness is not set");
+    kiln.secrets.setSecret("TEAM_OPENAI", "sk-proj-team");
+    await kiln.runs.execute({ factory: "webapp", sha, agent: "review", prompt: "x", push: false });
+    expect(seen[0]).toMatchObject({ OPENAI_API_KEY: "sk-proj-team" });
+  });
+});
+
+describe("secrets from the environment", () => {
+  it("exposes provider keys and KILN_SECRET_* but not the server's own variables", () => {
+    const { kiln } = createTestKiln();
+    process.env.KILN_SECRET_NPM_TOKEN = "npm";
+    process.env.GITHUB_TOKEN_TEST_ONLY = "server";
+    try {
+      expect(kiln.secrets.getSecret("NPM_TOKEN")).toBe("npm");
+      expect(kiln.secrets.getSecret("GITHUB_TOKEN_TEST_ONLY")).toBeUndefined();
+    } finally {
+      delete process.env.KILN_SECRET_NPM_TOKEN;
+      delete process.env.GITHUB_TOKEN_TEST_ONLY;
+    }
+  });
+});

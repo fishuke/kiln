@@ -170,6 +170,7 @@ export class KilnClient {
   audit = (limit = 200) => this.request<{ id: string; at: string; actor: string; action: string; target: string; details?: unknown }[]>("GET", `/api/v1/audit?limit=${limit}`);
   tokens = () => this.request<{ id: string; name: string; subject: string; grants: { scope: string; factory: string }[]; createdAt: string; expiresAt?: string; revoked?: boolean }[]>("GET", "/api/v1/tokens");
   issueToken = (input: { name: string; subject: string; grants: { scope: string; factory: string }[]; ttlHours?: number }) => this.request<{ token: string; record: { id: string } }>("POST", "/api/v1/tokens", input);
+  integrations = () => this.request<{ forge: string; tracker: string; chat: string; preview: string; decisions: { primary: string; fallback: string }; judge: string; sandboxes: string[]; defaultBackend: string; agents: string; publicUrl?: string }>("GET", "/api/v1/integrations");
   secrets = () => this.request<string[]>("GET", "/api/v1/secrets");
   setSecret = (name: string, value: string) => this.request<{ ok: true }>("PUT", `/api/v1/secrets/${encodeURIComponent(name)}`, { value });
 }

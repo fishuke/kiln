@@ -65,6 +65,7 @@ import type {
   Me,
   Membership,
   ModelKeyProvider,
+  PoolEntry,
   NotificationPrefs,
   NotificationRecord,
   PublicUser,
@@ -583,6 +584,8 @@ export class KilnClient {
   testStorage = (team: string, category: "artifacts" | "transcripts" | "attachments") => this.request<{ ok: boolean; error?: string }>("POST", `/api/v1/teams/${encodeURIComponent(team)}/storage/${category}/test`);
   modelKeys = (team: string) => this.request<Record<ModelKeyProvider, { set: boolean; updatedAt?: string; updatedBy?: string }>>("GET", `/api/v1/teams/${encodeURIComponent(team)}/model-keys`);
   setModelKey = (team: string, provider: ModelKeyProvider, value: string | Record<string, string>) => this.request<SecretMeta>("PUT", `/api/v1/teams/${encodeURIComponent(team)}/model-keys/${provider}`, { value });
+  claudeTokens = (team: string) => this.request<PoolEntry[]>("GET", `/api/v1/teams/${encodeURIComponent(team)}/claude-tokens`);
+  checkClaudeToken = (team: string, name: string) => this.request<PoolEntry>("POST", `/api/v1/teams/${encodeURIComponent(team)}/claude-tokens/${encodeURIComponent(name)}/check`);
   deleteModelKey = (team: string, provider: ModelKeyProvider) => this.request<{ ok: true }>("DELETE", `/api/v1/teams/${encodeURIComponent(team)}/model-keys/${provider}`);
 
   // ---- factory roles ----

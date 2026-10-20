@@ -48,6 +48,8 @@ const CORE: Route[] = [
   { method: "get", path: "/api/v1/teams/{team}/model-keys", summary: "Which team-managed model keys are set", tag: "Teams" },
   { method: "put", path: "/api/v1/teams/{team}/model-keys/{provider}", summary: "Set the team's Anthropic, OpenAI, OpenRouter or Bedrock key", body: PS.ModelKey, tag: "Teams" },
   { method: "delete", path: "/api/v1/teams/{team}/model-keys/{provider}", summary: "Remove a team-managed model key", tag: "Teams" },
+  { method: "get", path: "/api/v1/teams/{team}/claude-tokens", summary: "The team's Claude subscription tokens with status and 5-hour and 7-day usage", tag: "Teams" },
+  { method: "post", path: "/api/v1/teams/{team}/claude-tokens/{name}/check", summary: "Check a Claude token with one minimal run (uses a little of its quota)", tag: "Teams" },
   { method: "get", path: "/api/v1/factories/{id}/members", summary: "Everyone with a role on the factory and where the role comes from", scope: "read", tag: "Factories" },
   { method: "post", path: "/api/v1/factories/{id}/members", summary: "Give a team member a factory role (user, editor, admin)", scope: "admin", body: PS.FactoryMemberInput, tag: "Factories" },
   { method: "patch", path: "/api/v1/factories/{id}/members/{userId}", summary: "Change a factory role", scope: "admin", body: PS.FactoryRoleInput, tag: "Factories" },

@@ -163,6 +163,15 @@ describe("teams API", () => {
     expect((await member.c.modelKeys("default")).anthropic).toMatchObject({ set: true });
     expect(JSON.stringify(await member.c.modelKeys("default"))).not.toContain("sk-ant");
     await expect(member.c.setModelKey("default", "openai", "sk-x")).rejects.toMatchObject({ status: 403 });
+    for (const name of ["CLAUDE_A", "CLAUDE_B"]) await o.createManagedSecret({ scope: "team", name, type: "claude_oauth_token", value: `sk-ant-oat-${name}` });
+    const pool = await member.c.claudeTokens("default");
+    expect(pool.map((t) => [t.name, t.status])).toEqual([
+      ["CLAUDE_A", "unknown"],
+      ["CLAUDE_B", "unknown"],
+    ]);
+    expect(JSON.stringify(pool)).not.toContain("sk-ant-oat");
+    await expect(member.c.checkClaudeToken("default", "CLAUDE_A")).rejects.toMatchObject({ status: 403 });
+    expect(await o.checkClaudeToken("default", "CLAUDE_A")).toMatchObject({ name: "CLAUDE_A", checkedAt: expect.any(String) });
   });
 });
 

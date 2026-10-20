@@ -384,6 +384,7 @@ export class RunService {
       this.k.stopping.delete(run.id);
       this.save(run);
       const retrying = run.status === "error" && retriesAutomatically(run.error) && (run.attempt ?? 1) < Math.max(1, input.maxAttempts ?? this.k.options.maxRunAttempts ?? 3);
+      if (run.credential) this.k.credentialPool.recordOutcome({ teamId: run.team, userId: run.userId }, run.credential, { ok: run.status === "succeeded", message: run.error?.message ?? run.summary });
       if (!retrying) {
         this.record(run, "finished", run.status, { costUsd: run.costUsd });
         await this.saveTranscript(run);
@@ -475,6 +476,7 @@ export class RunService {
       else if (e.type === "tool_result") this.record(run, "tool_result", e.output?.slice(0, 4000), { isError: e.isError });
       else if (e.type === "steer") this.record(run, "steer", e.text);
       else if (e.type === "error") this.record(run, "error", e.text);
+      else if (e.type === "rate_limit" && run.credential) this.k.credentialPool.recordUsage({ teamId: run.team, userId: run.userId }, run.credential, e);
     }
     const result = await session.result;
     run.costUsd += result.costUsd;
@@ -585,7 +587,12 @@ export class RunService {
     const scope = { teamId: p.team, userId: p.userId };
     const resolver = this.k.vault.resolver(scope);
     // Automation overrides add secrets (resolved through the vault like the agent's) and replace the MCP servers.
-    const credentials = this.credentials(p.harnessType, { ...p.agent, secrets: [...new Set([...p.agent.secrets, ...p.environmentSecrets, ...(p.input.overrides?.secrets ?? [])])] }, scope);
+    const chosen: { credential?: string } = {};
+    const credentials = this.credentials(p.harnessType, { ...p.agent, secrets: [...new Set([...p.agent.secrets, ...p.environmentSecrets, ...(p.input.overrides?.secrets ?? [])])] }, scope, chosen);
+    if (chosen.credential) {
+      p.run.credential = chosen.credential;
+      this.save(p.run);
+    }
     const mcp = this.k.mcp.resolve(p.team, p.input.overrides?.mcpServers ?? p.agent.mcpServers, resolver);
     for (const s of mcp.skipped) this.record(p.run, "mcp_skipped", s);
     this.redactions.set(p.run.id, [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope)].filter((v) => v.length >= 6))]);
@@ -620,7 +627,7 @@ export class RunService {
    * secrets and passed only to this run's sandbox. Claude Code prefers a subscription token from
    * `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN) and falls back to ANTHROPIC_API_KEY.
    */
-  credentials(type: HarnessType, agent: Pick<ResolvedAgent, "secrets" | "harness">, scope: { teamId?: string; userId?: string } = {}): Record<string, string> {
+  credentials(type: HarnessType, agent: Pick<ResolvedAgent, "secrets" | "harness">, scope: { teamId?: string; userId?: string } = {}, chosen: { credential?: string } = {}): Record<string, string> {
     const env: Record<string, string> = {};
     const secrets = this.k.vault.resolver(scope);
     const get = (name: string) => secrets.get(name);
@@ -641,6 +648,12 @@ export class RunService {
         (type === "claude-code" ? (v.startsWith("sk-ant-oat") ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY") : type === "codex" ? "OPENAI_API_KEY" : type === "gemini" ? "GEMINI_API_KEY" : auth.secretName);
       env[target] = v;
       return env;
+    }
+    // Several subscription tokens: the one with the most usage left (see CredentialPool).
+    const pooled = type === "claude-code" ? this.k.credentialPool.choose(scope) : undefined;
+    if (pooled) {
+      chosen.credential = pooled.name;
+      return { ...env, ...pooled.env };
     }
     const defaults: Record<HarnessType, string[]> = {
       "claude-code": ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"],

@@ -14,14 +14,15 @@ const APPS = "github_app";
 const STATES = "github_app_states";
 const STATE_TTL_MS = 60 * 60 * 1000;
 
-type Stored = { id: "default"; sealed: string; slug: string; appId: string; owner?: string; installationId?: string; createdBy: string; createdAt: string };
-type ManifestState = { id: string; step: "create" | "install"; by: string; expiresAt: string };
+/** One app per account or organization; `id` is its slug (the first app ever created here is "default"). */
+type Stored = { id: string; sealed: string; slug: string; appId: string; owner?: string; installationId?: string; createdBy: string; createdAt: string };
+type ManifestState = { id: string; step: "create" | "install"; by: string; expiresAt: string; app?: string };
 
 /** The GitHub App, without its secrets. */
 export type GitHubAppInfo = { appId: string; slug: string; owner?: string; installationId?: string; createdBy: string; createdAt: string; installUrl: string };
 
 /**
- * Kiln's own GitHub App, created from a manifest: an admin clicks Create on GitHub, GitHub hands
+ * Kiln's own GitHub Apps, one per account or organization, created from a manifest: an admin clicks Create on GitHub, GitHub hands
  * the app's key and webhook secret to the server, and the admin installs it. The credentials are
  * sealed in their own collection, never reachable as a named secret (agents can ask for secrets
  * by name, and this key can merge).
@@ -40,7 +41,7 @@ export class GitHubAppService {
     if (!this.k.options.secretKey) throw new KilnError("invalid_request", "set KILN_SECRET_KEY first: the app's private key is stored encrypted with it");
     const state = this.newState("create", by);
     const manifest = githubAppManifest({
-      name: opts.name ?? `Kiln ${new URL(publicUrl).hostname.split(".")[0]}`,
+      name: opts.name ?? (opts.org ? `Kiln for ${opts.org}` : `Kiln ${new URL(publicUrl).hostname.split(".")[0]}`),
       publicUrl,
       webUrl: this.k.options.webUrl ?? publicUrl,
     });
@@ -53,7 +54,7 @@ export class GitHubAppService {
     const creds = await this.client.convert(code);
     const now = this.k.clock.now().toISOString();
     this.k.store.put(APPS, {
-      id: "default",
+      id: this.find(creds.slug)?.id ?? creds.slug,
       sealed: this.k.vault.seal(creds),
       slug: creds.slug,
       appId: creds.appId,
@@ -63,44 +64,50 @@ export class GitHubAppService {
     } satisfies Stored);
     this.k.audit(s.by, "github_app.created", creds.slug, { appId: creds.appId, owner: creds.owner });
     this.k.options.onGitHubApp?.(creds);
-    const installUrl = githubAppInstallUrl(creds.slug, this.newState("install", s.by));
-    return { installUrl, app: this.info()! };
+    const installUrl = githubAppInstallUrl(creds.slug, this.newState("install", s.by, creds.slug));
+    return { installUrl, app: this.list().find((a) => a.slug === creds.slug)! };
   }
 
   /** GitHub's redirect after the app is installed (setup URL). Returns who started the flow. */
   installed(installationId: string, state: string): { by: string } {
     const s = this.takeState(state, "install");
-    const stored = this.k.store.get<Stored>(APPS, "default");
+    const stored = s.app ? this.find(s.app) : this.stored()[0];
     if (!stored) throw new KilnError("resource_not_found", "no GitHub App has been created yet");
     this.k.store.put(APPS, { ...stored, installationId });
     this.k.audit(s.by, "github_app.installed", stored.slug, { installationId });
     return { by: s.by };
   }
 
+  /** Every app, oldest first, without secrets. */
+  list(): GitHubAppInfo[] {
+    return this.stored().map((s) => ({ appId: s.appId, slug: s.slug, owner: s.owner, installationId: s.installationId, createdBy: s.createdBy, createdAt: s.createdAt, installUrl: `https://github.com/apps/${s.slug}/installations/new` }));
+  }
+
+  /** The first app (the one most installs have). */
   info(): GitHubAppInfo | undefined {
-    const s = this.k.store.get<Stored>(APPS, "default");
-    if (!s) return undefined;
-    return {
-      appId: s.appId,
-      slug: s.slug,
-      owner: s.owner,
-      installationId: s.installationId,
-      createdBy: s.createdBy,
-      createdAt: s.createdAt,
-      installUrl: `https://github.com/apps/${s.slug}/installations/new`,
-    };
+    return this.list()[0];
   }
 
-  /** The app's credentials, for the forge and webhook verification only. */
+  /** The apps' credentials, for the forge and webhook verification only. */
+  allCredentials(): (GitHubAppCredentials & { installationId?: string })[] {
+    return this.stored().map((s) => ({ ...(this.k.vault.unseal(s.sealed) as GitHubAppCredentials), installationId: s.installationId }));
+  }
+
   credentials(): (GitHubAppCredentials & { installationId?: string }) | undefined {
-    const s = this.k.store.get<Stored>(APPS, "default");
-    if (!s) return undefined;
-    return { ...(this.k.vault.unseal(s.sealed) as GitHubAppCredentials), installationId: s.installationId };
+    return this.allCredentials()[0];
   }
 
-  private newState(step: ManifestState["step"], by: string) {
+  private stored(): Stored[] {
+    return this.k.store.list<Stored>(APPS).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  private find(slug: string): Stored | undefined {
+    return this.stored().find((s) => s.slug === slug);
+  }
+
+  private newState(step: ManifestState["step"], by: string, app?: string) {
     const id = randomBytes(24).toString("base64url");
-    this.k.store.put(STATES, { id, step, by, expiresAt: new Date(this.k.clock.now().getTime() + STATE_TTL_MS).toISOString() } satisfies ManifestState);
+    this.k.store.put(STATES, { id, step, by, ...(app ? { app } : {}), expiresAt: new Date(this.k.clock.now().getTime() + STATE_TTL_MS).toISOString() } satisfies ManifestState);
     return id;
   }
 

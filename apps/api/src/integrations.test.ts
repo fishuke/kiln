@@ -431,6 +431,31 @@ describe("Kiln's own GitHub App from a manifest", () => {
     expect(unsigned.status).toBe(401);
   });
 
+  it("keeps one app per account or organization", async () => {
+    const { app, kiln, manifests, admin } = appSetup();
+    const create = async (org?: string) => {
+      const { state } = await admin.request<{ state: string }>("POST", "/api/v1/connections/github/app-manifest", org ? { org } : {});
+      const install = new URL((await app.request(`/oauth/github/app/callback?code=c&state=${state}`)).headers.get("location")!);
+      return install.searchParams.get("state")!;
+    };
+    const first = await create();
+    await app.request(`/oauth/github/app/installed?installation_id=1&state=${first}`);
+    manifests.next = { appId: "5151", slug: "kiln-inofy-org", privateKey: "-----BEGIN RSA PRIVATE KEY-----\norg\n-----END RSA PRIVATE KEY-----\n", webhookSecret: "whsec-org", owner: "inofy" };
+    const second = await create("inofy");
+    await app.request(`/oauth/github/app/installed?installation_id=2&state=${second}`);
+    const apps = await admin.request<{ slug: string; owner?: string; installationId?: string }[]>("GET", "/api/v1/connections/github/apps");
+    expect(apps.map((a) => [a.slug, a.owner, a.installationId])).toEqual([
+      ["kiln-test", "acme", "1"],
+      ["kiln-inofy-org", "inofy", "2"],
+    ]);
+    expect(kiln.githubApp.allCredentials().map((c) => c.webhookSecret)).toEqual(["whsec-fake", "whsec-org"]);
+    // Deliveries signed by either app are accepted.
+    const body = JSON.stringify({ zen: "ok" });
+    const sig = (secret: string) => `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+    for (const secret of ["whsec-fake", "whsec-org"]) expect((await app.request("/webhooks/github", { method: "POST", body, headers: { "x-github-event": "ping", "x-hub-signature-256": sig(secret) } })).status).toBe(200);
+    expect((await app.request("/webhooks/github", { method: "POST", body, headers: { "x-github-event": "ping", "x-hub-signature-256": sig("nope") } })).status).toBe(401);
+  });
+
   it("sends people back to Integrations when GitHub's code has expired", async () => {
     const { app, admin } = appSetup();
     const { state } = await admin.request<{ state: string }>("POST", "/api/v1/connections/github/app-manifest");

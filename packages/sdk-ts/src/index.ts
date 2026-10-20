@@ -638,6 +638,7 @@ export class KilnClient {
   connections = () => this.request<ConnectionRow[]>("GET", "/api/v1/connections");
   /** Start creating Kiln's own GitHub App: post `manifest` (as a form field) to `action` from the browser. */
   githubAppManifest = (input: { org?: string; name?: string } = {}) => this.request<{ action: string; state: string; manifest: Record<string, unknown> }>("POST", "/api/v1/connections/github/app-manifest", input);
+  githubApps = () => this.request<{ appId: string; slug: string; owner?: string; installationId?: string; createdBy: string; createdAt: string; installUrl: string }[]>("GET", "/api/v1/connections/github/apps");
   githubApp = () => this.request<{ appId: string; slug: string; owner?: string; installationId?: string; createdBy: string; createdAt: string; installUrl: string } | null>("GET", "/api/v1/connections/github/app");
   startConnection = (provider: string) => this.request<{ provider: string; state: string; url?: string; steps: string[]; fields?: { name: string; label: string; secret?: boolean; optional?: boolean }[] }>("POST", `/api/v1/connections/${encodeURIComponent(provider)}/start`);
   completeConnection = (provider: string, input: { code?: string; state?: string; params?: Record<string, string> }) => this.request<Connection>("POST", `/api/v1/connections/${encodeURIComponent(provider)}/complete`, input);

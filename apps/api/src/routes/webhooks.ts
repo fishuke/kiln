@@ -76,11 +76,13 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
   // ---- GitHub ----
   app.post("/webhooks/github", async (c) => {
     const { body, payload } = await json(c);
-    const ownApp = kiln.githubApp.credentials();
-    const secret = serverSecret(kiln, "GITHUB_WEBHOOK_SECRET") ?? ownApp?.webhookSecret;
-    if (secret && !verifyGitHub(secret, body, c.req.header("x-hub-signature-256"))) throw new HttpError(401, "bad signature");
-    const slug = serverSecret(kiln, "GITHUB_APP_SLUG") ?? ownApp?.slug;
-    const events = normalizeGitHubEvents(c.req.header("x-github-event") ?? "", payload, c.req.header("x-github-delivery"), slug ? { selfLogins: [`${slug}[bot]`, slug, "kiln-factory[bot]"] } : {});
+    // The environment's app, or any app created here (one per account or organization).
+    const ownApps = kiln.githubApp.allCredentials();
+    const envSecret = serverSecret(kiln, "GITHUB_WEBHOOK_SECRET");
+    const secrets = envSecret ? [envSecret] : ownApps.map((a) => a.webhookSecret);
+    if (secrets.length && !secrets.some((s) => verifyGitHub(s, body, c.req.header("x-hub-signature-256")))) throw new HttpError(401, "bad signature");
+    const slugs = [serverSecret(kiln, "GITHUB_APP_SLUG"), ...ownApps.map((a) => a.slug)].filter((s): s is string => Boolean(s));
+    const events = normalizeGitHubEvents(c.req.header("x-github-event") ?? "", payload, c.req.header("x-github-delivery"), slugs.length ? { selfLogins: [...slugs.flatMap((s) => [`${s}[bot]`, s]), "kiln-factory[bot]"] } : {});
     if (!events.length) return c.json({ ignored: true });
     // Definition PRs get the kiln/factory-config check; it never blocks the delivery.
     void kiln.integrations.checkDefinitionPullRequest(events[0]!).catch((err) => kiln.audit("kiln", "factory_config_check.failed", String(events[0]!.data.repo), { error: String(err) }));

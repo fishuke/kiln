@@ -1,54 +1,25 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Empty, Page, PageHeader } from "@/components/kiln/ui";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { loadResources } from "@/lib/api/resources";
 import { api, safe } from "@/lib/kiln";
-import { pct } from "@/lib/format";
+import { DEFAULT_SCORERS } from "@/lib/scorers";
+import { ScorersView, type ScorerCard } from "./_components/scorer-list";
+import { loadScorers } from "./_components/load";
+
+export const metadata: Metadata = { title: "Scorers" };
 
 export default async function Scorers({ params }: { params: Promise<{ factory: string }> }) {
   const { factory } = await params;
-  const [f, scores] = await Promise.all([safe(() => api.factory(factory), null), safe(() => api.scores(factory), [])]);
-  if (!f) notFound();
-  const scorers = Object.entries(f.scorers);
-  return (
-    <>
-      <PageHeader crumbs={[{ label: f.factory.name, href: `/f/${factory}` }, { label: "Scorers" }]} />
-      <Page>
-        <p className="mb-6 text-sm text-muted-foreground">Judges that grade sampled runs. Scorers with self-improvement on feed failures into improvement proposals.</p>
-        {scorers.length === 0 && <Empty title="No scorers">Add one in scorers/&lt;name&gt;/scorer.md.</Empty>}
-        <div className="grid gap-4 md:grid-cols-2">
-          {scorers.map(([key, s]) => {
-            const mine = scores.filter((x) => x.scorer === s.name);
-            const passed = mine.filter((x) => x.passed).length;
-            return (
-              <Card key={key}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    {s.name}
-                    {s.selfImprovement && <Badge>self-improvement</Badge>}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <p className="text-muted-foreground">{s.rubric}</p>
-                  <div className="flex flex-wrap gap-1">
-                    {s.labels.map((l) => (
-                      <Badge key={l.value} variant={l.score >= s.passingScore ? "secondary" : "outline"}>
-                        {l.value} · {l.score}
-                      </Badge>
-                    ))}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Grades {s.agents.join(", ")} · samples {s.samplingRate}% · judge {s.model} · passing ≥ {s.passingScore}
-                  </div>
-                  <div className="text-sm">
-                    {mine.length} scored · pass rate {mine.length ? pct(passed / mine.length) : "—"}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </Page>
-    </>
-  );
+  const loaded = await loadScorers(factory);
+  if (!loaded) notFound();
+  const { f, scorers } = loaded;
+  const [scores, res] = await Promise.all([safe(() => api.scores(factory), []), loadResources(factory, f)]);
+  const cards: ScorerCard[] = scorers.map((s) => {
+    const mine = scores.filter((x) => x.scorer === s.name || x.scorer === s.slug);
+    return { slug: s.slug, name: s.name, classifications: s.labels.length, agents: s.agents.map((a) => a.name), scored: mine.length, passRate: mine.length ? mine.filter((x) => x.passed).length / mine.length : undefined };
+  });
+  const have = new Set(scorers.flatMap((s) => [s.slug, s.name.toLowerCase()]));
+  const missing = DEFAULT_SCORERS.filter((d) => !have.has(d.slug) && !have.has(d.name.toLowerCase())).map((d) => ({ slug: d.slug, name: d.name, description: d.description }));
+  const judgeModel = res.models.find((m) => /haiku|mini|flash/i.test(m)) ?? res.defaultModel;
+  return <ScorersView factory={factory} factoryName={f.factory.name} cards={cards} missingDefaults={missing} judgeModel={judgeModel} />;
 }

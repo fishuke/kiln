@@ -58,3 +58,32 @@ export function writeFrontmatter(data: Record<string, unknown>, body: string): s
   const yaml = Object.keys(clean).length ? stringify(clean, { lineWidth: 0 }) : "";
   return `---\n${yaml}---\n${body.replace(/^\n+/, "")}`;
 }
+
+/** Drops undefined values so YAML output stays minimal; keeps null (it clears inherited values). */
+export function compact<T extends Record<string, unknown>>(o: T): Partial<T> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+export function toYaml(data: unknown): string {
+  return stringify(data, { lineWidth: 0 });
+}
+
+/** Like writeFrontmatter, but ends the body with exactly one newline. */
+export function stringifyFrontmatter(data: Record<string, unknown>, body: string): string {
+  const text = body.replace(/^\n+/, "").replace(/\s+$/, "");
+  return writeFrontmatter(data, text ? `${text}\n` : "");
+}
+
+/** Directory-safe resource name: keeps spaces and case (paths are identities), drops slashes and control chars. */
+export function resourceName(name: string): string {
+  return name.replace(/[/\\\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
+}
+
+export function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}

@@ -1,4 +1,6 @@
+import { FakeProvider, heuristicRule, type FakeRule } from "@kiln/decide";
 import { FakeHarness, type HarnessAdapter } from "@kiln/harness";
+import { FakeForge } from "@kiln/integrations";
 import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
 import { describe, expect, it } from "vitest";
 import { classifyError, KilnError } from "./errors";
@@ -405,5 +407,51 @@ describe("forge credentials for sandboxes", () => {
     expect(seen).toContain("ghs_scoped_secret_token");
     expect(run.summary).not.toContain("ghs_scoped_secret_token");
     expect(JSON.stringify(kiln.runs.events(run.id))).not.toContain("ghs_scoped_secret_token");
+  });
+});
+
+describe("multi-repository factories", () => {
+  const twoRepos = () => {
+    const tree = sampleTree();
+    tree["factory.yaml"] = tree["factory.yaml"]!.replace(
+      "  - { owner: acme, name: web }\n",
+      "  - { owner: acme, name: web, description: Customer web app (Next.js) }\n  - { owner: acme, name: api, description: Invoices and billing API }\n",
+    );
+    return tree;
+  };
+  const pickApi: FakeRule = (r) => (r.decision === "repository" ? { repository: { "acme/web": 0.1, "acme/api": 0.9 } } : undefined);
+
+  it("triage picks the repository and every later stage works in it", async () => {
+    const decide = new FakeProvider([pickApi, heuristicRule]);
+    const forge = new FakeForge();
+    forge.createRepo({ owner: "acme", name: "api" }, { "README.md": "# api\n", "package.json": '{ "name": "api" }\n' });
+    const { kiln } = createTestKiln({ tree: twoRepos(), forge, decide: { primary: decide }, preview: false });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix rounding in invoice totals", body: "", source: { provider: "api" }, requester: "a@acme.test" });
+    await kiln.workflow.advance(wi.id);
+    const done = kiln.workflow.get(wi.id)!;
+    expect(done.repo).toBe("acme/api");
+    expect(done.pr?.repo).toBe("acme/api");
+    const question = decide.calls.find((c) => c.decision === "repository")!;
+    expect(question.questions.repository).toEqual({ type: "choice", options: ["acme/web", "acme/api"] });
+    expect(JSON.stringify(question.state)).toContain("Invoices and billing API");
+    const build = kiln.runs.list({ workItemId: wi.id }).find((r) => r.agent === "implement")!;
+    expect(build.startState.repos.map((r) => r.name)).toEqual(["api"]);
+  });
+
+  it("keeps the first repository when the choice is unclear, and never asks with one repository", async () => {
+    const unsure: FakeRule = (r) => (r.decision === "repository" ? { repository: { "acme/web": 0.5, "acme/api": 0.5 } } : undefined);
+    const forge = new FakeForge();
+    forge.createRepo({ owner: "acme", name: "api" });
+    const { kiln } = createTestKiln({ tree: twoRepos(), forge, decide: { primary: new FakeProvider([unsure, heuristicRule]) }, preview: false });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Tidy up", body: "", source: { provider: "api" }, requester: "a@acme.test" });
+    await kiln.workflow.advance(wi.id);
+    expect(kiln.workflow.get(wi.id)!.repo).toBe("acme/web");
+
+    const single = new FakeProvider([heuristicRule]);
+    const one = createTestKiln({ decide: { primary: single }, preview: false }).kiln;
+    const item = await one.workflow.create({ factory: "webapp", title: "Fix typo", body: "", source: { provider: "api" }, requester: "a@acme.test" });
+    await one.workflow.advance(item.id);
+    expect(single.calls.some((c) => c.decision === "repository")).toBe(false);
+    expect(one.workflow.get(item.id)!.repo).toBeUndefined();
   });
 });

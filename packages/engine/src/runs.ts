@@ -310,7 +310,13 @@ export class RunService {
     };
     // required_repos (the agent's and an automation's) makes deferred repositories eager for this run.
     const required = [...agent.requiredRepos.map((r) => `${r.owner}/${r.name}`), ...(input.overrides?.requiredRepos ?? [])].map((r) => r.toLowerCase());
-    const factoryRepos = input.repos ?? resolved.factory.repositories.filter((r) => !r.deferred || required.includes(repoKey(r).toLowerCase()));
+    // A work item that triage gave a repository works in that one (plus any required ones); it comes first, so it is the working directory.
+    const picked = input.workItem?.repo?.toLowerCase();
+    const factoryRepos =
+      input.repos ??
+      resolved.factory.repositories
+        .filter((r) => required.includes(repoKey(r).toLowerCase()) || (picked ? repoKey(r).toLowerCase() === picked : !r.deferred))
+        .sort((a, b) => Number(repoKey(b).toLowerCase() === picked) - Number(repoKey(a).toLowerCase() === picked));
     const repos = [...factoryRepos, ...(input.repos ? [] : (environment?.repos ?? []).filter((e) => !factoryRepos.some((r) => r.owner === e.owner && r.name === e.name)))];
     const workerHost = input.overrides?.workerHost === null ? undefined : (input.overrides?.workerHost ?? agent.workerHost);
     const now = this.k.clock.now().toISOString();

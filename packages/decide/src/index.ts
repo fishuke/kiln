@@ -116,7 +116,7 @@ export class LlmProvider implements DecisionProvider {
   }
 }
 
-type FakeRule = (request: DecisionRequest) => Answers | undefined;
+export type FakeRule = (request: DecisionRequest) => Answers | undefined;
 
 /** Deterministic provider for tests and offline dev. Rules run in order; the first answer wins. */
 export class FakeProvider implements DecisionProvider {

@@ -24,6 +24,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `repositories[].owner` | string | yes |  |
 | `repositories[].name` | string | yes |  |
 | `repositories[].deferred` | boolean |  | default `false` |
+| `repositories[].description` | string |  |  |
 | `integrations` | list of `github` \| `gitlab` \| `slack` \| `linear` \| `jira` \| `discord` \| `microsoft-teams` \| `teams` \| `azure_devops` \| `bitbucket` \| object |  | default `[]` |
 | `github` | object |  |  |
 | `github.factoryConfigChecks` | `main` \| `all` |  | default `"main"` |

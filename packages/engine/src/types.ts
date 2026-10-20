@@ -99,6 +99,8 @@ export type WorkItem = {
   pipeline?: string;
   definitionSha: string;
   triage?: { kind: string; size: string; summary?: string; duplicateOf?: string; confidence: number };
+  /** owner/name of the repository triage picked, in a factory with several; unset means the first. */
+  repo?: string;
   spec?: { path: string; criteria: string[]; stories: string[]; openQuestions: string[] };
   branch?: string;
   pr?: { repo: string; number: number; url: string; openedAt?: string; firstReviewAt?: string; mergedAt?: string; closedAt?: string; additions?: number; deletions?: number; changedFiles?: number; commits?: number; humanCodeChange?: boolean };

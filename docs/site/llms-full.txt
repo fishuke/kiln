@@ -187,7 +187,7 @@ Fields you can filter on:
 
 | Provider | Fields |
 | --- | --- |
-| GitHub | `repo` (`owner/name`), `repos` (the same, as a list, for Warp-style filters), `number`, `labels`, `label` (the label just added), `mentioned`, `author`, `assignee`, `head` (branch), `state` (review state), `conclusion` |
+| GitHub | `repo` (`owner/name`), `repos` (the same, as a list; GitHub events carry both `repo` and `repos`), `number`, `labels`, `label` (the label just added), `mentioned`, `author`, `assignee`, `head` (branch), `state` (review state), `conclusion` |
 | Slack | `channel`, `mentioned`, `author`, `reaction` |
 | Linear | `team_ids`, `labels`, `mentioned`, `assignee` |
 | Jira | `project`, `labels`, `mentioned`, `assignee` |
@@ -465,7 +465,7 @@ webhooks/<name>.yaml
 memories/<slug>.md
 ```
 
-This is the same layout Warp Factories exports, with `pipelines/`, `gates/`, `policies/`, `decisions/` and `memories/` added. Files ending in `.md` have YAML frontmatter between `---` lines and a Markdown body. A file's name (or its directory's name) is the resource's name.
+This layout matches the v1alpha1 factory definition format, with `pipelines/`, `gates/`, `policies/`, `decisions/` and `memories/` added. Files ending in `.md` have YAML frontmatter between `---` lines and a Markdown body. A file's name (or its directory's name) is the resource's name.
 
 `README.md` and `.gitkeep` files are ignored. Any other file Kiln does not recognize, such as `.github/workflows/validate.yml`, produces an `unknown-file` warning but does not fail validation.
 
@@ -490,7 +490,7 @@ budgets: { perWorkItemUsd: 40, monthlyUsd: 6000 }
 
 | Key | Notes |
 | --- | --- |
-| `schemaVersion` | Must be `kiln/v1`. A `v1alpha1` tree is converted first; see [Migrating from Warp](../overview/migrating-from-warp.md). |
+| `schemaVersion` | Must be `kiln/v1`. A `v1alpha1` tree is converted first; see [Importing v1alpha1 definitions](../overview/importing-definitions.md). |
 | `name` | 1–100 characters. |
 | `alias` | Lowercase letters, digits and dashes, 1–60 characters. Also the factory's ID in Kiln. When missing, the ID is `name` turned into a slug. |
 | `description`, `project` | Optional. |
@@ -560,9 +560,9 @@ A canary only starts when the factory already has an applied definition and the 
 
 ## Config repos on GitHub
 
-A factory can live in a GitHub repository, called its config repo. Use the layout Warp exports: `factory.yaml` at the repository root (or in a subdirectory), `agents/<name>/agent.md`, and so on. For example, `fishuke/kiln-config`.
+A factory can live in a GitHub repository, called its config repo. Use the layout above: `factory.yaml` at the repository root (or in a subdirectory), `agents/<name>/agent.md`, and so on. For example, `acme/web-factory-config`.
 
-**Connect.** Connecting a config repo reads the tree at its branch (default `main`) and directory (default the root), applies it, and binds the factory to the repository. If `factory.yaml` says `schemaVersion: v1alpha1`, Kiln converts it first; see [Migrating from Warp](../overview/migrating-from-warp.md).
+**Connect.** Connecting a config repo reads the tree at its branch (default `main`) and directory (default the root), applies it, and binds the factory to the repository. If `factory.yaml` says `schemaVersion: v1alpha1`, Kiln converts it first; see [Importing v1alpha1 definitions](../overview/importing-definitions.md).
 
 **Sync on push.** When Kiln receives a GitHub `push` webhook for the config repo's branch, it reads the tree again and applies it. A push that breaks validation is recorded and rejected; the last valid definition stays active. You can also trigger a sync by hand.
 
@@ -622,7 +622,7 @@ The command prints `ok <name> (<sha>): <n> agents, <n> automations` on success, 
 
 ## Related pages
 
-- [Migrating from Warp Factories](../overview/migrating-from-warp.md)
+- [Importing v1alpha1 definitions](../overview/importing-definitions.md)
 - [Factory agents](agents.md)
 - [Replay and canary](../measure-and-improve/replay-and-canary.md)
 - [GitHub](../integrations/github.md)
@@ -1372,7 +1372,7 @@ Definitions (local)
   kiln init [dir] [--template sdlc|single-repo|po-feature|incident]   Scaffold a definition tree
   kiln validate [path]                                                Schema and reference checks; exit 1 on errors
   kiln diff [path] [--against applied|<path>] [--factory <id>]        What an apply would change
-  kiln import --from-warp <src> [out]                                 Convert a Warp v1alpha1 tree
+  kiln import <src> [out]                                             Convert a v1alpha1 tree to kiln/v1
   kiln schema <kind>                                                  JSON Schema for a file kind
 
 Factory (needs KILN_URL and KILN_TOKEN)
@@ -1409,7 +1409,7 @@ Factory (needs KILN_URL and KILN_TOKEN)
 
 Source: https://github.com/fishuke/klin/blob/main/docs/site/developer-tools/mcp.md
 
-The Kiln MCP server is served at `<public URL>/mcp` over streamable HTTP. It has the same tools as Warp's Factory MCP plus `decide_gate`, `list_inbox`, `plan_project` and metrics tools. Every call goes through the API with the caller's token, so per-factory scopes apply: a token with only `decide:preview` cannot write definitions.
+The Kiln MCP server is served at `<public URL>/mcp` over streamable HTTP. Agents use it to send tasks, take them to a local worktree, hand them back, decide gates and query metrics. Every call goes through the API with the caller's token, so per-factory scopes apply: a token with only `decide:preview` cannot write definitions.
 
 ## Connect
 
@@ -1692,9 +1692,9 @@ Source: https://github.com/fishuke/klin/blob/main/docs/site/guides/kiln-builds-k
 
 Kiln's own repository is worked on by a Kiln factory, `kiln-self`: issues labeled `kiln-ready` go to its foreman, the factory opens pull requests, and people review and merge them.
 
-## How it started
+## How work arrives
 
-Milestones 0 to 2 of the build plan in `docs/plan/PLAN.md` are built by hand with Claude Code, one task per session and per branch, with tests first. Before Kiln could run factories, the team used a Warp Factories definition in the repository's `factory/` folder (schema `v1alpha1`). From milestone 3, the `kiln-self` factory takes over: new work is filed as GitHub issues labeled `kiln-ready`, and the factory takes a growing share of it.
+Work for Kiln is filed as GitHub issues in the Kiln repository. Labeling an issue `kiln-ready` sends it to the `kiln-self` factory, which triages it, writes a spec when needed, builds it and opens a pull request. People still review and merge every pull request.
 
 ## The definition
 
@@ -1728,7 +1728,7 @@ budgets: { perWorkItemUsd: 30, monthlyUsd: 3000 }
 | `decisions/command-guard.yaml` | The command guard with the standard thresholds |
 | `automations/` | `ready` (GitHub `issue_labeled` with `kiln-ready`), `review-comments` (review submitted) and `slack` (mentions) |
 
-The `ready` automation filters on `repos: [fishuke/klin]`, the same Warp-style key Kiln's GitHub events carry.
+The `ready` automation filters on `repos: [fishuke/klin]`. GitHub events carry both `repo` and `repos`.
 
 ## The rules it works under
 
@@ -2020,7 +2020,7 @@ harness: { type: claude-code, model: claude-sonnet-5-5 }
 | --- | --- | --- |
 | `claude-code` | `claude` | The default when nothing sets a harness. |
 | `codex` | `codex` | |
-| `opencode` | `opencode` | Takes the place of Warp's `oz` harness on import. |
+| `opencode` | `opencode` | The `oz` harness type becomes `opencode` on import. |
 
 The harness program must be installed in the runner's image. Pin its version in the image, because flags and output formats change between releases.
 
@@ -2063,7 +2063,7 @@ The sandbox is the security boundary for all three. Permission prompts are off b
 - **Instructions:** the agent's Markdown body, matching factory memories, any extra instructions, and a "Reporting back to Kiln" section.
 - **Prompt:** the work item's title, body, triage result, acceptance criteria, review findings and messages from people, plus a line telling the agent what this stage needs.
 - **Skills:** every shared skill plus the agent's own.
-- **Environment:** `KILN_RUN_ID`, `KILN_RUN_TOKEN`, `KILN_FACTORY`, `KILN_AGENT_TYPE`, `KILN_WORK_ITEM`, `KILN_STAGE`, and `WARP_FACTORY_ID` (the factory ID, for skills written for Warp).
+- **Environment:** `KILN_RUN_ID`, `KILN_RUN_TOKEN`, `KILN_FACTORY`, `KILN_AGENT_TYPE`, `KILN_WORK_ITEM` and `KILN_STAGE`.
 - **Working directory:** the first repository, checked out on the work item's `kiln/*` branch. All non-deferred repositories are cloned side by side.
 
 ## The result file
@@ -3458,23 +3458,23 @@ New review comments on a handed-off pull request (any review that is not an appr
 
 ---
 
-# Migrating from Warp Factories
+# Importing v1alpha1 definitions
 
-Source: https://github.com/fishuke/klin/blob/main/docs/site/overview/migrating-from-warp.md
+Source: https://github.com/fishuke/klin/blob/main/docs/site/overview/importing-definitions.md
 
-Kiln reads Warp Factories definition trees: run `kiln import --from-warp` to convert a `v1alpha1` tree to `kiln/v1`, or connect a Warp-exported config repo and Kiln converts it on every sync.
+Kiln reads definition trees in the v1alpha1 factory definition format: run `kiln import` to convert a `schemaVersion: v1alpha1` tree to `kiln/v1`, or connect a config repo in that format and Kiln converts it on every sync.
 
-## Two ways to migrate
+## Two ways to import
 
-**Convert once.** `kiln import --from-warp` rewrites a Warp tree as a `kiln/v1` tree. Review the result, commit it, and from then on edit the Kiln files. Use this when you are leaving Warp. See the [CLI reference](../developer-tools/cli.md).
+**Convert once.** `kiln import <src> [out]` rewrites a v1alpha1 tree as a `kiln/v1` tree, writes it to `out` (by default `<src>-kiln`), prints a warning for everything it changed or dropped, and validates the result. Review it, commit it, and from then on edit the `kiln/v1` files. See the [CLI reference](../developer-tools/cli.md).
 
-**Keep the Warp layout.** Connect the config repo that Warp exports, such as `fishuke/kiln-config`, as described in [Definitions as code](../configuration/definitions-as-code.md#config-repos-on-github). When `factory.yaml` says `schemaVersion: v1alpha1`, Kiln converts the tree in memory before it validates and applies it. Nothing in the repo changes. Use this when you run Warp and Kiln side by side.
+**Keep the v1alpha1 files.** Connect the config repo as it is, for example `acme/web-factory-config`, as described in [Definitions as code](../configuration/definitions-as-code.md#config-repos-on-github). When `factory.yaml` says `schemaVersion: v1alpha1`, Kiln converts the tree in memory before it validates and applies it. Nothing in the repo changes. Use this when other tools still read the v1alpha1 files.
 
 Both paths use the same converter, so they give the same result.
 
 ## The layout is the same
 
-Warp and Kiln use the same tree:
+Both formats use the same tree:
 
 ```text
 factory.yaml
@@ -3491,11 +3491,11 @@ webhooks/<name>.yaml
 
 Directory names with spaces, such as `agents/Kiln Foreman Agent/agent.md`, work as they are. The agent name is the directory name, and scorers refer to agents by that name.
 
-Kiln adds optional directories Warp does not have: `pipelines/`, `gates/`, `policies/`, `decisions/` and `memories/`.
+`kiln/v1` adds optional directories that v1alpha1 does not have: `pipelines/`, `gates/`, `policies/`, `decisions/` and `memories/`.
 
 ## What the converter changes
 
-| Warp | Kiln |
+| v1alpha1 | kiln/v1 |
 | --- | --- |
 | `schemaVersion: v1alpha1` | `schemaVersion: kiln/v1` |
 | `alias` (or `name` if no alias) | Lowercased and turned into a slug, at most 60 characters |
@@ -3503,7 +3503,7 @@ Kiln adds optional directories Warp does not have: `pipelines/`, `gates/`, `poli
 | `integrations: [{ type: linear }]` | `integrations: [linear]`. Only `slack`, `linear` and `jira` are kept |
 | `selfImprovement.reviewerType`, `reviewerEmails` | `selfImprovement.reviewers.type`, `reviewers.emails` |
 | `agentType: MAIN` | `agentType: FOREMAN` |
-| Harness `oz` | `opencode` |
+| The `oz` harness type | `opencode` |
 | Harness `claude` | `claude-code` |
 | Harness `codex` | `codex` |
 | `model: auto` or `auto-<anything>` | `model: router:auto`. If the tree has no `routers/auto.yaml`, Kiln adds a complexity router (Haiku for easy, Sonnet by default, Opus for hard) |
@@ -3527,7 +3527,7 @@ Every change that drops something is reported as a warning.
 | `automations` | `factory.yaml` | Automations are files under `automations/`. |
 | `scorerDefaults` | `factory.yaml` | Each scorer states its own `samplingRate`, `model` and `passingScore`. |
 | `benchmarkRepoSubstitutions` | `factory.yaml` | Benchmark tasks pin exact commits in `startingRepoRefs`. |
-| `environmentId`, `workerHost`, `computerUseModel`, `credentialStrategy`, `required_repos` | Agents, automations and `agentDefaults` | Kiln picks compute from the agent's runner, not from a Warp environment or worker. |
+| `environmentId`, `workerHost`, `computerUseModel`, `credentialStrategy`, `required_repos` | Agents, automations and `agentDefaults` | Kiln picks compute from the agent's runner, not from a named environment or worker. |
 | Harness `auth` other than a managed secret or the worker environment | Agents, automations, `agentDefaults` | Kiln only supports credentials from its secrets store or from the worker. This is dropped without a warning. |
 | `idleTimeoutMinutes` | Automations | Kiln accepts it on agents only. |
 | `output`, `runner`, `secrets`, `mcpServers` | Scorers | Kiln's scorer service runs judges itself. |
@@ -3537,8 +3537,8 @@ Every change that drops something is reported as a warning.
 
 ## Check after converting
 
-- **Models.** Warp model names such as `gpt-6-sol-high` pass through unchanged. Make sure your model gateway serves them, or change them.
-- **Runners.** Warp runners have no egress list. Kiln always allows the hosts of the repositories a run clones; add every other host the run needs, such as package registries and your model gateway, to `egress`. See [Sandboxes](../infrastructure/sandboxes.md).
+- **Models.** Model names such as `gpt-6-sol-high` pass through unchanged. Make sure your model gateway serves them, or change them.
+- **Runners.** v1alpha1 runners have no egress list. Kiln always allows the hosts of the repositories a run clones; add every other host the run needs, such as package registries and your model gateway, to `egress`. See [Sandboxes](../infrastructure/sandboxes.md).
 - **Self-improvement threshold.** Kiln's `failedRunThreshold` must be between 1 and 50.
 - **Validate.** Run `kiln validate` on the converted tree. It reports `file:line: message` for every problem.
 
@@ -3569,7 +3569,7 @@ The factory posts its progress and questions back where the request started: the
 
 ## What makes Kiln different
 
-Kiln is modeled on Warp Factories and keeps its core ideas: the foreman, work items that keep one identity from intake to hand-off, definitions as code in a tree rooted at `factory.yaml`, scorers and self-improvement. It adds:
+A Kiln factory is built on a few core ideas: a foreman that routes work, work items that keep one identity from intake to hand-off, definitions as code in a tree rooted at `factory.yaml`, and scorers that feed self-improvement. On top of these, Kiln offers:
 
 - **Self-hosting.** Agents run in disposable sandboxes on your own Docker host or Kubernetes cluster.
 - **Optional pipeline graphs.** A `pipelines/<name>.yaml` file fixes the stages when a team wants a deterministic path. Without one, the foreman chooses the path.
@@ -3596,7 +3596,7 @@ Kiln is modeled on Warp Factories and keeps its core ideas: the foreman, work it
 
 - [How Kiln works](how-kiln-works.md)
 - [Concepts](concepts.md)
-- [Migrating from Warp Factories](migrating-from-warp.md)
+- [Importing v1alpha1 definitions](importing-definitions.md)
 - [Definitions as code](../configuration/definitions-as-code.md)
 - [Self-hosting](../infrastructure/self-hosting.md)
 

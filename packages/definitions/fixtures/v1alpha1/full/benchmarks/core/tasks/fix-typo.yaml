@@ -1,0 +1,5 @@
+title: Fix a typo
+prompt: Fix the typo in README
+successCriteria: README has no typo
+startingRepoRefs: ["github.com:acme/webapp@0123456789abcdef0123456789abcdef01234567"]
+linearSeed: ABC-1

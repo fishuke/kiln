@@ -12,7 +12,7 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 
 - [Concepts](overview/concepts.md): A glossary of the terms used across Kiln's docs, from factory and foreman to scorer, canary and run token.
 - [How Kiln works](overview/how-kiln-works.md): The life of a work item, from intake through triage, spec, build, verify, preview and review to a human merge.
-- [Migrating from Warp Factories](overview/migrating-from-warp.md): Convert a Warp Factories v1alpha1 definition to kiln/v1 with kiln import --from-warp, or connect a Warp-exported config repo directly.
+- [Importing v1alpha1 definitions](overview/importing-definitions.md): Convert a definition tree in the v1alpha1 factory definition format to kiln/v1 with kiln import, or connect a config repo in that format and let Kiln convert it on every sync.
 - [What is Kiln](overview/what-is-kiln.md): Kiln is a self-hostable platform that runs software factories, teams of coding agents that turn requests into reviewed pull requests.
 
 ## Factory configuration

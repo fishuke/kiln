@@ -6,7 +6,7 @@ section: Developer tools
 generated: true
 ---
 
-The Kiln MCP server is served at `<public URL>/mcp` over streamable HTTP. It has the same tools as Warp's Factory MCP plus `decide_gate`, `list_inbox`, `plan_project` and metrics tools. Every call goes through the API with the caller's token, so per-factory scopes apply: a token with only `decide:preview` cannot write definitions.
+The Kiln MCP server is served at `<public URL>/mcp` over streamable HTTP. Agents use it to send tasks, take them to a local worktree, hand them back, decide gates and query metrics. Every call goes through the API with the caller's token, so per-factory scopes apply: a token with only `decide:preview` cannot write definitions.
 
 ## Connect
 

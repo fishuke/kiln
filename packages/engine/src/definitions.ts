@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { diffTrees, formatErrors, importWarp, treeSha, validateTree, type DefinitionDiff, type DefinitionTree, type ResolvedFactory } from "@kiln/definitions";
+import { diffTrees, formatErrors, importV1alpha1, treeSha, validateTree, type DefinitionDiff, type DefinitionTree, type ResolvedFactory } from "@kiln/definitions";
 import type { Kiln } from "./kiln";
 import { C, type DefinitionRecord, type FactoryBinding } from "./types";
 
@@ -152,12 +152,12 @@ export class DefinitionService {
     this.k.audit(by, "canary.rolled_back", factory, { sha: b.canary.sha });
   }
 
-  /** Pull the tree from a GitHub config repo (the layout Warp exports, e.g. fishuke/kiln-config) and apply it. */
+  /** Pull the tree from the factory's GitHub config repo and apply it. */
   async syncFromRepo(factory: string, by = "repo-sync"): Promise<ApplyResult> {
     const b = this.require(factory);
     if (!b.definitionRepo) throw new Error(`${factory} has no definition repo`);
     const tree = await this.k.forge.readTree(b.definitionRepo, b.definitionRepo.ref, b.definitionRepo.dir);
-    const incoming = /schemaVersion:\s*v1alpha1/.test(tree["factory.yaml"] ?? "") ? importWarp(tree).tree : tree;
+    const incoming = /schemaVersion:\s*v1alpha1/.test(tree["factory.yaml"] ?? "") ? importV1alpha1(tree).tree : tree;
     // A merged self-improvement PR ships as a canary first, like an approval inside Kiln.
     const proposal = this.k.improvement.list(factory).find((p) => p.state === "open" && p.candidateSha === treeSha(incoming));
     const r = this.apply(incoming, { author: by, factory, canaryPercent: proposal ? (this.k.options.canaryPercent ?? 10) : undefined });
@@ -172,11 +172,11 @@ export class DefinitionService {
     return this.applyAny(tree, { author: by, definitionRepo });
   }
 
-  /** Accept kiln/v1 trees and Warp v1alpha1 trees alike. */
+  /** Accept kiln/v1 and v1alpha1 trees alike. */
   applyAny(tree: DefinitionTree, opts: Parameters<DefinitionService["apply"]>[1]): ApplyResult {
     const factoryYaml = tree["factory.yaml"] ?? "";
     if (/schemaVersion:\s*v1alpha1/.test(factoryYaml)) {
-      return this.apply(importWarp(tree).tree, opts);
+      return this.apply(importV1alpha1(tree).tree, opts);
     }
     return this.apply(tree, opts);
   }

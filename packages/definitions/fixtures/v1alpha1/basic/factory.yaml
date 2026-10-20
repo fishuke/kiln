@@ -1,0 +1,9 @@
+schemaVersion: v1alpha1
+name: Payments
+alias: Payments Team
+repositories:
+  - owner: acme
+    name: payments-service
+agentDefaults:
+  model: auto
+  runner: linux-standard

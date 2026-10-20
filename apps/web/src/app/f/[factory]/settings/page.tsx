@@ -72,7 +72,7 @@ export default async function Settings({ params }: { params: Promise<{ factory: 
             </>
           ) : (
             <form action={connectRepo} className="space-y-2">
-              <div className="text-muted-foreground">Managed by Kiln. Store it in a GitHub repo you own (same layout Warp exports: factory.yaml at the root).</div>
+              <div className="text-muted-foreground">Managed by Kiln. Store it in a GitHub repo you own (factory.yaml at the root).</div>
               <div className="flex gap-2">
                 <input name="repo" required placeholder="owner/factory-config" className="h-8 flex-1 rounded-md border bg-background px-2" />
                 <input name="dir" placeholder="folder (optional)" className="h-8 w-40 rounded-md border bg-background px-2" />

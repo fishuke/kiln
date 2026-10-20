@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const slack = (id: string, ts: string, text: string, user: string, thread?: string) =>
   normalizeSlack({ type: "event_callback", event_id: id, event: { type: thread ? "message" : "app_mention", channel: "C", ts, thread_ts: thread, user, text } })!;
 
-describe("M7-T3 permissions come from policy, never from content", () => {
+describe("permissions come from policy, never from content", () => {
   it("only a gate's assignees can approve it from a thread", async () => {
     const { kiln } = createTestKiln({ identities: { "slack:U_PO": "po@acme.test" } });
     const { started } = await kiln.automations.handle(slack("A", "1.0", "@webapp add exports\n- CSV export\n- PDF export", "U_DEV"));

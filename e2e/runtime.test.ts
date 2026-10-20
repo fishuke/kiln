@@ -7,7 +7,7 @@ import { normalizeGitHub, normalizeLinear, normalizeSlack } from "@kiln/integrat
 import { hashDir, LocalSandboxProvider } from "@kiln/sandbox";
 import { describe, expect, it } from "vitest";
 
-describe("M1-T5 atomic apply", () => {
+describe("atomic apply", () => {
   it("keeps the previous definition when a broken tree is applied", () => {
     const { kiln } = createTestKiln();
     const before = kiln.defs.require("webapp").appliedSha;
@@ -28,7 +28,7 @@ describe("M1-T5 atomic apply", () => {
   });
 });
 
-describe("M2-T4 run records and replay", () => {
+describe("run records and replay", () => {
   it("replaying a run reproduces its starting workspace byte for byte", async () => {
     const { kiln } = createTestKiln();
     const wi = await kiln.workflow.create({ factory: "webapp", title: "Add a footer link", body: "x", source: { provider: "api" }, requester: "alice" });
@@ -43,7 +43,7 @@ describe("M2-T4 run records and replay", () => {
   });
 });
 
-describe("M2-T5 scoped tokens", () => {
+describe("scoped tokens", () => {
   it("a run token cannot push to main or approve a PR", () => {
     const { kiln } = createTestKiln();
     const token = kiln.secrets.issueRunToken("run_1", ["acme/web"]);
@@ -56,7 +56,7 @@ describe("M2-T5 scoped tokens", () => {
   });
 });
 
-describe("M2-T7 command guardrail inside a run", () => {
+describe("command guardrail inside a run", () => {
   it("blocks a destructive command and turns a risky one into an inbox question", async () => {
     const commands: Record<string, string> = {};
     const harness = new FakeHarness(async (ctx) => {
@@ -87,7 +87,7 @@ describe("M2-T7 command guardrail inside a run", () => {
   });
 });
 
-describe("M2-T8 pausable sandboxes", () => {
+describe("pausable sandboxes", () => {
   it("a run paused at a gate resumes on a different node with the same workspace", async () => {
     let resumedWith = "";
     const harness = new FakeHarness(async (ctx) => {
@@ -120,7 +120,7 @@ describe("M2-T8 pausable sandboxes", () => {
   });
 });
 
-describe("M3-T1 work item state machine", () => {
+describe("work item state machine", () => {
   it("has no path to complete without a merge or human confirmation (property test)", () => {
     let seed = 42;
     const rand = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
@@ -151,7 +151,7 @@ describe("M3-T1 work item state machine", () => {
   });
 });
 
-describe("M3-T2 foreman workflow", () => {
+describe("foreman workflow", () => {
   it("takes a FakeTracker issue to a draft PR", async () => {
     const { kiln, forge, tracker } = createTestKiln();
     const issue = await tracker.createIssue({ title: "Export invoices as CSV", body: "- Users can download a CSV of invoices\n- The CSV has one row per invoice" });
@@ -175,7 +175,7 @@ describe("M3-T2 foreman workflow", () => {
   });
 });
 
-describe("M3-T3 automations engine", () => {
+describe("automations engine", () => {
   const tree = sampleTree({
     "agents/maintainer/agent.md": "---\ndescription: maintenance\n---\nKeep the repo healthy.\n",
     "automations/merged/automation.md": "---\nagent: maintainer\ntriggers:\n  - provider: github\n    event: push\n    filter: { not_in: { head: [main] } }\n---\nCheck the pushed branch.\n",
@@ -213,7 +213,7 @@ describe("M3-T3 automations engine", () => {
   });
 });
 
-describe("M3-T8 live steering", () => {
+describe("live steering", () => {
   it("a steering message changes the next action of a running agent", async () => {
     process.env.KILN_FAKE_STEER_WAIT_MS = "3000";
     try {

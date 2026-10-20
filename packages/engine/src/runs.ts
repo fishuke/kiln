@@ -211,7 +211,6 @@ export class RunService {
           KILN_RUN_ID: run.id,
           KILN_RUN_TOKEN: token,
           KILN_FACTORY: input.factory,
-          WARP_FACTORY_ID: input.factory,
           KILN_AGENT_TYPE: agent.agentType,
           KILN_WORK_ITEM: input.workItem?.id ?? "",
           KILN_STAGE: input.stage ?? "",

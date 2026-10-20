@@ -6,7 +6,7 @@ Status: idea, not scheduled · Raised 2026-10-20 · Replaces the first PO worksp
 
 A product owner opens a chat, picks a new or existing project, and describes what they want in their own words. Within minutes they see a working preview of it, iterate on it by talking ("make the button bigger", "add a cancel step"), and when it looks right the result is already a pull request that is ready for a developer to review.
 
-This is a proven way to work (chat-to-preview tools such as v0, Lovable and Claude Design work like this). What Kiln adds is that the same factory, with the same guardrails, produces it, so the preview is not a throwaway prototype but the start of real, reviewable work.
+This is a proven way to work: chat-to-preview tools already work like this. What Kiln adds is that the same factory, with the same guardrails, produces it, so the preview is not a throwaway prototype but the start of real, reviewable work.
 
 ## How it could run on the same factory
 
@@ -46,6 +46,5 @@ What is new:
 
 ## Related
 
-- [PLAN.md](../plan/PLAN.md) M4-T4 (PO workspace) and M4-T5 (preview environments)
 - [Pipelines and gates](../site/configuration/pipelines-and-gates.md)
 - [Previews](../site/integrations/previews.md)

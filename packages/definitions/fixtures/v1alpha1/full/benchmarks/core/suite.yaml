@@ -1,0 +1,5 @@
+name: core
+agent: Web Implement
+configurations:
+  - name: default
+tasks: [fix-typo]

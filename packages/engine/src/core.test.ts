@@ -4,7 +4,7 @@ import { FakeForge } from "@kiln/integrations";
 import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
 import { describe, expect, it } from "vitest";
 import { classifyError, KilnError } from "./errors";
-import { fakeAgentScript } from "./fake-agents";
+import { fakeAgents, fakeAgentScript } from "./fake-agents";
 import { validateFiles } from "./factory-files";
 import { runState, taskStage } from "./run-state";
 import { parseTicketRef } from "./tasks";
@@ -469,5 +469,31 @@ describe("multi-repository factories", () => {
     await one.workflow.advance(item.id);
     expect(single.calls.some((c) => c.decision === "repository")).toBe(false);
     expect(one.workflow.get(item.id)!.repo).toBeUndefined();
+  });
+});
+
+describe("spec stage failures", () => {
+  it("does not ask to approve a spec the agent could not write: it retries once, then parks and asks why", async () => {
+    const failing = new FakeHarness(async () => {
+      throw new Error("setup command failed: pnpm install --frozen-lockfile");
+    });
+    const agents = fakeAgents();
+    let specRuns = 0;
+    const { kiln } = createTestKiln({
+      harness: (type, agentType) => {
+        if (agentType !== "SPEC") return agents(type, agentType);
+        specRuns++;
+        return failing;
+      },
+    });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Redesign the billing page", body: "- show invoices\n- show plan", source: { provider: "api" }, requester: "a@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    const parked = await waitFor(kiln, wi.id, ["blocked"]);
+    expect(parked.blockedReason).toContain("setup command failed");
+    expect(specRuns).toBe(2);
+    const gates = kiln.gates.list({ workItemId: wi.id });
+    expect(gates.some((g) => g.kind === "spec")).toBe(false);
+    expect(gates.find((g) => g.name === "spec-failed")).toMatchObject({ kind: "question", state: "open" });
+    expect(gates.find((g) => g.name === "spec-failed")!.question).toContain("setup command failed");
   });
 });

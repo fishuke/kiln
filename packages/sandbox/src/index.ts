@@ -11,7 +11,8 @@ export * from "./process";
 export type GuardVerdict = "allow" | "ask_human" | "block";
 
 /** A runner with its image resolved (the run's runner, environment or server default). */
-export type SandboxRunner = Runner & { image: string };
+/** `workspaceSetupCommands` (a team environment's) run once in the workspace root, after the runner's per-repository setup. */
+export type SandboxRunner = Runner & { image: string; workspaceSetupCommands?: string[] };
 
 export type SandboxSpec = {
   runner: SandboxRunner;
@@ -118,6 +119,20 @@ const newId = () => `sbx_${randomBytes(5).toString("hex")}`;
  * Runs the workspace in a host directory. Used for development and for tests; it applies the
  * guardrail and setup commands but cannot enforce egress or resource limits.
  */
+/**
+ * Runs the runner's setup commands in each cloned repository (where its package.json and
+ * packageManager pin are), or in the workspace when there is none; then the workspace-wide ones.
+ */
+async function runSetup(sandbox: Sandbox, spec: SandboxSpec) {
+  const run = async (cmd: string, cwd?: string) => {
+    const r = await sandbox.exec(cmd, { trusted: true, ...(cwd ? { cwd } : {}) });
+    if (r.code !== 0) throw new Error(`setup command failed${cwd ? ` in ${cwd}` : ""}: ${cmd}\n${r.stderr}`);
+  };
+  const dirs = spec.repos.length ? spec.repos.map((r) => r.name) : [undefined];
+  for (const cwd of dirs) for (const cmd of spec.runner.setupCommands) await run(cmd, cwd);
+  for (const cmd of spec.runner.workspaceSetupCommands ?? []) await run(cmd);
+}
+
 export class LocalSandboxProvider implements SandboxProvider {
   readonly name = "local";
 
@@ -139,10 +154,7 @@ export class LocalSandboxProvider implements SandboxProvider {
       if (r.code !== 0) throw new Error(`git clone ${repo.url} failed: ${r.stderr}`);
       if (repo.branch) await this.runner.run("git", ["checkout", "-q", "-B", repo.branch], { cwd: join(workdir, repo.name) });
     }
-    for (const cmd of spec.runner.setupCommands) {
-      const r = await sandbox.exec(cmd, { trusted: true });
-      if (r.code !== 0) throw new Error(`setup command failed: ${cmd}\n${r.stderr}`);
-    }
+    await runSetup(sandbox, spec);
     sandbox.startedInMs = Date.now() - started;
     return sandbox;
   }
@@ -323,10 +335,7 @@ export class DockerSandboxProvider implements SandboxProvider {
       await this.must(["exec", name, "git", "clone", "--quiet", repo.url, `/workspace/${repo.name}`]);
       if (repo.branch) await this.must(["exec", "-w", `/workspace/${repo.name}`, name, "git", "checkout", "-q", "-B", repo.branch]);
     }
-    for (const cmd of spec.runner.setupCommands) {
-      const r = await sandbox.exec(cmd, { trusted: true });
-      if (r.code !== 0) throw new Error(`setup command failed: ${cmd}\n${r.stderr}`);
-    }
+    await runSetup(sandbox, spec);
     sandbox.startedInMs = Date.now() - started;
     return sandbox;
   }
@@ -539,10 +548,7 @@ export class KubernetesSandboxProvider implements SandboxProvider {
     for (const repo of spec.repos) {
       await this.kubectl(["exec", name, "--", "git", "clone", "--quiet", repo.url, `/workspace/${repo.name}`]);
     }
-    for (const cmd of spec.runner.setupCommands) {
-      const r = await sandbox.exec(cmd, { trusted: true });
-      if (r.code !== 0) throw new Error(`setup command failed: ${cmd}\n${r.stderr}`);
-    }
+    await runSetup(sandbox, spec);
     sandbox.startedInMs = Date.now() - started;
     return sandbox;
   }

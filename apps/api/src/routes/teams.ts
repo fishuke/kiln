@@ -131,6 +131,32 @@ export function teamRoutes(ctx: RouteContext) {
     const { team } = teamFor(ctx, c, c.req.param("team"), "admin");
     return c.json(await kiln.credentialPool.check({ teamId: team.id }, c.req.param("name")));
   });
+  // ChatGPT logins (Codex's auth.json) for OpenAI models through Codex: health, sign-in with a device code, check
+  app.get("/api/v1/teams/:team/chatgpt-logins", (c) => {
+    const { team } = teamFor(ctx, c, c.req.param("team"));
+    return c.json(kiln.credentialPool.list(team.id, ctx.access(c).user?.id, "chatgpt"));
+  });
+  app.post("/api/v1/teams/:team/chatgpt-logins/sign-in", async (c) => {
+    const body = PS.ChatgptSignIn.parse(await c.req.json());
+    // For the whole team: admins. For yourself: any member.
+    const { team } = teamFor(ctx, c, c.req.param("team"), body.scope === "team" ? "admin" : undefined);
+    const owner = body.scope === "team" ? team.id : ctx.user(c).id;
+    return c.json(await kiln.chatgptSignIn.start({ teamId: team.id, scope: body.scope, owner, name: body.name, by: ctx.who(c), userId: ctx.access(c).user?.id }), 201);
+  });
+  // A sign-in is visible to whoever started it and to team admins: whoever enters its code picks the account.
+  const signInViewer = (c: Parameters<typeof teamFor>[1], role?: string) => ({ userId: ctx.access(c).user?.id, admin: role === "owner" || role === "admin" });
+  app.get("/api/v1/teams/:team/chatgpt-logins/sign-in/:id", (c) => {
+    const { team, role } = teamFor(ctx, c, c.req.param("team"));
+    return c.json(kiln.chatgptSignIn.get(team.id, c.req.param("id"), signInViewer(c, role)));
+  });
+  app.delete("/api/v1/teams/:team/chatgpt-logins/sign-in/:id", async (c) => {
+    const { team, role } = teamFor(ctx, c, c.req.param("team"));
+    return c.json(await kiln.chatgptSignIn.cancel(team.id, c.req.param("id"), signInViewer(c, role)));
+  });
+  app.post("/api/v1/teams/:team/chatgpt-logins/:name/check", async (c) => {
+    const { team } = teamFor(ctx, c, c.req.param("team"), "admin");
+    return c.json(await kiln.credentialPool.check({ teamId: team.id }, c.req.param("name"), "chatgpt"));
+  });
   app.delete("/api/v1/teams/:team/model-keys/:provider", (c) => {
     const { team } = teamFor(ctx, c, c.req.param("team"), "admin");
     kiln.vault.delete("team", team.id, MODEL_KEYS[provider(c.req.param("provider"))].name, ctx.who(c));

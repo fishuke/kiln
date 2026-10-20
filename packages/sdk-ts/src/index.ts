@@ -66,6 +66,7 @@ import type {
   Membership,
   ModelKeyProvider,
   PoolEntry,
+  ChatgptSignIn,
   NotificationPrefs,
   NotificationRecord,
   PublicUser,
@@ -586,6 +587,11 @@ export class KilnClient {
   setModelKey = (team: string, provider: ModelKeyProvider, value: string | Record<string, string>) => this.request<SecretMeta>("PUT", `/api/v1/teams/${encodeURIComponent(team)}/model-keys/${provider}`, { value });
   claudeTokens = (team: string) => this.request<PoolEntry[]>("GET", `/api/v1/teams/${encodeURIComponent(team)}/claude-tokens`);
   checkClaudeToken = (team: string, name: string) => this.request<PoolEntry>("POST", `/api/v1/teams/${encodeURIComponent(team)}/claude-tokens/${encodeURIComponent(name)}/check`);
+  chatgptLogins = (team: string) => this.request<PoolEntry[]>("GET", `/api/v1/teams/${encodeURIComponent(team)}/chatgpt-logins`);
+  startChatgptSignIn = (team: string, body: { name: string; scope?: "team" | "personal" }) => this.request<ChatgptSignIn>("POST", `/api/v1/teams/${encodeURIComponent(team)}/chatgpt-logins/sign-in`, body);
+  chatgptSignIn = (team: string, id: string) => this.request<ChatgptSignIn>("GET", `/api/v1/teams/${encodeURIComponent(team)}/chatgpt-logins/sign-in/${encodeURIComponent(id)}`);
+  cancelChatgptSignIn = (team: string, id: string) => this.request<ChatgptSignIn>("DELETE", `/api/v1/teams/${encodeURIComponent(team)}/chatgpt-logins/sign-in/${encodeURIComponent(id)}`);
+  checkChatgptLogin = (team: string, name: string) => this.request<PoolEntry>("POST", `/api/v1/teams/${encodeURIComponent(team)}/chatgpt-logins/${encodeURIComponent(name)}/check`);
   deleteModelKey = (team: string, provider: ModelKeyProvider) => this.request<{ ok: true }>("DELETE", `/api/v1/teams/${encodeURIComponent(team)}/model-keys/${provider}`);
 
   // ---- factory roles ----

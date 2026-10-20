@@ -53,9 +53,25 @@ harness:
 | --- | --- |
 | `{ source: secret, secretName: <name> }` | A typed secret (such as `claude_oauth_token` or `anthropic_bedrock_access_key`) gives its provider variables. Otherwise, the secret's value. For Claude Code it is set as `CLAUDE_CODE_OAUTH_TOKEN` when it is a subscription token from `claude setup-token` (it starts with `sk-ant-oat`), and as `ANTHROPIC_API_KEY` otherwise. For Codex it is `OPENAI_API_KEY`. For OpenCode the variable has the secret's name. Add `env: <VARIABLE>` to choose the variable yourself. A missing secret fails the run. |
 | `{ source: worker }` | No credential from Kiln. The harness uses credentials already present on the worker or in the image. |
-| not set | Kiln looks for default secrets, including typed team and personal secrets and the team-managed model keys. Claude Code gets the first of `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` and Bedrock credentials that is set. Codex gets the first of `OPENAI_API_KEY` and `CODEX_API_KEY`. OpenCode gets every one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY` that is set. |
+| not set | Kiln looks for default secrets, including typed team and personal secrets and the team-managed model keys. Claude Code gets the first of `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` and Bedrock credentials that is set. Codex gets a [ChatGPT login](#chatgpt-logins) when there is one, else the first of `OPENAI_API_KEY` and `CODEX_API_KEY`. OpenCode gets every one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY` that is set. |
 
 The agent's `secrets` list is passed the same way, one variable per secret. Credentials go only to that run's sandbox, and personal secrets only to runs their owner triggered. Secret values are redacted from run output. See [Secrets, MCP servers and environments](../management/secrets-mcps-environments.md).
+
+## ChatGPT logins
+
+Codex can run OpenAI models on a ChatGPT plan instead of an API key. Under **Team settings → Model keys**, choose **Sign in with ChatGPT**, give the login a name, then open the link Kiln shows and enter the one-time code. Kiln runs `codex login --device-auth` in a throwaway sandbox for this and stores the resulting `auth.json` as a `chatgpt_auth` secret. Admins sign in for the team; anyone can sign in for their own runs only. A sign-in in progress is visible only to whoever started it and to team admins, because whoever enters its code chooses the account. A personal login shadows a team login of the same name. If your ChatGPT workspace is a Business or Enterprise one, an admin may first need to allow device code login in its settings.
+
+| What | How it works |
+| --- | --- |
+| Which runs use it | Codex runs on a Kiln sandbox (not self-hosted workers) whose agent sets no `auth`. With several logins, each run gets the working one with the most left; your own come before the team's. |
+| Where it lives in the run | `auth.json` in a `CODEX_HOME` under `/tmp`, outside the repositories, so it is never committed. Its tokens are redacted from run output. |
+| Refreshes | Codex refreshes a login it has not refreshed for about 8 days and rewrites `auth.json`; the old refresh token then stops working. Kiln saves the refreshed file after every run (the audit log shows `chatgpt.refreshed` by the run). A login that is due for a refresh serves one run at a time; other runs wait and retry. Tokens a refresh produces mid-run are redacted from its output too. |
+| Usage limits | When the plan's limit is reached, the login shows as limited until the time Codex reports and runs use another one. |
+| Signed out | A login OpenAI rejects shows as invalid. Sign in again with the same name to replace it. |
+
+To use ChatGPT logins, add `auth.openai.com` and `chatgpt.com` to `KILN_EGRESS_ALLOW` (they are not in the default list, because the list applies to every sandbox). Without them, sign-in fails with Codex's connection error.
+
+A ChatGPT login is a whole ChatGPT session, not an inference-only key, and the agent in a run can read it. Use a dedicated ChatGPT account for team logins, use them for your own private work within OpenAI's terms, and prefer API keys for shared automation, as the Codex docs do. Kiln keeps the `auth.json` a run leaves behind only when it is a refresh of the same account (same account id, a new refresh token, a later refresh time), so an agent cannot swap the stored login for another account. See the [threat model](../../security/threat-model.md).
 
 ## Isolation
 

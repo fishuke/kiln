@@ -1,8 +1,20 @@
 import type { ExecResult, Proc, Sandbox, SnapshotRef } from "@kiln/sandbox";
 import { describe, expect, it } from "vitest";
-import { ClaudeCodeAdapter, CodexAdapter, EventStream, FakeHarness, OpenCodeAdapter, type HarnessAdapter, type HarnessEvent } from "./index";
+import {
+  ClaudeCodeAdapter,
+  CodexAdapter,
+  codexUsageLimitReset,
+  EventStream,
+  FakeHarness,
+  OpenCodeAdapter,
+  type HarnessAdapter,
+  type HarnessEvent,
+} from "./index";
 
-type Emulator = (args: string[], io: { out: (line: unknown) => void; end: (code?: number) => void; stdin: EventStream<string>; fail: boolean }) => Promise<void>;
+type Emulator = (
+  args: string[],
+  io: { out: (line: unknown) => void; end: (code?: number) => void; stdin: EventStream<string>; fail: boolean },
+) => Promise<void>;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -16,8 +28,28 @@ const emulators: Record<string, Emulator> = {
       return io.end(0);
     }
     // The shape Claude Code streams for subscription tokens.
-    io.out({ type: "rate_limit_event", rate_limit_info: { status: "allowed", resetsAt: 1792530600, rateLimitType: "five_hour", unifiedWindows: { five_hour: { utilization: 0.02, resetsAt: 1792530600 }, seven_day: { utilization: 0.19, resetsAt: 1792987200 }, seven_day_fable: { utilization: 0.03, resetsAt: 1792987200 } } } });
-    io.out({ type: "assistant", message: { content: [{ type: "text", text: `working on ${first.message.content[0].text}` }, { type: "tool_use", name: "Bash", input: { command: "pnpm test" } }] } });
+    io.out({
+      type: "rate_limit_event",
+      rate_limit_info: {
+        status: "allowed",
+        resetsAt: 1792530600,
+        rateLimitType: "five_hour",
+        unifiedWindows: {
+          five_hour: { utilization: 0.02, resetsAt: 1792530600 },
+          seven_day: { utilization: 0.19, resetsAt: 1792987200 },
+          seven_day_fable: { utilization: 0.03, resetsAt: 1792987200 },
+        },
+      },
+    });
+    io.out({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "text", text: `working on ${first.message.content[0].text}` },
+          { type: "tool_use", name: "Bash", input: { command: "pnpm test" } },
+        ],
+      },
+    });
     io.out({ type: "user", message: { content: [{ type: "tool_result", content: [{ type: "text", text: "ok" }] }] } });
     const next = await Promise.race([it.next(), sleep(50).then(() => undefined)]);
     if (next && !next.done) {
@@ -173,7 +205,9 @@ describe("claude code specifics", () => {
     expect(Object.entries(files).filter(([p, c]) => !p.startsWith("app/.kiln/") && c.includes("run-token"))).toEqual([]);
     expect(files["app/.mcp.json"]).toBeUndefined();
     expect(files["app/.claude/settings.json"]).toBeUndefined();
-    expect(spawned[0]).toEqual(expect.arrayContaining(["--output-format", "stream-json", "--model", "m", "--mcp-config", ".kiln/mcp.json", "--settings", ".kiln/claude-settings.json"]));
+    expect(spawned[0]).toEqual(
+      expect.arrayContaining(["--output-format", "stream-json", "--model", "m", "--mcp-config", ".kiln/mcp.json", "--settings", ".kiln/claude-settings.json"]),
+    );
   });
 
   it("reports why the process could not start when docker exec prints it on stdout", async () => {
@@ -214,5 +248,17 @@ describe("fake harness", () => {
     const session = await fake.start({ ...base, sandbox });
     await session.steer("plan B");
     expect((await session.result).summary).toBe("plan B");
+  });
+});
+
+describe("codex with a ChatGPT login", () => {
+  const now = new Date("2026-10-20T18:00:00.000Z");
+
+  it("reads when a usage limit resets", () => {
+    expect(
+      codexUsageLimitReset("You've hit your usage limit. Upgrade to Pro (https://openai.com/chatgpt/pricing) or try again in 2 days 3 hours 5 minutes.", now),
+    ).toBe("2026-10-22T21:05:00.000Z");
+    expect(codexUsageLimitReset("You've hit your usage limit. Try again later.", now)).toBe("2026-10-20T19:00:00.000Z");
+    expect(codexUsageLimitReset("stream disconnected before completion", now)).toBeUndefined();
   });
 });

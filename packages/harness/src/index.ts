@@ -9,7 +9,7 @@ export type HarnessEvent =
   | { type: "tool_result"; name?: string; output?: string; isError?: boolean }
   | { type: "steer"; text: string }
   | { type: "cost"; usd: number }
-  /** Subscription usage (Claude Code with a `claude setup-token` token): share of each window used, 0..1. */
+  /** Subscription usage (a Claude token or a ChatGPT login): share of each window used, 0..1. */
   | { type: "rate_limit"; status: string; fiveHour?: UsageWindow; sevenDay?: UsageWindow; others?: Record<string, UsageWindow> }
   | { type: "error"; text: string };
 
@@ -18,7 +18,8 @@ export type UsageWindow = { utilization: number; resetsAt?: string };
 export type HarnessResult = { outcome: "succeeded" | "failed" | "cancelled"; summary: string; costUsd: number; turns: number };
 
 /** An MCP server for the agent: streamable HTTP (url) or a stdio command. */
-export type McpServerConfig = { name: string; url: string; headers?: Record<string, string> } | { name: string; command: string; args?: string[]; env?: Record<string, string> };
+export type McpServerConfig =
+  { name: string; url: string; headers?: Record<string, string> } | { name: string; command: string; args?: string[]; env?: Record<string, string> };
 
 export type StartOptions = {
   sandbox: Sandbox;
@@ -209,7 +210,12 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     // own .mcp.json and .claude/settings.json must not be overwritten or committed.
     const config: string[] = [];
     if (opts.mcpServers?.length) {
-      const mcpServers = Object.fromEntries(opts.mcpServers.map((s) => [s.name, "url" in s ? { type: "http", url: s.url, headers: s.headers } : { type: "stdio", command: s.command, args: s.args ?? [], env: s.env ?? {} }]));
+      const mcpServers = Object.fromEntries(
+        opts.mcpServers.map((s) => [
+          s.name,
+          "url" in s ? { type: "http", url: s.url, headers: s.headers } : { type: "stdio", command: s.command, args: s.args ?? [], env: s.env ?? {} },
+        ]),
+      );
       await opts.sandbox.writeFile(`${prefix}.kiln/mcp.json`, JSON.stringify({ mcpServers }, null, 2));
       config.push("--mcp-config", ".kiln/mcp.json");
     }
@@ -263,7 +269,8 @@ class ClaudeSession extends CliSession {
       const now = Date.now();
       for (const c of msg.message?.content ?? []) {
         // Thinking time: from the previous event to this message.
-        if (c.type === "thinking" && c.thinking) this.emit({ type: "reasoning", text: c.thinking, durationMs: this.lastEventAt ? now - this.lastEventAt : undefined });
+        if (c.type === "thinking" && c.thinking)
+          this.emit({ type: "reasoning", text: c.thinking, durationMs: this.lastEventAt ? now - this.lastEventAt : undefined });
         if (c.type === "text") this.emit({ type: "message", text: c.text });
         if (c.type === "tool_use") this.emit({ type: "tool_call", name: c.name, input: c.input });
       }
@@ -277,7 +284,9 @@ class ClaudeSession extends CliSession {
     } else if (msg.type === "rate_limit_event" && msg.rate_limit_info) {
       const info = msg.rate_limit_info;
       const window = (w: { utilization?: number; resetsAt?: number } | undefined): UsageWindow | undefined =>
-        typeof w?.utilization === "number" ? { utilization: w.utilization, ...(w.resetsAt ? { resetsAt: new Date(w.resetsAt * 1000).toISOString() } : {}) } : undefined;
+        typeof w?.utilization === "number"
+          ? { utilization: w.utilization, ...(w.resetsAt ? { resetsAt: new Date(w.resetsAt * 1000).toISOString() } : {}) }
+          : undefined;
       const fiveHour = window(info.unifiedWindows?.five_hour);
       const sevenDay = window(info.unifiedWindows?.seven_day);
       // Other windows Claude Code reports (a model's own weekly limit, for example), by their names.
@@ -287,7 +296,13 @@ class ClaudeSession extends CliSession {
           .map(([k, w]) => [k, window(w)])
           .filter((e): e is [string, UsageWindow] => Boolean(e[1])),
       );
-      this.emit({ type: "rate_limit", status: String(info.status ?? "allowed"), ...(fiveHour ? { fiveHour } : {}), ...(sevenDay ? { sevenDay } : {}), ...(Object.keys(others).length ? { others } : {}) });
+      this.emit({
+        type: "rate_limit",
+        status: String(info.status ?? "allowed"),
+        ...(fiveHour ? { fiveHour } : {}),
+        ...(sevenDay ? { sevenDay } : {}),
+        ...(Object.keys(others).length ? { others } : {}),
+      });
     } else if (msg.type === "result") {
       this.costUsd = Number(msg.total_cost_usd ?? 0);
       this.summary = String(msg.result ?? "");
@@ -312,15 +327,20 @@ export class CodexAdapter implements HarnessAdapter {
 
   async start(opts: StartOptions): Promise<HarnessSession> {
     await writeSkills(opts, ".agents/skills");
-    const session = new ResumingSession(opts, (message, resume) => [
-      "exec",
-      ...(resume ? ["resume", "--last"] : []),
-      "--json",
-      "--skip-git-repo-check",
-      "--dangerously-bypass-approvals-and-sandbox",
-      ...(opts.model ? ["-m", opts.model] : []),
-      message,
-    ], this.bin, codexLine);
+    const session = new ResumingSession(
+      opts,
+      (message, resume) => [
+        "exec",
+        ...(resume ? ["resume", "--last"] : []),
+        "--json",
+        "--skip-git-repo-check",
+        "--dangerously-bypass-approvals-and-sandbox",
+        ...(opts.model ? ["-m", opts.model] : []),
+        message,
+      ],
+      this.bin,
+      codexLine,
+    );
     session.begin(`${opts.instructions}\n\n${opts.prompt}`);
     return session;
   }
@@ -335,20 +355,33 @@ export class OpenCodeAdapter implements HarnessAdapter {
   async start(opts: StartOptions): Promise<HarnessSession> {
     await writeSkills(opts, ".opencode/skills");
     await opts.sandbox.writeFile(`${opts.cwd ? `${opts.cwd}/` : ""}AGENTS.md`, `${opts.instructions}\n`);
-    const session = new ResumingSession(opts, (message, resume) => [
-      "run",
-      ...(resume ? ["--continue"] : []),
-      "--format",
-      "json",
-      ...(opts.model ? ["-m", opts.model] : []),
-      message,
-    ], this.bin, openCodeLine);
+    const session = new ResumingSession(
+      opts,
+      (message, resume) => ["run", ...(resume ? ["--continue"] : []), "--format", "json", ...(opts.model ? ["-m", opts.model] : []), message],
+      this.bin,
+      openCodeLine,
+    );
     session.begin(opts.prompt);
     return session;
   }
 }
 
-type LineHandler = (msg: Record<string, any>, s: { emit: (e: HarnessEvent) => void; addCost: (n: number) => void; setSummary: (t: string) => void; fail: () => void; turn: () => void }) => void;
+type LineHandler = (
+  msg: Record<string, any>,
+  s: { emit: (e: HarnessEvent) => void; addCost: (n: number) => void; setSummary: (t: string) => void; fail: () => void; turn: () => void },
+) => void;
+
+/**
+ * When a ChatGPT plan's usage limit stopped Codex, the time it resets ("… or try again in 2 days 3 hours 5 minutes.");
+ * an hour from now when the message gives no duration. Undefined for any other error.
+ */
+export function codexUsageLimitReset(message: string, now = new Date()): string | undefined {
+  if (!/usage limit|usage_limit_reached/i.test(message)) return undefined;
+  const span = /try again in ([^.]+)/i.exec(message)?.[1] ?? "";
+  const part = (unit: string) => Number(new RegExp(`(\\d+)\\s*${unit}`, "i").exec(span)?.[1] ?? 0);
+  const minutes = part("day") * 1440 + part("hour") * 60 + part("min");
+  return new Date(now.getTime() + (minutes || 60) * 60_000).toISOString();
+}
 
 function codexLine(msg: Record<string, any>, s: Parameters<LineHandler>[1]) {
   if (msg.type === "item.completed") {
@@ -356,6 +389,17 @@ function codexLine(msg: Record<string, any>, s: Parameters<LineHandler>[1]) {
     if (item.type === "agent_message") {
       s.emit({ type: "message", text: item.text });
       s.setSummary(item.text);
+    } else if (item.type === "reasoning" && item.text) {
+      s.emit({ type: "reasoning", text: item.text });
+    } else if (item.type === "mcp_tool_call") {
+      s.emit({ type: "tool_call", name: `${item.server}.${item.tool}`, input: item.arguments });
+      if (item.result !== undefined || item.error)
+        s.emit({
+          type: "tool_result",
+          name: `${item.server}.${item.tool}`,
+          output: JSON.stringify(item.error ?? item.result).slice(0, 4000),
+          isError: Boolean(item.error),
+        });
     } else if (item.type === "command_execution") {
       s.emit({ type: "tool_call", name: "shell", input: { command: item.command } });
       s.emit({ type: "tool_result", name: "shell", output: item.aggregated_output, isError: item.exit_code !== 0 });
@@ -368,7 +412,11 @@ function codexLine(msg: Record<string, any>, s: Parameters<LineHandler>[1]) {
     // Codex reports tokens, not dollars; cost is estimated by the gateway price table upstream.
     s.addCost(((u.input_tokens ?? 0) * 1.25 + (u.output_tokens ?? 0) * 10) / 1_000_000);
   } else if (msg.type === "turn.failed" || msg.type === "error") {
-    s.emit({ type: "error", text: msg.error?.message ?? msg.message ?? "codex failed" });
+    const text: string = msg.error?.message ?? msg.message ?? "codex failed";
+    // A ChatGPT login out of usage: report it like Claude's windows so the pool skips it until the reset.
+    const resetsAt = codexUsageLimitReset(text);
+    if (resetsAt) s.emit({ type: "rate_limit", status: "rejected", fiveHour: { utilization: 1, resetsAt } });
+    s.emit({ type: "error", text });
     s.fail();
   }
 }
@@ -514,7 +562,12 @@ function streamJsonLine(msg: Record<string, any>, s: Parameters<LineHandler>[1])
   } else if (msg.type === "tool_use" || msg.type === "tool_call") {
     s.emit({ type: "tool_call", name: String(msg.tool_name ?? msg.name ?? "tool"), input: msg.parameters ?? msg.args ?? msg.input });
   } else if (msg.type === "tool_result") {
-    s.emit({ type: "tool_result", name: msg.tool_name ?? msg.name, output: String(msg.output ?? msg.result ?? ""), isError: msg.status === "error" || msg.isError === true });
+    s.emit({
+      type: "tool_result",
+      name: msg.tool_name ?? msg.name,
+      output: String(msg.output ?? msg.result ?? ""),
+      isError: msg.status === "error" || msg.isError === true,
+    });
   } else if (msg.type === "result" || msg.type === "turn_end" || msg.type === "agent_end") {
     s.turn();
     const cost = msg.stats?.cost_usd ?? msg.usage?.cost?.total ?? msg.cost;
@@ -535,15 +588,20 @@ export class GeminiAdapter implements HarnessAdapter {
   async start(opts: StartOptions): Promise<HarnessSession> {
     await writeSkills(opts, ".gemini/skills");
     await opts.sandbox.writeFile(`${opts.cwd ? `${opts.cwd}/` : ""}GEMINI.md`, `${opts.instructions}\n`);
-    const session = new ResumingSession(opts, (message, resume) => [
-      ...(resume ? ["--resume", "latest"] : []),
-      "--output-format",
-      "stream-json",
-      "--yolo",
-      ...(opts.model ? ["-m", opts.model] : []),
-      "-p",
-      message,
-    ], this.bin, streamJsonLine);
+    const session = new ResumingSession(
+      opts,
+      (message, resume) => [
+        ...(resume ? ["--resume", "latest"] : []),
+        "--output-format",
+        "stream-json",
+        "--yolo",
+        ...(opts.model ? ["-m", opts.model] : []),
+        "-p",
+        message,
+      ],
+      this.bin,
+      streamJsonLine,
+    );
     session.begin(opts.prompt);
     return session;
   }
@@ -558,14 +616,12 @@ export class PiAdapter implements HarnessAdapter {
   async start(opts: StartOptions): Promise<HarnessSession> {
     await writeSkills(opts, ".pi/skills");
     await opts.sandbox.writeFile(`${opts.cwd ? `${opts.cwd}/` : ""}AGENTS.md`, `${opts.instructions}\n`);
-    const session = new ResumingSession(opts, (message, resume) => [
-      ...(resume ? ["--continue"] : []),
-      "--mode",
-      "json",
-      ...(opts.model ? ["--model", opts.model] : []),
-      "-p",
-      message,
-    ], this.bin, streamJsonLine);
+    const session = new ResumingSession(
+      opts,
+      (message, resume) => [...(resume ? ["--continue"] : []), "--mode", "json", ...(opts.model ? ["--model", opts.model] : []), "-p", message],
+      this.bin,
+      streamJsonLine,
+    );
     session.begin(opts.prompt);
     return session;
   }

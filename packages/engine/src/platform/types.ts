@@ -121,6 +121,7 @@ export const SECRET_TYPES = [
   "aws_ecr",
   "anthropic_api_key",
   "claude_oauth_token",
+  "chatgpt_auth",
   "anthropic_bedrock_api_key",
   "anthropic_bedrock_access_key",
   "openai_api_key",

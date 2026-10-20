@@ -173,6 +173,22 @@ describe("teams API", () => {
     await expect(member.c.checkClaudeToken("default", "CLAUDE_A")).rejects.toMatchObject({ status: 403 });
     expect(await o.checkClaudeToken("default", "CLAUDE_A")).toMatchObject({ name: "CLAUDE_A", checkedAt: expect.any(String) });
   });
+
+  it("ChatGPT logins: listed without their tokens, validated, and signed in by admins for the team", async () => {
+    const s = setup();
+    const { o, member } = await people(s);
+    const jwt = `h.${Buffer.from(JSON.stringify({ email: "olga@acme.test", "https://api.openai.com/auth": { chatgpt_plan_type: "plus" } })).toString("base64url")}.s`;
+    const auth = JSON.stringify({ tokens: { id_token: jwt, access_token: "access-secret-1", refresh_token: "refresh-secret-1" }, last_refresh: "2026-10-20T10:00:00.000Z" });
+    await expect(o.createManagedSecret({ scope: "team", name: "CHATGPT_BAD", type: "chatgpt_auth", value: '{"OPENAI_API_KEY":"sk-1"}' })).rejects.toMatchObject({ status: 400 });
+    await o.createManagedSecret({ scope: "team", name: "CHATGPT_OLGA", type: "chatgpt_auth", value: auth, description: "ChatGPT login for olga@acme.test (plus)" });
+    const logins = await member.c.chatgptLogins("default");
+    expect(logins).toEqual([expect.objectContaining({ name: "CHATGPT_OLGA", status: "unknown", description: "ChatGPT login for olga@acme.test (plus)" })]);
+    expect(JSON.stringify(logins)).not.toContain("secret-1");
+    // Signing in for the whole team is for admins; anyone can sign in for themselves.
+    await expect(member.c.startChatgptSignIn("default", { name: "CHATGPT_TEAM" })).rejects.toMatchObject({ status: 403 });
+    await expect(member.c.chatgptSignIn("default", "cgl_nope")).rejects.toMatchObject({ status: 404 });
+    await expect(member.c.checkChatgptLogin("default", "CHATGPT_OLGA")).rejects.toMatchObject({ status: 403 });
+  });
 });
 
 describe("factory roles API", () => {

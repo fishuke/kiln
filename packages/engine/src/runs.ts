@@ -9,6 +9,7 @@ import { classifyError, KilnError, retriesAutomatically, runStatusFor } from "./
 import type { Kiln } from "./kiln";
 import { cloudProviderEnv } from "./cloud";
 import { fileUrl, mediaOf } from "./media";
+import { codexHome, parseChatgptAuth, redactChatgptTokens } from "./platform/chatgpt";
 import { registryAuthFor } from "./platform/registry";
 import { checkMetadata, isTerminal, sourceFor } from "./run-state";
 import { C, newId, type Artifact, type Attachment, type ExecutionOverrides, type Run, type RunEvent, type RunKind, type RunMode, type RunSource, type WorkItem } from "./types";
@@ -160,6 +161,8 @@ export class RunService {
   private readonly live = new Map<string, Run>();
   /** Secret values each live run was given; redacted from its events and summary. */
   private readonly redactions = new Map<string, string[]>();
+  /** Runs holding a ChatGPT login: saved back (Codex may have refreshed it) and released when the run ends. */
+  private readonly chatgptLogins = new Map<string, { scope: { teamId?: string; userId?: string }; name: string; sandbox: Sandbox; home: string }>();
 
   constructor(private readonly k: Kiln) {}
 
@@ -200,6 +203,11 @@ export class RunService {
     if (secrets?.length) {
       if (text) text = redact(text, secrets);
       if (data !== undefined) data = JSON.parse(redact(JSON.stringify(data), secrets.map((s) => JSON.stringify(s).slice(1, -1))));
+    }
+    // Codex may refresh a ChatGPT login mid-run; the new tokens are not in the list above, so match their shape.
+    if (this.chatgptLogins.has(run.id)) {
+      if (text) text = redactChatgptTokens(text);
+      if (data !== undefined) data = JSON.parse(redactChatgptTokens(JSON.stringify(data)));
     }
     run.eventCount += 1;
     const ev: RunEvent = { id: `${run.id}:${run.eventCount}`, runId: run.id, seq: run.eventCount, at: this.k.clock.now().toISOString(), type, text, data };
@@ -393,6 +401,12 @@ export class RunService {
       run.summary = error.message;
       this.record(run, "error", `${error.code}: ${error.message}`, { code: error.code, retryable: error.retryable });
     } finally {
+      const login = this.chatgptLogins.get(run.id);
+      if (login) {
+        this.chatgptLogins.delete(run.id);
+        await this.k.credentialPool.saveChatgptLogin(login.scope, login.name, login.sandbox, login.home, `run:${run.id}`).catch((err) => console.error(`saving the refreshed ChatGPT login ${login.name} failed`, err));
+        this.k.credentialPool.release(login.scope, login.name);
+      }
       this.redactions.delete(run.id);
       this.forgeTokens.delete(run.id);
       this.sessions.delete(run.id);
@@ -476,6 +490,14 @@ export class RunService {
     this.record(run, "started", `${agent.name} (${harnessType}${model ? `, ${model}` : ""})`);
     const adapter = this.k.harnessFor(harnessType, agent.agentType);
     const agentEnv = this.agentEnv(p);
+    const scope = { teamId: run.team, userId: run.userId };
+    if (agentEnv.chatgptLogin && run.credential) {
+      // Registered first, so the login is released even if writing it fails.
+      const login = { scope, name: run.credential, sandbox, home: codexHome(run.id) };
+      this.chatgptLogins.set(run.id, login);
+      await this.k.credentialPool.writeChatgptLogin(sandbox, login.home, agentEnv.chatgptLogin);
+      agentEnv.env.CODEX_HOME = login.home;
+    }
     const session = await adapter.start({
       sandbox,
       cwd,
@@ -609,7 +631,8 @@ export class RunService {
     const scope = { teamId: p.team, userId: p.userId };
     const resolver = this.k.vault.resolver(scope);
     // Automation overrides add secrets (resolved through the vault like the agent's) and replace the MCP servers.
-    const chosen: { credential?: string } = {};
+    // A ChatGPT login is a file in the sandbox, so only local runs (not self-hosted workers) get one from the pool.
+    const chosen: { credential?: string; chatgptLogin?: string; files?: boolean } = { files: !p.workerHost };
     const credentials = this.credentials(p.harnessType, { ...p.agent, secrets: [...new Set([...p.agent.secrets, ...p.environmentSecrets, ...(p.input.overrides?.secrets ?? [])])] }, scope, chosen);
     if (chosen.credential) {
       p.run.credential = chosen.credential;
@@ -617,7 +640,8 @@ export class RunService {
     }
     const mcp = this.k.mcp.resolve(p.team, p.input.overrides?.mcpServers ?? p.agent.mcpServers, resolver);
     for (const s of mcp.skipped) this.record(p.run, "mcp_skipped", s);
-    this.redactions.set(p.run.id, [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope), ...(this.forgeTokens.get(p.run.id) ?? [])].filter((v) => v.length >= 6))]);
+    const loginTokens = chosen.chatgptLogin ? (parseChatgptAuth(chosen.chatgptLogin)?.tokens ?? []) : [];
+    this.redactions.set(p.run.id, [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope), ...loginTokens, ...(this.forgeTokens.get(p.run.id) ?? [])].filter((v) => v.length >= 6))]);
     const overrideEnv: Record<string, string> = {
       ...cloudProviderEnv(p.resolved.factory),
       ...(p.envRef ? { KILN_ENVIRONMENT_ID: p.envRef } : {}),
@@ -625,7 +649,7 @@ export class RunService {
       ...(p.run.idleTimeoutMinutes ? { KILN_IDLE_TIMEOUT_MINUTES: String(p.run.idleTimeoutMinutes) } : {}),
     };
     const browser = browserServer(this.k, p.harnessType, p.agent);
-    return { env: { ...mcp.env, ...credentials, ...overrideEnv }, mcpServers: [...this.mcpServers(p.token), ...(browser ? [browser] : []), ...mcp.servers] };
+    return { env: { ...mcp.env, ...credentials, ...overrideEnv }, mcpServers: [...this.mcpServers(p.token), ...(browser ? [browser] : []), ...mcp.servers], chatgptLogin: chosen.chatgptLogin };
   }
 
   /** The forge's sandbox credential for a repository (GitHub: repo-scoped, an hour), else the run token. */
@@ -658,7 +682,12 @@ export class RunService {
    * secrets and passed only to this run's sandbox. Claude Code prefers a subscription token from
    * `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN) and falls back to ANTHROPIC_API_KEY.
    */
-  credentials(type: HarnessType, agent: Pick<ResolvedAgent, "secrets" | "harness">, scope: { teamId?: string; userId?: string } = {}, chosen: { credential?: string } = {}): Record<string, string> {
+  credentials(
+    type: HarnessType,
+    agent: Pick<ResolvedAgent, "secrets" | "harness">,
+    scope: { teamId?: string; userId?: string } = {},
+    chosen: { credential?: string; chatgptLogin?: string; files?: boolean } = {},
+  ): Record<string, string> {
     const env: Record<string, string> = {};
     const secrets = this.k.vault.resolver(scope);
     const get = (name: string) => secrets.get(name);
@@ -681,9 +710,10 @@ export class RunService {
       return env;
     }
     // Several subscription tokens: the one with the most usage left (see CredentialPool).
-    const pooled = type === "claude-code" ? this.k.credentialPool.choose(scope) : undefined;
+    const pooled = type === "claude-code" ? this.k.credentialPool.choose(scope) : type === "codex" && chosen.files ? this.k.credentialPool.choose(scope, "chatgpt") : undefined;
     if (pooled) {
       chosen.credential = pooled.name;
+      if (pooled.value) chosen.chatgptLogin = pooled.value;
       return { ...env, ...pooled.env };
     }
     const defaults: Record<HarnessType, string[]> = {
@@ -719,7 +749,8 @@ export class RunService {
   private async collectArtifacts(run: Run, sandbox: Sandbox, cwd: string | undefined) {
     const base = cwd ? `${cwd}/` : "";
     const listed = (await sandbox.exec(`[ -d ${base}.kiln/artifacts ] && cd ${base}.kiln/artifacts && find . -type f -size -50M | sed 's|^./||' || true`, { trusted: true })).stdout.split("\n").filter(Boolean);
-    const extra = ((run.result?.artifacts as string[] | undefined) ?? []).filter((p) => typeof p === "string" && !p.includes(".."));
+    // Workspace paths only: never an absolute path such as the Codex login under /tmp.
+    const extra = ((run.result?.artifacts as string[] | undefined) ?? []).filter((p) => typeof p === "string" && !p.includes("..") && !p.startsWith("/"));
     const paths = [...listed.map((p) => `.kiln/artifacts/${p}`), ...extra];
     for (const rel of [...new Set(paths)].slice(0, 50)) {
       const bytes = await sandbox.readBytes(`${base}${rel}`);

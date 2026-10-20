@@ -20,7 +20,7 @@ type KeyState = { set: boolean; updatedAt?: string; updatedBy?: string };
 
 const MODEL_KEYS: { id: ModelKeyProvider; title: string; description: React.ReactNode; placeholder: string }[] = [
   { id: "anthropic", title: "Anthropic API key", description: "Claude Code and OpenCode runs bill this key.", placeholder: "sk-ant-api03-…" },
-  { id: "openai", title: "OpenAI API key", description: "Codex and OpenCode runs, or any OpenAI-compatible gateway key.", placeholder: "sk-proj-…" },
+  { id: "openai", title: "OpenAI API key", description: "Codex runs without a ChatGPT login, OpenCode runs, or any OpenAI-compatible gateway key.", placeholder: "sk-proj-…" },
   { id: "openrouter", title: "OpenRouter API key", description: "OpenCode through OpenRouter, including open-weight models.", placeholder: "sk-or-v1-…" },
   { id: "bedrock", title: "Amazon Bedrock", description: "Claude Code on Bedrock, with an access key or a Bedrock API key.", placeholder: "" },
 ];
@@ -29,11 +29,12 @@ function since(iso?: string) {
   return iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
 }
 
-export function ModelKeys({ team, keys, pool, canEdit }: { team: string; keys: Partial<Record<ModelKeyProvider, KeyState>>; pool: PoolEntry[]; canEdit: boolean }) {
+export function ModelKeys({ team, keys, pool, canEdit, chatgpt }: { team: string; keys: Partial<Record<ModelKeyProvider, KeyState>>; pool: PoolEntry[]; canEdit: boolean; chatgpt?: React.ReactNode }) {
   return (
     <div>
       <p className="mb-5 text-sm text-muted-foreground">Runs without their own harness credential use these. Values are write-only: Kiln never shows them again and redacts them from run output.</p>
       <ClaudeTokenPool team={team} pool={pool} canEdit={canEdit} />
+      {chatgpt}
       {MODEL_KEYS.map((k) => (
         <ModelKeyRow key={k.id} team={team} spec={k} state={keys[k.id] ?? { set: false }} canEdit={canEdit} />
       ))}

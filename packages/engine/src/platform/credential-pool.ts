@@ -1,6 +1,8 @@
 import type { UsageWindow } from "@kiln/harness";
+import { shellQuote, type Sandbox } from "@kiln/sandbox";
 import { KilnError } from "../errors";
 import type { Kiln } from "../kiln";
+import { canonicalChatgptAuth, CHATGPT_EGRESS, chatgptRefreshDue, codexHome, isChatgptRefresh, parseChatgptAuth, redactChatgptTokens, removeCodexHome, writeCodexConfig } from "./chatgpt";
 import type { SecretMeta } from "./types";
 import type { SecretScope } from "./vault";
 
@@ -25,34 +27,51 @@ type Health = {
   lastUsedAt?: string;
 };
 
-export type PoolEntry = Omit<Health, "id" | "secretUpdatedAt"> & { name: string; scope: SecretMeta["scope"]; updatedAt: string };
+export type PoolEntry = Omit<Health, "id" | "secretUpdatedAt"> & { name: string; scope: SecretMeta["scope"]; updatedAt: string; description?: string };
 
 /** Provider answers that mean the token itself is wrong, expired or revoked (not a busy or failing model). */
 const AUTH_FAILURE =
-  /\b401\b|authenticat|invalid (bearer|api key|x-api-key|token)|oauth token (has )?(expired|been revoked|revoked)|token (has )?(expired|been revoked)/i;
+  /\b401\b|authenticat|invalid (bearer|api key|x-api-key|token)|oauth token (has )?(expired|been revoked|revoked)|token (has )?(expired|been revoked)|refresh_token_failed|refresh token|(sign|log) ?in again/i;
 export const isAuthFailure = (text: string | undefined) => Boolean(text && AUTH_FAILURE.test(text));
 
-const TYPE = "claude_oauth_token";
+/** claude: Claude subscription tokens for Claude Code; chatgpt: ChatGPT logins (Codex's auth.json) for Codex. */
+export type PoolKind = "claude" | "chatgpt";
+const TYPE = { claude: "claude_oauth_token", chatgpt: "chatgpt_auth" } as const;
+const LABEL = { claude: "Claude token", chatgpt: "ChatGPT login" } as const;
+const HARNESS = { claude: "claude-code", chatgpt: "codex" } as const;
 const key = (m: Pick<SecretMeta, "scope" | "owner" | "name">) => `${m.scope}:${m.owner}:${m.name}`;
 const load = (e: PoolEntry) => Math.max(e.fiveHour?.utilization ?? 0, e.sevenDay?.utilization ?? 0);
 
 /**
- * Several Claude subscription tokens (`claude setup-token`) for one team or person. Every run reports
- * the usage windows of the token it used; runs go to the usable token with the most left.
+ * Several subscription credentials for one team or person: Claude tokens (`claude setup-token`) and
+ * ChatGPT logins. Every run reports the usage windows of the one it used; runs go to the usable one
+ * with the most left. A ChatGPT login that Codex is about to refresh serves one run at a time, because
+ * a refresh replaces its refresh token and a second run holding the old one would be signed out.
  */
 export class CredentialPool {
+  /** Runs currently holding each ChatGPT login. */
+  private readonly inUse = new Map<string, number>();
+
   constructor(private readonly k: Kiln) {}
 
-  /** Subscription tokens a run in this scope may use: the person's own, then the team's. */
-  private candidates(scope: SecretScope): SecretMeta[] {
-    return this.k.vault
-      .list(scope)
-      .filter((m) => m.type === TYPE)
+  /** Credentials a run in this scope may use: the person's own, then the team's. */
+  private candidates(scope: SecretScope, kind: PoolKind = "claude"): SecretMeta[] {
+    const all = this.k.vault.list(scope);
+    // A personal secret shadows a team one of the same name, so a name always means one login.
+    const personal = new Set(all.filter((m) => m.scope === "personal" && m.type === TYPE[kind]).map((m) => m.name));
+    return all
+      .filter((m) => m.type === TYPE[kind] && (kind === "claude" || m.scope === "personal" || !personal.has(m.name)))
       .sort((a, b) => (a.scope === b.scope ? a.name.localeCompare(b.name) : a.scope === "personal" ? -1 : 1));
   }
 
+  /** A ChatGPT login's auth.json, read by its exact scope and owner. */
+  private loginValue(m: SecretMeta): string | undefined {
+    const v = this.k.vault.typedValue(m.scope, m.owner, m.name, "chatgpt_auth");
+    return typeof v === "string" ? v : undefined;
+  }
+
   private entry(m: SecretMeta): PoolEntry {
-    const base = { name: m.name, scope: m.scope, updatedAt: m.updatedAt };
+    const base = { name: m.name, scope: m.scope, updatedAt: m.updatedAt, ...(m.description ? { description: m.description } : {}) };
     const h = this.k.store.get<Health>(CREDENTIAL_HEALTH, key(m));
     if (!h || h.secretUpdatedAt !== m.updatedAt) return { ...base, status: "unknown", ...(h?.lastUsedAt ? { lastUsedAt: h.lastUsedAt } : {}) };
     const { id: _id, secretUpdatedAt: _version, ...rest } = h;
@@ -61,30 +80,75 @@ export class CredentialPool {
     return { ...base, ...rest };
   }
 
-  list(teamId: string, userId?: string): PoolEntry[] {
-    return this.candidates({ teamId, userId }).map((m) => this.entry(m));
+  list(teamId: string, userId?: string, kind: PoolKind = "claude"): PoolEntry[] {
+    return this.candidates({ teamId, userId }, kind).map((m) => this.entry(m));
   }
 
   /**
    * The token for the next run: usable ones (ok or unknown) by most headroom, then least recently used.
    * Undefined when the scope has no subscription tokens; an error when it has some but none is usable.
    */
-  choose(scope: SecretScope): { name: string; env: Record<string, string> } | undefined {
-    const all = this.candidates(scope).map((m) => ({ m, e: this.entry(m) }));
+  choose(scope: SecretScope, kind: PoolKind = "claude"): { name: string; env: Record<string, string>; value?: string } | undefined {
+    const all = this.candidates(scope, kind).map((m) => ({ m, e: this.entry(m) }));
     if (!all.length) return undefined;
-    const pick = all
-      .filter(({ e }) => e.status === "ok" || e.status === "unknown")
+    const usable = all.filter(({ e }) => e.status === "ok" || e.status === "unknown");
+    const value = (m: SecretMeta) => this.loginValue(m);
+    // A ChatGPT login due for a refresh is never handed to a second run at the same time.
+    const free = kind === "chatgpt" ? usable.filter(({ m }) => !this.inUse.get(key(m)) || !chatgptRefreshDue(parseChatgptAuth(value(m) ?? ""), this.k.clock.now())) : usable;
+    if (usable.length && !free.length)
+      throw new KilnError("resource_unavailable", "every ChatGPT login is being refreshed by another run; this run will try again", { integrationName: "codex" });
+    const pick = free
       .sort((a, b) => load(a.e) - load(b.e) || (a.e.lastUsedAt ?? "").localeCompare(b.e.lastUsedAt ?? "") || a.m.name.localeCompare(b.m.name))[0];
     if (!pick) {
       const why = all
         .map(({ e }) => (e.status === "limited" ? `${e.name} is limited until ${e.resetsAt}` : `${e.name} is invalid (${e.error ?? "rejected"})`))
         .join("; ");
-      throw new KilnError("integration_not_configured", `every Claude token is unusable: ${why}. Add a token or check them under Settings → Model keys.`, {
-        integrationName: "claude-code",
+      throw new KilnError("integration_not_configured", `every ${LABEL[kind]} is unusable: ${why}. Add one or check them under Settings → Model keys.`, {
+        integrationName: HARNESS[kind],
       });
     }
     this.update(pick.m, (h) => ({ ...h, lastUsedAt: this.now() }));
+    if (kind === "chatgpt") {
+      this.inUse.set(key(pick.m), (this.inUse.get(key(pick.m)) ?? 0) + 1);
+      return { name: pick.m.name, env: {}, value: value(pick.m) };
+    }
     return { name: pick.m.name, env: this.k.vault.resolver(scope).envFor(pick.m.name) ?? {} };
+  }
+
+  /** A run is done with the ChatGPT login it was given. */
+  release(scope: SecretScope, name: string) {
+    const m = this.meta(scope, name, "chatgpt");
+    if (!m) return;
+    const n = (this.inUse.get(key(m)) ?? 1) - 1;
+    if (n > 0) this.inUse.set(key(m), n);
+    else this.inUse.delete(key(m));
+  }
+
+  /** Writes a ChatGPT login into a sandbox for Codex, in `home` (from codexHome). */
+  async writeChatgptLogin(sandbox: Sandbox, home: string, value: string): Promise<void> {
+    await writeCodexConfig(sandbox, home);
+    await sandbox.writeFile(`${home}/auth.json`, value);
+    await sandbox.exec(`chmod 600 ${shellQuote(`${home}/auth.json`)}`, { trusted: true });
+  }
+
+  /**
+   * Codex rewrites auth.json when it refreshes the login, and the old refresh token stops working.
+   * Keeps the refreshed file, without resetting the login's health (it is the same login).
+   */
+  async saveChatgptLogin(scope: SecretScope, name: string, sandbox: Sandbox, home: string, by: string) {
+    try {
+      const m = this.meta(scope, name, "chatgpt");
+      const stored = m ? this.loginValue(m) : undefined;
+      const raw = await sandbox.readFile(`${home}/auth.json`);
+      // The agent can write this file too: only a real refresh of the same account is kept, in canonical form.
+      if (!m || !stored || !raw || !isChatgptRefresh(stored, raw, this.k.clock.now())) return;
+      const prior = this.k.store.get<Health>(CREDENTIAL_HEALTH, key(m));
+      const saved = this.k.vault.set({ scope: m.scope, owner: m.owner, name: m.name, type: "chatgpt_auth", value: canonicalChatgptAuth(raw) }, by);
+      this.k.audit(by, "chatgpt.refreshed", key(m), { lastRefresh: parseChatgptAuth(raw)?.lastRefresh });
+      if (prior && prior.secretUpdatedAt === m.updatedAt) this.k.store.put(CREDENTIAL_HEALTH, { ...prior, secretUpdatedAt: saved.updatedAt });
+    } finally {
+      await removeCodexHome(sandbox, home);
+    }
   }
 
   /** A run's usage report for the token it used. */
@@ -107,8 +171,8 @@ export class CredentialPool {
   }
 
   /** How a run with this token ended: an auth failure marks it invalid; success confirms it. */
-  recordOutcome(scope: SecretScope, name: string, outcome: { ok: boolean; message?: string }) {
-    const m = this.meta(scope, name);
+  recordOutcome(scope: SecretScope, name: string, outcome: { ok: boolean; message?: string }, kind?: PoolKind) {
+    const m = this.meta(scope, name, kind);
     if (!m) return;
     if (!outcome.ok && isAuthFailure(outcome.message)) {
       const error = outcome.message!.slice(0, 300);
@@ -119,30 +183,44 @@ export class CredentialPool {
     }
   }
 
-  /** "Check now": one minimal Claude Code run with this token, in a throwaway local sandbox. Uses a little of its quota. */
-  async check(scope: SecretScope, name: string): Promise<PoolEntry> {
-    const m = this.meta(scope, name);
-    if (!m) throw new KilnError("resource_not_found", `no Claude token ${name} in this scope`);
-    const env = this.k.vault.resolver(scope).envFor(name) ?? {};
-    // The same backend and image as real runs: the Claude Code CLI lives in the sandbox image, not the server.
+  /** "Check now": one minimal run with this credential, in a throwaway sandbox. Uses a little of its quota. */
+  async check(scope: SecretScope, name: string, kind: PoolKind = "claude"): Promise<PoolEntry> {
+    const m = this.meta(scope, name, kind);
+    if (!m) throw new KilnError("resource_not_found", `no ${LABEL[kind]} ${name} in this scope`);
+    // The same backend and image as real runs: the agent CLIs live in the sandbox image, not the server.
     const backend = this.k.options.defaultBackend ?? "local";
     const provider = this.k.sandboxes[backend] ?? this.k.sandboxes.local!;
-    const sandbox = await provider.create({ runner: { image: this.k.options.defaultImage ?? "node:22-bookworm", backend, setupCommands: [], egress: ["api.anthropic.com", "claude.ai"] }, repos: [] });
+    const egress = kind === "claude" ? ["api.anthropic.com", "claude.ai"] : ["api.openai.com", ...CHATGPT_EGRESS];
+    const sandbox = await provider.create({ runner: { image: this.k.options.defaultImage ?? "node:22-bookworm", backend, setupCommands: [], egress }, repos: [] });
+    let home: string | undefined;
     try {
-      const session = await this.k.harnessFor("claude-code", "CUSTOM").start({ sandbox, instructions: "", prompt: "Reply with exactly: ok", model: "claude-haiku-5-5", env });
+      let env: Record<string, string> = this.k.vault.resolver(scope).envFor(name) ?? {};
+      if (kind === "chatgpt") {
+        home = codexHome(`check-${m.name}`);
+        await this.writeChatgptLogin(sandbox, home, this.loginValue(m) ?? "");
+        env = { CODEX_HOME: home };
+      }
+      const session = await this.k.harnessFor(HARNESS[kind], "CUSTOM").start({ sandbox, instructions: "", prompt: "Reply with exactly: ok", ...(kind === "claude" ? { model: "claude-haiku-5-5" } : {}), env });
       for await (const e of session.events) if (e.type === "rate_limit") this.recordUsage(scope, name, e);
       const result = await session.result;
-      this.recordOutcome(scope, name, { ok: result.outcome === "succeeded", message: result.summary });
+      this.recordOutcome(scope, name, { ok: result.outcome === "succeeded", message: this.redact(m, result.summary) }, kind);
     } catch (err) {
-      this.recordOutcome(scope, name, { ok: false, message: err instanceof Error ? err.message : String(err) });
+      this.recordOutcome(scope, name, { ok: false, message: this.redact(m, err instanceof Error ? err.message : String(err)) }, kind);
     } finally {
+      if (home) await this.saveChatgptLogin(scope, name, sandbox, home, "kiln:check").catch(() => {});
       await sandbox.destroy().catch(() => {});
     }
-    return this.entry(this.meta(scope, name)!);
+    return this.entry(this.meta(scope, name, kind)!);
   }
 
-  private meta(scope: SecretScope, name: string) {
-    return this.candidates(scope).find((m) => m.name === name);
+  /** Check output can quote the credential; members see it in the pool's error. */
+  private redact(m: SecretMeta, text: string) {
+    const tokens = m.type === "chatgpt_auth" ? (parseChatgptAuth(this.loginValue(m) ?? "")?.tokens ?? []) : [];
+    return redactChatgptTokens(tokens.reduce((t, s) => (s.length >= 6 ? t.split(s).join("[redacted]") : t), text));
+  }
+
+  private meta(scope: SecretScope, name: string, kind?: PoolKind) {
+    return (kind ? this.candidates(scope, kind) : [...this.candidates(scope, "claude"), ...this.candidates(scope, "chatgpt")]).find((m) => m.name === name);
   }
 
   private now() {

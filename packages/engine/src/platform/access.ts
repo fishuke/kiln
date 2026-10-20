@@ -46,5 +46,7 @@ export function resolveAccess(k: Kiln, token: ApiToken, teamHeader?: string): Ac
   else if (token.type === "worker") grants = [];
 
   const teamRole = team && user ? k.teams.role(team.id, user.id) : superuser ? "owner" : undefined;
-  return { token: { ...token, grants }, user, team, teamRole, superuser, teamScoped: Boolean(user) || Boolean(teamHeader) || token.type === "agent" };
+  // A user token always speaks for the user's current email, even after an email change.
+  const subject = user && (token.type === "session" || token.type === "personal") ? user.email : token.subject;
+  return { token: { ...token, subject, grants }, user, team, teamRole, superuser, teamScoped: Boolean(user) || Boolean(teamHeader) || token.type === "agent" };
 }

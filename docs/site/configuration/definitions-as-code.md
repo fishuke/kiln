@@ -63,7 +63,7 @@ budgets: { perWorkItemUsd: 40, monthlyUsd: 6000 }
 | `name` | 1–100 characters. |
 | `alias` | Lowercase letters, digits and dashes, 1–60 characters. Also the factory's ID in Kiln. When missing, the ID is `name` turned into a slug. |
 | `description`, `project` | Optional. |
-| `repositories` | At least one. `forge` is `github` (default), `gitlab`, `azure_devops` or `bitbucket`. Agents work in the first repository. `deferred: true` repositories are not cloned into sandboxes unless an automation's `required_repos` names them. |
+| `repositories` | At least one. `forge` is `github` (default), `gitlab`, `azure_devops` or `bitbucket`. With several repositories, triage picks the one each work item belongs to (from the issue and each repository's optional `description`) and every stage works in it; with one, agents work in it. `deferred: true` repositories are not cloned into sandboxes unless an automation's `required_repos` names them. |
 | `integrations` | The workspace integrations this factory opts into: `slack`, `microsoft-teams`, `discord`, `linear`, `jira`, as names or as `{ type, <type>: settings }` objects. Linear and Jira are exclusive. Forges come from `repositories`. See [Connections](../integrations/connections.md#per-factory-opt-in). |
 | `github` | `factoryConfigChecks`: `main` (default) or `all`. See [GitHub](../integrations/github.md#the-kilnfactory-config-check). |
 | `automations` | `githubOnboardingNotices` (default `true`): once your workspace links GitHub accounts, a person who mentions `@kiln-factory` without a linked account gets one comment saying how to link it. Work still starts. `false` turns the comment off for this factory's repositories. |

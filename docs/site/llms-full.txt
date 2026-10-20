@@ -674,7 +674,7 @@ budgets: { perWorkItemUsd: 40, monthlyUsd: 6000 }
 | `name` | 1–100 characters. |
 | `alias` | Lowercase letters, digits and dashes, 1–60 characters. Also the factory's ID in Kiln. When missing, the ID is `name` turned into a slug. |
 | `description`, `project` | Optional. |
-| `repositories` | At least one. `forge` is `github` (default), `gitlab`, `azure_devops` or `bitbucket`. Agents work in the first repository. `deferred: true` repositories are not cloned into sandboxes unless an automation's `required_repos` names them. |
+| `repositories` | At least one. `forge` is `github` (default), `gitlab`, `azure_devops` or `bitbucket`. With several repositories, triage picks the one each work item belongs to (from the issue and each repository's optional `description`) and every stage works in it; with one, agents work in it. `deferred: true` repositories are not cloned into sandboxes unless an automation's `required_repos` names them. |
 | `integrations` | The workspace integrations this factory opts into: `slack`, `microsoft-teams`, `discord`, `linear`, `jira`, as names or as `{ type, <type>: settings }` objects. Linear and Jira are exclusive. Forges come from `repositories`. See [Connections](../integrations/connections.md#per-factory-opt-in). |
 | `github` | `factoryConfigChecks`: `main` (default) or `all`. See [GitHub](../integrations/github.md#the-kilnfactory-config-check). |
 | `automations` | `githubOnboardingNotices` (default `true`): once your workspace links GitHub accounts, a person who mentions `@kiln-factory` without a linked account gets one comment saying how to link it. Work still starts. `false` turns the comment off for this factory's repositories. |
@@ -894,6 +894,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `repositories[].owner` | string | yes |  |
 | `repositories[].name` | string | yes |  |
 | `repositories[].deferred` | boolean |  | default `false` |
+| `repositories[].description` | string |  |  |
 | `integrations` | list of `github` \| `gitlab` \| `slack` \| `linear` \| `jira` \| `discord` \| `microsoft-teams` \| `teams` \| `azure_devops` \| `bitbucket` \| object |  | default `[]` |
 | `github` | object |  |  |
 | `github.factoryConfigChecks` | `main` \| `all` |  | default `"main"` |
@@ -2817,7 +2818,7 @@ The sandbox is the security boundary for all three. Permission prompts are off b
 - **Prompt:** the work item's title, body, triage result, acceptance criteria, review findings and messages from people, plus a line telling the agent what this stage needs.
 - **Skills:** every shared skill plus the agent's own.
 - **Environment:** `KILN_RUN_ID`, `KILN_RUN_TOKEN`, `KILN_FACTORY`, `KILN_AGENT_TYPE`, `KILN_WORK_ITEM` and `KILN_STAGE`.
-- **Working directory:** the first repository, checked out on the work item's `kiln/*` branch. All non-deferred repositories are cloned side by side.
+- **Working directory:** the work item's repository (the one triage picked in a factory with several, else the first), checked out on the work item's `kiln/*` branch. When triage picked a repository, only it and any `required_repos` are cloned; otherwise all non-deferred repositories are cloned side by side.
 
 ## The result file
 

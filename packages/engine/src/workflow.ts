@@ -1,7 +1,7 @@
 import { BUILTIN_DECISIONS, runDecision, top } from "@kiln/decide";
 import type { ResolvedFactory } from "@kiln/definitions";
 import { collectPlaywrightEvidence, criteriaCovered, previewCard } from "@kiln/evidence";
-import { evalBool, type PipelineStage } from "@kiln/schema";
+import { evalBool, type Decision, type PipelineStage } from "@kiln/schema";
 import { correlationKeys } from "./dedupe";
 import { KilnError } from "./errors";
 import { BUILTIN_GATES } from "./gates";
@@ -519,6 +519,8 @@ export class Workflow {
     this.k.logDecision(outcome, { title: wi.title }, { workItemId: wi.id });
     const kind = top(outcome.answers.kind);
     const size = top(outcome.answers.size);
+    const repos = r.factory.repositories;
+    let agentRepo: string | undefined;
     if (kind && size && kind.p >= 0.6 && size.p >= 0.6) {
       wi.triage = { kind: kind.option, size: size.option, confidence: Math.min(kind.p, size.p) };
     } else if (stage.agent) {
@@ -534,10 +536,12 @@ export class Workflow {
           "",
           "Triage this request: classify kind and size, look for duplicates, and summarize the cause or scope.",
           ...(open.length ? ["", "Open tasks in this factory. If this request is the same incident or work as one of them, set duplicateOf to that task id:", ...open] : []),
+          ...(repos.length > 1 ? ["", "Set repo to the repository (owner/name) this request belongs to:", ...repos.map((x) => `- ${x.owner}/${x.name}${x.description ? `: ${x.description}` : ""}`)] : []),
         ]),
         { push: false },
       );
-      const res = (run.result ?? {}) as { kind?: string; size?: string; summary?: string; duplicateOf?: string };
+      const res = (run.result ?? {}) as { kind?: string; size?: string; summary?: string; duplicateOf?: string; repo?: string };
+      agentRepo = res.repo;
       wi.triage = { kind: res.kind ?? kind?.option ?? "feature", size: res.size ?? size?.option ?? "m", summary: res.summary, duplicateOf: res.duplicateOf, confidence: 0.9 };
     } else {
       wi.triage = { kind: kind?.option ?? "feature", size: size?.option ?? "m", confidence: Math.min(kind?.p ?? 0, size?.p ?? 0) };
@@ -553,9 +557,33 @@ export class Workflow {
     if (outcome.action === "duplicate" || wi.triage.duplicateOf) {
       this.say(wi, "foreman", "foreman", `This may duplicate ${wi.triage.duplicateOf ?? "a recent issue"}; continuing unless told otherwise.`);
     }
+    await this.chooseRepo(wi, agentRepo);
     if (wi.plan!.mode === "foreman") wi.plan!.stages.push(...(await this.foremanRoute(wi)));
     this.say(wi, "foreman", "foreman", `Triaged as ${wi.triage.kind}, size ${wi.triage.size}. Path: ${wi.plan!.stages.slice(1).map((s) => s.id).join(" → ")}.`);
     return this.nextStage(wi);
+  }
+
+  /** In a factory with several repositories, the one this work item belongs to: the triage agent's pick, else a typed decision. */
+  private async chooseRepo(wi: Item, agentPick?: string) {
+    const repos = this.resolved(wi).factory.repositories;
+    if (repos.length < 2 || wi.repo) return;
+    const keys = repos.map((x) => `${x.owner}/${x.name}`);
+    let pick = agentPick ? keys.find((k) => k.toLowerCase() === agentPick.toLowerCase()) : undefined;
+    if (!pick) {
+      const described = repos.map((x) => `${x.owner}/${x.name}${x.description ? `: ${x.description}` : ""}`);
+      const outcome = await runDecision("repository", repositoryDecision(keys), { title: wi.title, body: wi.body, repositories: described }, this.k.decide);
+      this.k.logDecision(outcome, { title: wi.title }, { workItemId: wi.id });
+      const best = top(outcome.answers.repository);
+      if (best && best.p >= 0.6) pick = best.option;
+    }
+    wi.repo = pick ?? keys[0];
+    this.say(wi, "foreman", "foreman", pick ? `Working in ${wi.repo}.` : `Could not tell which repository this belongs to; working in ${wi.repo}.`);
+  }
+
+  /** The repository a work item works in: the one triage picked, else the factory's first. */
+  private repoOf(wi: Item) {
+    const repos = this.resolved(wi).factory.repositories;
+    return repos.find((x) => `${x.owner}/${x.name}` === wi.repo) ?? repos[0]!;
   }
 
   private async spec(wi: Item, stage: PlanStage): Promise<StepResult> {
@@ -646,7 +674,7 @@ export class Workflow {
   }
 
   private async ensurePullRequest(wi: Item, draft: boolean) {
-    const repo = this.resolved(wi).factory.repositories[0]!;
+    const repo = this.repoOf(wi);
     const alias = this.resolved(wi).factory.alias ?? wi.factory;
     const body = this.prBody(wi);
     const branch = this.branch(wi);
@@ -697,7 +725,7 @@ export class Workflow {
   }
 
   private async verify(wi: Item, stage: PlanStage): Promise<StepResult> {
-    const repo = this.resolved(wi).factory.repositories[0]!;
+    const repo = this.repoOf(wi);
     const requires = stage.requires ?? ["ci_green"];
     const problems: string[] = [];
     if (stage.agent) {
@@ -796,7 +824,7 @@ export class Workflow {
       this.park(wi.id, "nothing to hand off: no pull request was opened");
       return "wait";
     }
-    const repo = this.resolved(wi).factory.repositories[0]!;
+    const repo = this.repoOf(wi);
     await this.k.forge.addLabels(repo, wi.pr.number, [`factory:${this.resolved(wi).factory.alias ?? wi.factory}`]);
     this.move(wi, "handed_off", "pull request ready for a human merge");
     const msg = [`Ready to merge: ${wi.pr.url}`, wi.previewUrl ? `Preview: ${wi.previewUrl}` : "", wi.review?.verdict === "needs_human" ? "Some review findings need your judgment; they are on the PR." : ""].filter(Boolean).join("\n");
@@ -879,4 +907,17 @@ export class Workflow {
     this.move(fresh, "building", `review from ${by}`);
     await this.advance(wi.id);
   }
+}
+
+/** Which of the factory's repositories a work item belongs to; the options are the repositories themselves. */
+function repositoryDecision(keys: string[]): Decision {
+  return {
+    description: "The repository a work item belongs to",
+    provider: "llm",
+    state: ["title", "body", "repositories"],
+    questions: { repository: { type: "choice", options: keys } },
+    policy: {},
+    on_error: "llm",
+    timeout_ms: 15_000,
+  };
 }

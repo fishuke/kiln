@@ -14,7 +14,7 @@
     "dev": "pnpm --filter @kiln/web dev",
     "dev:api": "tsx apps/api/src/main.ts",
     "dev:mcp": "tsx apps/mcp/src/main.ts",
-    "kiln": "tsx packages/cli/src/main.ts",
+    "kiln": "node packages/cli/bin/kiln.mjs",
     "docs:gen": "tsx scripts/gen-docs.ts"
   },
   "devDependencies": {

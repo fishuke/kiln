@@ -1,0 +1,5 @@
+kind: preview
+approvers: [requester, role:po]
+evidence: [preview, videos]
+nudge: 24h
+expire: 72h -> park

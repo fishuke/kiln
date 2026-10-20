@@ -1,0 +1,12 @@
+schemaVersion: kiln/v1
+name: Single repo
+alias: single-repo
+description: Single repo factory
+repositories:
+  - { owner: acme, name: web-app }
+integrations: [github, slack, linear]
+agentDefaults:
+  harness: { type: claude-code, model: router:by-task }
+  runner: linux-node
+selfImprovement: { failedRunThreshold: 25, reviewers: { type: team } }
+budgets: { perWorkItemUsd: 40, monthlyUsd: 6000 }

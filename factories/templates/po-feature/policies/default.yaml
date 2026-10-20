@@ -1,0 +1,5 @@
+description: What agents may touch and spend
+protectedPaths: [policies/**, gates/**, .github/workflows/**]
+twoApprovalPaths: [decisions/**]
+deniedActions: [merge, approve, deploy]
+maxUsdPerWorkItem: 40

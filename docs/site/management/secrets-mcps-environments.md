@@ -23,8 +23,8 @@ When both scopes have a secret with the same name, a run you triggered gets your
 | Type | Value | Gives the run |
 | --- | --- | --- |
 | `raw` | a string | An environment variable named after the secret |
-| `docker_registry` | `{ host, username, password }` | Nothing in the environment. It is a private image credential. |
-| `aws_ecr` | `{ roleArn, region }` (team scope only) | Nothing in the environment. It is an image credential. |
+| `docker_registry` | `{ host, username, password }` | Nothing in the environment. It is a private image credential. See [Private images](#private-images). |
+| `aws_ecr` | `{ roleArn, region }` (team scope only) | Nothing in the environment. It is an image credential. See [Private images](#private-images). |
 | `anthropic_api_key` | a string | `ANTHROPIC_API_KEY` |
 | `claude_oauth_token` | a string from `claude setup-token` | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `anthropic_bedrock_api_key` | a string, or `{ apiKey, region }` | `AWS_BEARER_TOKEN_BEDROCK`, `AWS_REGION`, `CLAUDE_CODE_USE_BEDROCK=1` |
@@ -107,6 +107,26 @@ At run time:
 - An `environmentId` that the team does not have stops the run with a clear error.
 
 Manage environments with `GET`, `POST`, `PATCH` and `DELETE /api/v1/environments`.
+
+## Private images
+
+A runner pulls a private image with a team secret of type `docker_registry` or `aws_ecr`:
+
+```yaml
+# runners/private.yaml
+image: ghcr.io/acme/runner:2
+backend: docker
+platform:
+  linux:
+    registryCredentialSecretName: GHCR
+```
+
+An environment does the same with `registryCredentialSecretName` next to its `image`. That credential is used when the agent names no runner.
+
+- **`docker_registry`:** the secret's `host` must be the image's registry. Bare names such as `acme/runner` are on Docker Hub (`docker.io`).
+- **`aws_ecr`:** the image must be on an ECR registry (`<account>.dkr.ecr.<region>.amazonaws.com`). Kiln gets a short-lived password by running `aws ecr get-login-password --region <region>` on the server, with `AWS_ROLE_ARN` set to the secret's role. The server's AWS credentials must be allowed to call `ecr:GetAuthorizationToken`.
+- **Docker** pulls with a temporary `DOCKER_CONFIG` that is deleted right after the pull. The credential never enters the container.
+- **Kubernetes** gets a `kubernetes.io/dockerconfigjson` Secret as the pod's `imagePullSecrets`. Kiln deletes it with the sandbox.
 
 ## Related pages
 

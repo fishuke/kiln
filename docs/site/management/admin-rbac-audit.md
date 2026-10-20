@@ -13,7 +13,16 @@ A token belongs to a subject (a person or a service), has a name, a list of gran
 
 Send it as `Authorization: Bearer <token>` to the API, and configure it in your MCP client for the Kiln MCP. See the [API overview](../developer-tools/api.md) and the [MCP reference](../developer-tools/mcp.md).
 
-Only tokens with `admin` on `*` (or team owners and admins) can issue scoped tokens, list them, manage server secrets and read the audit log.
+Only server admins and team owners and admins can issue scoped tokens, list them, manage secrets and read the audit log.
+
+### Server admins and team admins
+
+| Who | Audit log | Token list | `GET`/`PUT /api/v1/secrets` | Issuing scoped tokens |
+| --- | --- | --- | --- | --- |
+| Server admin: the bootstrap admin token (`admin` on `*`), dev auth, or a user listed in `KILN_ADMIN_EMAILS` | Every team | Every token | The server's secret store | Any grants |
+| Team owner or admin | Their current team only | Tokens of their team and its members | The team's raw secrets | Only on their team's factories, never `*`. The token belongs to the team. |
+
+Kiln records the team of each audit entry from what it is about: the factory, work item, run, gate, secret, token, team or user. When a factory moves to another team, its history moves with it.
 
 ### Token types
 
@@ -81,7 +90,7 @@ Agents never get API tokens. Each run gets its own run token, valid for 60 minut
 
 ## Secrets
 
-Admins store named secrets, such as webhook secrets and API keys, in Kiln. Listing secrets returns names only; values never leave the server through the API. When a secret is not in the store, Kiln looks for the server environment variable `KILN_SECRET_<NAME>`. The only plain environment variables Kiln reads as secrets are model-provider keys: `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY`. This way an agent definition cannot ask for the server's own credentials by name. Listing secrets includes names found in the environment.
+Server admins store named secrets, such as webhook secrets and API keys, in Kiln. (For a team admin, the same endpoints read and write the team's raw secrets.) Listing secrets returns names only; values never leave the server through the API. When a secret is not in the store, Kiln looks for the server environment variable `KILN_SECRET_<NAME>`. The only plain environment variables Kiln reads as secrets are model-provider keys: `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `OPENROUTER_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY`. This way an agent definition cannot ask for the server's own credentials by name. Listing secrets includes names found in the environment.
 
 These server secrets are the last place Kiln looks. Typed team and personal secrets, which most teams should use, are described in [Secrets, MCP servers and environments](secrets-mcps-environments.md).
 
@@ -92,7 +101,7 @@ Kiln writes an entry with the time, the actor, the action and the target for:
 | Area | Actions |
 | --- | --- |
 | Definitions | `definition.applied` (with SHA, diff and canary share), `definition.rejected` (with errors), `canary.promoted`, `canary.rolled_back` |
-| Work items | `work_item.created`, `work_item.cancelled`, `notify.failed` |
+| Work items | `work_item.created`, `work_item.cancelled`, `notify.failed` (posting back to a thread or issue, or a notification to a person), `transcript.failed` |
 | Gates | `gate.approve`, `gate.reject`, `gate.answer`, with the surface used |
 | Runs | `run.steered` (with the message), `run.cancelled`, `run.paused`, `run.resumed` |
 | Self-improvement | `proposal.opened`, `proposal.approved`, `proposal.force_approved`, `proposal.rejected`, `proposal.empty`, `proposal.invalid` |

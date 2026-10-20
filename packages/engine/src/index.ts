@@ -13,6 +13,7 @@ export * from "./automations";
 export * from "./matchers";
 export * from "./cloud";
 export * from "./connections";
+export * from "./reviews";
 export * from "./webhook-sources";
 export * from "./integration-hub";
 export * from "./automation-templates";

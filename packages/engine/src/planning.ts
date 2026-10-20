@@ -168,7 +168,8 @@ export class PlanningService {
         prsMerged: sum(p.factories, (m) => m.prsMerged),
         costUsd: sum(p.factories, (m) => m.costUsd),
         activeWorkItems: sum(p.factories, (m) => m.workItems.active),
-        pendingDecisions: this.k.gates.list({ state: "open" }).filter((g) => p.factories.includes(g.factory)).length,
+        // Open gates, plus low-risk pull requests that need no review but still wait for a person's merge.
+        pendingDecisions: this.k.gates.list({ state: "open" }).filter((g) => p.factories.includes(g.factory)).length + this.k.reviews.readyToMerge().filter((w) => p.factories.includes(w.factory)).length,
       },
     }));
     const all = factories.map((f) => f.id);

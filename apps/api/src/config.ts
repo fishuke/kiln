@@ -75,13 +75,14 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
       ? new JiraTracker({ baseUrl: env.JIRA_BASE_URL, email: env.JIRA_EMAIL ?? "", apiToken: env.JIRA_API_TOKEN, projectKey: env.JIRA_PROJECT_KEY ?? "KIL" })
       : new FakeTracker("linear");
   const chat = env.SLACK_BOT_TOKEN ? new SlackChat({ botToken: env.SLACK_BOT_TOKEN }) : new FakeChat();
-  const preview = env.VERCEL_TOKEN && env.VERCEL_PROJECT ? new VercelPreview({ token: env.VERCEL_TOKEN, project: env.VERCEL_PROJECT, teamId: env.VERCEL_TEAM_ID }) : new FakePreview();
 
   const llm: DecisionProvider | undefined = env.LLM_GATEWAY_URL ? new LlmProvider({ baseUrl: env.LLM_GATEWAY_URL, apiKey: env.LLM_GATEWAY_KEY ?? "", model: env.KILN_DECISION_MODEL ?? "claude-haiku-5-5" }) : undefined;
   const primary: DecisionProvider = env.JEV_API_URL && env.JEV_API_KEY ? new JevProvider({ baseUrl: env.JEV_API_URL, apiKey: env.JEV_API_KEY }) : (llm ?? new FakeProvider());
   const decide = { primary, fallback: llm ?? new FakeProvider() };
 
   const realAgents = env.KILN_AGENTS === "real";
+  // A made-up preview URL only makes sense next to fake agents; with real agents, no provider means no preview.
+  const preview = env.VERCEL_TOKEN && env.VERCEL_PROJECT ? new VercelPreview({ token: env.VERCEL_TOKEN, project: env.VERCEL_PROJECT, teamId: env.VERCEL_TEAM_ID }) : realAgents ? undefined : new FakePreview();
   const backend = (env.KILN_SANDBOX ?? "local") as "local" | "docker" | "kubernetes";
   const options: KilnOptions = {
     forge,

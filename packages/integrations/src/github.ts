@@ -270,7 +270,7 @@ export class HttpGitHubAppAuth implements GitHubAppAuth {
 
 /** GitHub OAuth for linking a person's GitHub account to their Kiln identity. */
 export function githubOAuthUrl(input: { clientId: string; redirectUri: string; state: string; baseUrl?: string }) {
-  const q = new URLSearchParams({ client_id: input.clientId, redirect_uri: input.redirectUri, state: input.state, scope: "read:user user:email" });
+  const q = new URLSearchParams({ client_id: input.clientId, redirect_uri: input.redirectUri, state: input.state, scope: "read:user user:email repo" });
   return `${input.baseUrl ?? "https://github.com"}/login/oauth/authorize?${q}`;
 }
 

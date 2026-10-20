@@ -14,15 +14,30 @@ Each item is an open gate:
 | Kind | Example title | You can |
 | --- | --- | --- |
 | Spec | Approve the spec for "Team invites" | Approve or reject with feedback |
-| Preview | Accept the preview of "Team invites" | Approve or reject with feedback |
+| Preview | Accept the preview of "Team invites" | Approve or reject with feedback. Only when a preview provider (Vercel) is configured. |
 | Question | verify keeps failing on "Fix the nav" | Answer, approve to resume, or reject to cancel |
 | Command approval | Allow implement to run a risky command? | Approve to run it, reject to block it |
-| Merge | Merge "Team invites" | Approve to confirm completion without a merge |
+| Review | Review "Team invites" | Read the diff, comment on lines, approve, request changes or merge, as your GitHub account |
 | Custom | Legal sign-off | Approve or reject |
 
 Each item shows its work item (title, state, factory, pull request, preview URL and spec), the question or details, and evidence links such as the spec pull request, the preview and the videos.
 
 You see gates assigned to you, plus gates with no assignee. Assignees come from the gate's `approvers`; see [Pipelines and gates](../configuration/pipelines-and-gates.md#gates).
+
+## Reviewing a pull request
+
+A Review item opens the diff in the side pane, file by file. Hover a line and click the comment button to leave a line comment; your comments go out together when you submit:
+
+- **Approve** posts an approving review.
+- **Request changes** posts the review and sends your summary and line comments to the agents, which revise the pull request.
+- **Comment only** posts the line comments without a verdict.
+- **Merge** merges the pull request; the task completes.
+
+Kiln acts as your own GitHub account, never as the Kiln app (agents never approve or merge; see ADR-010). Link GitHub once from the pane or your linked accounts. If you merged elsewhere, **Confirm it landed** closes the task.
+
+## Ready to merge
+
+When the `review-risk` decision finds a change low risk and the reviewer agent has no findings, nobody needs to read the code, so no inbox item opens. The pull request appears under **Ready to merge** at the top of the inbox, and one click merges it as you. See [Decisions](../configuration/decisions.md).
 
 ## Order
 

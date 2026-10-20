@@ -546,7 +546,7 @@ Validation checks every policy expression, that it only reads questions and stat
 | `triage` | `kind` (feature, bug, chore, incident, question), `size` (xs, s, m, l, xl), `duplicate_of_recent` | `duplicate: duplicate_of_recent >= 0.85` | Kiln uses kind and size when both top answers are at least 0.6; otherwise the triage agent decides. `duplicate` adds a note to the thread. |
 | `foreman-routing` | `next_stage`, `needs_spec`, `needs_human` | `ask_human: needs_human >= 0.85`, `skip_spec: needs_spec <= 0.15` | Kiln reads `needs_spec` directly: 0.85 or more means a spec, 0.15 or less means none, anything else goes to the foreman agent. |
 | `spec-check` | `is_testable`, `is_ambiguous` per acceptance criterion | `reject: is_testable < 0.5 or is_ambiguous >= 0.5` | Rejected criteria are sent back to the spec agent once, and any that still fail are listed on the spec gate. |
-| `review-risk` | `risk_tier` (low, medium, high), `touches_sensitive_area` | `code_owners: risk_tier.high >= 0.5 or touches_sensitive_area >= 0.7` | `code_owners` assigns the merge gate to the `code-owners` role instead of the requester. |
+| `review-risk` | `risk_tier` (low, medium, high), `touches_sensitive_area`; sees the PR's changed files and line counts | `code_owners: risk_tier.high >= 0.5 or touches_sensitive_area >= 0.7`, `skip_review: risk_tier.low >= 0.8 and touches_sensitive_area < 0.3` | `code_owners` assigns the review to the `code-owners` role instead of the requester. `skip_review` (when the reviewer agent also accepts) opens no review item; the PR waits under Ready to merge. If the check fails, `code_owners` applies. |
 | `model-router` | `complexity` (easy, medium, hard) | `easy: complexity.easy >= 0.8`, `hard: complexity.hard >= 0.6` | Picks the model of a `complexity` router. |
 | `failure-category` | `failure_category` (instructions, skills, tooling, model, app_code, flaky) | none | Groups failed runs before self-improvement. |
 | `inbox-urgency` | `urgency` (score 0–1) | `urgent: urgency >= 0.8` | Orders the inbox. |
@@ -1932,6 +1932,10 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/tasks` | `read` | Tasks across the factories you can read (same filters as the factory list, plus factory) |
 | GET | `/api/v1/tasks/lookup` | `read` | Find a task by id, run, PR or issue URL, tracker key or branch (?reference=, &start_working=true for local commands) |
 | POST | `/api/v1/tasks/{taskId}/handback` | `send` | Hand a locally worked task back with a note and the pushed branch or PR |
+| GET | `/api/v1/tasks/{id}/review` | `read` | The task's pull request for review: changed files with patches, review findings, and whether you can review as your linked GitHub account |
+| POST | `/api/v1/tasks/{id}/review` | `decide:merge` | Submit a review (APPROVE, REQUEST_CHANGES, COMMENT, line comments) as your linked GitHub account; requested changes go to the agents |
+| POST | `/api/v1/tasks/{id}/merge` | `decide:merge` | Merge the task's pull request as your linked GitHub account |
+| GET | `/api/v1/ready-to-merge` | — | Handed-off tasks that need no code review, only a person's merge (?factory=) |
 
 ## Scorers
 
@@ -4459,15 +4463,30 @@ Each item is an open gate:
 | Kind | Example title | You can |
 | --- | --- | --- |
 | Spec | Approve the spec for "Team invites" | Approve or reject with feedback |
-| Preview | Accept the preview of "Team invites" | Approve or reject with feedback |
+| Preview | Accept the preview of "Team invites" | Approve or reject with feedback. Only when a preview provider (Vercel) is configured. |
 | Question | verify keeps failing on "Fix the nav" | Answer, approve to resume, or reject to cancel |
 | Command approval | Allow implement to run a risky command? | Approve to run it, reject to block it |
-| Merge | Merge "Team invites" | Approve to confirm completion without a merge |
+| Review | Review "Team invites" | Read the diff, comment on lines, approve, request changes or merge, as your GitHub account |
 | Custom | Legal sign-off | Approve or reject |
 
 Each item shows its work item (title, state, factory, pull request, preview URL and spec), the question or details, and evidence links such as the spec pull request, the preview and the videos.
 
 You see gates assigned to you, plus gates with no assignee. Assignees come from the gate's `approvers`; see [Pipelines and gates](../configuration/pipelines-and-gates.md#gates).
+
+## Reviewing a pull request
+
+A Review item opens the diff in the side pane, file by file. Hover a line and click the comment button to leave a line comment; your comments go out together when you submit:
+
+- **Approve** posts an approving review.
+- **Request changes** posts the review and sends your summary and line comments to the agents, which revise the pull request.
+- **Comment only** posts the line comments without a verdict.
+- **Merge** merges the pull request; the task completes.
+
+Kiln acts as your own GitHub account, never as the Kiln app (agents never approve or merge; see ADR-010). Link GitHub once from the pane or your linked accounts. If you merged elsewhere, **Confirm it landed** closes the task.
+
+## Ready to merge
+
+When the `review-risk` decision finds a change low risk and the reviewer agent has no findings, nobody needs to read the code, so no inbox item opens. The pull request appears under **Ready to merge** at the top of the inbox, and one click merges it as you. See [Decisions](../configuration/decisions.md).
 
 ## Order
 

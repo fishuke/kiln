@@ -14,6 +14,7 @@ import * as inbox from "./inbox";
 import { mcpServerRoutes } from "./mcp-servers";
 import { meRoutes } from "./me";
 import * as measure from "./measure";
+import * as reviews from "./reviews";
 import * as runs from "./runs";
 import * as scorers from "./scorers";
 import { secretRoutes } from "./secrets";
@@ -31,7 +32,7 @@ import { registerOAuthConsent, registerOAuthServer } from "./oauth";
  * `routes` (listed in ../openapi.ts); the platform and integration modules are registration
  * functions whose routes openapi.ts lists directly. Keep app.ts for auth and the core routes.
  */
-export const MODULES = [factoryFiles, files, tasks, runs, inbox, measure, scorers, benchmarks, definitions, factories, workers];
+export const MODULES = [factoryFiles, files, tasks, reviews, runs, inbox, measure, scorers, benchmarks, definitions, factories, workers];
 const PLATFORM: ((ctx: RouteContext) => void)[] = [
   authRoutes,
   meRoutes,

@@ -347,3 +347,46 @@ describe("automation templates", () => {
     expect(renderTemplates({ alias: "webapp" }).find((t) => t.id === "github-issue-labeled")!.files["automations/github-issue-labeled/automation.md"]).toContain("factory:webapp");
   });
 });
+
+describe("linear issue states", () => {
+  const withStates = (states: string) => {
+    const tree = sampleTree();
+    tree["factory.yaml"] = tree["factory.yaml"]!.replace("integrations: [github, slack, linear]", `integrations: [github, slack, { type: linear, linear: { states: ${states} } }]`);
+    return tree;
+  };
+  const fromSession = (kiln: ReturnType<typeof createTestKiln>["kiln"]) =>
+    kiln.workflow.create({ factory: "webapp", title: "Fix typo", body: "", source: { provider: "linear", issueId: "i1", sessionId: "as1" }, trackerKey: "i1", requester: "a@acme.test" });
+
+  it("moves Linear issues to the factory's named states at hand-off and when done", async () => {
+    const linear = new FakeLinearAgentApi();
+    const { kiln, forge } = createTestKiln({ tree: withStates('{ handoff: "UAT Test (Sertan)", done: Released }'), adapters: { linearAgent: linear }, preview: false });
+    const wi = await fromSession(kiln);
+    await kiln.workflow.advance(wi.id);
+    expect(linear.states).toEqual([{ issueId: "i1", state: { name: "UAT Test (Sertan)" } }]);
+    const pr = kiln.workflow.get(wi.id)!.pr!;
+    await forge.merge({ owner: "acme", name: "web" }, pr.number, "alice");
+    await kiln.workflow.onPullRequestMerged(pr.repo, pr.number, "alice");
+    expect(linear.states.at(-1)).toEqual({ issueId: "i1", state: { name: "Released" } });
+  });
+
+  it("says so when a named state does not exist", async () => {
+    const linear = new FakeLinearAgentApi();
+    linear.updateState = async (_id, state) => {
+      throw new Error(`Linear team has no state named ${state.name}`);
+    };
+    const { kiln } = createTestKiln({ tree: withStates("{ handoff: Nope }"), adapters: { linearAgent: linear }, preview: false });
+    const wi = await fromSession(kiln);
+    await kiln.workflow.advance(wi.id);
+    expect(linear.activities.map((a) => a.activity.body).join("\n")).toContain('Could not move the Linear issue to "Nope": Linear team has no state named Nope');
+  });
+
+  it("keeps the started and completed state types without named states", async () => {
+    const linear = new FakeLinearAgentApi();
+    const { kiln, tracker } = createTestKiln({ adapters: { linearAgent: linear }, preview: false });
+    const issue = await tracker.createIssue({ title: "Fix typo", body: "" });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix typo", body: "", source: { provider: "linear", issueId: issue.id }, trackerKey: issue.id, requester: "a@acme.test" });
+    await kiln.workflow.advance(wi.id);
+    expect((await tracker.getIssue(issue.id))!.state).toBe("in_progress");
+    expect(linear.states).toEqual([]);
+  });
+});

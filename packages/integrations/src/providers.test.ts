@@ -305,6 +305,17 @@ describe("linear", () => {
     expect(seen[2]!.body.query).toContain("attachmentLinkURL");
     expect(seen[0]!.headers.authorization).toBe("Bearer oauth-token");
   });
+  it("posts a question with options as an elicitation with the select signal", async () => {
+    const seen: Seen[] = [];
+    const api = new HttpLinearAgentApi({ token: "oauth-token", fetch: fakeFetch({ "POST graphql": { data: { agentActivityCreate: { success: true } } } }, seen) });
+    await api.activity("as1", { type: "elicitation", body: "Which color?", options: ["Blue", "Green"] });
+    expect(seen[0]!.body.variables.input).toEqual({
+      agentSessionId: "as1",
+      content: { type: "elicitation", body: "Which color?" },
+      signal: "select",
+      signalMetadata: { options: [{ value: "Blue" }, { value: "Green" }] },
+    });
+  });
 });
 
 describe("jira", () => {

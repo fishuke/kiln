@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { FakeConnectionProvider, FakeLinearAgentApi, normalizeGitHubEvents, type IncomingEvent } from "@kiln/integrations";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AUTOMATION_TEMPLATES, renderTemplates } from "./automation-templates";
 import { cloudProviderEnv } from "./cloud";
 import { evaluateTrigger, matchPayload } from "./matchers";
@@ -388,5 +388,37 @@ describe("linear issue states", () => {
     await kiln.workflow.advance(wi.id);
     expect((await tracker.getIssue(issue.id))!.state).toBe("in_progress");
     expect(linear.states).toEqual([]);
+  });
+});
+
+describe("questions in linear sessions", () => {
+  it("asks a single-select question as a Linear select, and the chosen option answers it", async () => {
+    const linear = new FakeLinearAgentApi();
+    const { kiln } = createTestKiln({ adapters: { linearAgent: linear }, preview: false });
+    const { started } = await kiln.automations.handle(ev("linear", "agent_session_created", { issueId: "i1", title: "Add a footer", sessionId: "as1", team_ids: ["t1"] }, "q1"));
+    const wi = started[0]!;
+    const gate = await kiln.gates.open({
+      workItem: wi,
+      kind: "question",
+      name: "question-color",
+      title: "Footer color",
+      question: "Which color should the footer use?",
+      questions: [{ id: "color", question: "Which color should the footer use?", type: "single_select", options: ["Blue", "Green"], recommendedOptionIndex: 0 }],
+    });
+    const select = linear.activities.find((a) => a.activity.type === "elicitation")!;
+    expect(select).toMatchObject({ sessionId: "as1", activity: { type: "elicitation", options: ["Blue", "Green"] } });
+    expect(select.activity.body).toContain("Which color should the footer use?");
+    expect(linear.activities.some((a) => a.activity.type === "response" && a.activity.body.includes("Footer color"))).toBe(false);
+    await kiln.automations.handle(ev("linear", "agent_session_prompted", { issueId: "i1", sessionId: "as1", text: "Green", team_ids: ["t1"] }, "q2"));
+    await vi.waitFor(() => expect(kiln.gates.get(gate.id)).toMatchObject({ state: "answered", answer: "Green" }));
+  });
+
+  it("keeps text for questions without a single select", async () => {
+    const linear = new FakeLinearAgentApi();
+    const { kiln } = createTestKiln({ adapters: { linearAgent: linear }, preview: false });
+    const { started } = await kiln.automations.handle(ev("linear", "agent_session_created", { issueId: "i1", title: "Add a footer", sessionId: "as1", team_ids: ["t1"] }, "q3"));
+    await kiln.gates.open({ workItem: started[0]!, kind: "question", name: "question-free", title: "Footer copy", question: "What should the footer say?" });
+    expect(linear.activities.some((a) => a.activity.type === "elicitation")).toBe(false);
+    expect(linear.activities.some((a) => a.activity.type === "response" && a.activity.body.includes("What should the footer say?"))).toBe(true);
   });
 });

@@ -88,7 +88,8 @@ export class GateService {
     gate.urgency = typeof urgency?.answers.urgency === "number" ? urgency.answers.urgency : gate.kind === "question" ? 0.7 : 0.5;
     this.k.store.put(C.gates, gate);
     this.k.bus.publish("gate.opened", { gateId: gate.id, workItemId: gate.workItemId, kind: gate.kind, assignees: gate.assignees });
-    await this.k.notify(input.workItem, `${gate.title}${gate.question ? `\n${gate.question}` : ""}\nDecide: ${this.k.link(`/inbox/${gate.id}`)}`);
+    const select = gate.questions?.length === 1 && gate.questions[0]!.type === "single_select" ? gate.questions[0] : undefined;
+    await this.k.notify(input.workItem, `${gate.title}${gate.question ? `\n${gate.question}` : ""}\nDecide: ${this.k.link(`/inbox/${gate.id}`)}`, { question: select });
     return gate;
   }
 

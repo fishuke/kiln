@@ -33,6 +33,10 @@ describe("frontmatter", () => {
     expect(fm.body).toContain("You coordinate the factory.");
   });
 
+  it("writes block style into an empty document", () => {
+    expect(patchYaml("", { name: "Kiln", "agentDefaults.runner": "default" })).toBe("name: Kiln\nagentDefaults:\n  runner: default\n");
+  });
+
   it("deletes keys set to undefined and empty parents", () => {
     const y = patchYaml("a: 1\nb:\n  c: 2\n", { "b.c": undefined, a: undefined, d: null });
     expect(y.trim()).toBe("d: null");

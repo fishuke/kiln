@@ -1,0 +1,15 @@
+agentType: IMPLEMENT
+harness:
+  type: gemini
+  model: gemini-3-pro
+  reasoningLevel: high
+  auth: { source: managedSecret, secretName: TEAM_GEMINI }
+workerHost: build-farm
+computerUseModel: claude-sonnet-5-5
+idleTimeoutMinutes: 20
+credentialStrategy: CREATOR
+networkPolicy:
+  allowedHosts: [registry.npmjs.org, api.github.com]
+  deniedHosts: [169.254.169.254]
+required_repos:
+  - { owner: acme, name: shared-ui }

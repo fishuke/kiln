@@ -1,0 +1,8 @@
+description: arm64 build runner
+platform:
+  os: linux
+  arch: aarch64
+  linux: { dockerImage: "ghcr.io/acme/build:2026-10", registryCredentialSecretName: GHCR }
+instanceShape: { vcpus: 8, memoryGb: 16 }
+setupCommands: [pnpm install --frozen-lockfile]
+failureSessionRetentionMinutes: 15

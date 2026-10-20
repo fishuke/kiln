@@ -76,10 +76,9 @@ export function validateTree(tree: DefinitionTree): ValidationResult {
     if (agent && !agentNames.has(agent)) err(key, ["agent"], "ref", `agent ${agent} is not defined in agents/`);
     for (const [i, t] of au.frontmatter.triggers.entries()) {
       if (t.provider === "webhook") {
-        // A file webhook is named by its file; a managed webhook by its uid (wh_…), checked when it fires.
-        const id = webhookIdOf(t.filter);
-        if (!id || (!id.startsWith("wh_") && !parsed.webhooks[id])) {
-          err(key, ["triggers", i, "filter"], "ref", `webhook triggers need filter.webhook_ids naming a file in webhooks/ or a managed webhook uid`);
+        // A file webhook is named by its file; a managed webhook (created in the API) by its uid or name.
+        if (!webhookIdOf(t.filter)) {
+          err(key, ["triggers", i, "filter"], "ref", `webhook triggers need filter.webhook_ids naming a file in webhooks/ or a managed webhook`);
         }
       }
     }

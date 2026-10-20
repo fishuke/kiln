@@ -6,7 +6,8 @@ import { repoKey, type RepoRef } from "@kiln/integrations";
 import { hashDir, type Sandbox, type SandboxProvider, type SnapshotRef } from "@kiln/sandbox";
 import type { HarnessType, Runner } from "@kiln/schema";
 import type { Kiln } from "./kiln";
-import { C, newId, type Artifact, type Attachment, type Run, type RunEvent, type RunKind, type WorkItem } from "./types";
+import { cloudProviderEnv } from "./cloud";
+import { C, newId, type Artifact, type Attachment, type ExecutionOverrides, type Run, type RunEvent, type RunKind, type WorkItem } from "./types";
 
 const MEDIA: Record<string, [Artifact["kind"], string]> = {
   png: ["image", "image/png"],
@@ -47,7 +48,8 @@ export type ExecuteInput = {
   /** Check out exact commits, for replays and benchmarks. */
   pinned?: Record<string, string>;
   repos?: RepoRef[];
-  overrides?: { model?: string; harness?: HarnessType };
+  /** Run-level overrides: replay/benchmark model or harness, or an automation's execution overrides. */
+  overrides?: { model?: string; harness?: HarnessType | string } & Omit<ExecutionOverrides, "model" | "harness">;
   replayOf?: string;
   push?: boolean;
   collect?: (sandbox: Sandbox, cwd: string, run: Run) => Promise<void>;
@@ -152,8 +154,11 @@ export class RunService {
     if (!agent) throw new Error(`factory ${input.factory} has no agent ${input.agent}`);
     const harnessType = (input.overrides?.harness ?? agent.harness.type) as HarnessType;
     const model = await this.resolveModel(resolved, input.overrides?.model ?? agent.harness.model, input.prompt);
-    const runner: Runner = (agent.runner && resolved.parsed.runners[agent.runner]) || { image: "node:22-bookworm", backend: this.k.options.defaultBackend ?? "local", setupCommands: [], egress: [] };
-    const repos = input.repos ?? resolved.factory.repositories.filter((r) => !r.deferred);
+    const runnerName = input.overrides?.runner ?? agent.runner;
+    const runner: Runner = (runnerName && resolved.parsed.runners[runnerName]) || { image: "node:22-bookworm", backend: this.k.options.defaultBackend ?? "local", setupCommands: [], egress: [] };
+    // required_repos makes deferred repositories eager for this run.
+    const required = new Set(input.overrides?.requiredRepos ?? []);
+    const repos = input.repos ?? resolved.factory.repositories.filter((r) => !r.deferred || required.has(repoKey(r)));
     const now = this.k.clock.now().toISOString();
     const run: Run = {
       id: newId("run"),
@@ -238,7 +243,15 @@ export class RunService {
       this.k.bus.publish("run.started", { runId: run.id, workItemId: run.workItemId, agent: run.agent, harness: harnessType });
       this.record(run, "started", `${agent.name} (${harnessType}${model ? `, ${model}` : ""})`);
       const adapter = this.k.harnessFor(harnessType, agent.agentType);
-      const credentials = this.credentials(harnessType, agent);
+      const extraSecrets = input.overrides?.secrets ?? [];
+      const credentials = this.credentials(harnessType, extraSecrets.length ? { ...agent, secrets: [...new Set([...agent.secrets, ...extraSecrets])] } : agent);
+      const overrideEnv: Record<string, string> = {
+        ...cloudProviderEnv(resolved.factory),
+        ...(input.overrides?.environmentId ? { KILN_ENVIRONMENT_ID: input.overrides.environmentId } : {}),
+        ...(input.overrides?.workerHost ? { KILN_WORKER_HOST: input.overrides.workerHost } : {}),
+        ...(input.overrides?.idleTimeoutMinutes ? { KILN_IDLE_TIMEOUT_MINUTES: String(input.overrides.idleTimeoutMinutes) } : {}),
+        ...(input.overrides?.mcpServers?.length ? { KILN_MCP_SERVERS: input.overrides.mcpServers.join(",") } : {}),
+      };
       const session = await adapter.start({
         sandbox,
         cwd,
@@ -250,6 +263,7 @@ export class RunService {
         guardUrl: this.k.options.publicUrl ? `${this.k.options.publicUrl}/api/v1/guard` : undefined,
         env: {
           ...credentials,
+          ...overrideEnv,
           KILN_RUN_ID: run.id,
           KILN_RUN_TOKEN: token,
           KILN_FACTORY: input.factory,

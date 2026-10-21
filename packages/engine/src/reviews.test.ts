@@ -84,6 +84,24 @@ describe("reviewing in Kiln", () => {
     expect(kiln.workflow.get(wi.id)!.conversation.filter((m) => m.text.includes("Validate the email"))).toHaveLength(1);
   });
 
+  it("request changes on the merge gate sends the note to the agents", async () => {
+    const { kiln, wi } = await handedOff("Fix the login form");
+    const gate = kiln.gates.list({ workItemId: wi.id, state: "open" })[0]!;
+    await kiln.gates.decide(gate.id, { decision: "reject", answer: "Save the ban list on every change", by: "lead@acme.test", via: "web" });
+    const back = await waitFor(kiln, wi.id, ["handed_off"]);
+    expect(back.conversation.some((m) => m.from === "lead@acme.test" && m.text === "Save the ban list on every change")).toBe(true);
+    expect(kiln.runs.list({ workItemId: wi.id }).filter((r) => r.agent === "implement")).toHaveLength(2);
+    expect(kiln.gates.list({ workItemId: wi.id, state: "open" }).filter((g) => g.kind === "merge")).toHaveLength(1);
+  });
+
+  it("a follow-up on a task waiting for its merge sends the work back", async () => {
+    const { kiln, wi } = await handedOff("Fix the login form");
+    await kiln.workflow.message(wi.id, { by: "lead@acme.test", text: "Explain when it saves in the PR" });
+    expect(kiln.gates.list({ workItemId: wi.id }).find((g) => g.kind === "merge")).toMatchObject({ state: "expired" });
+    await waitFor(kiln, wi.id, ["handed_off"]);
+    expect(kiln.runs.list({ workItemId: wi.id }).filter((r) => r.agent === "implement")).toHaveLength(2);
+  });
+
   it("merges as the person and completes the task", async () => {
     const { kiln, forge, wi } = await handedOff("Fix the checkout button");
     const user = linkGitHub(kiln, "po@acme.test", "po");

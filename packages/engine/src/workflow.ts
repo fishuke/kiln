@@ -221,6 +221,8 @@ export class Workflow {
     }
     this.addMessage(id, input.by, input.text, attachments);
     if (!input.fromRun && wi.state === "blocked" && !open.length) void this.resume(id, `resumed after a message from ${input.by}`);
+    // Waiting for its merge: a message is feedback on the pull request.
+    if (!input.fromRun && wi.state === "handed_off" && wi.pr) void this.revise(id, input.by, input.text);
     return this.get(id)!;
   }
 
@@ -959,6 +961,12 @@ export class Workflow {
     if (!wi || !isActive(wi.state)) return;
     if (gate.kind === "merge") {
       if (gate.state === "approved") await this.complete(wi.id, { by: "human", ref: `gate:${gate.id}:${gate.decidedBy}` });
+      if (gate.state === "rejected") {
+        const by = gate.decidedBy ?? "human";
+        const text = gate.answer?.trim() || "Changes requested";
+        this.addMessage(wi.id, by, text);
+        if (!(await this.revise(wi.id, by, text))) this.park(wi.id, `${by} requested changes: ${text}`);
+      }
       return;
     }
     if (gate.kind === "question" && wi.state === "blocked") {
@@ -1091,14 +1099,22 @@ export class Workflow {
     const fresh = this.get(wi.id)!;
     fresh.handledReviews = [...(fresh.handledReviews ?? []), key].slice(-50);
     if (fresh.pr && !fresh.pr.firstReviewAt) fresh.pr.firstReviewAt = this.k.clock.now().toISOString();
-    const idx = fresh.plan?.stages.findIndex((s) => s.kind === "build") ?? -1;
-    if (idx < 0) return;
-    for (const g of this.k.gates.list({ workItemId: wi.id, state: "open" })) if (g.kind === "merge") this.k.store.put(C.gates, { ...g, state: "expired", decidedBy: "kiln:revision" });
-    fresh.plan!.cursor = idx;
-    fresh.review = { verdict: "changes_requested", findings: [text], reviewers: [by] };
     this.save(fresh);
-    this.move(fresh, "building", `review from ${by}`);
-    await this.advance(wi.id);
+    await this.revise(wi.id, by, text);
+  }
+
+  /** Send handed-off work back to the build stage with a person's feedback; false when there is no build stage. */
+  private async revise(id: string, by: string, text: string): Promise<boolean> {
+    const wi = this.get(id)!;
+    const idx = wi.plan?.stages.findIndex((s) => s.kind === "build") ?? -1;
+    if (idx < 0) return false;
+    for (const g of this.k.gates.list({ workItemId: id, state: "open" })) if (g.kind === "merge") this.k.store.put(C.gates, { ...g, state: "expired", decidedBy: "kiln:revision" });
+    wi.plan!.cursor = idx;
+    wi.review = { verdict: "changes_requested", findings: [text], reviewers: [by] };
+    this.save(wi);
+    this.move(wi, "building", `review from ${by}`);
+    await this.advance(id);
+    return true;
   }
 }
 

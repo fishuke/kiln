@@ -77,6 +77,9 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `blueprint.stages` | object | yes |  |
 | `blueprint.edges` | object |  | default `{}` |
 | `blueprint.staffing` | object | yes |  |
+| `foreman` | object |  |  |
+| `foreman.mode` | `pipeline` \| `agent` |  | default `"pipeline"` |
+| `foreman.maxTurns` | integer |  | default `60`, min 1, max 500 |
 | `deduplication` | object |  |  |
 | `deduplication.enabled` | boolean |  | default `true` |
 | `deduplication.windowHours` | integer |  | default `24`, min 1, max 720 |

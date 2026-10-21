@@ -78,6 +78,26 @@ describe("workItemTranscript", () => {
   });
 });
 
+describe("agent foreman turns", () => {
+  it("show as the foreman's own work, not as subagents", () => {
+    const events: EventLike[] = [
+      { seq: 1, at: "2026-10-20T10:00:02Z", type: "reasoning", text: "Triage first", data: { durationMs: 4000 } },
+      { seq: 2, at: "2026-10-20T10:00:03Z", type: "tool_call", text: "bash", data: { input: { command: "ls" } } },
+      { seq: 3, at: "2026-10-20T10:00:04Z", type: "message", text: "Looking at the repo" },
+    ];
+    const items = workItemTranscript({
+      title: "Add todo",
+      requester: "me",
+      createdAt: "2026-10-20T10:00:00Z",
+      conversation: [],
+      runs: [run("f1", { agent: "foreman", stage: "foreman", startedAt: "2026-10-20T10:00:01Z" }), run("t1", { agent: "triage", stage: "triage", startedAt: "2026-10-20T10:00:05Z" })],
+      gates: [],
+      turns: { f1: runTranscript(events) },
+    });
+    expect(items.map((i) => i.type)).toEqual(["user", "reasoning", "work", "subagents"]);
+  });
+});
+
 describe("helpers", () => {
   it("builds the agents tree", () => {
     const t = agentTree([run("a"), run("b", { parentRunId: "a" }), run("c")]);

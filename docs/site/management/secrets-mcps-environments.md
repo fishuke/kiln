@@ -63,6 +63,8 @@ Runs without their own harness credential use these. `GET /api/v1/teams/<team>/m
 
 Team owners and admins register MCP servers for the team. Agents name them in `mcpServers`, by name or id.
 
+A server is opt-in: an agent gets it only when it lists it. Turn on **Give to all agents** (`allAgents: true` in the API) and every agent in every factory of the team gets it on top of its own list, including automation runs that replace `mcpServers`. Use it for shared tools like an observability server.
+
 ```json
 { "name": "figma", "url": "https://mcp.figma.com/mcp", "headers": { "Authorization": "Bearer {{FIGMA_TOKEN}}" } }
 { "name": "sentry", "command": "npx", "args": ["-y", "@sentry/mcp-server"], "env": { "SENTRY_TOKEN": "{{SENTRY_TOKEN}}" }, "mode": "direct" }

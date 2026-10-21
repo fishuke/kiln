@@ -218,6 +218,36 @@ describe("MCP servers and environments", () => {
     await expect(kiln.mcp.testServers(undefined, { factory: "webapp", agent: "ghost" })).rejects.toThrow("has no agent ghost");
   });
 
+  it("a team server given to all agents reaches every run, even ones that list nothing (#62)", async () => {
+    const seen: StartOptions[] = [];
+    const tree = sampleTree({
+      "agents/implement/agent.md": "---\nagentType: IMPLEMENT\n---\nBuild.\n",
+      "agents/review/agent.md": "---\nagentType: REVIEW\nmcpServers: [obs]\n---\nReview.\n",
+    });
+    const probe = new FakeMcpProbe({ "https://obs.acme.test/mcp": { ok: true, tools: ["search_logs"] } });
+    const { kiln } = createTestKiln({ harness: () => new FakeHarness(async (ctx) => void seen.push(ctx.opts)), tree, mcpProbe: probe });
+    const team = kiln.teams.ensureDefaultTeam();
+    kiln.vault.set({ scope: "team", owner: team.id, name: "OBS_KEY", value: "obs-key" }, "a");
+    const obs = kiln.mcp.create(team.id, { name: "obs", url: "https://obs.acme.test/mcp", headers: { "x-key": "{{OBS_KEY}}" } }, "a");
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    const servers = () => seen.at(-1)!.mcpServers!.filter((s) => s.name === "obs");
+
+    await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "x", push: false });
+    expect(servers()).toEqual([]);
+
+    expect(kiln.mcp.update(team.id, obs.id, { allAgents: true }, "a").allAgents).toBe(true);
+    await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "x", push: false });
+    expect(servers()).toEqual([{ name: "obs", url: "https://obs.acme.test/mcp", headers: { "x-key": "obs-key" } }]);
+    // Listed and shared: still one entry.
+    await kiln.runs.execute({ factory: "webapp", sha, agent: "review", prompt: "x", push: false });
+    expect(servers()).toHaveLength(1);
+    // An automation override replaces the listed servers, not the shared ones.
+    await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "x", push: false, overrides: { mcpServers: [] } });
+    expect(servers()).toHaveLength(1);
+
+    expect(await kiln.mcp.testServers(undefined, { factory: "webapp" })).toMatchObject([{ name: "obs", status: "ok", agents: expect.arrayContaining(["foreman", "implement", "review", "triage"]) }]);
+  });
+
   it("an environment template adds setup commands after the runner's and its secrets", async () => {
     const seen: StartOptions[] = [];
     const harness = new FakeHarness(async (ctx) => {

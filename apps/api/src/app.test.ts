@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { issueToken } from "@kiln/auth";
 import { createTestKiln, sampleTree, waitFor } from "@kiln/engine";
+import { FakeHarness } from "@kiln/harness";
 import { createMcpHandler } from "@kiln/mcp";
 import { KilnApiError, KilnClient } from "@kiln/sdk-ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -51,6 +52,39 @@ describe("API", () => {
     expect(detail.decisions.some((d) => d.decision === "triage")).toBe(true);
   });
 
+  it("stopping a task from the work-item route stops the agent run it is running", async () => {
+    const harness = new FakeHarness(async (ctx) => {
+      if (ctx.opts.prompt.includes("[hold]")) {
+        while (!ctx.signal.cancelled) await new Promise((r) => setTimeout(r, 10));
+        return { summary: "stopped" };
+      }
+      return { summary: "done" };
+    });
+    const t = createTestKiln({ preview: false, harness: () => harness });
+    let app: ReturnType<typeof createApp>;
+    const inProcess = async (input: string | URL | Request, init?: RequestInit) => app.fetch(new Request(input as string, init));
+    app = createApp(t.kiln, { mcp: createMcpHandler("http://kiln.test", inProcess) });
+    const token = issueToken(t.kiln.store, {
+      name: "po",
+      subject: "po@acme.test",
+      grants: [
+        { scope: "send", factory: "webapp" },
+        { scope: "read", factory: "webapp" },
+      ],
+    }).token;
+    const { kiln } = t;
+    const d = await kiln.tasks.dispatch("webapp", { prompt: "[hold] Fix the footer", by: "po@acme.test" });
+    const live = () => kiln.runQuery.list({ factory: ["webapp"] }).runs.filter((r) => kiln.runs.isActive(r.id));
+    for (let i = 0; i < 500 && !live().length; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(live().length).toBeGreaterThan(0);
+
+    const res = await app.request(`/api/v1/work-items/${d.taskId}/cancel`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+    expect(res.status).toBe(200);
+    for (let i = 0; i < 500 && live().length; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(live()).toEqual([]);
+    expect(kiln.workflow.get(d.taskId)!.state).toBe("cancelled");
+  });
+
   it("retries a spec within the decide:spec scope, on a valid model", async () => {
     const { kiln, token, client } = setup();
     const po = client(token("read:webapp,send:webapp,decide:spec:webapp"));
@@ -90,13 +124,26 @@ describe("API", () => {
   it("verifies GitHub webhook signatures and starts work", async () => {
     const { kiln, app } = setup();
     kiln.secrets.setSecret("GITHUB_WEBHOOK_SECRET", "s3cret");
-    const body = JSON.stringify({ action: "labeled", label: { name: "kiln-ready" }, repository: { full_name: "acme/web" }, issue: { number: 4, title: "Fix typo", body: "", labels: [{ name: "kiln-ready" }] } });
+    const body = JSON.stringify({
+      action: "labeled",
+      label: { name: "kiln-ready" },
+      repository: { full_name: "acme/web" },
+      issue: { number: 4, title: "Fix typo", body: "", labels: [{ name: "kiln-ready" }] },
+    });
     const sig = `sha256=${createHmac("sha256", "s3cret").update(body).digest("hex")}`;
     const bad = await app.request("/webhooks/github", { method: "POST", body, headers: { "x-github-event": "issues", "x-hub-signature-256": "sha256=00" } });
     expect(bad.status).toBe(401);
-    const ok = await app.request("/webhooks/github", { method: "POST", body, headers: { "x-github-event": "issues", "x-hub-signature-256": sig, "x-github-delivery": "d1" } });
+    const ok = await app.request("/webhooks/github", {
+      method: "POST",
+      body,
+      headers: { "x-github-event": "issues", "x-hub-signature-256": sig, "x-github-delivery": "d1" },
+    });
     expect(((await ok.json()) as { started: unknown[] }).started).toHaveLength(1);
-    const again = await app.request("/webhooks/github", { method: "POST", body, headers: { "x-github-event": "issues", "x-hub-signature-256": sig, "x-github-delivery": "d1" } });
+    const again = await app.request("/webhooks/github", {
+      method: "POST",
+      body,
+      headers: { "x-github-event": "issues", "x-hub-signature-256": sig, "x-github-delivery": "d1" },
+    });
     expect(((await again.json()) as { duplicate: boolean }).duplicate).toBe(true);
   });
 
@@ -110,7 +157,11 @@ describe("API", () => {
     const { kiln, app } = setup();
     const runToken = kiln.secrets.issueRunToken("run_x", ["acme/web"]);
     const check = (command: string, auth = runToken) =>
-      app.request("/api/v1/guard", { method: "POST", body: JSON.stringify({ command }), headers: { authorization: `Bearer ${auth}`, "content-type": "application/json" } });
+      app.request("/api/v1/guard", {
+        method: "POST",
+        body: JSON.stringify({ command }),
+        headers: { authorization: `Bearer ${auth}`, "content-type": "application/json" },
+      });
     expect(await (await check("rm -rf /")).json()).toEqual({ verdict: "block" });
     expect(await (await check("pnpm test")).json()).toEqual({ verdict: "allow" });
     expect((await check("ls", "nope")).status).toBe(401);
@@ -126,7 +177,12 @@ describe("API", () => {
 describe("Kiln MCP with scoped tokens ", () => {
   async function mcpClient(inProcess: (i: string | URL | Request, init?: RequestInit) => Promise<Response>, token: string) {
     const client = new Client({ name: "test", version: "1.0.0" });
-    await client.connect(new StreamableHTTPClientTransport(new URL("http://kiln.test/mcp"), { fetch: inProcess as typeof fetch, requestInit: { headers: { authorization: `Bearer ${token}` } } }));
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL("http://kiln.test/mcp"), {
+        fetch: inProcess as typeof fetch,
+        requestInit: { headers: { authorization: `Bearer ${token}` } },
+      }),
+    );
     return client;
   }
 
@@ -174,7 +230,10 @@ describe("Kiln MCP with scoped tokens ", () => {
     const { kiln, token, inProcess } = setup();
     const client = await mcpClient(inProcess, token("read:webapp,decide:preview:webapp"));
     const before = kiln.defs.require("webapp").appliedSha;
-    const result = await client.callTool({ name: "validate_factory_files", arguments: { files: sampleTree({ "agents/x/agent.md": "---\ndescription: x\n---\n" }), apply: true, factory: "webapp" } });
+    const result = await client.callTool({
+      name: "validate_factory_files",
+      arguments: { files: sampleTree({ "agents/x/agent.md": "---\ndescription: x\n---\n" }), apply: true, factory: "webapp" },
+    });
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result.content)).toContain("token lacks definitions:write on webapp");
     expect(kiln.defs.require("webapp").appliedSha).toBe(before);
@@ -201,9 +260,13 @@ describe("Kiln MCP with scoped tokens ", () => {
   it("send_task then get_task by PR URL with start_working", async () => {
     const { kiln, token, inProcess } = setup();
     const client = await mcpClient(inProcess, token("read:webapp,send:webapp"));
-    const sent = JSON.parse(((await client.callTool({ name: "send_task", arguments: { factory: "webapp", title: "Fix typo in nav" } })).content as { text: string }[])[0]!.text);
+    const sent = JSON.parse(
+      ((await client.callTool({ name: "send_task", arguments: { factory: "webapp", title: "Fix typo in nav" } })).content as { text: string }[])[0]!.text,
+    );
     const wi = await waitFor(kiln, sent.id, ["handed_off"]);
-    const got = JSON.parse(((await client.callTool({ name: "get_task", arguments: { reference: wi.pr!.url, start_working: true } })).content as { text: string }[])[0]!.text);
+    const got = JSON.parse(
+      ((await client.callTool({ name: "get_task", arguments: { reference: wi.pr!.url, start_working: true } })).content as { text: string }[])[0]!.text,
+    );
     expect(got.startWorking).toMatchObject({ branch: wi.branch, repo: "acme/web" });
     expect(got.startWorking.commands.join("\n")).toContain("git worktree add");
     expect(got.task).toMatchObject({ id: wi.id, stage: "REVIEW" });

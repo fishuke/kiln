@@ -11,6 +11,7 @@ import { useAction } from "@/components/kiln/use-action";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   CUSTOM_SUGGESTION,
   templateFields,
@@ -59,6 +60,7 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
   const [mode, setMode] = useState<"managed" | "direct">(server?.mode ?? "managed");
   const [modeTouched, setModeTouched] = useState(Boolean(server));
   const [description, setDescription] = useState(server?.description ?? "");
+  const [allAgents, setAllAgents] = useState(server?.allAgents ?? false);
   const [showJson, setShowJson] = useState(false);
   const [pending, run] = useAction();
   const router = useRouter();
@@ -87,6 +89,7 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
       setDisplay("");
       setConfig("");
       setDescription("");
+      setAllAgents(false);
       setModeTouched(false);
       return;
     }
@@ -116,7 +119,7 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
   const submit = () => {
     if (!parsed.ok) return;
     const shape = parsed.server.url ? { url: parsed.server.url, headers: parsed.server.headers ?? {} } : { command: parsed.server.command, args: parsed.server.args ?? [], env: parsed.server.env ?? {} };
-    const body = { name, description: description.trim() || undefined, mode: effectiveMode, ...shape };
+    const body = { name, description: description.trim() || undefined, mode: effectiveMode, allAgents, ...shape };
     const done = {
       onSuccess: () => {
         onOpenChange(false);
@@ -285,10 +288,21 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
               </div>
             )}
 
-            <div className="mt-auto flex items-center gap-2 border-t pt-4 text-sm">
-              <span className="text-muted-foreground">Available to factories:</span>
-              <span>every factory in this team, for agents that list it in <code className="font-mono text-xs">mcpServers</code></span>
-            </div>
+            <label className="mt-auto flex items-start gap-3 border-t pt-4 text-sm">
+              <Switch checked={allAgents} onCheckedChange={setAllAgents} className="mt-0.5" />
+              <span className="grid gap-0.5">
+                <span className="font-medium">Give to all agents</span>
+                <span className="text-muted-foreground">
+                  {allAgents ? (
+                    "Every agent in every factory of this team gets it."
+                  ) : (
+                    <>
+                      Only agents that list it under <code className="font-mono text-xs">mcpServers</code> get it.
+                    </>
+                  )}
+                </span>
+              </span>
+            </label>
           </form>
         </div>
       </DialogContent>

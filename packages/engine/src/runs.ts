@@ -329,7 +329,7 @@ export class RunService {
     // Kiln's own host is always allowed: the command guard and the Kiln MCP server live there.
     const kilnHost = this.k.options.publicUrl ? new URL(this.k.options.publicUrl).hostname : undefined;
     // So are the MCP servers the run gets, such as a team server for a self-hosted observability stack.
-    const mcpHosts = this.k.mcp.hosts(team, input.overrides?.mcpServers ?? agent.mcpServers, this.k.vault.resolver({ teamId: team, userId: user?.id }));
+    const mcpHosts = this.k.mcp.hosts(team, this.k.mcp.refsFor(team, input.overrides?.mcpServers ?? agent.mcpServers), this.k.vault.resolver({ teamId: team, userId: user?.id }));
     const runner: SandboxRunner = {
       ...base,
       setupCommands: base.setupCommands ?? [],
@@ -674,7 +674,7 @@ export class RunService {
   private agentEnv(p: Prepared) {
     const scope = { teamId: p.team, userId: p.userId };
     const resolver = this.k.vault.resolver(scope);
-    // Automation overrides add secrets (resolved through the vault like the agent's) and replace the MCP servers.
+    // Automation overrides add secrets (resolved through the vault like the agent's) and replace the MCP servers; team servers given to all agents always come along.
     // A ChatGPT login is a file in the sandbox, so only local runs (not self-hosted workers) get one from the pool.
     const chosen: { credential?: string; chatgptLogin?: string; files?: boolean } = { files: !p.workerHost };
     const credentials = this.credentials(p.harnessType, { ...p.agent, secrets: [...new Set([...p.agent.secrets, ...p.environmentSecrets, ...(p.input.overrides?.secrets ?? [])])] }, scope, chosen);
@@ -682,7 +682,7 @@ export class RunService {
       p.run.credential = chosen.credential;
       this.save(p.run);
     }
-    const mcp = this.k.mcp.resolve(p.team, p.input.overrides?.mcpServers ?? p.agent.mcpServers, resolver);
+    const mcp = this.k.mcp.resolve(p.team, this.k.mcp.refsFor(p.team, p.input.overrides?.mcpServers ?? p.agent.mcpServers), resolver);
     for (const s of mcp.skipped) this.record(p.run, "mcp_skipped", s);
     const loginTokens = chosen.chatgptLogin ? (parseChatgptAuth(chosen.chatgptLogin)?.tokens ?? []) : [];
     this.redactions.set(p.run.id, [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope), ...loginTokens, ...(this.forgeTokens.get(p.run.id) ?? [])].filter((v) => v.length >= 6))]);

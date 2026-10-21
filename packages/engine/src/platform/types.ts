@@ -163,6 +163,8 @@ export type McpServer = {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  /** Every agent in the team's factories gets this server, on top of the ones it lists. */
+  allAgents?: boolean;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

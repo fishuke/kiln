@@ -66,6 +66,7 @@ const mcpShape = {
   env: envMap.optional(),
   url: z.string().url().optional(),
   headers: z.record(z.string(), z.string()).optional(),
+  allAgents: z.boolean().optional(),
 };
 export const CreateMcpServer = z.object({ name: z.string().min(1).max(63), ...mcpShape }).strict();
 export const UpdateMcpServer = z.object({ name: z.string().min(1).max(63).optional(), ...mcpShape }).strict();

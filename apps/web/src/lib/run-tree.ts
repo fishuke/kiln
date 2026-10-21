@@ -66,6 +66,11 @@ export type RunRow = {
   children: RunRow[];
 };
 
+/** Only live runs (running or waiting on someone) can be cancelled. */
+export function canCancel(row: Pick<RunRow, "status">): boolean {
+  return row.status === "running" || row.status === "blocked";
+}
+
 const RUNNING_STATES = ["received", "triaging", "planning", "building", "reviewing"];
 const WAITING_STATES = ["awaiting_spec", "awaiting_preview", "blocked"];
 

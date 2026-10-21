@@ -204,6 +204,20 @@ export class Workflow {
     return this.get(id)!;
   }
 
+  /** Restart a blocked task at the stage that stopped; a question it left open closes as retried. */
+  async retry(id: string, by: string) {
+    const wi = this.get(id);
+    if (!wi) throw new KilnError("resource_not_found", `unknown work item ${id}`);
+    if (wi.state !== "blocked") throw new KilnError("conflict", `work item ${id} is ${wi.state}, not blocked`);
+    const now = this.k.clock.now().toISOString();
+    for (const g of this.k.gates.list({ workItemId: id, state: "open" }))
+      if (g.kind === "question" && !g.command) this.k.store.put(C.gates, { ...g, state: "expired", decision: "retry", decidedBy: by, decidedVia: "web", decidedAt: now });
+    this.touch(id, by, `retried by ${by}`);
+    this.k.audit(by, "work_item.retry", id);
+    await this.resume(id, `retried by ${by}`);
+    return this.get(id)!;
+  }
+
   private async resume(id: string, reason: string) {
     const wi = this.get(id)!;
     wi.blockedReason = undefined;

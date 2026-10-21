@@ -30,7 +30,7 @@ export type RunDetailModel = {
   review?: { verdict: string; findings: string[] };
   triage?: { kind: string; size: string; summary?: string; confidence: number };
   openGates: GateView[];
-  workItem?: { id: string; state: string; branch?: string; prUrl?: string; previewUrl?: string };
+  workItem?: { id: string; state: string; blockedReason?: string; branch?: string; prUrl?: string; previewUrl?: string };
   runActions: { canStop: boolean; canPause: boolean; canResume: boolean; canReplay: boolean; canBenchmark: boolean };
   /** Agent run id whose live SSE stream the page follows. */
   streamRunId?: string;

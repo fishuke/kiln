@@ -321,6 +321,13 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const attachments = keys?.length ? kiln.files.resolveAttachments(keys, who(c), wi.factory) : [];
     return c.json(await kiln.workflow.message(wi.id, { by: who(c), text, attachments, via: "web", fromRun: Boolean(c.get("run")) }));
   });
+  app.post("/api/v1/work-items/:id/retry", async (c) => {
+    const wi = kiln.workflow.get(c.req.param("id"));
+    if (!wi) throw new HttpError(404, "unknown work item");
+    need(c, "send", wi.factory);
+    if (wi.state !== "blocked") throw new HttpError(409, "only a blocked task can be retried");
+    return c.json(await kiln.workflow.retry(wi.id, who(c)));
+  });
   app.post("/api/v1/work-items/:id/cancel", async (c) => {
     const wi = kiln.workflow.get(c.req.param("id"));
     if (!wi) throw new HttpError(404, "unknown work item");

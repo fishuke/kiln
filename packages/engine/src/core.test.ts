@@ -520,6 +520,27 @@ describe("spec stage failures", () => {
     expect(resumed.conversation.some((m) => m.role === "human" && m.text === "try again")).toBe(true);
   });
 
+  it("retries a blocked task at the stage that stopped, closing the question it left", async () => {
+    const failing = new FakeHarness(async () => {
+      throw new Error("setup command failed: npm ci");
+    });
+    const agents = fakeAgents();
+    let specRuns = 0;
+    const { kiln } = createTestKiln({
+      preview: false,
+      harness: (type, agentType) => (agentType === "SPEC" && ++specRuns <= 2 ? failing : agents(type, agentType)),
+    });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Redesign the billing page", body: "- show invoices", source: { provider: "api" }, requester: "a@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    await waitFor(kiln, wi.id, ["blocked"]);
+    const question = kiln.gates.list({ workItemId: wi.id, state: "open" }).find((g) => g.name === "spec-failed")!;
+
+    await kiln.workflow.retry(wi.id, "a@acme.test");
+    expect(kiln.gates.get(question.id)).toMatchObject({ state: "expired", decision: "retry", decidedBy: "a@acme.test" });
+    await waitFor(kiln, wi.id, ["awaiting_spec"]);
+    await expect(kiln.workflow.retry(wi.id, "a@acme.test")).rejects.toMatchObject({ code: "conflict" });
+  });
+
   it("only adds a message to the conversation when the task is not blocked", async () => {
     const { kiln } = createTestKiln({ preview: false });
     const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix typo", body: "", source: { provider: "api" }, requester: "a@acme.test" });

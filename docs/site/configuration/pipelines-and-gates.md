@@ -129,6 +129,8 @@ A gate can be approved or rejected from the [inbox](../management/inbox.md), a r
 
 When a gate expires with `park`, it closes as `expired` and the item moves to `blocked`. A message on a blocked item with nothing left open (for example, a follow-up after its question expired) resumes it at the stage that stopped. The task page also shows why it stopped, with a **Retry** button that restarts it there without a message.
 
+Runs live in the API process, so a restart (for example a deploy) cuts off whatever was running. On startup Kiln stops those runs as `blocked`, closes the command questions they were waiting on, and moves their tasks to `blocked` with the reason "Kiln restarted while this task was working". Retry, or a message, continues the task; a follow-up continues the run.
+
 ## Related pages
 
 - [How Kiln works](../overview/how-kiln-works.md)

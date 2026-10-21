@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRunRows, runSource, runTitle, filterRows, longDuration, mediaChipLabel, parseRunFilters, presetRange, relativeTime, runFiltersToQuery, shortDuration, sourceLabel, workItemStatus, type RunLike, type WorkItemLike } from "./run-tree";
+import { buildRunRows, canCancel, runSource, runTitle, filterRows, longDuration, mediaChipLabel, parseRunFilters, presetRange, relativeTime, runFiltersToQuery, shortDuration, sourceLabel, workItemStatus, type RunLike, type WorkItemLike } from "./run-tree";
 
 const wi = (id: string, over: Partial<WorkItemLike> = {}): WorkItemLike => ({
   id,
@@ -132,5 +132,15 @@ describe("child runs", () => {
   it("marks runs launched by the foreman as orchestration", () => {
     expect(runSource(run)).toBe("orchestration");
     expect(runSource({ ...run, workItemId: undefined })).toBe("WEB_APP");
+  });
+});
+
+describe("canCancel", () => {
+  it("allows cancelling live runs only", () => {
+    expect(canCancel({ status: "running" })).toBe(true);
+    expect(canCancel({ status: "blocked" })).toBe(true);
+    expect(canCancel({ status: "complete" })).toBe(false);
+    expect(canCancel({ status: "failed" })).toBe(false);
+    expect(canCancel({ status: "cancelled" })).toBe(false);
   });
 });

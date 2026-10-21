@@ -10,7 +10,9 @@ describe("default prompts", () => {
     expect(p).toMatch(/Never claim a check passed that you did not run/);
     expect(p).toMatch(/Delete scaffolding tests/);
     expect(p).toMatch(/do not wait for CI/);
-    expect(p).toMatch(/- Why:[\s\S]*- What: at most three outcomes[\s\S]*- Verification:/);
+    expect(p).toMatch(/in the `pr` field of your result/);
+    expect(p).toMatch(/Title: a conventional commit/);
+    expect(p).toMatch(/`## Why`:[\s\S]*`## What`: at most three bullets[\s\S]*`## Verification`:/);
     expect(p).toMatch(/stays open with a reply that says why/);
     expect(p).not.toMatch(/write Summary, Changes and Verification/);
   });

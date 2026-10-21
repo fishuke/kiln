@@ -88,12 +88,12 @@ GitHub triggers cover issues (`issue_created`, `issue_labeled`, `issue_assigned`
 
 - **Branches.** Each work item gets one branch, `kiln/<id>-<title-slug>`. Kiln pushes it with the run's token, which can push only `kiln/*` branches.
 - **Spec pull request.** When the work needs a spec, Kiln opens a draft pull request with the spec and the acceptance criteria as a checklist.
-- **Pull request body.** It links the work item, the source and the tracker issue, lists the acceptance criteria, and ends with "Opened by the Kiln factory `<alias>`. A person reviews and merges."
+- **Pull request title and body.** The implement agent writes them: a conventional commit title and a Why / What / Verification description. Kiln adds the evidence (screenshots and videos) and links the work item, the source and the tracker issue below it. When the agent reports none, the title is the request's and the body is the request with its acceptance criteria.
 - **CI.** The verify stage waits for check runs on the branch. Failures, cancellations and timeouts loop the work back to build.
 - **Preview card.** With a preview provider, Kiln comments a card with the preview URL, test counts and one video link per acceptance criterion.
 - **Review findings.** Findings that need a person's judgment are posted as a comment.
 - **Ready for review.** When the build stage succeeds, Kiln opens the pull request, or takes the spec pull request out of draft.
-- **Attribution.** When Kiln opens a pull request, it comments which factory opened it, for whom, from where, and links the work item.
+- **Attribution.** When Kiln opens a pull request, it posts one comment, never twice: which factory opened it, for whom, from where, a link to the task, and that mentioning `@kiln-factory` on the pull request sends it follow-up work.
 - **Hand-off.** Kiln adds the label `factory:<alias>` and posts "Ready to merge" with the pull request link where the work started, for example on the source issue.
 
 ## After hand-off

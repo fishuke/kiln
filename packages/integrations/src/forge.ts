@@ -62,6 +62,8 @@ export interface Forge {
   getPullRequest(repo: RepoRef, number: number): Promise<PullRequest | undefined>;
   listPullRequests(repo: RepoRef, filter?: { state?: "open" | "closed" | "merged" | "all"; head?: string }): Promise<PullRequest[]>;
   comment(repo: RepoRef, number: number, body: string): Promise<{ id: string; url: string }>;
+  /** The comments on an issue or pull request, oldest first (how Kiln finds a comment it posted before). */
+  listComments?(repo: RepoRef, number: number): Promise<{ id: string; body: string }[]>;
   addLabels(repo: RepoRef, number: number, labels: string[]): Promise<void>;
   checks(repo: RepoRef, ref: string): Promise<CheckStatus>;
   createIssue(repo: RepoRef, input: { title: string; body: string; labels?: string[] }): Promise<ForgeIssue>;
@@ -249,6 +251,10 @@ done
     this.comments.push({ repo: repoKey(repo), number, body, id });
     this.persist();
     return { id, url: `https://forge.test/${repoKey(repo)}/issues/${number}#${id}` };
+  }
+
+  async listComments(repo: RepoRef, number: number) {
+    return this.comments.filter((c) => c.repo === repoKey(repo) && c.number === number).map(({ id, body }) => ({ id, body }));
   }
 
   async addLabels(repo: RepoRef, number: number, labels: string[]) {
@@ -482,6 +488,11 @@ export class GitHubForge implements Forge {
   async comment(repo: RepoRef, number: number, body: string) {
     const c = await this.api<{ id: number; html_url: string }>("POST", `/repos/${repoKey(repo)}/issues/${number}/comments`, { body });
     return { id: String(c.id), url: c.html_url };
+  }
+
+  async listComments(repo: RepoRef, number: number) {
+    const list = await this.api<{ id: number; body?: string }[]>("GET", `/repos/${repoKey(repo)}/issues/${number}/comments?per_page=100`);
+    return (list ?? []).map((c) => ({ id: String(c.id), body: c.body ?? "" }));
   }
 
   async addLabels(repo: RepoRef, number: number, labels: string[]) {

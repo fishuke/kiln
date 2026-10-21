@@ -1,3 +1,5 @@
+import { GITHUB_BOT_HANDLE } from "@kiln/integrations";
+
 /** Default skills seeded into new factories. Each becomes skills/<name>/SKILL.md. */
 
 export type SkillDoc = { name: string; description: string; body: string };
@@ -27,26 +29,27 @@ Use the \`gh\` CLI for reading. Kiln does the writes that need permissions (push
 - Never remove labels people set.
 
 ## Pull request description
-Use the repository template when there is one (\`.github/PULL_REQUEST_TEMPLATE.md\`, \`.github/pull_request_template.md\`, \`docs/pull_request_template.md\`). Otherwise:
+Report it in \`.kiln/result.json\` as \`pr: { title, body }\`; Kiln opens or updates the pull request with it. Fill the repository template when there is one (\`.github/PULL_REQUEST_TEMPLATE.md\`, \`.github/pull_request_template.md\`, \`docs/pull_request_template.md\`). Otherwise:
+
+- Title: a conventional commit, \`<type>(<scope>): <outcome>\` in lowercase (\`feat(cart): keep discount codes across sessions\`).
+- Body:
 
 \`\`\`markdown
-## Summary
-What changed and why, in two or three sentences. Link the issue (Fixes #123).
+## Why
+The problem in one or two sentences. Reference the issue (#123).
 
-## Changes
-- One bullet per meaningful change.
+## What
+- At most three outcomes, not files or functions.
 
 ## Verification
 - Commands you ran and their result.
-- Visual proof for interface changes (Kiln attaches the files in .kiln/artifacts/).
+- Visual proof for interface changes (save it in .kiln/artifacts/).
 \`\`\`
 
+Kiln appends the evidence links and the work item and tracker references; leave them out.
+
 ## Attribution
-Each factory pull request carries one comment that says the factory produced it and who asked for it:
-
-> Opened by the Kiln factory \`${alias}\` for @<requester>. A person reviews and merges.
-
-Check for it before asking for one more; one is enough.
+Kiln posts one comment on each factory pull request: the factory \`${alias}\` opened it, a link to the task, and that mentioning @${GITHUB_BOT_HANDLE} on the pull request sends it follow-up work. Never post another one.
 `,
   };
 }

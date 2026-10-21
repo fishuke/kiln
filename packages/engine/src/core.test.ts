@@ -507,6 +507,56 @@ describe("computer use", () => {
   });
 });
 
+describe("pull request description and attribution", () => {
+  const attribution = (forge: FakeForge, number: number) => forge.comments.filter((c) => c.number === number && c.body.includes("<!-- kiln:attribution -->"));
+
+  it("opens the pull request with the implement agent's title and description, then evidence and tracking, and one attribution comment", async () => {
+    const { kiln, forge } = createTestKiln({ preview: false });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix the checkout button", body: "It is misaligned", source: { provider: "api" }, requester: "po@acme.test", trackerKey: "WEB-7" });
+    void kiln.workflow.advance(wi.id);
+    const done = await waitFor(kiln, wi.id, ["handed_off"]);
+    const pr = (await forge.getPullRequest({ owner: "acme", name: "web" }, done.pr!.number))!;
+    expect(pr.title).toMatch(/^feat: /);
+    expect(pr.body).toMatch(/^## Why\n/);
+    expect(pr.body).toContain("## What");
+    expect(pr.body).toContain("## Verification");
+    expect(pr.body).not.toContain("It is misaligned");
+    expect(pr.body).toMatch(/Work item: http\S+\/runs\/wi_/);
+    expect(pr.body).toContain("Tracker: WEB-7");
+    expect(pr.body).not.toContain("A person reviews and merges");
+    expect(pr.labels).toContain("factory:webapp");
+
+    const comments = attribution(forge, pr.number);
+    expect(comments).toHaveLength(1);
+    expect(comments[0]!.body).toContain("`webapp`");
+    expect(comments[0]!.body).toContain(kiln.link(`/runs/${wi.id}`));
+    expect(comments[0]!.body).toContain("Mention @kiln-factory on this PR to send it follow-up work.");
+    await kiln.integrations.attribute({ workItemId: wi.id, repo: pr.repo, number: pr.number });
+    expect(attribution(forge, pr.number)).toHaveLength(1);
+  });
+
+  it("keeps the request-based description when the agent reports none", async () => {
+    const harness = new FakeHarness(async (ctx) => {
+      const out = await fakeAgentScript(ctx);
+      if (ctx.opts.env?.KILN_AGENT_TYPE === "IMPLEMENT") {
+        const path = `${ctx.opts.cwd ? `${ctx.opts.cwd}/` : ""}.kiln/result.json`;
+        const { pr: _pr, ...rest } = JSON.parse((await ctx.opts.sandbox.readFile(path))!) as Record<string, unknown>;
+        await ctx.opts.sandbox.writeFile(path, JSON.stringify(rest));
+      }
+      return out;
+    });
+    const { kiln, forge } = createTestKiln({ harness: () => harness, preview: false });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix the checkout button", body: "It is misaligned", source: { provider: "api" }, requester: "po@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    const done = await waitFor(kiln, wi.id, ["handed_off"]);
+    const pr = (await forge.getPullRequest({ owner: "acme", name: "web" }, done.pr!.number))!;
+    expect(pr.title).toBe("Fix the checkout button");
+    expect(pr.body).toContain("It is misaligned");
+    expect(pr.body).toMatch(/Work item: http\S+\/runs\/wi_/);
+    expect(attribution(forge, pr.number)).toHaveLength(1);
+  });
+});
+
 describe("forge credentials for sandboxes", () => {
   it("clones with the forge's repo-scoped token, and keeps it out of the run's output", async () => {
     const harness = new FakeHarness(async (ctx) => {

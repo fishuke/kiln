@@ -8,6 +8,7 @@ import { BUILTIN_GATES } from "./gates";
 import type { Kiln } from "./kiln";
 import { isActive, transition } from "./state";
 import { fileUrl } from "./media";
+import { reportedPullRequest } from "./runs";
 import { C, newId, type Attachment, type ExecutionOverrides, type Gate, type Run, type RunMode, type Source, type WorkItem, type WorkItemState } from "./types";
 
 export type StageKind = "triage" | "spec" | "build" | "verify" | "review" | "preview" | "handoff" | "custom" | "blueprint";
@@ -789,22 +790,32 @@ export class Workflow {
     return unique.length ? ["", "## Evidence", ...unique.map((a) => `- ${a.kind === "video" ? "Video" : "Screenshot"}: [${a.name}](${this.k.link(`/files/${a.key}`)})`)] : [];
   }
 
-  /** The pull request description: the request, criteria, evidence (screenshots and videos) and who opened it. */
+  /** The title and description the latest implement run reported for the pull request, if any. */
+  private agentPullRequest(wi: Item): { title: string; body: string } | undefined {
+    const agents = this.resolved(wi).agents;
+    for (const run of this.k.runs.list({ workItemId: wi.id })) {
+      if (agents[run.agent]?.agentType !== "IMPLEMENT") continue;
+      const pr = reportedPullRequest(run.result);
+      if (pr) return pr;
+    }
+    return undefined;
+  }
+
+  /**
+   * The pull request description: the implement agent's Why / What / Verification when it wrote
+   * one, otherwise the request and its criteria; then the evidence and the tracking reference.
+   */
   private prBody(wi: Item): string {
-    const alias = this.resolved(wi).factory.alias ?? wi.factory;
+    const tracking = [`Work item: ${this.k.link(`/runs/${wi.id}`)}`, wi.source.url ? `Source: ${wi.source.url}` : "", wi.trackerKey ? `Tracker: ${wi.trackerKey}` : ""].filter(Boolean);
+    const written = this.agentPullRequest(wi)?.body;
+    if (written) return [written, ...this.evidenceLines(wi), "", "---", ...tracking].join("\n");
     return [
-      `Work item: ${this.k.link(`/runs/${wi.id}`)}`,
-      wi.source.url ? `Source: ${wi.source.url}` : "",
-      wi.trackerKey ? `Tracker: ${wi.trackerKey}` : "",
+      ...tracking,
       "",
       wi.body,
       ...(wi.spec?.criteria.length ? ["", "## Acceptance criteria", ...wi.spec.criteria.map((c) => `- [ ] ${c}`)] : []),
       ...this.evidenceLines(wi),
-      "",
-      `Opened by the Kiln factory \`${alias}\`. A person reviews and merges.`,
-    ]
-      .filter((l) => l !== undefined)
-      .join("\n");
+    ].join("\n");
   }
 
   /** Whether the work item's branch is on the forge: a pull request exists or one of its runs pushed it. */
@@ -817,14 +828,15 @@ export class Workflow {
     const repo = this.repoOf(wi);
     const alias = this.resolved(wi).factory.alias ?? wi.factory;
     const body = this.prBody(wi);
+    const title = this.agentPullRequest(wi)?.title;
     const branch = this.branch(wi);
     if (!this.hasBranch(wi)) return undefined;
     if (wi.pr) {
-      const pr = await this.k.forge.updatePullRequest(repo, wi.pr.number, { body, draft });
+      const pr = await this.k.forge.updatePullRequest(repo, wi.pr.number, { ...(title ? { title } : {}), body, draft });
       return pr;
     }
     try {
-      const pr = await this.k.forge.openPullRequest({ repo, head: branch, title: wi.title, body, labels: [`factory:${alias}`], draft });
+      const pr = await this.k.forge.openPullRequest({ repo, head: branch, title: title ?? wi.title, body, labels: [`factory:${alias}`], draft });
       const d = wi.pendingDiff;
       wi.pr = { repo: pr.repo, number: pr.number, url: pr.url, openedAt: this.k.clock.now().toISOString(), ...(d ? { additions: d.additions, deletions: d.deletions, changedFiles: d.files, commits: 1 } : {}) };
       delete wi.pendingDiff;

@@ -115,6 +115,25 @@ describe("default runner image", () => {
     expect(egress[0]).not.toContain("api.githubcopilot.com");
   });
 
+  it("lets a run reach a URL written into a command server's env or args, such as a self-hosted SigNoz (#51)", async () => {
+    const egress: string[][] = [];
+    const local = new LocalSandboxProvider();
+    const recording: SandboxProvider = {
+      name: "docker",
+      create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })),
+      resume: (ref, spec, store) => local.resume(ref, spec, store),
+    };
+    const tree = sampleTree({ "agents/implement/agent.md": "---\nagentType: IMPLEMENT\nmcpServers: [signoz]\n---\nBuild.\n" });
+    const { kiln } = createTestKiln({ sandboxes: { local, docker: recording }, defaultBackend: "docker", tree });
+    const team = kiln.teams.ensureDefaultTeam();
+    kiln.vault.set({ scope: "team", owner: team.id, name: "SIGNOZ_API_KEY", value: "signoz-service-key" }, "a");
+    kiln.mcp.create(team.id, { name: "signoz", command: "signoz-mcp-server", args: ["--docs=https://docs.acme.test/x"], env: { SIGNOZ_URL: "https://signoz.acme.test", SIGNOZ_API_KEY: "{{SIGNOZ_API_KEY}}", LOG_LEVEL: "info" } }, "a");
+    await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "implement", prompt: "x", push: false });
+    expect(egress[0]).toEqual(expect.arrayContaining(["signoz.acme.test"]));
+    // Only whole URL values count; an argument with a URL inside it adds nothing.
+    expect(egress[0]).not.toContain("docs.acme.test");
+  });
+
   it("runs a declared runner without an image on KILN_RUNNER_IMAGE; an explicit image still wins (#13)", async () => {
     const run = async (runnerYaml: string) => {
       const images: string[] = [];

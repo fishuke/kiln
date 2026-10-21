@@ -36,7 +36,11 @@ const TOOLS: [string, string][] = [
 
 /** Which template a saved server most likely came from, for its icon. */
 function iconFor(s: McpServer): string | undefined {
-  const t = MCP_TEMPLATES.find((t) => (t.server.url && t.server.url === s.url) || (t.server.command && t.server.args?.[1] && s.args?.includes(t.server.args[1])));
+  const t = MCP_TEMPLATES.find((t) =>
+    [t.server, ...(t.variants ?? []).map((v) => v.server)].some(
+      (x) => (x.url && x.url === s.url) || (x.command && (x.args?.[1] ? s.args?.includes(x.args[1]) : !x.args?.length && x.command === s.command)),
+    ),
+  );
   return t?.id ?? (s.url ? "custom-url" : "custom-stdio");
 }
 

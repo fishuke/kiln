@@ -77,7 +77,7 @@ Team owners and admins register MCP servers for the team. Agents name them in `m
 
 ### Templates
 
-**New** under MCPs and apps, or **Add MCP** on an agent, offers templates for common servers: observability (SigNoz, Datadog, New Relic, Better Stack), Sentry, Figma, Linear, GitHub, Playwright and Postgres. A template asks for what the server needs, one labeled field each, with where to find the value. Keys are saved as team secrets and the server is registered for the team under the template's name, so any agent can list it. Anything else is a custom server: paste its JSON.
+**New** under MCPs and apps, or **Add MCP** on an agent, offers templates for common servers: observability (SigNoz, Datadog, New Relic, Better Stack), Sentry, Figma, Linear, GitHub, Playwright and Postgres. A template asks for what the server needs, one labeled field each, with where to find the value. Keys are saved as team secrets and the server is registered for the team under the template's name, so any agent can list it. Some templates ask first how the server runs: SigNoz offers **SigNoz Cloud** (the hosted MCP endpoint for your region) or **Self-hosted** (your own SigNoz; each run starts `signoz-mcp-server`, which the sandbox image ships, with your SigNoz URL and API key). A run can reach the URLs a server is configured with, so a self-hosted SigNoz needs no egress change. Anything else is a custom server: paste its JSON.
 
 ### Testing servers
 

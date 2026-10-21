@@ -97,6 +97,9 @@ export type TemplateField = {
   value?: string;
 };
 
+/** One way to run a template's server, such as a vendor's cloud endpoint or a binary in the sandbox. */
+export type TemplateVariant = { id: string; label: string; hint: string; server: McpShape; mode: "managed" | "direct"; fields?: TemplateField[] };
+
 export type McpTemplate = {
   id: string;
   name: string;
@@ -105,6 +108,40 @@ export type McpTemplate = {
   mode: "managed" | "direct";
   docs?: string;
   fields?: TemplateField[];
+  /** Ways to run it, asked for before the fields. The template's own server and fields are the first. */
+  variants?: TemplateVariant[];
+};
+
+/** A template whose own server, mode and fields are its first variant's. */
+const withVariants = (t: Omit<McpTemplate, "server" | "mode" | "fields">, variants: [TemplateVariant, ...TemplateVariant[]]): McpTemplate => ({
+  ...t,
+  server: variants[0].server,
+  mode: variants[0].mode,
+  fields: variants[0].fields,
+  variants,
+});
+
+/** The template as one of its variants (the first when `id` is unknown); a template without variants as is. */
+export function pickVariant(t: McpTemplate, id?: string): McpTemplate {
+  const v = t.variants?.find((x) => x.id === id) ?? t.variants?.[0];
+  return v ? { ...t, server: v.server, mode: v.mode, fields: v.fields } : t;
+}
+
+const SIGNOZ_URL_FIELD: TemplateField = {
+  key: "SIGNOZ_URL",
+  label: "SigNoz URL",
+  placeholder: "https://signoz.example.com",
+  hint: "The address you open SigNoz on in the browser, not the OTLP endpoint your app sends to.",
+  kind: "url",
+};
+
+const SIGNOZ_KEY_FIELD: TemplateField = {
+  key: "SIGNOZ_API_KEY",
+  label: "API key",
+  placeholder: "Service account key",
+  hint: "SigNoz → Settings → Service Accounts: create one with the Viewer role, then add a key.",
+  kind: "password",
+  secret: true,
 };
 
 export const MCP_TEMPLATES: McpTemplate[] = [
@@ -122,39 +159,44 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     server: { url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer {{LINEAR_API_KEY}}" } },
     mode: "managed",
   },
-  {
-    id: "signoz",
-    name: "SigNoz",
-    description: "Query traces, logs and metrics, and read dashboards and alerts.",
-    docs: "https://signoz.io/docs/ai/signoz-mcp-server/",
-    server: { url: "{{SIGNOZ_MCP_URL}}", headers: { "SIGNOZ-API-KEY": "{{SIGNOZ_API_KEY}}", "X-SigNoz-URL": "{{SIGNOZ_URL}}" } },
-    mode: "managed",
-    fields: [
+  withVariants(
+    {
+      id: "signoz",
+      name: "SigNoz",
+      description: "Query traces, logs and metrics, and read dashboards and alerts.",
+      docs: "https://signoz.io/docs/ai/signoz-mcp-server/",
+    },
+    [
       {
-        key: "SIGNOZ_URL",
-        label: "SigNoz URL",
-        placeholder: "https://signoz.example.com",
-        hint: "The address you open SigNoz on in the browser, not the OTLP endpoint your app sends to.",
-        kind: "url",
+        id: "cloud",
+        label: "SigNoz Cloud",
+        hint: "SigNoz hosts the MCP server for your region.",
+        server: { url: "{{SIGNOZ_MCP_URL}}", headers: { "SIGNOZ-API-KEY": "{{SIGNOZ_API_KEY}}", "X-SigNoz-URL": "{{SIGNOZ_URL}}" } },
+        mode: "managed",
+        fields: [
+          SIGNOZ_URL_FIELD,
+          {
+            key: "SIGNOZ_MCP_URL",
+            label: "MCP endpoint",
+            placeholder: "https://mcp.us.signoz.cloud/mcp",
+            value: "https://mcp.us.signoz.cloud/mcp",
+            hint: "https://mcp.<region>.signoz.cloud/mcp, with the region from Settings → Ingestion (us, eu, in).",
+            kind: "url",
+          },
+          SIGNOZ_KEY_FIELD,
+        ],
       },
       {
-        key: "SIGNOZ_MCP_URL",
-        label: "MCP endpoint",
-        placeholder: "https://mcp.us.signoz.cloud/mcp",
-        value: "https://mcp.us.signoz.cloud/mcp",
-        hint: "SigNoz Cloud: https://mcp.<region>.signoz.cloud/mcp (us, eu, in). Self-hosted: where signoz-mcp-server runs in HTTP mode, ending in /mcp.",
-        kind: "url",
-      },
-      {
-        key: "SIGNOZ_API_KEY",
-        label: "API key",
-        placeholder: "Service account key",
-        hint: "SigNoz → Settings → Service Accounts: create one with the Viewer role, then add a key.",
-        kind: "password",
-        secret: true,
+        id: "self-hosted",
+        label: "Self-hosted",
+        hint: "Your own SigNoz. Each run starts the MCP server in its sandbox.",
+        // The sandbox image ships signoz-mcp-server; it runs per run over stdio, so nothing else to deploy.
+        server: { command: "signoz-mcp-server", env: { SIGNOZ_URL: "{{SIGNOZ_URL}}", SIGNOZ_API_KEY: "{{SIGNOZ_API_KEY}}" } },
+        mode: "direct",
+        fields: [SIGNOZ_URL_FIELD, SIGNOZ_KEY_FIELD],
       },
     ],
-  },
+  ),
   {
     id: "datadog",
     name: "Datadog",

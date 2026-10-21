@@ -200,6 +200,8 @@ export class McpRegistry {
     };
     for (const s of this.resolve(teamId, refs, secrets).servers) {
       if ("url" in s) hostOf(s.url);
+      // A command server's literal URL values, such as a self-hosted SigNoz's SIGNOZ_URL.
+      else for (const v of [...(s.args ?? []), ...Object.values(s.env ?? {})]) hostOf(v);
     }
     for (const raw of refs) {
       const ref = raw.replace(/^kiln:/, "");

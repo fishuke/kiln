@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { HARNESSES, harnessLabel, hostOptions, modelLabel, modelsFor } from "@/lib/agent-catalog";
-import { BUILTIN_SETUP, fillTemplate, MCP_TEMPLATES } from "@/lib/mcp-config";
+import { BUILTIN_SETUP, fillTemplate, SERVER_TEMPLATES, templateFields } from "@/lib/mcp-config";
 import { cn } from "@/lib/utils";
 
 export const INHERIT = "__inherit";
@@ -355,12 +355,12 @@ export function AddMcpDialog({
   const [pending, start] = useTransition();
   const match = (n: string) => n.toLowerCase().includes(q.toLowerCase());
   const available = useMemo(() => servers.filter((s) => !selected.includes(s.name) && match(s.name)), [servers, selected, q]); // eslint-disable-line react-hooks/exhaustive-deps
-  const templates = MCP_TEMPLATES.filter((t) => t.fields?.length && !servers.some((s) => s.name === t.id) && match(t.name));
+  const templates = SERVER_TEMPLATES.filter((t) => !servers.some((s) => s.name === t.id) && match(t.name));
   const pickedServer = servers.find((s) => s.name === mode);
-  const template = MCP_TEMPLATES.find((t) => `tpl:${t.id}` === mode);
+  const template = SERVER_TEMPLATES.find((t) => `tpl:${t.id}` === mode);
   const builtinSetup = pickedServer?.builtin ? BUILTIN_SETUP[pickedServer.name] : undefined;
   const needsConnect = Boolean(pickedServer?.missing?.length && builtinSetup);
-  const fields = template?.fields ?? (needsConnect ? builtinSetup!.fields : []);
+  const fields = template ? templateFields(template) : needsConnect ? builtinSetup!.fields : [];
   const form = useMcpFields(fields, template ? undefined : pickedServer?.missing, template?.name ?? builtinSetup?.name);
   const pick = (m: string) => {
     form.reset();

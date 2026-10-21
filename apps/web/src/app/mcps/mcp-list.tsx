@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { McpFields, useMcpFields } from "@/components/kiln/mcp-fields";
+import { McpTestButton } from "@/components/kiln/mcp-test";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { BUILTIN_SETUP, MCP_TEMPLATES, secretRefs } from "@/lib/mcp-config";
 import { deleteMcp } from "./actions";
@@ -52,6 +53,7 @@ export function McpPage({ servers, builtins, secrets, mcpUrl, canEdit }: { serve
       <Button variant="outline" onClick={() => setKilnMcp(true)}>
         <Plug /> Connect to Kiln MCP
       </Button>
+      {canEdit && !empty && <McpTestButton scope={{}} label="Test all" title="MCP servers" variant="outline" />}
       {canEdit && (
         <Button className="h-8 px-3" onClick={() => setAdding(true)}>
           New
@@ -88,6 +90,7 @@ export function McpPage({ servers, builtins, secrets, mcpUrl, canEdit }: { serve
                     {s.description && <div className="truncate font-mono text-xs text-muted-foreground">{s.url ?? [s.command, ...(s.args ?? [])].join(" ")}</div>}
                   </div>
                   {missing.length > 0 ? <ConnectedBadge tone="amber">Needs {missing.join(", ")}</ConnectedBadge> : <ConnectedBadge>Ready</ConnectedBadge>}
+                  {canEdit && missing.length === 0 && <McpTestButton scope={{ servers: [s.name] }} title={s.name} />}
                   {canEdit && (
                     <DropdownMenu>
                       <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${s.name}`} />}>
@@ -120,7 +123,10 @@ export function McpPage({ servers, builtins, secrets, mcpUrl, canEdit }: { serve
                   <div className="truncate text-sm text-muted-foreground">{b.description}</div>
                 </div>
                 {b.connected ? (
-                  <ConnectedBadge />
+                  <>
+                    <ConnectedBadge />
+                    {canEdit && <McpTestButton scope={{ servers: [b.kiln_id] }} title={b.kiln_id} />}
+                  </>
                 ) : canEdit && BUILTIN_SETUP[b.kiln_id] ? (
                   <Button variant="outline" size="sm" onClick={() => setConnecting(b)}>
                     Connect

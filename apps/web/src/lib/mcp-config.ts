@@ -369,6 +369,15 @@ export const BUILTIN_SETUP: Record<string, { name: string; docs?: string; fields
   },
 };
 
+/** A template's fields: its own, or one password field per `{{SECRET}}` its config refers to. */
+export function templateFields(t: McpTemplate): TemplateField[] {
+  if (t.fields) return t.fields;
+  return secretRefs(t.server).map((key) => ({ key, label: key.toLowerCase().replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()), placeholder: key, hint: `Saved as the team secret ${key}.`, kind: "password", secret: true }));
+}
+
+/** Templates for a real server (not the custom-JSON starters). */
+export const SERVER_TEMPLATES = MCP_TEMPLATES.filter((t) => !t.id.startsWith("custom"));
+
 /** Field values as typed, with each field's default filled in. */
 export function withDefaults(fields: TemplateField[], values: Record<string, string>): Record<string, string> {
   return Object.fromEntries(fields.map((f) => [f.key, (values[f.key] ?? f.value ?? "").trim()]));

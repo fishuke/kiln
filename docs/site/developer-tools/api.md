@@ -133,6 +133,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | --- | --- | --- | --- |
 | GET | `/api/v1/mcp-servers` | — | The team's MCP servers and built-in integration servers |
 | POST | `/api/v1/mcp-servers` | — | Add an MCP server (command + args + env, or url + headers) |
+| POST | `/api/v1/mcp-servers/test` | — | Test MCP servers: the team's, a factory's agents' or one agent's (connects and lists tools) |
 | GET | `/api/v1/mcp-servers/{id}` | — | One MCP server |
 | PATCH | `/api/v1/mcp-servers/{id}` | — | Change an MCP server |
 | DELETE | `/api/v1/mcp-servers/{id}` | — | Remove an MCP server |

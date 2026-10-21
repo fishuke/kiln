@@ -1,6 +1,7 @@
 import type { DefinitionTree } from "@kiln/definitions";
 import { FakeChat, FakeForge, FakePreview, FakeTracker } from "@kiln/integrations";
 import { fakeAgents } from "./fake-agents";
+import { FakeMcpProbe } from "./platform/mcp-probe";
 import { Kiln, type KilnOptions } from "./kiln";
 import { FakeJudge } from "./scoring";
 
@@ -49,6 +50,7 @@ export function createTestKiln(opts: Omit<Partial<KilnOptions>, "preview"> & { t
   const kiln = new Kiln({
     harness: fakeAgents(),
     judge: new FakeJudge(() => "meets"),
+    mcpProbe: new FakeMcpProbe(),
     roles: { po: ["po@acme.test"], "code-owners": ["lead@acme.test"], admins: ["admin@acme.test"] },
     askHumanTimeoutMs: 2000,
     ...rest,

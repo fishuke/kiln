@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   CUSTOM_SUGGESTION,
+  templateFields,
   fillTemplate,
   MCP_TEMPLATES,
   parseMcpJson,
@@ -62,11 +63,12 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
 
   const t = template === "custom" ? undefined : template;
   // A template with fields is filled in through its form; its JSON stays available for edits.
-  const guided = Boolean(t?.fields?.length) && !showJson;
-  const form = useMcpFields(guided ? t!.fields! : [], undefined, t?.name);
+  const tFields = useMemo(() => (t && !t.id.startsWith("custom") ? templateFields(t) : []), [t]);
+  const guided = tFields.length > 0 && !showJson;
+  const form = useMcpFields(guided ? tFields : [], undefined, t?.name);
   const parsed = useMemo(
-    () => (guided ? ({ ok: true, name: undefined, server: fillTemplate(t!.server, t!.fields!, form.values) } as ParsedMcp) : parseMcpJson(config)),
-    [guided, t, form.values, config],
+    () => (guided ? ({ ok: true, name: undefined, server: fillTemplate(t!.server, tFields, form.values) } as ParsedMcp) : parseMcpJson(config)),
+    [guided, t, tFields, form.values, config],
   );
   const name = toMcpName(display || (parsed.ok ? (parsed.name ?? "") : ""));
   const refs = parsed.ok ? secretRefs(parsed.server) : [];
@@ -163,7 +165,7 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
               <div className="min-w-0 flex-1">
                 <DialogTitle className="text-lg font-semibold">{server ? `Edit ${server.name}` : t ? t.name : "Add custom MCP"}</DialogTitle>
                 {t && <p className="mt-1 text-sm text-muted-foreground">{t.description}</p>}
-                {t?.server.url && <p className="mt-0.5 font-mono text-xs text-muted-foreground">{t.server.url}</p>}
+                {t?.server.url && !t.server.url.includes("{{") && <p className="mt-0.5 font-mono text-xs text-muted-foreground">{t.server.url}</p>}
               </div>
               <Button type="submit" variant={valid ? "default" : "secondary"} disabled={!valid || pending} className="h-9 px-4">
                 {pending ? "Saving…" : server ? "Save" : "Add"}
@@ -181,7 +183,7 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
 
             {guided ? (
               <div className="mt-5">
-                <McpFields fields={t!.fields!} values={form.values} onChange={form.setValues} docs={t!.docs} />
+                <McpFields fields={tFields} values={form.values} onChange={form.setValues} docs={t!.docs} />
                 <button
                   type="button"
                   className="mt-4 text-xs text-muted-foreground underline-offset-4 hover:underline"

@@ -69,6 +69,7 @@ const mcpShape = {
 };
 export const CreateMcpServer = z.object({ name: z.string().min(1).max(63), ...mcpShape }).strict();
 export const UpdateMcpServer = z.object({ name: z.string().min(1).max(63).optional(), ...mcpShape }).strict();
+export const TestMcpServers = z.object({ factory: z.string().min(1).optional(), agent: z.string().min(1).optional(), servers: z.array(z.string().min(1)).max(50).optional() }).strict();
 
 const envShape = {
   description: z.string().max(500).optional(),

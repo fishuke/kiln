@@ -47,6 +47,8 @@ export type NotificationRoute = {
 };
 
 const HOME_STAGE: Record<string, string> = { TRIAGE: "Triage", SPEC: "Planning", IMPLEMENT: "Building", REVIEW: "Reviewing", COMPLETE: "Complete", CANCELLED: "Cancelled" };
+/** Marks the one attribution comment Kiln posts on a factory pull request. */
+const ATTRIBUTION_MARKER = "<!-- kiln:attribution -->";
 const FORGE_PROVIDERS = ["github", "gitlab", "azure_devops", "bitbucket"] as const;
 
 /**
@@ -298,15 +300,28 @@ export class IntegrationHub {
     await this.forgeFor({ owner, name }).comment({ owner, name }, ev.data.number, `@${author} link your GitHub account to Kiln so requests and approvals are recorded under your name: ${this.k.link("/integrations")}`).catch(() => {});
   }
 
-  /** Comment on a factory PR saying which factory opened it and for whom. */
+  /**
+   * One comment per factory PR: which factory opened it, for whom, a link to the task, and how
+   * to send follow-up work. A hidden marker keeps it from being posted twice.
+   */
   async attribute(pr: { workItemId?: string; repo: string; number: number }) {
     const wi = pr.workItemId ? this.k.workflow.get(pr.workItemId) : undefined;
     if (!wi) return;
-    const b = this.k.defs.get(wi.factory);
-    const via = wi.source.url ? ` from [${wi.source.provider}](${wi.source.url})` : wi.source.provider !== "kiln" && wi.source.provider !== "api" ? ` from ${wi.source.provider}` : "";
-    const text = `Opened by the **${b?.name ?? wi.factory}** Kiln factory for ${wi.requester}${via}. [Work item](${this.k.link(`/work-items/${wi.id}`)})\n\nA person reviews and merges; the factory never approves or merges.`;
+    const alias = this.k.defs.get(wi.factory)?.alias ?? wi.factory;
     const [owner, name] = pr.repo.split("/") as [string, string];
-    await this.forgeFor({ owner, name }).comment({ owner, name }, pr.number, text).catch((err: unknown) => this.k.audit("kiln", "attribution.failed", wi.id, { error: String(err) }));
+    const repo = { owner, name };
+    const forge = this.forgeFor(repo);
+    const existing = await forge.listComments?.(repo, pr.number).catch(() => []);
+    if (existing?.some((c) => c.body.includes(ATTRIBUTION_MARKER))) return;
+    const via = wi.source.url ? ` from [${wi.source.provider}](${wi.source.url})` : wi.source.provider !== "kiln" && wi.source.provider !== "api" ? ` from ${wi.source.provider}` : "";
+    // Only GitHub routes @kiln-factory mentions back to the factory (routeGitHubMentions).
+    const mentionable = forge.name === "github" || forge.name === "fake";
+    const text = [
+      ATTRIBUTION_MARKER,
+      `Opened by the Kiln factory \`${alias}\` for ${wi.requester}${via}. [View task](${this.k.link(`/runs/${wi.id}`)})`,
+      ...(mentionable ? ["", `Mention @${GITHUB_BOT_HANDLE} on this PR to send it follow-up work.`] : []),
+    ].join("\n");
+    await forge.comment(repo, pr.number, text).catch((err: unknown) => this.k.audit("kiln", "attribution.failed", wi.id, { error: String(err) }));
   }
 
   /**

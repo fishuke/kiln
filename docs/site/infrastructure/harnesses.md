@@ -96,7 +96,7 @@ Agents report structured results by writing `.kiln/result.json` in the repositor
 | `TRIAGE` | `{"kind": "feature\|bug\|chore\|incident\|question", "size": "xs\|s\|m\|l\|xl", "summary": "...", "duplicateOf": "optional issue key"}` |
 | `FOREMAN` | `{"dispatch": {"stage": "triage\|spec\|build\|review\|handoff", "agent": "name", "context": "..."}}` or `{"ask": "question for the requester"}` |
 | `SPEC` | `{"specPath": "docs/specs/<id>.md", "why": "...", "goal": "...", "approach": "...", "criteria": ["AC1: ..."], "stories": ["..."], "outOfScope": ["..."], "risks": ["..."], "openQuestions": ["..."]}` |
-| `IMPLEMENT` | `{"summary": "...", "testsPassed": true, "memories": [{"title": "...", "body": "..."}]}` |
+| `IMPLEMENT` | `{"summary": "...", "testsPassed": true, "pr": {"title": "feat(scope): outcome in lowercase", "body": "## Why\n...\n\n## What\n- ...\n\n## Verification\n- ..."}, "memories": [{"title": "...", "body": "..."}]}` |
 | `VERIFY` | `{"testsPassed": true, "playwrightReport": "playwright-report/results.json"}` |
 | `REVIEW` | `{"verdict": "accepted\|changes_requested\|needs_human", "findings": ["file:line — issue — fix"]}` |
 | `PLAN` | `{"epics": [{"title": "...", "milestone": "...", "dependsOn": [], "issues": [{"title": "...", "body": "...", "criteria": ["..."], "factory": "alias"}]}]}` |
@@ -108,6 +108,7 @@ What Kiln does with it:
 - A spec without `specPath` is recorded as `docs/specs/<work item id>.md`.
 - `memories` from any agent become memory proposals.
 - `testsPassed` is checked when a pipeline stage requires `tests_pass`.
+- `pr` from an implement agent becomes the pull request's title and description; the latest one wins when the pull request is updated. Without it, Kiln writes the description from the request.
 
 The agent commits on the current branch. It must not push, open pull requests or merge; Kiln does that with a scoped token.
 

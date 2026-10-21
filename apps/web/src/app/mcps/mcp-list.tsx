@@ -75,7 +75,7 @@ export function McpPage({ servers, builtins, secrets, mcpUrl, canEdit }: { serve
         </EmptyIcon>
       ) : (
         <div className="mx-auto w-full max-w-[820px] px-6 py-8">
-          <p className="mb-4 text-sm text-muted-foreground">MCP servers this team&apos;s agents can use. An agent gets a server when its definition lists it under <code className="font-mono text-xs">mcpServers</code>, by name.</p>
+          <p className="mb-4 text-sm text-muted-foreground">MCP servers this team&apos;s agents can use. An agent gets a server when its definition lists it under <code className="font-mono text-xs">mcpServers</code>, by name, or when the server is given to all agents.</p>
           <ul className="divide-y overflow-hidden rounded-xl border bg-muted/60 dark:bg-muted/30">
             {servers.map((s) => {
               const refs = secretRefs(s);
@@ -89,6 +89,7 @@ export function McpPage({ servers, builtins, secrets, mcpUrl, canEdit }: { serve
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-sm font-semibold">{s.name}</span>
                       <Badge variant="outline">{s.mode === "managed" ? "Kiln managed" : "Direct"}</Badge>
+                      {s.allAgents && <Badge variant="secondary">All agents</Badge>}
                     </div>
                     <div className="truncate text-sm text-muted-foreground">{s.description || (s.url ?? [s.command, ...(s.args ?? [])].join(" "))}</div>
                     {s.description && <div className="truncate font-mono text-xs text-muted-foreground">{s.url ?? [s.command, ...(s.args ?? [])].join(" ")}</div>}

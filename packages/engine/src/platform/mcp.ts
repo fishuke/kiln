@@ -64,7 +64,14 @@ export class McpRegistry {
     if (hasUrl && ((input.args?.length ?? 0) > 0 || Object.keys(input.env ?? {}).length > 0)) throw new PlatformError(400, "args and env only apply to command servers");
   }
 
-  create(teamId: string, input: { name: string; description?: string; mode?: McpServer["mode"] } & ServerShape, by: string): McpServer {
+  /** A run's servers: the ones it lists plus every team server given to all agents. */
+  refsFor(teamId: string | undefined, refs: string[]): string[] {
+    const listed = new Set(refs.map((r) => r.replace(/^kiln:/, "")));
+    const shared = teamId ? this.list(teamId).filter((s) => s.allAgents && !listed.has(s.name) && !listed.has(s.id)).map((s) => s.name) : [];
+    return [...refs, ...shared];
+  }
+
+  create(teamId: string, input: { name: string; description?: string; mode?: McpServer["mode"]; allAgents?: boolean } & ServerShape, by: string): McpServer {
     if (!NAME.test(input.name)) throw new PlatformError(400, "MCP server names use lowercase letters, digits, dashes and underscores");
     if ((BUILTIN_MCP as readonly string[]).includes(input.name)) throw new PlatformError(409, `${input.name} is a built-in server`);
     if (this.list(teamId).some((s) => s.name === input.name)) throw new PlatformError(409, `an MCP server named ${input.name} exists`);
@@ -81,6 +88,7 @@ export class McpRegistry {
       env: input.command ? (input.env ?? {}) : undefined,
       url: input.url,
       headers: input.url ? (input.headers ?? {}) : undefined,
+      ...(input.allAgents ? { allAgents: true } : {}),
       createdBy: by,
       createdAt: now,
       updatedAt: now,
@@ -174,7 +182,7 @@ export class McpRegistry {
       team = this.k.teams.factoryTeam(f);
       const agents = f.appliedSha ? this.k.defs.resolved(f.appliedSha).agents : {};
       if (scope.agent && !agents[scope.agent]) throw new PlatformError(404, `factory ${scope.factory} has no agent ${scope.agent}`);
-      for (const [name, a] of Object.entries(agents)) if (!scope.agent || name === scope.agent) for (const ref of a.mcpServers) users.set(ref, [...(users.get(ref) ?? []), name]);
+      for (const [name, a] of Object.entries(agents)) if (!scope.agent || name === scope.agent) for (const ref of this.refsFor(team, a.mcpServers)) users.set(ref, [...(users.get(ref) ?? []), name]);
     } else {
       for (const s of team ? this.list(team) : []) users.set(s.name, []);
       for (const b of team ? this.builtins(team) : []) if (b.connected) users.set(b.kiln_id, []);

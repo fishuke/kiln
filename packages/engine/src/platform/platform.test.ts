@@ -4,7 +4,7 @@ import { normalizeSlack } from "@kiln/integrations";
 import { describe, expect, it } from "vitest";
 import { createTestKiln, sampleTree, waitFor } from "../testing";
 import { FakeClock } from "../types";
-import { BudgetExceededError, resolveAccess } from "./index";
+import { BudgetExceededError, FakeMcpProbe, resolveAccess } from "./index";
 
 const pw = "correct horse battery";
 
@@ -179,10 +179,6 @@ describe("MCP servers and environments", () => {
     expect(() => kiln.mcp.create(team.id, { name: "both", command: "x", url: "https://x" }, "a")).toThrow("either command");
     expect(kiln.mcp.builtins(team.id).find((b) => b.kiln_id === "linear")).toMatchObject({ connected: true });
     expect(kiln.mcp.builtins(team.id).find((b) => b.kiln_id === "github")).toMatchObject({ connected: false, missing: ["GITHUB_MCP_TOKEN"] });
-    expect(kiln.mcp.builtins(team.id).find((b) => b.kiln_id === "signoz")).toMatchObject({ connected: false, missing: ["SIGNOZ_URL", "SIGNOZ_API_KEY"] });
-    kiln.vault.set({ scope: "team", owner: team.id, name: "SIGNOZ_URL", value: "https://signoz.acme.test" }, "a");
-    kiln.vault.set({ scope: "team", owner: team.id, name: "SIGNOZ_API_KEY", value: "signoz-service-key" }, "a");
-    expect(kiln.mcp.resolve(team.id, ["signoz"], kiln.vault.resolver({ teamId: team.id })).servers).toEqual([{ name: "signoz", command: "signoz-mcp-server", args: [], env: { SIGNOZ_URL: "https://signoz.acme.test", SIGNOZ_API_KEY: "signoz-service-key" } }]);
     const sha = kiln.defs.require("webapp").appliedSha!;
     const run = await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "x", push: false });
     expect(seen[0]!.mcpServers!.filter((s) => s.name !== "browser")).toEqual([
@@ -192,6 +188,34 @@ describe("MCP servers and environments", () => {
     ]);
     expect(seen[0]!.env).toMatchObject({ SENTRY_TOKEN: "sentry-secret" });
     expect(kiln.runs.events(run.id).filter((e) => e.type === "mcp_skipped").map((e) => e.text)).toEqual(["github: missing secret GITHUB_MCP_TOKEN", "nope: unknown MCP server"]);
+  });
+
+  it("tests MCP servers for the team, a factory or one agent with the same check (#44)", async () => {
+    const probe = new FakeMcpProbe({ "https://obs.acme.test/mcp": { ok: true, tools: ["search_logs", "get_trace"], server: "obs" } });
+    const tree = sampleTree({
+      "agents/implement/agent.md": "---\nagentType: IMPLEMENT\nmcpServers: [obs, sentry, github]\n---\nBuild.\n",
+      "agents/review/agent.md": "---\nagentType: REVIEW\nmcpServers: [obs]\n---\nReview.\n",
+    });
+    const { kiln } = createTestKiln({ tree, mcpProbe: probe });
+    const team = kiln.teams.ensureDefaultTeam();
+    kiln.vault.set({ scope: "team", owner: team.id, name: "OBS_KEY", value: "obs-key" }, "a");
+    kiln.vault.set({ scope: "team", owner: team.id, name: "SENTRY_TOKEN", value: "sentry-secret" }, "a");
+    kiln.mcp.create(team.id, { name: "obs", url: "https://obs.acme.test/mcp", headers: { "x-key": "{{OBS_KEY}}" } }, "a");
+    kiln.mcp.create(team.id, { name: "sentry", command: "npx", args: ["sentry-mcp"], env: { SENTRY_TOKEN: "{{SENTRY_TOKEN}}" } }, "a");
+
+    const ok = { name: "obs", status: "ok", tools: ["search_logs", "get_trace"], message: "Connected to obs: 2 tools." };
+    const untested = { name: "sentry", status: "untested" };
+    expect(await kiln.mcp.testServers(team.id)).toMatchObject([ok, untested]);
+    expect(probe.calls[0]).toEqual({ url: "https://obs.acme.test/mcp", headers: { "x-key": "obs-key" } });
+
+    expect(await kiln.mcp.testServers(undefined, { factory: "webapp" })).toMatchObject([
+      { ...ok, agents: ["implement", "review"] },
+      { ...untested, agents: ["implement"] },
+      { name: "github", status: "error", message: "Missing secret GITHUB_MCP_TOKEN", agents: ["implement"] },
+    ]);
+    expect(await kiln.mcp.testServers(undefined, { factory: "webapp", agent: "review" })).toMatchObject([{ ...ok, agents: ["review"] }]);
+    expect(await kiln.mcp.testServers(team.id, { servers: ["nope"] })).toMatchObject([{ name: "nope", status: "error", message: "unknown MCP server" }]);
+    await expect(kiln.mcp.testServers(undefined, { factory: "webapp", agent: "ghost" })).rejects.toThrow("has no agent ghost");
   });
 
   it("an environment template adds setup commands after the runner's and its secrets", async () => {

@@ -7,6 +7,7 @@ import { Cloud, ExternalLink, KeyRound, Pencil, Plug, Plus, RefreshCw, Server, S
 import { toast } from "sonner";
 import { AzureDevOpsIcon, BitbucketIcon, DiscordIcon, GitHubIcon, GitLabIcon, JiraIcon, LinearIcon, SlackIcon, TeamsIcon } from "@/components/kiln/brand-icons";
 import { InfoTip } from "@/components/kiln/info-tip";
+import { McpTestButton } from "@/components/kiln/mcp-test";
 import { AddMcpDialog, AddSecretDialog, AuthSecretField, Chips, DefaultBadge, FormRow, HarnessSelect, HostSelect, ModelSelect, RunnerSelect, type McpOption, type RunnerOption, type SecretOption, type WorkerOption } from "@/components/kiln/resource-pickers";
 import { RunnerDialog, type RunnerFile } from "@/components/kiln/runner-dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -331,7 +332,7 @@ function GeneralInfo({ factory, binding, yaml, takenAliases, connections, readOn
 
 /* ---------- Agent defaults, scorer defaults, benchmarking, self-improvement ---------- */
 
-function ResourceList({ value, onChange, kind, secrets, mcps }: { value: string[]; onChange: (v: string[]) => void; kind: "secret" | "mcp"; secrets: SecretOption[]; mcps: McpOption[] }) {
+function ResourceList({ value, onChange, kind, secrets, mcps, factory }: { value: string[]; onChange: (v: string[]) => void; kind: "secret" | "mcp"; secrets: SecretOption[]; mcps: McpOption[]; factory?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -339,6 +340,7 @@ function ResourceList({ value, onChange, kind, secrets, mcps }: { value: string[
       <Button variant="ghost" onClick={() => setOpen(true)}>
         <Plus /> {kind === "secret" ? "Add secret" : "Add MCP"}
       </Button>
+      {kind === "mcp" && factory && value.length > 0 && <McpTestButton scope={{ factory, servers: value }} title="Test MCP servers" />}
       {kind === "secret" ? (
         <AddSecretDialog open={open} onOpenChange={setOpen} secrets={secrets} selected={value} onAdd={(n) => onChange([...new Set([...value, ...n])])} />
       ) : (
@@ -388,7 +390,7 @@ function AgentDefaults({ factory, yaml, secrets, mcps, workers, runners, runnerF
           <ResourceList kind="secret" value={s.secrets} onChange={(v) => setS({ ...s, secrets: v })} secrets={secrets} mcps={mcps} />
         </FormRow>
         <FormRow label="MCPs" labelWidth="sm:grid-cols-[200px_1fr]">
-          <ResourceList kind="mcp" value={s.mcpServers} onChange={(v) => setS({ ...s, mcpServers: v })} secrets={secrets} mcps={mcps} />
+          <ResourceList kind="mcp" value={s.mcpServers} onChange={(v) => setS({ ...s, mcpServers: v })} secrets={secrets} mcps={mcps} factory={factory} />
         </FormRow>
       </fieldset>
       <SaveBar
@@ -448,7 +450,7 @@ function ScorerDefaults({ factory, yaml, secrets, mcps, runners, readOnly, onRun
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center gap-2">
-                  <ResourceList kind={k === "secrets" ? "secret" : "mcp"} value={s[k] ?? []} onChange={(v) => setS({ ...s, [k]: v })} secrets={secrets} mcps={mcps} />
+                  <ResourceList kind={k === "secrets" ? "secret" : "mcp"} value={s[k] ?? []} onChange={(v) => setS({ ...s, [k]: v })} secrets={secrets} mcps={mcps} factory={factory} />
                   <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setS({ ...s, [k]: null })}>
                     Use agent defaults
                   </button>

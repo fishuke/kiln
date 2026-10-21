@@ -69,6 +69,7 @@ const CORE: Route[] = [
   { method: "delete", path: "/api/v1/managed-secrets/{scope}/{name}", summary: "Delete a secret", tag: "Secrets" },
   { method: "get", path: "/api/v1/mcp-servers", summary: "The team's MCP servers and built-in integration servers", tag: "MCPs and apps" },
   { method: "post", path: "/api/v1/mcp-servers", summary: "Add an MCP server (command + args + env, or url + headers)", body: PS.CreateMcpServer, tag: "MCPs and apps" },
+  { method: "post", path: "/api/v1/mcp-servers/test", summary: "Test MCP servers: the team's, a factory's agents' or one agent's (connects and lists tools)", body: PS.TestMcpServers, tag: "MCPs and apps" },
   { method: "get", path: "/api/v1/mcp-servers/{id}", summary: "One MCP server", tag: "MCPs and apps" },
   { method: "patch", path: "/api/v1/mcp-servers/{id}", summary: "Change an MCP server", body: PS.UpdateMcpServer, tag: "MCPs and apps" },
   { method: "delete", path: "/api/v1/mcp-servers/{id}", summary: "Remove an MCP server", tag: "MCPs and apps" },

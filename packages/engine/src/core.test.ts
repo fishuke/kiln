@@ -93,6 +93,28 @@ describe("default runner image", () => {
     expect(egress[0]).toContain("kiln-api.acme.test");
   });
 
+  it("lets a run reach the MCP servers its agent uses: URL servers and URL-valued secrets such as JIRA_BASE_URL (#44)", async () => {
+    const egress: string[][] = [];
+    const local = new LocalSandboxProvider();
+    const recording: SandboxProvider = {
+      name: "docker",
+      create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })),
+      resume: (ref, spec, store) => local.resume(ref, spec, store),
+    };
+    const tree = sampleTree({ "agents/implement/agent.md": "---\nagentType: IMPLEMENT\nmcpServers: [jira, signoz, github]\n---\nBuild.\n" });
+    const { kiln } = createTestKiln({ sandboxes: { local, docker: recording }, defaultBackend: "docker", tree });
+    const team = kiln.teams.ensureDefaultTeam();
+    kiln.vault.set({ scope: "team", owner: team.id, name: "JIRA_BASE_URL", value: "https://acme.atlassian.test" }, "a");
+    kiln.vault.set({ scope: "team", owner: team.id, name: "JIRA_EMAIL", value: "bot@acme.test" }, "a");
+    kiln.vault.set({ scope: "team", owner: team.id, name: "JIRA_API_TOKEN", value: "jira-token-x" }, "a");
+    kiln.vault.set({ scope: "team", owner: team.id, name: "SIGNOZ_API_KEY", value: "signoz-service-key" }, "a");
+    kiln.mcp.create(team.id, { name: "signoz", url: "https://signoz-mcp.acme.test:8000/mcp", headers: { "SIGNOZ-API-KEY": "{{SIGNOZ_API_KEY}}" } }, "a");
+    await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "implement", prompt: "x", push: false });
+    expect(egress[0]).toEqual(expect.arrayContaining(["acme.atlassian.test", "signoz-mcp.acme.test"]));
+    // github has no token, so the run skips it and gets no egress for it.
+    expect(egress[0]).not.toContain("api.githubcopilot.com");
+  });
+
   it("runs a declared runner without an image on KILN_RUNNER_IMAGE; an explicit image still wins (#13)", async () => {
     const run = async (runnerYaml: string) => {
       const images: string[] = [];

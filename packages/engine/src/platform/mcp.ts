@@ -1,7 +1,11 @@
 import type { Kiln } from "../kiln";
 import { newId } from "../types";
 import { BUILTIN_MCP, P, PlatformError, type BuiltinMcp, type McpServer } from "./types";
+import type { McpProbeResult } from "./mcp-probe";
 import type { SecretResolver } from "./vault";
+
+/** One server's test: `untested` for command servers, which only start inside a run's sandbox. */
+export type McpTestResult = { name: string; status: "ok" | "error" | "untested"; tools?: string[]; message: string; agents?: string[] };
 
 /** What the harness writes into its MCP config. */
 export type HarnessMcpServer =
@@ -17,7 +21,6 @@ export const BUILTIN_MCP_SERVERS: Record<BuiltinMcp, ServerShape & { description
   jira: { description: "Jira issues", command: "uvx", args: ["mcp-atlassian"], env: { JIRA_URL: "{{JIRA_BASE_URL}}", JIRA_USERNAME: "{{JIRA_EMAIL}}", JIRA_API_TOKEN: "{{JIRA_API_TOKEN}}" } },
   github: { description: "GitHub repositories, issues and pull requests (read-mostly token)", url: "https://api.githubcopilot.com/mcp/", headers: { Authorization: "Bearer {{GITHUB_MCP_TOKEN}}" } },
   discord: { description: "Discord channels", command: "npx", args: ["-y", "mcp-discord"], env: { DISCORD_TOKEN: "{{DISCORD_BOT_TOKEN}}" } },
-  signoz: { description: "SigNoz traces, logs, metrics, dashboards and alerts", command: "signoz-mcp-server", args: [], env: { SIGNOZ_URL: "{{SIGNOZ_URL}}", SIGNOZ_API_KEY: "{{SIGNOZ_API_KEY}}" } },
 };
 
 const PLACEHOLDER = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
@@ -145,5 +148,67 @@ export class McpRegistry {
       else servers.push({ name, command: sub(shape.command!), args: (shape.args ?? []).map(sub), env: subAll(shape.env) });
     }
     return { servers, env, skipped };
+  }
+
+  /** Tests one server with the team's secrets: a URL server is connected to and its tools listed. */
+  private async test(teamId: string | undefined, ref: string, secrets: SecretResolver): Promise<McpTestResult> {
+    const r = this.resolve(teamId, [ref], secrets);
+    const name = ref.replace(/^kiln:/, "");
+    if (r.skipped.length) return { name, status: "error", message: r.skipped[0]!.replace(/^[^:]+: /, "").replace(/^missing secret/, "Missing secret") };
+    const s = r.servers[0]!;
+    if (!("url" in s)) return { name, status: "untested", message: "Its secrets are set. Command servers start inside each run's sandbox, so a run is the test." };
+    const p: McpProbeResult = await this.k.mcpProbe.probe(s.url, s.headers ?? {});
+    if (!p.ok) return { name, status: "error", message: p.error };
+    return { name, status: "ok", tools: p.tools, message: `Connected${p.server ? ` to ${p.server}` : ""}: ${p.tools.length} tool${p.tools.length === 1 ? "" : "s"}.` };
+  }
+
+  /**
+   * Tests MCP servers in one scope: a factory's agents (or one agent) with the factory team's
+   * secrets, or the team's own servers. `servers` narrows either to the named ones.
+   */
+  async testServers(teamId: string | undefined, scope: { factory?: string; agent?: string; servers?: string[] } = {}): Promise<McpTestResult[]> {
+    const users = new Map<string, string[]>();
+    let team = teamId;
+    if (scope.factory) {
+      const f = this.k.defs.require(scope.factory);
+      team = this.k.teams.factoryTeam(f);
+      const agents = f.appliedSha ? this.k.defs.resolved(f.appliedSha).agents : {};
+      if (scope.agent && !agents[scope.agent]) throw new PlatformError(404, `factory ${scope.factory} has no agent ${scope.agent}`);
+      for (const [name, a] of Object.entries(agents)) if (!scope.agent || name === scope.agent) for (const ref of a.mcpServers) users.set(ref, [...(users.get(ref) ?? []), name]);
+    } else {
+      for (const s of team ? this.list(team) : []) users.set(s.name, []);
+      for (const b of team ? this.builtins(team) : []) if (b.connected) users.set(b.kiln_id, []);
+    }
+    const refs = scope.servers ?? [...users.keys()];
+    const secrets = this.k.vault.resolver({ teamId: team });
+    return Promise.all(refs.map(async (ref) => ({ ...(await this.test(team, ref, secrets)), ...(scope.factory ? { agents: users.get(ref) ?? [] } : {}) })));
+  }
+
+  /**
+   * Hosts a run must reach for the servers it gets: a URL server's own host, and the host of every
+   * URL-valued secret a server uses (such as JIRA_BASE_URL). Servers the run skips add none.
+   */
+  hosts(teamId: string | undefined, refs: string[], secrets: SecretResolver): string[] {
+    const hosts = new Set<string>();
+    const hostOf = (v: string) => {
+      try {
+        const u = new URL(v);
+        if (u.protocol === "https:" || u.protocol === "http:") hosts.add(u.hostname);
+      } catch {
+        // not a URL
+      }
+    };
+    for (const s of this.resolve(teamId, refs, secrets).servers) {
+      if ("url" in s) hostOf(s.url);
+    }
+    for (const raw of refs) {
+      const ref = raw.replace(/^kiln:/, "");
+      const shape = (BUILTIN_MCP as readonly string[]).includes(ref) ? BUILTIN_MCP_SERVERS[ref as BuiltinMcp] : teamId ? this.get(teamId, ref) : undefined;
+      if (!shape) continue;
+      const values = placeholders(shape).map((n) => secrets.get(n));
+      if (values.some((v) => v === undefined)) continue;
+      for (const v of values) hostOf(v!);
+    }
+    return [...hosts];
   }
 }

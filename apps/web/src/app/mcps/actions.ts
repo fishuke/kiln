@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { McpServerInput } from "@kiln/sdk-ts";
+import type { McpServerInput, McpTestResult } from "@kiln/sdk-ts";
 import { attempt, type ActionResult } from "@/lib/action-result";
 import { api } from "@/lib/kiln";
 
@@ -21,4 +21,10 @@ export async function deleteMcp(id: string, name: string): Promise<ActionResult>
   const r = await attempt(() => api.deleteMcpServer(id), `Deleted ${name}`);
   if (r.ok) revalidatePath("/mcps");
   return r.ok ? { ok: true, message: r.message } : r;
+}
+
+/** Tests MCP servers in one scope: the team's, a factory's agents' or the named ones. */
+export async function testMcps(scope: { factory?: string; agent?: string; servers?: string[] }): Promise<ActionResult<McpTestResult[]>> {
+  const r = await attempt(() => api.testMcpServers(scope));
+  return r.ok ? { ok: true, data: r.data?.results ?? [] } : r;
 }

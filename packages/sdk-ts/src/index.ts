@@ -62,6 +62,7 @@ import type {
   LinkProvider,
   McpServer,
   McpServerInput,
+  McpTestResult,
   Me,
   Membership,
   ModelKeyProvider,
@@ -615,6 +616,7 @@ export class KilnClient {
   mcpServer = (id: string) => this.request<McpServer>("GET", `/api/v1/mcp-servers/${encodeURIComponent(id)}`);
   createMcpServer = (input: McpServerInput) => this.request<McpServer>("POST", "/api/v1/mcp-servers", input);
   updateMcpServer = (id: string, patch: Partial<McpServerInput>) => this.request<McpServer>("PATCH", `/api/v1/mcp-servers/${encodeURIComponent(id)}`, patch);
+  testMcpServers = (scope: { factory?: string; agent?: string; servers?: string[] } = {}) => this.request<{ results: McpTestResult[] }>("POST", "/api/v1/mcp-servers/test", scope);
   deleteMcpServer = (id: string) => this.request<{ ok: true }>("DELETE", `/api/v1/mcp-servers/${encodeURIComponent(id)}`);
   environments = () => this.request<EnvironmentTemplate[]>("GET", "/api/v1/environments");
   environment = (id: string) => this.request<EnvironmentTemplate>("GET", `/api/v1/environments/${encodeURIComponent(id)}`);

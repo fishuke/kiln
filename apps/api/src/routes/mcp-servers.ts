@@ -15,6 +15,19 @@ export function mcpServerRoutes(ctx: RouteContext) {
     const body = PS.CreateMcpServer.parse(await c.req.json());
     return c.json(kiln.mcp.create(team.id, body, ctx.who(c)), 201);
   });
+  // One check for every scope: the team's servers, a factory's agents, or one agent.
+  app.post("/api/v1/mcp-servers/test", async (c) => {
+    const body = PS.TestMcpServers.parse(await c.req.json().catch(() => ({})));
+    if (body.agent && !body.factory) throw new HttpError(400, "agent needs factory");
+    if (body.factory) {
+      const f = kiln.defs.get(body.factory);
+      if (!f) throw new HttpError(404, `unknown factory ${body.factory}`);
+      ctx.need(c, "send", f.id);
+      return c.json({ results: await kiln.mcp.testServers(undefined, { factory: f.id, agent: body.agent, servers: body.servers }) });
+    }
+    const { team } = currentTeam(ctx, c, "admin");
+    return c.json({ results: await kiln.mcp.testServers(team.id, { servers: body.servers }) });
+  });
   app.get("/api/v1/mcp-servers/:id", (c) => {
     const { team } = currentTeam(ctx, c);
     const s = kiln.mcp.get(team.id, c.req.param("id"));

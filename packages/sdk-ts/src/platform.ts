@@ -47,5 +47,7 @@ export type FactoryMemberRow = { userId: string; role: FactoryRole; source: "tea
 export type ApiKeyRow = { id: string; name: string; subject: string; type?: string; userId?: string; teamId?: string; createdAt: string; expiresAt?: string; lastUsedAt?: string; revoked?: boolean };
 export type ModelKeyProvider = "anthropic" | "openai" | "openrouter" | "bedrock";
 export type BuiltinMcpRow = { kiln_id: string; name: string; description: string; connected: boolean; missing: string[] };
+/** One server's test result; `untested` for command servers, which only start in a run's sandbox. */
+export type McpTestResult = { name: string; status: "ok" | "error" | "untested"; tools?: string[]; message: string; agents?: string[] };
 export type McpServerInput = { name: string; description?: string; mode?: "managed" | "direct"; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string> };
 export type EnvironmentInput = { name: string; description?: string; image?: string; repos?: { owner: string; name: string }[]; setupCommands?: string[]; secrets?: string[]; registryCredentialSecretName?: string };

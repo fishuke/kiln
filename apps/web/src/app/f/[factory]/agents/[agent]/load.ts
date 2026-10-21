@@ -1,7 +1,7 @@
 import "server-only";
 import { parse } from "yaml";
 import { agentDisplayName } from "@/lib/agent-catalog";
-import { filesApiAvailable, listMcpServers, listSecrets, listWorkers } from "@/lib/api/factory-admin";
+import { filesApiAvailable, listBuiltinMcps, listMcpServers, listSecrets, listWorkers } from "@/lib/api/factory-admin";
 import { api, safe } from "@/lib/kiln";
 import type { RunnerFile } from "@/components/kiln/runner-dialog";
 import type { AutomationRow } from "./agent-editor";
@@ -10,11 +10,12 @@ const TRIGGER_LABEL: Record<string, string> = { github: "GitHub", gitlab: "GitLa
 
 /** Everything the agent editor needs besides the agent itself. */
 export async function loadAgentContext(factory: string) {
-  const [f, def, secrets, mcps, workers, filesApi] = await Promise.all([
+  const [f, def, secrets, mcps, builtins, workers, filesApi] = await Promise.all([
     safe(() => api.factory(factory), null),
     safe(() => api.definition(factory), null),
     listSecrets(),
     listMcpServers(),
+    listBuiltinMcps(),
     listWorkers(),
     filesApiAvailable(factory),
   ]);
@@ -34,7 +35,10 @@ export async function loadAgentContext(factory: string) {
     f,
     tree,
     secrets: secrets.map((s) => ({ name: s.name, description: s.description, type: s.type })),
-    mcps: mcps.map((m) => ({ name: m.name, description: m.description, managed: m.mode === "managed" })),
+    mcps: [
+      ...mcps.map((m) => ({ name: m.name, description: m.description, managed: m.mode === "managed" })),
+      ...builtins.map((b) => ({ name: b.kiln_id, description: b.description, managed: true, builtin: true, missing: b.missing })),
+    ],
     // Runs route to a worker id (`workerHost`); several instances can share one.
     workers: [...new Set(workers.map((w) => w.workerId))].map((id) => ({ id, name: id })),
     runners: Object.entries(runnerFiles).map(([name, r]) => ({ name, os: r.platform?.os ?? "linux", description: r.description })),

@@ -73,6 +73,23 @@ Team owners and admins register MCP servers for the team. Agents name them in `m
 - **Connection mode `managed`** (the default for URL servers): Kiln puts the secret values into the harness's MCP config.
 - **Connection mode `direct`** (the default for command servers): the config keeps `${NAME}` references, and the values go into the run's environment. Values are never written to disk.
 - A server whose secrets are missing, or a name Kiln does not know, is skipped. The run shows an `mcp_skipped` event.
+- A run may reach the servers it gets: the host of a URL server, and the host of any URL-valued secret a server uses (such as `JIRA_BASE_URL`), are added to its egress allowlist.
+
+### Templates
+
+**New** under MCPs and apps, or **Add MCP** on an agent, offers templates for common servers: observability (SigNoz, Datadog, New Relic, Better Stack), Sentry, Figma, Linear, GitHub, Playwright and Postgres. A template asks for what the server needs, one labeled field each, with where to find the value. Keys are saved as team secrets and the server is registered for the team under the template's name, so any agent can list it. Anything else is a custom server: paste its JSON.
+
+### Testing servers
+
+**Test** connects to a server with the team's secrets the way a harness would (MCP `initialize`, then `tools/list`) and shows its tools, or what went wrong: refused credentials, a wrong path, an unreachable host or a missing secret. The same test runs in every scope:
+
+| Where | What it tests |
+| --- | --- |
+| MCPs and apps → **Test all**, or **Test** on a row | The team's servers, or one of them |
+| Factory settings → agent and scorer defaults | The servers in the list, with the factory team's secrets |
+| An agent's settings | That agent's servers |
+
+API: `POST /api/v1/mcp-servers/test` with `{}` (the team, admins only), `{ "factory": "<id>" }`, `{ "factory": "<id>", "agent": "<name>" }`, and optionally `"servers": ["<name>"]` to narrow any of them. Command servers start only inside a run's sandbox, so their test checks their secrets and reports `untested`. Kiln never tests servers on `localhost`, loopback or link-local addresses (such as the cloud metadata service).
 
 ### Built-in integration servers
 
@@ -85,7 +102,6 @@ These servers can be referenced by id without registering them. They are listed 
 | `jira` | `mcp-atlassian` | `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` |
 | `github` | GitHub's hosted MCP | `GITHUB_MCP_TOKEN` (use a read-mostly token; agents never get merge rights) |
 | `discord` | `mcp-discord` | `DISCORD_BOT_TOKEN` |
-| `signoz` | `signoz-mcp-server` (in the sandbox image) | `SIGNOZ_URL`, `SIGNOZ_API_KEY` (a SigNoz service-account key; the sandbox must be allowed to reach the SigNoz host) |
 
 Every run also gets the Kiln MCP server with its own run token.
 

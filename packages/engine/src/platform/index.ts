@@ -6,6 +6,7 @@ export * from "./vault";
 export * from "./credential-pool";
 export * from "./chatgpt";
 export * from "./mcp";
+export * from "./mcp-probe";
 export * from "./environments";
 export * from "./usage";
 export * from "./access";

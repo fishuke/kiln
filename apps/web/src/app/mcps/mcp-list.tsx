@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { Ellipsis, Pencil, Plug, Server, Trash2 } from "lucide-react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Ellipsis, Pencil, Plug, Server, Trash2, X } from "lucide-react";
 import type { McpServer } from "@kiln/sdk-ts";
 import { ConfirmAction, CopyButton } from "@/components/kiln/confirm-action";
 import { ConnectedBadge, EmptyIcon } from "@/components/kiln/settings-blocks";
@@ -10,7 +12,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { MCP_TEMPLATES, secretRefs } from "@/lib/mcp-config";
+import { McpFields, useMcpFields } from "@/components/kiln/mcp-fields";
+import { McpTestButton } from "@/components/kiln/mcp-test";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { BUILTIN_SETUP, MCP_TEMPLATES, secretRefs } from "@/lib/mcp-config";
 import { deleteMcp } from "./actions";
 import { McpDialog, McpIcon } from "./mcp-dialog";
 
@@ -40,14 +45,15 @@ export function McpPage({ servers, builtins, secrets, mcpUrl, canEdit }: { serve
   const [editing, setEditing] = useState<McpServer>();
   const [deleting, setDeleting] = useState<McpServer>();
   const [kilnMcp, setKilnMcp] = useState(false);
-  const connected = builtins.filter((b) => b.connected);
-  const empty = servers.length === 0 && connected.length === 0;
+  const [connecting, setConnecting] = useState<Builtin>();
+  const empty = servers.length === 0 && builtins.length === 0;
 
   const actions = (
     <>
       <Button variant="outline" onClick={() => setKilnMcp(true)}>
         <Plug /> Connect to Kiln MCP
       </Button>
+      {canEdit && !empty && <McpTestButton scope={{}} label="Test all" title="MCP servers" variant="outline" />}
       {canEdit && (
         <Button className="h-8 px-3" onClick={() => setAdding(true)}>
           New
@@ -84,6 +90,7 @@ export function McpPage({ servers, builtins, secrets, mcpUrl, canEdit }: { serve
                     {s.description && <div className="truncate font-mono text-xs text-muted-foreground">{s.url ?? [s.command, ...(s.args ?? [])].join(" ")}</div>}
                   </div>
                   {missing.length > 0 ? <ConnectedBadge tone="amber">Needs {missing.join(", ")}</ConnectedBadge> : <ConnectedBadge>Ready</ConnectedBadge>}
+                  {canEdit && missing.length === 0 && <McpTestButton scope={{ servers: [s.name] }} title={s.name} />}
                   {canEdit && (
                     <DropdownMenu>
                       <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${s.name}`} />}>
@@ -103,7 +110,7 @@ export function McpPage({ servers, builtins, secrets, mcpUrl, canEdit }: { serve
                 </li>
               );
             })}
-            {connected.map((b) => (
+            {builtins.map((b) => (
               <li key={b.kiln_id} className="flex items-center gap-4 px-5 py-3.5">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background">
                   <McpIcon id={b.kiln_id} className="size-4" />
@@ -115,22 +122,25 @@ export function McpPage({ servers, builtins, secrets, mcpUrl, canEdit }: { serve
                   </div>
                   <div className="truncate text-sm text-muted-foreground">{b.description}</div>
                 </div>
-                <ConnectedBadge />
+                {b.connected ? (
+                  <>
+                    <ConnectedBadge />
+                    {canEdit && <McpTestButton scope={{ servers: [b.kiln_id] }} title={b.kiln_id} />}
+                  </>
+                ) : canEdit && BUILTIN_SETUP[b.kiln_id] ? (
+                  <Button variant="outline" size="sm" onClick={() => setConnecting(b)}>
+                    Connect
+                  </Button>
+                ) : (
+                  <ConnectedBadge tone="grey">Needs {b.missing.join(", ")}</ConnectedBadge>
+                )}
               </li>
             ))}
           </ul>
-          {builtins.some((b) => !b.connected) && (
-            <p className="mt-3 text-xs text-muted-foreground">
-              Built-in servers appear when their secrets exist:{" "}
-              {builtins
-                .filter((b) => !b.connected)
-                .map((b) => `${b.kiln_id} (${b.missing.join(", ")})`)
-                .join(" · ")}
-            </p>
-          )}
         </div>
       )}
 
+      {connecting && <ConnectBuiltinDialog key={connecting.kiln_id} builtin={connecting} onClose={() => setConnecting(undefined)} />}
       <McpDialog open={adding} onOpenChange={setAdding} secrets={secrets} builtins={builtins} />
       {editing && <McpDialog key={editing.id} open onOpenChange={(o) => !o && setEditing(undefined)} secrets={secrets} builtins={builtins} server={editing} />}
       <ConfirmAction
@@ -178,5 +188,48 @@ export function McpPage({ servers, builtins, secrets, mcpUrl, canEdit }: { serve
         </SheetContent>
       </Sheet>
     </>
+  );
+}
+
+/** Connect a built-in server: one labeled field per secret it needs. */
+function ConnectBuiltinDialog({ builtin, onClose }: { builtin: Builtin; onClose: () => void }) {
+  const setup = BUILTIN_SETUP[builtin.kiln_id]!;
+  const form = useMcpFields(setup.fields, builtin.missing, setup.name);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const save = () =>
+    start(async () => {
+      const r = await form.saveSecrets();
+      if (!r.ok) return void toast.error(r.error ?? `Could not connect ${setup.name}`);
+      toast.success(`Connected ${setup.name}`);
+      onClose();
+      router.refresh();
+    });
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent showCloseButton={false} className="gap-0 p-6 sm:max-w-[520px]">
+        <div className="mb-1 flex items-start gap-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border">
+            <McpIcon id={builtin.kiln_id} className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-lg font-semibold">Connect {setup.name}</DialogTitle>
+            <p className="mt-1 text-sm text-muted-foreground">{builtin.description}</p>
+          </div>
+          <Button onClick={save} disabled={pending || !form.ready} className="h-9 px-4">
+            {pending ? "Saving…" : "Connect"}
+          </Button>
+          <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
+            <X />
+          </Button>
+        </div>
+        <div className="mt-4">
+          <McpFields fields={setup.fields} values={form.values} onChange={form.setValues} missing={builtin.missing} docs={setup.docs} />
+        </div>
+        <p className="mt-4 text-xs text-muted-foreground">
+          Agents use it by listing <code className="font-mono">{builtin.kiln_id}</code> under <code className="font-mono">mcpServers</code>.
+        </p>
+      </DialogContent>
+    </Dialog>
   );
 }

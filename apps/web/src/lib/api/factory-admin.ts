@@ -24,6 +24,7 @@ export async function listConnections(): Promise<Connection[]> {
 }
 
 export const listMcpServers = async () => (await safe(() => api.mcpServers(), null))?.servers ?? [];
+export const listBuiltinMcps = async () => (await safe(() => api.mcpServers(), null))?.builtins ?? [];
 export const listWorkers = async () => (await safe(() => api.workers(), null))?.workers ?? [];
 
 /** Team secrets: managed ones with their metadata, plus names only from `GET /api/v1/secrets`. */

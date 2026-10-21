@@ -7,6 +7,7 @@ import { Copy, CopyPlus, EllipsisVertical, GitPullRequestArrow, KeyRound, Plug, 
 import { toast } from "sonner";
 import { AgentTypeIcon } from "@/components/kiln/agent-type-icon";
 import { MarkdownEditor } from "@/components/kiln/markdown-editor";
+import { McpTestButton } from "@/components/kiln/mcp-test";
 import { AddMcpDialog, AddSecretDialog, AuthSecretField, Chips, FormRow, HarnessSelect, HostSelect, ModelSelect, RunnerSelect, type McpOption, type RunnerOption, type SecretOption, type WorkerOption } from "@/components/kiln/resource-pickers";
 import { RunnerDialog, type RunnerFile } from "@/components/kiln/runner-dialog";
 import { PageHeader } from "@/components/kiln/ui";
@@ -231,6 +232,7 @@ export function AgentEditor(p: Props) {
                     <Button variant="ghost" onClick={() => setDialog("mcp")}>
                       <Plus /> Add MCP
                     </Button>
+                    <McpTestButton scope={form.mcpServers ? { factory: p.factory, servers: form.mcpServers } : { factory: p.factory, agent: p.name ?? undefined }} title={`MCP servers${p.name ? ` for ${p.name}` : ""}`} />
                     {form.mcpServers !== null && (
                       <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => set({ mcpServers: null })}>
                         Use defaults

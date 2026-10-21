@@ -24,6 +24,7 @@ export type WorkItemLike = {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  blockedReason?: string;
 };
 
 export type RunLike = {
@@ -52,6 +53,12 @@ export type RunRow = {
   href: string;
   title: string;
   status: RunStatus;
+  /** Why the task waits (blocked reason), shown next to its status. */
+  statusNote?: string;
+  /** On the latest run of a step that ran more than once: how many times it ran. */
+  attempts?: number;
+  /** On an earlier, superseded run of a step: which attempt it was (1 = first). */
+  attempt?: number;
   factory: string;
   /** Agent names in this row (the root foreman row carries "foreman"). */
   agent: string;
@@ -198,6 +205,29 @@ function runRow(run: RunLike, wi: WorkItemLike | undefined, byParent: Map<string
   };
 }
 
+/**
+ * Repeated runs of the same step (same agent and stage) fold into one row: the latest attempt,
+ * placed where it ran, with the earlier attempts (newest first) under it after its own subagents.
+ */
+function foldAttempts(rows: RunRow[], runs: RunLike[]): RunRow[] {
+  const key = (r: RunLike) => `${r.agent}|${r.stage ?? ""}`;
+  const groups = new Map<string, RunRow[]>();
+  runs.forEach((r, i) => groups.set(key(r), [...(groups.get(key(r)) ?? []), rows[i]!]));
+  return runs.flatMap((r, i) => {
+    const group = groups.get(key(r))!;
+    const latest = group[group.length - 1]!;
+    if (latest !== rows[i]) return [];
+    if (group.length === 1) return [latest];
+    const earlier = group.slice(0, -1).map((row, n) => ({ ...row, attempt: n + 1 })).reverse();
+    return [{ ...latest, attempts: group.length, children: [...latest.children, ...earlier] }];
+  });
+}
+
+/** Steps under a task, for its count badge: each step once, with its subagents, not every attempt. */
+export function stepCount(rows: RunRow[]): number {
+  return rows.reduce((n, r) => (r.attempt ? n : n + 1 + stepCount(r.children)), 0);
+}
+
 export function buildRunRows(workItems: WorkItemLike[], runs: RunLike[]): RunRow[] {
   const ids = new Set(runs.map((r) => r.id));
   const byParent = new Map<string, RunLike[]>();
@@ -209,7 +239,8 @@ export function buildRunRows(workItems: WorkItemLike[], runs: RunLike[]): RunRow
     else standalone.push(r);
   }
   const rows: RunRow[] = workItems.map((wi) => {
-    const children = (byWorkItem.get(wi.id) ?? []).map((r) => runRow(r, wi, byParent));
+    const own = byWorkItem.get(wi.id) ?? [];
+    const children = foldAttempts(own.map((r) => runRow(r, wi, byParent)), own);
     const media = { images: 0, videos: 0 };
     for (const c of flatten(children)) {
       media.images += c.images;
@@ -220,6 +251,7 @@ export function buildRunRows(workItems: WorkItemLike[], runs: RunLike[]): RunRow
       href: `/runs/${wi.id}`,
       title: wi.title,
       status: workItemStatus(wi.state),
+      ...(wi.blockedReason ? { statusNote: wi.blockedReason } : {}),
       factory: wi.factory,
       agent: "foreman",
       source: wi.source.provider,
@@ -297,6 +329,8 @@ export function filterRows(rows: RunRow[], f: RunFilters): RunRow[] {
 
 function filterChildren(rows: RunRow[], f: RunFilters): RunRow[] {
   return rows.flatMap((r) => {
+    // A superseded attempt does not speak for the task: the latest attempt's row does.
+    if (r.attempt) return [];
     if (rowMatches(r, f)) return [r];
     const kids = filterChildren(r.children, f);
     return kids.length ? [{ ...r, children: kids }] : [];

@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/kiln/ui";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { agentDisplayName, filterRows, mediaChipLabel, parseRunFilters, relativeTime, runFiltersToQuery, RUN_STATUSES, SOURCES, sourceLabel, STATUS_LABEL, type RunFilters, type RunRow, type RunStatus, type SortKey } from "@/lib/run-tree";
+import { agentDisplayName, filterRows, mediaChipLabel, parseRunFilters, relativeTime, runFiltersToQuery, RUN_STATUSES, SOURCES, sourceLabel, STATUS_LABEL, stepCount, type RunFilters, type RunRow, type RunStatus, type SortKey } from "@/lib/run-tree";
 import { cn } from "@/lib/utils";
 import { stopRun } from "./actions";
 import { RunContextMenu } from "./run-context-menu";
@@ -214,7 +214,7 @@ function RunTreeRow({ row, depth, expanded, onToggle, onCancel }: { row: RunRow;
   const hasKids = row.children.length > 0;
   const href = depth > 0 ? `${row.href}?tab=agents&from=parent` : row.href;
   const media = mediaChipLabel(row.images, row.videos);
-  const count = countAll(row.children);
+  const count = stepCount(row.children);
   return (
     <li>
       <RunContextMenu
@@ -227,20 +227,25 @@ function RunTreeRow({ row, depth, expanded, onToggle, onCancel }: { row: RunRow;
         <Link href={href} className="absolute inset-0 rounded-lg" aria-label={row.title} />
         {hasKids ? (
           <button type="button" aria-label={open ? "Collapse children" : "Expand children"} aria-expanded={open} onClick={() => onToggle(row.id)} className="relative z-10 size-6 shrink-0">
-            <span className={cn("absolute inset-0 transition-opacity", open ? "opacity-0" : "group-hover/row:opacity-0")}>
+            <span className="absolute inset-0 transition-opacity group-hover/row:opacity-0">
               <StatusSquare status={row.status} />
-              <span aria-label={`${count} child runs`} className="absolute -right-1 -bottom-1 flex size-3.5 items-center justify-center rounded-full bg-black text-[9px] font-semibold text-white ring-1 ring-background dark:bg-white dark:text-black">
-                {count}
-              </span>
+              {!open && (
+                <span aria-label={`${count} steps`} className="absolute -right-1 -bottom-1 flex size-3.5 items-center justify-center rounded-full bg-black text-[9px] font-semibold text-white ring-1 ring-background dark:bg-white dark:text-black">
+                  {count}
+                </span>
+              )}
             </span>
-            <span className={cn("absolute inset-0 flex items-center justify-center rounded-[5px] bg-foreground/[0.07] text-muted-foreground transition-opacity", open ? "opacity-100" : "opacity-0 group-hover/row:opacity-100")}>
+            <span className="absolute inset-0 flex items-center justify-center rounded-[5px] bg-foreground/[0.07] text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100">
               {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
             </span>
           </button>
         ) : (
           <StatusSquare status={row.status} className="relative" />
         )}
-        <span className="pointer-events-none relative min-w-0 flex-1 truncate text-sm font-medium">{row.title}</span>
+        <span className="pointer-events-none relative min-w-0 flex-1 truncate text-sm font-medium">
+          {row.attempt ? <span className="text-muted-foreground">Attempt {row.attempt}</span> : row.title}
+          {row.attempts && <span className="ml-2 text-xs font-normal text-muted-foreground">{row.attempts} attempts</span>}
+        </span>
         <span className="relative flex shrink-0 items-center gap-3">
           <span className="flex items-center [&>*+*]:-ml-6 [&>*+*]:transition-[margin] [&>*+*]:duration-300 [&>*+*]:ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover/row:[&>*+*]:ml-1">
             {row.prUrl && (
@@ -270,6 +275,11 @@ function RunTreeRow({ row, depth, expanded, onToggle, onCancel }: { row: RunRow;
             <PersonAvatar name={row.creator || "Kiln"} />
             <span className="sr-only">Created by {personName(row.creator || "kiln")}</span>
           </span>
+          {depth === 0 && (
+            <span className={cn("pointer-events-auto relative w-20 truncate text-right text-xs font-medium", STATUS_TEXT[row.status])} title={row.statusNote}>
+              {ROOT_STATUS_LABEL[row.status]}
+            </span>
+          )}
           <span className="pointer-events-none min-w-[100px] text-right text-xs text-muted-foreground" suppressHydrationWarning>
             {relativeTime(row.updatedAt)}
           </span>
@@ -286,9 +296,9 @@ function RunTreeRow({ row, depth, expanded, onToggle, onCancel }: { row: RunRow;
   );
 }
 
-function countAll(rows: RunRow[]): number {
-  return rows.reduce((n, r) => n + 1 + countAll(r.children), 0);
-}
+/** A task's status in words; "Needs you" because a blocked task waits on a person. */
+const ROOT_STATUS_LABEL: Record<RunStatus, string> = { running: "Running", blocked: "Needs you", failed: "Failed", complete: "Done", cancelled: "Cancelled" };
+const STATUS_TEXT: Record<RunStatus, string> = { running: "text-violet-600 dark:text-violet-400", blocked: "text-orange-600 dark:text-orange-400", failed: "text-pink-600 dark:text-pink-400", complete: "text-emerald-600 dark:text-emerald-400", cancelled: "text-muted-foreground" };
 
 function SortMenu({ sort, dir, onChange }: { sort: SortKey; dir: "asc" | "desc"; onChange: (s: SortKey, d: "asc" | "desc") => void }) {
   return (

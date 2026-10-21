@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRunRows, canCancel, runSource, runTitle, filterRows, longDuration, mediaChipLabel, parseRunFilters, presetRange, relativeTime, runFiltersToQuery, shortDuration, sourceLabel, workItemStatus, type RunLike, type WorkItemLike } from "./run-tree";
+import { buildRunRows, canCancel, runSource, runTitle, filterRows, longDuration, mediaChipLabel, parseRunFilters, presetRange, relativeTime, runFiltersToQuery, shortDuration, sourceLabel, stepCount, workItemStatus, type RunLike, type WorkItemLike } from "./run-tree";
 
 const wi = (id: string, over: Partial<WorkItemLike> = {}): WorkItemLike => ({
   id,
@@ -37,6 +37,29 @@ describe("buildRunRows", () => {
     expect(root!.children[0]!.source).toBe("orchestration");
   });
 
+  it("folds repeated attempts of a step into one row showing the latest", () => {
+    const at = (m: number) => `2026-10-20T10:${String(m).padStart(2, "0")}:00Z`;
+    const rows = buildRunRows(
+      [wi("wi_1", { state: "blocked", blockedReason: "implement failed twice" })],
+      [
+        run("t1", { workItemId: "wi_1", agent: "triage", stage: "triage", startedAt: at(1) }),
+        run("b1", { workItemId: "wi_1", stage: "build", status: "failed", startedAt: at(2) }),
+        run("b2", { workItemId: "wi_1", stage: "build", status: "failed", startedAt: at(3) }),
+        run("s1", { workItemId: "wi_1", parentRunId: "b2", agent: "review", startedAt: at(4) }),
+        run("b3", { workItemId: "wi_1", stage: "build", status: "running", startedAt: at(5) }),
+      ],
+    );
+    const [root] = rows;
+    expect(root!.statusNote).toBe("implement failed twice");
+    expect(root!.children.map((c) => c.id)).toEqual(["t1", "b3"]);
+    const latest = root!.children[1]!;
+    expect(latest.status).toBe("running");
+    expect(latest.attempts).toBe(3);
+    expect(latest.children.map((c) => [c.id, c.attempt])).toEqual([["b2", 2], ["b1", 1]]);
+    expect(latest.children[0]!.children.map((c) => c.id)).toEqual(["s1"]);
+    expect(stepCount(root!.children)).toBe(2);
+  });
+
   it("keeps runs without a work item as roots", () => {
     const rows = buildRunRows([], [run("b1", { kind: "benchmark" })]);
     expect(rows[0]!.source).toBe("benchmark");
@@ -58,6 +81,14 @@ describe("filterRows", () => {
     const out = filterRows(rows, { status: ["failed"] });
     expect(out.map((r) => r.id).sort()).toEqual(["wi_a", "wi_b"]);
     expect(out.find((r) => r.id === "wi_a")!.children.map((c) => c.id)).toEqual(["r1"]);
+  });
+
+  it("ignores superseded attempts when filtering by status", () => {
+    const tried = buildRunRows(
+      [wi("wi_c", { state: "complete" })],
+      [run("x1", { workItemId: "wi_c", stage: "build", status: "failed", startedAt: "2026-10-20T10:01:00Z" }), run("x2", { workItemId: "wi_c", stage: "build", status: "succeeded", startedAt: "2026-10-20T10:02:00Z" })],
+    );
+    expect(filterRows(tried, { status: ["failed"] })).toEqual([]);
   });
 
   it("searches titles and sorts", () => {

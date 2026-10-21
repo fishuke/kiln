@@ -184,6 +184,29 @@ export class RunService {
     return this.sessions.has(runId) || this.remotes.has(runId);
   }
 
+  /**
+   * Runs live in this process, so after a restart none is still going: each one saved as going
+   * stops as blocked (a follow-up continues it) and its open command question closes.
+   */
+  recoverInterrupted(): Run[] {
+    const now = this.k.clock.now().toISOString();
+    const stale = this.k.store.list<Run>(C.runs, (r) => ["queued", "claimed", "running"].includes(r.status) && !this.isActive(r.id) && !this.live.has(r.id));
+    const message = "Kiln restarted while this run was going. Send a follow-up or retry to continue.";
+    for (const run of stale) {
+      run.status = "blocked";
+      run.error = { code: "interrupted_by_restart", message, retryable: false };
+      run.summary = message;
+      run.finishedAt = now;
+      this.record(run, "error", `interrupted_by_restart: ${message}`, { code: "interrupted_by_restart", retryable: false });
+      this.record(run, "finished", run.status, { costUsd: run.costUsd });
+      this.save(run);
+    }
+    const ids = new Set(stale.map((r) => r.id));
+    for (const g of this.k.gates.list({ state: "open" }))
+      if (g.command && g.runId && ids.has(g.runId)) this.k.store.put(C.gates, { ...g, state: "expired", decidedBy: "kiln:restart", decidedAt: now });
+    return stale;
+  }
+
   /** Runs started by this run, recursively. */
   descendants(runId: string): Run[] {
     const all = this.k.store.list<Run>(C.runs);

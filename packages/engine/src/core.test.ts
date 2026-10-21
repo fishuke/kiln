@@ -49,6 +49,31 @@ describe("errors and retries", () => {
   });
 });
 
+describe("recovering after a restart", () => {
+  it("stops runs and tasks a restart cut off, so they can be retried instead of showing as working forever", async () => {
+    const { kiln } = createTestKiln({ preview: false });
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Save room lists", body: "- whitelist", source: { provider: "api" }, requester: "a@acme.test" });
+    const ciWait = await kiln.workflow.create({ factory: "webapp", title: "Wait for CI", body: "- x", source: { provider: "api" }, requester: "a@acme.test" });
+    const done = await kiln.runs.execute({ factory: "webapp", sha, agent: "foreman", prompt: "build it", push: false });
+    // What the store holds when the server dies mid-build: a run saved as running and its open command question.
+    kiln.store.put(C.runs, { ...done, status: "running", workItemId: wi.id, finishedAt: undefined });
+    kiln.store.put(C.workItems, { ...kiln.workflow.get(wi.id)!, state: "building" });
+    kiln.store.put(C.workItems, { ...kiln.workflow.get(ciWait.id)!, state: "building", blockedReason: "waiting for CI" });
+    const gate = await kiln.gates.open({ workItem: kiln.workflow.get(wi.id)!, kind: "question", name: "command-approval", title: "Allow build to run a risky command?", runId: done.id, command: "rm -rf node_modules" });
+
+    const { kiln: restarted } = createTestKiln({ preview: false, store: kiln.store });
+    expect(restarted.recoverInterrupted()).toEqual({ runs: [done.id], workItems: [wi.id] });
+
+    expect(restarted.runs.get(done.id)).toMatchObject({ status: "blocked", error: { code: "interrupted_by_restart" } });
+    expect(restarted.runs.events(done.id).at(-1)).toMatchObject({ type: "finished", text: "blocked" });
+    expect(restarted.gates.get(gate.id)).toMatchObject({ state: "expired", decidedBy: "kiln:restart" });
+    expect(restarted.workflow.get(wi.id)).toMatchObject({ state: "blocked", blockedReason: expect.stringMatching(/restarted/) });
+    expect(restarted.workflow.get(ciWait.id)?.state).toBe("building");
+    expect(restarted.recoverInterrupted()).toEqual({ runs: [], workItems: [] });
+  });
+});
+
 describe("default runner image", () => {
   it("uses KILN_RUNNER_IMAGE for agents without a runner, on the configured backend", async () => {
     const images: string[] = [];

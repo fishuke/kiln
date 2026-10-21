@@ -229,6 +229,14 @@ export class Workflow {
     return this.advance(id);
   }
 
+  /** After a restart no stage is in flight: tasks that were working stop as blocked, ready to retry. CI waits resume on the tick. */
+  recoverInterrupted(): string[] {
+    const working: WorkItemState[] = ["received", "triaging", "planning", "building", "reviewing"];
+    const stuck = this.list().filter((wi) => working.includes(wi.state) && wi.blockedReason !== "waiting for CI");
+    for (const wi of stuck) this.park(wi.id, "Kiln restarted while this task was working. Retry or send a message to continue.");
+    return stuck.map((wi) => wi.id);
+  }
+
   park(id: string, reason: string) {
     const wi = this.get(id);
     if (!wi || !isActive(wi.state) || wi.state === "blocked") return;

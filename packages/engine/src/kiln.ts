@@ -380,6 +380,11 @@ export class Kiln {
     }
   }
 
+  /** Call once at startup: runs and tasks the last process left going stop as blocked instead of showing as working forever. */
+  recoverInterrupted() {
+    return { runs: this.runs.recoverInterrupted().map((r) => r.id), workItems: this.workflow.recoverInterrupted() };
+  }
+
   /** One pass of timers: gate nudges and expiry, schedules, CI waits, canaries, self-improvement. */
   async tick(opts: { selfImprovement?: boolean } = {}) {
     await this.gates.tick();

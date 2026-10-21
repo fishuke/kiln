@@ -2,15 +2,26 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Database, Globe, Search, Settings, Terminal, Theater, X } from "lucide-react";
+import { Activity, Database, Globe, Search, Settings, Terminal, Theater, X } from "lucide-react";
 import type { McpServer } from "@kiln/sdk-ts";
 import { FigmaIcon } from "@/components/kiln/mcp-icons";
 import { GitHubIcon, LinearIcon, SentryIcon } from "@/components/kiln/brand-icons";
+import { McpFields, useMcpFields } from "@/components/kiln/mcp-fields";
 import { useAction } from "@/components/kiln/use-action";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { CUSTOM_SUGGESTION, MCP_TEMPLATES, parseMcpJson, secretRefs, toMcpJson, toMcpName, type McpTemplate } from "@/lib/mcp-config";
+import {
+  CUSTOM_SUGGESTION,
+  fillTemplate,
+  MCP_TEMPLATES,
+  parseMcpJson,
+  secretRefs,
+  toMcpJson,
+  toMcpName,
+  type McpTemplate,
+  type ParsedMcp,
+} from "@/lib/mcp-config";
 import { cn } from "@/lib/utils";
 import { createMcp, updateMcp } from "./actions";
 
@@ -23,6 +34,10 @@ export const TEMPLATE_ICONS: Record<string, React.ComponentType<{ className?: st
   postgres: Database,
   "custom-stdio": Terminal,
   "custom-url": Globe,
+  signoz: Activity,
+  datadog: Activity,
+  newrelic: Activity,
+  betterstack: Activity,
 };
 
 export function McpIcon({ id, className }: { id?: string; className?: string }) {
@@ -41,18 +56,28 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
   const [mode, setMode] = useState<"managed" | "direct">(server?.mode ?? "managed");
   const [modeTouched, setModeTouched] = useState(Boolean(server));
   const [description, setDescription] = useState(server?.description ?? "");
+  const [showJson, setShowJson] = useState(false);
   const [pending, run] = useAction();
   const router = useRouter();
 
-  const parsed = useMemo(() => parseMcpJson(config), [config]);
+  const t = template === "custom" ? undefined : template;
+  // A template with fields is filled in through its form; its JSON stays available for edits.
+  const guided = Boolean(t?.fields?.length) && !showJson;
+  const form = useMcpFields(guided ? t!.fields! : [], undefined, t?.name);
+  const parsed = useMemo(
+    () => (guided ? ({ ok: true, name: undefined, server: fillTemplate(t!.server, t!.fields!, form.values) } as ParsedMcp) : parseMcpJson(config)),
+    [guided, t, form.values, config],
+  );
   const name = toMcpName(display || (parsed.ok ? (parsed.name ?? "") : ""));
   const refs = parsed.ok ? secretRefs(parsed.server) : [];
   const effectiveMode = modeTouched ? mode : parsed.ok && parsed.server.command ? "direct" : "managed";
-  const valid = parsed.ok && name.length > 0;
+  const valid = parsed.ok && name.length > 0 && (!guided || form.ready);
   const shown = MCP_TEMPLATES.filter((t) => !query || t.name.toLowerCase().includes(query.toLowerCase()));
 
   const pick = (t: McpTemplate | "custom") => {
     setTemplate(t);
+    setShowJson(false);
+    form.reset();
     if (t === "custom") {
       setDisplay("");
       setConfig("");
@@ -86,10 +111,14 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
       },
     };
     if (server) return run(() => updateMcp(server.id, body), done);
+    if (guided)
+      return run(async () => {
+        const r = await form.saveSecrets();
+        return r.ok ? createMcp(body) : { ok: false as const, error: r.error ?? "Could not save the keys" };
+      }, done);
     return run(() => createMcp(body), done);
   };
 
-  const t = template === "custom" ? undefined : template;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false} className={cn("h-[min(720px,calc(100vh-4rem))] gap-0 overflow-hidden p-0 sm:max-w-[780px]", server && "sm:max-w-[520px]")}>
@@ -115,18 +144,6 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
                   </button>
                 ))}
                 {shown.length === 0 && <div className="px-2.5 py-2 text-sm text-muted-foreground">No templates match.</div>}
-                {builtins.length > 0 && (
-                  <>
-                    <div className="px-2.5 pt-4 pb-1 text-xs text-muted-foreground">Built in, no setup needed</div>
-                    {builtins.map((b) => (
-                      <div key={b.kiln_id} className="flex h-9 items-center gap-2.5 px-2.5 text-sm" title={b.connected ? "Connected" : `Needs ${b.missing.join(", ")}`}>
-                        <span className={cn("size-1.5 rounded-full", b.connected ? "bg-green-500" : "bg-muted-foreground/40")} />
-                        <span className="font-mono text-xs">{b.kiln_id}</span>
-                        {!b.connected && <span className="truncate text-xs text-muted-foreground">needs {b.missing[0]}</span>}
-                      </div>
-                    ))}
-                  </>
-                )}
               </div>
             </aside>
           )}
@@ -162,50 +179,76 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
               {display && name !== display && <span className="text-xs text-muted-foreground">Agents refer to it as <code className="font-mono">{name || "…"}</code></span>}
             </label>
 
-            <p className="mt-4 text-sm text-muted-foreground">
-              Add a single MCP server as JSON. Use <code className="font-mono text-xs">url</code> and optional <code className="font-mono text-xs">headers</code>, or <code className="font-mono text-xs">command</code> with optional <code className="font-mono text-xs">args</code> and{" "}
-              <code className="font-mono text-xs">env</code>. Use <code className="font-mono text-xs">{"{{SECRET_NAME}}"}</code> anywhere in a header or environment value. Literal text is stored with this config.
-            </p>
-
-            <div className="mt-4 grid gap-1.5">
-              <span className="text-sm font-medium">Configuration</span>
-              <JsonEditor value={config} onChange={setConfig} suggestion={CUSTOM_SUGGESTION} />
-              {config && !parsed.ok && <span className="text-xs text-destructive">{parsed.error}</span>}
-            </div>
-
-            <div className="mt-4 grid gap-1.5">
-              <span className="text-sm font-medium">Connection mode</span>
-              <div className="grid gap-2 sm:grid-cols-2" role="radiogroup">
-                {(
-                  [
-                    ["managed", "Kiln managed", "Kiln puts secret values into the harness's MCP config."],
-                    ["direct", "Direct", "The config keeps ${NAME} references; values go into the run's environment."],
-                  ] as const
-                ).map(([v, l, h]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    role="radio"
-                    aria-checked={effectiveMode === v}
-                    onClick={() => {
-                      setMode(v);
-                      setModeTouched(true);
-                    }}
-                    className={cn("flex flex-col justify-start rounded-lg border p-2.5 text-left hover:bg-muted", effectiveMode === v && "border-foreground ring-1 ring-foreground")}
-                  >
-                    <div className="text-sm font-medium">{l}</div>
-                    <div className="text-xs text-muted-foreground">{h}</div>
-                  </button>
-                ))}
+            {guided ? (
+              <div className="mt-5">
+                <McpFields fields={t!.fields!} values={form.values} onChange={form.setValues} docs={t!.docs} />
+                <button
+                  type="button"
+                  className="mt-4 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                  onClick={() => {
+                    if (parsed.ok) setConfig(toMcpJson(name || t!.id, parsed.server));
+                    setShowJson(true);
+                  }}
+                >
+                  Edit the JSON instead
+                </button>
               </div>
-            </div>
+            ) : (
+              <>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  Add a single MCP server as JSON. Use <code className="font-mono text-xs">url</code> and optional{" "}
+                  <code className="font-mono text-xs">headers</code>, or <code className="font-mono text-xs">command</code> with optional{" "}
+                  <code className="font-mono text-xs">args</code> and <code className="font-mono text-xs">env</code>. Use{" "}
+                  <code className="font-mono text-xs">{"{{SECRET_NAME}}"}</code> anywhere in a header or environment value. Literal text is stored with this
+                  config.
+                </p>
+
+                <div className="mt-4 grid gap-1.5">
+                  <span className="text-sm font-medium">Configuration</span>
+                  <JsonEditor value={config} onChange={setConfig} suggestion={CUSTOM_SUGGESTION} />
+                  {config && !parsed.ok && <span className="text-xs text-destructive">{parsed.error}</span>}
+                </div>
+              </>
+            )}
+
+            {!guided && (
+              <div className="mt-4 grid gap-1.5">
+                <span className="text-sm font-medium">Connection mode</span>
+                <div className="grid gap-2 sm:grid-cols-2" role="radiogroup">
+                  {(
+                    [
+                      ["managed", "Kiln managed", "Kiln puts secret values into the harness's MCP config."],
+                      ["direct", "Direct", "The config keeps ${NAME} references; values go into the run's environment."],
+                    ] as const
+                  ).map(([v, l, h]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={effectiveMode === v}
+                      onClick={() => {
+                        setMode(v);
+                        setModeTouched(true);
+                      }}
+                      className={cn(
+                        "flex flex-col justify-start rounded-lg border p-2.5 text-left hover:bg-muted",
+                        effectiveMode === v && "border-foreground ring-1 ring-foreground",
+                      )}
+                    >
+                      <div className="text-sm font-medium">{l}</div>
+                      <div className="text-xs text-muted-foreground">{h}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <label className="mt-4 grid gap-1.5">
               <span className="text-xs font-medium">Description (optional)</span>
               <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What agents use it for" className="h-9" />
             </label>
 
-            {refs.length > 0 && (
+            {!guided && refs.length > 0 && (
               <div className="mt-4 text-sm">
                 <span className="text-muted-foreground">Secrets: </span>
                 {refs.map((r) => (

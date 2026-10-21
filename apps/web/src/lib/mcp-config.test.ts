@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CUSTOM_SUGGESTION, MCP_TEMPLATES, parseMcpJson, secretRefs, toMcpJson, toMcpName } from "./mcp-config";
+import { CUSTOM_SUGGESTION, fieldsError, fillTemplate, MCP_TEMPLATES, parseMcpJson, secretRefs, toMcpJson, toMcpName } from "./mcp-config";
 
 describe("MCP config", () => {
   it("parses the named, bare and Claude Code shapes", () => {
@@ -23,9 +23,24 @@ describe("MCP config", () => {
 
   it("round-trips templates", () => {
     for (const t of MCP_TEMPLATES) {
-      const r = parseMcpJson(toMcpJson(t.id, t.server));
-      expect(r).toEqual({ ok: true, name: t.id, server: t.server });
+      const values = Object.fromEntries((t.fields ?? []).map((f) => [f.key, f.kind === "url" ? "https://x.example.com" : "v"]));
+      const server = JSON.parse(JSON.stringify(fillTemplate(t.server, t.fields ?? [], values))) as typeof t.server;
+      const r = parseMcpJson(toMcpJson(t.id, server));
+      expect(r).toEqual({ ok: true, name: t.id, server });
     }
+  });
+
+  it("fills a template's plain fields in and keeps its secret fields as references (#44)", () => {
+    const signoz = MCP_TEMPLATES.find((t) => t.id === "signoz")!;
+    expect(fieldsError(signoz.fields!, {})).toBe("Enter signoz url.");
+    expect(fieldsError(signoz.fields!, { SIGNOZ_URL: "signoz.acme.test", SIGNOZ_API_KEY: "k" })).toBe("SigNoz URL must start with https://");
+    expect(fieldsError(signoz.fields!, { SIGNOZ_URL: "https://signoz.acme.test", SIGNOZ_API_KEY: "k" })).toBeUndefined();
+    // A secret that already exists may stay empty.
+    expect(fieldsError(signoz.fields!, { SIGNOZ_URL: "https://signoz.acme.test" }, [])).toBeUndefined();
+    expect(fillTemplate(signoz.server, signoz.fields!, { SIGNOZ_URL: " https://signoz.acme.test " })).toMatchObject({
+      url: "https://mcp.us.signoz.cloud/mcp",
+      headers: { "SIGNOZ-API-KEY": "{{SIGNOZ_API_KEY}}", "X-SigNoz-URL": "https://signoz.acme.test" },
+    });
   });
 
   it("slugifies display names", () => {

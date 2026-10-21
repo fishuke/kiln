@@ -17,7 +17,6 @@ export const BUILTIN_MCP_SERVERS: Record<BuiltinMcp, ServerShape & { description
   jira: { description: "Jira issues", command: "uvx", args: ["mcp-atlassian"], env: { JIRA_URL: "{{JIRA_BASE_URL}}", JIRA_USERNAME: "{{JIRA_EMAIL}}", JIRA_API_TOKEN: "{{JIRA_API_TOKEN}}" } },
   github: { description: "GitHub repositories, issues and pull requests (read-mostly token)", url: "https://api.githubcopilot.com/mcp/", headers: { Authorization: "Bearer {{GITHUB_MCP_TOKEN}}" } },
   discord: { description: "Discord channels", command: "npx", args: ["-y", "mcp-discord"], env: { DISCORD_TOKEN: "{{DISCORD_BOT_TOKEN}}" } },
-  signoz: { description: "SigNoz traces, logs, metrics, dashboards and alerts", command: "signoz-mcp-server", args: [], env: { SIGNOZ_URL: "{{SIGNOZ_URL}}", SIGNOZ_API_KEY: "{{SIGNOZ_API_KEY}}" } },
 };
 
 const PLACEHOLDER = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
@@ -145,5 +144,33 @@ export class McpRegistry {
       else servers.push({ name, command: sub(shape.command!), args: (shape.args ?? []).map(sub), env: subAll(shape.env) });
     }
     return { servers, env, skipped };
+  }
+
+  /**
+   * Hosts a run must reach for the servers it gets: a URL server's own host, and the host of every
+   * URL-valued secret a server uses (such as JIRA_BASE_URL). Servers the run skips add none.
+   */
+  hosts(teamId: string | undefined, refs: string[], secrets: SecretResolver): string[] {
+    const hosts = new Set<string>();
+    const hostOf = (v: string) => {
+      try {
+        const u = new URL(v);
+        if (u.protocol === "https:" || u.protocol === "http:") hosts.add(u.hostname);
+      } catch {
+        // not a URL
+      }
+    };
+    for (const s of this.resolve(teamId, refs, secrets).servers) {
+      if ("url" in s) hostOf(s.url);
+    }
+    for (const raw of refs) {
+      const ref = raw.replace(/^kiln:/, "");
+      const shape = (BUILTIN_MCP as readonly string[]).includes(ref) ? BUILTIN_MCP_SERVERS[ref as BuiltinMcp] : teamId ? this.get(teamId, ref) : undefined;
+      if (!shape) continue;
+      const values = placeholders(shape).map((n) => secrets.get(n));
+      if (values.some((v) => v === undefined)) continue;
+      for (const v of values) hostOf(v!);
+    }
+    return [...hosts];
   }
 }

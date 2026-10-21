@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { Bot, Cloud, Container, Eye, EyeOff, KeyRound, Laptop, Pencil, Plug, Plus, Search, Server, X } from "lucide-react";
 import { toast } from "sonner";
 import { createMcpServers, createTeamSecret } from "@/app/f/[factory]/settings/actions";
+import { McpFields, useMcpFields } from "@/components/kiln/mcp-fields";
 import { InfoTip } from "@/components/kiln/info-tip";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,12 +13,14 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { HARNESSES, harnessLabel, hostOptions, modelLabel, modelsFor } from "@/lib/agent-catalog";
+import { BUILTIN_SETUP, fillTemplate, MCP_TEMPLATES } from "@/lib/mcp-config";
 import { cn } from "@/lib/utils";
 
 export const INHERIT = "__inherit";
 
 export type SecretOption = { name: string; description?: string; type?: string };
-export type McpOption = { name: string; description?: string; managed?: boolean };
+/** A team MCP server, or a built-in one (`builtin`) with the secrets it still needs (`missing`). */
+export type McpOption = { name: string; description?: string; managed?: boolean; builtin?: boolean; missing?: string[] };
 export type RunnerOption = { name: string; os: string; description?: string };
 export type WorkerOption = { id: string; name?: string };
 
@@ -329,23 +332,62 @@ export function AddSecretDialog({ open, onOpenChange, secrets, selected, onAdd }
   );
 }
 
-/** Two-pane "Add MCP" dialog: pick from the team MCP registry, or add custom configs as JSON. */
-export function AddMcpDialog({ open, onOpenChange, servers, selected, onAdd }: { open: boolean; onOpenChange: (o: boolean) => void; servers: McpOption[]; selected: string[]; onAdd: (names: string[]) => void }) {
+/**
+ * Two-pane "Add MCP" dialog: the team's servers and the built-in ones, templates that ask for what
+ * they need (keys become team secrets, the server is registered for the team), or a custom JSON config.
+ */
+export function AddMcpDialog({
+  open,
+  onOpenChange,
+  servers,
+  selected,
+  onAdd,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  servers: McpOption[];
+  selected: string[];
+  onAdd: (names: string[]) => void;
+}) {
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<string>("custom");
   const [json, setJson] = useState("");
   const [pending, start] = useTransition();
-  const available = useMemo(() => servers.filter((s) => !selected.includes(s.name) && s.name.toLowerCase().includes(q.toLowerCase())), [servers, selected, q]);
+  const match = (n: string) => n.toLowerCase().includes(q.toLowerCase());
+  const available = useMemo(() => servers.filter((s) => !selected.includes(s.name) && match(s.name)), [servers, selected, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  const templates = MCP_TEMPLATES.filter((t) => t.fields?.length && !servers.some((s) => s.name === t.id) && match(t.name));
   const pickedServer = servers.find((s) => s.name === mode);
+  const template = MCP_TEMPLATES.find((t) => `tpl:${t.id}` === mode);
+  const builtinSetup = pickedServer?.builtin ? BUILTIN_SETUP[pickedServer.name] : undefined;
+  const needsConnect = Boolean(pickedServer?.missing?.length && builtinSetup);
+  const fields = template?.fields ?? (needsConnect ? builtinSetup!.fields : []);
+  const form = useMcpFields(fields, template ? undefined : pickedServer?.missing, template?.name ?? builtinSetup?.name);
+  const pick = (m: string) => {
+    form.reset();
+    setMode(m);
+  };
   const close = () => {
     setJson("");
-    setMode("custom");
+    pick("custom");
     onOpenChange(false);
   };
+  const finish = (names: string[], message?: string) => {
+    if (message) toast.success(message);
+    onAdd(names);
+    close();
+  };
   const add = () => {
-    if (pickedServer) {
-      onAdd([pickedServer.name]);
-      close();
+    if (pickedServer && !needsConnect) return finish([pickedServer.name]);
+    if (pickedServer || template) {
+      start(async () => {
+        const r = await form.saveSecrets();
+        if (!r.ok) return void toast.error(r.error ?? "Could not save the keys");
+        if (pickedServer) return finish([pickedServer.name], `Connected ${builtinSetup!.name}`);
+        const server = fillTemplate(template!.server, fields, form.values);
+        const created = await createMcpServers({ [template!.id]: { ...server, mode: template!.mode, description: template!.description } });
+        if (!created.ok) return void toast.error(created.error ?? `Could not add ${template!.name}`);
+        finish(created.names, `Added ${template!.name} for the team`);
+      });
       return;
     }
     let parsed: Record<string, Record<string, unknown>>;
@@ -364,10 +406,22 @@ export function AddMcpDialog({ open, onOpenChange, servers, selected, onAdd }: {
         toast.error(r.error ?? "Could not add the MCP server");
         return;
       }
-      onAdd(r.names);
-      close();
+      finish(r.names);
     });
   };
+  const item = (key: string, label: string, hint?: string) => (
+    <button
+      key={key}
+      type="button"
+      onClick={() => pick(key)}
+      className={cn("flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm", mode === key ? "bg-muted font-medium" : "hover:bg-muted")}
+    >
+      <Plug className="size-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{label}</span>
+      {hint && <span className="ml-auto shrink-0 text-xs font-normal text-muted-foreground">{hint}</span>}
+    </button>
+  );
+  const busy = pending || (pickedServer || template ? fields.length > 0 && !form.ready : !json.trim());
   return (
     <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
       <DialogContent className="h-[min(720px,90vh)] gap-0 overflow-hidden p-0 sm:max-w-[780px]" showCloseButton={false}>
@@ -378,36 +432,53 @@ export function AddMcpDialog({ open, onOpenChange, servers, selected, onAdd }: {
               <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search apps and MCP servers" className="h-10 pl-8" aria-label="Search apps and MCP servers" />
             </div>
             <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
-              <button type="button" onClick={() => setMode("custom")} className={cn("flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm", mode === "custom" ? "bg-muted font-medium" : "hover:bg-muted")}>
+              <button
+                type="button"
+                onClick={() => pick("custom")}
+                className={cn("flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm", mode === "custom" ? "bg-muted font-medium" : "hover:bg-muted")}
+              >
                 <Plus className="size-4" /> Custom MCP
               </button>
-              {available.length === 0 ? (
-                <p className="px-2 py-6 text-center text-sm text-muted-foreground">No connected MCP servers are available to add.</p>
-              ) : (
-                available.map((s) => (
-                  <button key={s.name} type="button" onClick={() => setMode(s.name)} className={cn("flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm", mode === s.name ? "bg-muted font-medium" : "hover:bg-muted")}>
-                    <Plug className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{s.name}</span>
-                  </button>
-                ))
-              )}
+              {available.length > 0 && <div className="px-2 pt-3 pb-1 text-xs text-muted-foreground">Your team</div>}
+              {available.map((s) => item(s.name, s.name, s.missing?.length ? "Connect" : undefined))}
+              {templates.length > 0 && <div className="px-2 pt-3 pb-1 text-xs text-muted-foreground">Templates</div>}
+              {templates.map((t) => item(`tpl:${t.id}`, t.name, "Set up"))}
+              {available.length === 0 && templates.length === 0 && <p className="px-2 py-6 text-center text-sm text-muted-foreground">No MCP servers match.</p>}
             </div>
           </div>
           <div className="flex min-h-0 flex-col">
             <div className="flex items-center justify-between px-5 pt-4 pb-2">
-              <DialogTitle>{pickedServer ? pickedServer.name : "Add custom MCP"}</DialogTitle>
+              <DialogTitle>{template?.name ?? builtinSetup?.name ?? pickedServer?.name ?? "Add custom MCP"}</DialogTitle>
               <div className="flex items-center gap-2">
-                <Button onClick={add} disabled={pending || (!pickedServer && !json.trim())}>
-                  Add
+                <Button onClick={add} disabled={busy}>
+                  {pending ? "Saving…" : needsConnect ? "Connect and add" : "Add"}
                 </Button>
                 <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={close}>
                   <X />
                 </Button>
               </div>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-3 p-5">
-              {pickedServer ? (
-                <p className="text-sm text-muted-foreground">{pickedServer.description ?? "An MCP server from your team registry."}</p>
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
+              {template || pickedServer ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    {template?.description ?? pickedServer?.description ?? "An MCP server from your team registry."}
+                  </p>
+                  {fields.length > 0 && (
+                    <McpFields
+                      fields={fields}
+                      values={form.values}
+                      onChange={form.setValues}
+                      missing={template ? undefined : pickedServer?.missing}
+                      docs={template?.docs ?? builtinSetup?.docs}
+                    />
+                  )}
+                  {template && (
+                    <p className="text-xs text-muted-foreground">
+                      Adds <code className="font-mono">{template.id}</code> to the team&apos;s MCPs and apps, so other agents can use it too.
+                    </p>
+                  )}
+                </>
               ) : (
                 <>
                   <p className="text-sm text-muted-foreground">

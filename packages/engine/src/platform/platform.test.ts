@@ -179,10 +179,6 @@ describe("MCP servers and environments", () => {
     expect(() => kiln.mcp.create(team.id, { name: "both", command: "x", url: "https://x" }, "a")).toThrow("either command");
     expect(kiln.mcp.builtins(team.id).find((b) => b.kiln_id === "linear")).toMatchObject({ connected: true });
     expect(kiln.mcp.builtins(team.id).find((b) => b.kiln_id === "github")).toMatchObject({ connected: false, missing: ["GITHUB_MCP_TOKEN"] });
-    expect(kiln.mcp.builtins(team.id).find((b) => b.kiln_id === "signoz")).toMatchObject({ connected: false, missing: ["SIGNOZ_URL", "SIGNOZ_API_KEY"] });
-    kiln.vault.set({ scope: "team", owner: team.id, name: "SIGNOZ_URL", value: "https://signoz.acme.test" }, "a");
-    kiln.vault.set({ scope: "team", owner: team.id, name: "SIGNOZ_API_KEY", value: "signoz-service-key" }, "a");
-    expect(kiln.mcp.resolve(team.id, ["signoz"], kiln.vault.resolver({ teamId: team.id })).servers).toEqual([{ name: "signoz", command: "signoz-mcp-server", args: [], env: { SIGNOZ_URL: "https://signoz.acme.test", SIGNOZ_API_KEY: "signoz-service-key" } }]);
     const sha = kiln.defs.require("webapp").appliedSha!;
     const run = await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "x", push: false });
     expect(seen[0]!.mcpServers!.filter((s) => s.name !== "browser")).toEqual([

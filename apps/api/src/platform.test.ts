@@ -323,7 +323,7 @@ describe("secrets, MCP servers, environments and usage API", () => {
     await expect(o.createMcpServer({ name: "bad", command: "x", url: "https://x.test" })).rejects.toMatchObject({ status: 400 });
     const listed = await member.c.mcpServers();
     expect(listed.servers.map((x) => x.name)).toEqual(["figma"]);
-    expect(listed.builtins.map((b) => b.kiln_id)).toEqual(["linear", "slack", "jira", "github", "discord", "signoz"]);
+    expect(listed.builtins.map((b) => b.kiln_id)).toEqual(["linear", "slack", "jira", "github", "discord"]);
     expect((await o.updateMcpServer(figma.id, { description: "Designs" })).description).toBe("Designs");
     await o.deleteMcpServer("figma");
     const env = await o.createEnvironment({ name: "node", image: "node:24", setupCommands: ["pnpm i"], repos: [{ owner: "acme", name: "web" }] });

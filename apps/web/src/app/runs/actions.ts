@@ -79,6 +79,16 @@ export async function pauseRun(id: string): Promise<ActionResult> {
   }
 }
 
+export async function retryTask(id: string): Promise<ActionResult> {
+  try {
+    await api.retry(id);
+    revalidatePath(`/runs/${id}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: msg(err) };
+  }
+}
+
 export async function resumeRun(id: string): Promise<ActionResult> {
   try {
     await api.resumeRun(id);

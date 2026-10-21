@@ -184,6 +184,50 @@ export class Workflow {
     this.save(wi);
   }
 
+  /**
+   * A person's message on a task: it answers the open question (unless it comes from a run), otherwise
+   * joins the conversation and resumes a task left blocked with nothing open, such as an expired question.
+   */
+  async message(id: string, input: { by: string; text: string; attachments?: Attachment[]; via?: string; fromRun?: boolean }) {
+    const wi = this.get(id);
+    if (!wi) throw new KilnError("resource_not_found", `unknown work item ${id}`);
+    const attachments = input.attachments ?? [];
+    const open = this.k.gates.list({ workItemId: id, state: "open" });
+    const question = input.fromRun ? undefined : open.find((g) => g.kind === "question" && !g.command);
+    if (question) {
+      if (attachments.length) this.addMessage(id, input.by, `Attached ${attachments.map((a) => a.name).join(", ")}`, attachments);
+      await this.k.gates.decide(question.id, { decision: "answer", answer: input.text, by: input.by, via: input.via ?? "web" });
+      return this.get(id)!;
+    }
+    this.addMessage(id, input.by, input.text, attachments);
+    if (!input.fromRun && wi.state === "blocked" && !open.length) await this.resume(id, `resumed after a message from ${input.by}`);
+    return this.get(id)!;
+  }
+
+  /** Restart a blocked task at the stage that stopped; a question it left open closes as retried. */
+  async retry(id: string, by: string) {
+    const wi = this.get(id);
+    if (!wi) throw new KilnError("resource_not_found", `unknown work item ${id}`);
+    if (wi.state !== "blocked") throw new KilnError("conflict", `work item ${id} is ${wi.state}, not blocked`);
+    const now = this.k.clock.now().toISOString();
+    for (const g of this.k.gates.list({ workItemId: id, state: "open" }))
+      if (g.kind === "question" && !g.command) this.k.store.put(C.gates, { ...g, state: "expired", decision: "retry", decidedBy: by, decidedVia: "web", decidedAt: now });
+    this.touch(id, by, `retried by ${by}`);
+    this.k.audit(by, "work_item.retry", id);
+    await this.resume(id, `retried by ${by}`);
+    return this.get(id)!;
+  }
+
+  private async resume(id: string, reason: string) {
+    const wi = this.get(id)!;
+    wi.blockedReason = undefined;
+    wi.loops = {};
+    this.save(wi);
+    const stage = wi.plan?.stages[wi.plan.cursor];
+    this.move(wi, stage?.kind === "spec" ? "planning" : "building", reason);
+    await this.advance(id);
+  }
+
   park(id: string, reason: string) {
     const wi = this.get(id);
     if (!wi || !isActive(wi.state) || wi.state === "blocked") return;
@@ -880,12 +924,7 @@ export class Workflow {
         return;
       }
       if (gate.answer) this.addMessage(wi.id, gate.decidedBy ?? "human", gate.answer);
-      const fresh = this.get(wi.id)!;
-      fresh.blockedReason = undefined;
-      fresh.loops = {};
-      this.save(fresh);
-      this.move(fresh, "building", "resumed after a human answer");
-      await this.advance(wi.id);
+      await this.resume(wi.id, "resumed after a human answer");
       return;
     }
     if (gate.state === "rejected" && (gate.kind === "spec" || gate.kind === "preview")) {

@@ -127,7 +127,7 @@ A gate can be approved or rejected from the [inbox](../management/inbox.md), a r
 | Reject | Spec is rewritten with your feedback | Back to build with your feedback | Cancels a blocked item. For a command approval, the command is blocked. | Gate closes |
 | Answer | Not allowed | Not allowed | Your answer is added to the conversation and the blocked item resumes at the stage that stopped | Not allowed |
 
-When a gate expires with `park`, it closes as `expired` and the item moves to `blocked`.
+When a gate expires with `park`, it closes as `expired` and the item moves to `blocked`. A message on a blocked item with nothing left open (for example, a follow-up after its question expired) resumes it at the stage that stopped. The task page also shows why it stopped, with a **Retry** button that restarts it there without a message.
 
 ## Related pages
 

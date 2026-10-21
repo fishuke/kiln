@@ -319,12 +319,14 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     need(c, "send", wi.factory);
     const { text, attachments: keys } = S.Message.parse(await c.req.json());
     const attachments = keys?.length ? kiln.files.resolveAttachments(keys, who(c), wi.factory) : [];
-    const open = c.get("run") ? undefined : kiln.gates.list({ workItemId: wi.id, state: "open" }).find((g) => g.kind === "question" && !g.command);
-    if (open) {
-      if (attachments.length) kiln.workflow.addMessage(wi.id, who(c), `Attached ${attachments.map((a) => a.name).join(", ")}`, attachments);
-      await kiln.gates.decide(open.id, { decision: "answer", answer: text, by: who(c), via: "web" });
-    } else kiln.workflow.addMessage(wi.id, who(c), text, attachments);
-    return c.json(kiln.workflow.get(wi.id));
+    return c.json(await kiln.workflow.message(wi.id, { by: who(c), text, attachments, via: "web", fromRun: Boolean(c.get("run")) }));
+  });
+  app.post("/api/v1/work-items/:id/retry", async (c) => {
+    const wi = kiln.workflow.get(c.req.param("id"));
+    if (!wi) throw new HttpError(404, "unknown work item");
+    need(c, "send", wi.factory);
+    if (wi.state !== "blocked") throw new HttpError(409, "only a blocked task can be retried");
+    return c.json(await kiln.workflow.retry(wi.id, who(c)));
   });
   app.post("/api/v1/work-items/:id/cancel", async (c) => {
     const wi = kiln.workflow.get(c.req.param("id"));

@@ -17,13 +17,15 @@ import {
   Play,
   Plus,
   Repeat,
+  RotateCw,
   Settings,
   Square,
+  TriangleAlert,
   Undo2,
 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { confirmLanded, handBack, pauseRun, replayRun, resumeRun, saveAsBenchmark, scoreThisRun, sendFollowup, stopRun, takeLocal } from "@/app/runs/actions";
+import { confirmLanded, handBack, pauseRun, replayRun, resumeRun, retryTask, saveAsBenchmark, scoreThisRun, sendFollowup, stopRun, takeLocal } from "@/app/runs/actions";
 import { AttachmentChips, useAttachments } from "@/components/kiln/attachments";
 import { AgentIcon, StatusSquare } from "@/components/kiln/run-visuals";
 import { PageHeader } from "@/components/kiln/ui";
@@ -209,6 +211,7 @@ export function RunDetailView({ model }: { model: RunDetailModel }) {
             </div>
           </div>
           <div className="shrink-0 border-t px-6 pt-4 pb-4">
+            <StoppedBanner model={model} />
             <FollowupComposer model={model} />
           </div>
         </div>
@@ -571,6 +574,44 @@ function HandBackDialog({ open, onClose, workItemId }: { open: boolean; onClose:
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A blocked or failed task says so above the composer, with the reason and (when blocked) a Retry button. */
+function StoppedBanner({ model }: { model: RunDetailModel }) {
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const wi = model.workItem;
+  if (!model.isWorkItem || !wi || (wi.state !== "blocked" && wi.state !== "failed")) return null;
+  const reason = wi.blockedReason?.split("\n")[0];
+  return (
+    <div role="alert" className="mx-auto mb-3 flex w-full max-w-[928px] items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-destructive">{wi.state === "failed" ? "This task failed" : "This task stopped and is waiting for you"}</p>
+        {reason && <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{reason}</p>}
+      </div>
+      {wi.state === "blocked" && (
+        <Button
+          size="sm"
+          disabled={pending}
+          onClick={() =>
+            start(async () => {
+              const r = await retryTask(wi.id);
+              if (!r.ok) {
+                toast.error("Could not retry the task", { description: r.error });
+                return;
+              }
+              toast.success("Retrying");
+              router.refresh();
+            })
+          }
+        >
+          <RotateCw className={pending ? "animate-spin" : undefined} />
+          Retry
+        </Button>
+      )}
+    </div>
   );
 }
 

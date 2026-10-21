@@ -325,6 +325,7 @@ export class KilnClient {
   send = (input: { factory: string; title: string; body?: string; projectId?: string; pipeline?: string; budgetUsd?: number; via?: "api" | "kiln" | "mcp" | "cli"; attachments?: (string | Attachment)[]; mode?: RunMode; correlationKey?: string; dedupe?: boolean }) =>
     this.request<WorkItem>("POST", "/api/v1/work-items", input);
   message = (id: string, text: string, attachments?: (string | Attachment)[]) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/messages`, { text, ...(attachments?.length ? { attachments } : {}) });
+  retry = (id: string) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/retry`);
   cancel = (id: string) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/cancel`);
   complete = (id: string) => this.request<WorkItem>("POST", `/api/v1/work-items/${id}/complete`);
   pull = (id: string) => this.request<{ workItem: WorkItem; branch: string; cloneUrl: string; repo: string; brief: string }>("POST", `/api/v1/work-items/${id}/pull`);

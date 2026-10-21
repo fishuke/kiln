@@ -114,7 +114,7 @@ async function workItemModel(wi: WorkItemDetail, factories: { id: string; name: 
     review: wi.review,
     triage: wi.triage,
     openGates: gates.filter((g) => g.state === "open"),
-    workItem: { id: wi.id, state: wi.state, branch: wi.branch, prUrl: wi.pr?.url, previewUrl: wi.previewUrl },
+    workItem: { id: wi.id, state: wi.state, blockedReason: wi.blockedReason, branch: wi.branch, prUrl: wi.pr?.url, previewUrl: wi.previewUrl },
     runActions: { canStop: !["complete", "cancelled", "failed"].includes(wi.state), canPause: false, canResume: false, canReplay: false, canBenchmark: false },
     streamRunId: liveRun?.id,
   };
@@ -163,7 +163,7 @@ async function runModel(run: RunWithLive, wi: WorkItemDetail | null, factories: 
       ],
     },
     openGates: (wi?.gates ?? []).filter((g) => g.state === "open" && g.runId === run.id).map(gateView),
-    workItem: wi ? { id: wi.id, state: wi.state, branch: wi.branch, prUrl: wi.pr?.url, previewUrl: wi.previewUrl } : undefined,
+    workItem: wi ? { id: wi.id, state: wi.state, blockedReason: wi.blockedReason, branch: wi.branch, prUrl: wi.pr?.url, previewUrl: wi.previewUrl } : undefined,
     runActions: { canStop: run.live || run.status === "running", canPause: run.status === "running", canResume: run.status === "paused", canReplay: !run.live, canBenchmark: !run.live },
     streamRunId: run.live || run.status === "running" ? run.id : undefined,
   };

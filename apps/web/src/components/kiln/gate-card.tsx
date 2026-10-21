@@ -199,13 +199,13 @@ export function approveLabel(g: Pick<GateView, "kind" | "command">): string {
   if (g.command) return "Run it";
   if (g.kind === "spec") return "Approve spec";
   if (g.kind === "preview") return "Accept preview";
-  if (g.kind === "merge") return "Confirm it landed";
+  if (g.kind === "merge") return "Approve";
   return "Approve";
 }
 
 function approveDone(g: GateView): string {
   if (g.kind === "spec") return "Spec approved";
   if (g.kind === "preview") return "Preview accepted";
-  if (g.kind === "merge") return "Marked as landed";
+  if (g.kind === "merge") return "Approved";
   return "Approved";
 }

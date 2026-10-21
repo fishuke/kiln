@@ -25,7 +25,7 @@ describe("runTranscript", () => {
 });
 
 describe("workItemTranscript", () => {
-  it("orders conversation, subagents and gates by time and merges launches", () => {
+  it("orders conversation, subagents and gates by time; launches group per stage", () => {
     const items = workItemTranscript({
       title: "Add todo",
       requester: "me",
@@ -37,10 +37,26 @@ describe("workItemTranscript", () => {
         { id: "g2", kind: "preview", title: "Accept preview", state: "open", evidence: [], openedAt: "2026-10-20T10:00:40Z" },
       ],
     });
-    expect(items.map((i) => i.type)).toEqual(["user", "agent", "subagents", "system", "gate"]);
+    expect(items.map((i) => i.type)).toEqual(["user", "agent", "subagents", "subagents", "system", "gate"]);
     const sub = items[2] as Extract<(typeof items)[number], { type: "subagents" }>;
-    expect(sub.runs.map((r) => r.id)).toEqual(["r1", "r2"]);
-    expect(sub.runs[0]!.title).toBe("Triage Add todo");
+    expect(sub.runs.map((r) => r.id)).toEqual(["r1"]);
+    expect(sub.runs[0]!.title).toBe("Triage");
+  });
+
+  it("folds a stage's attempts into one launch, shows the plan after the request and what it waits for last", () => {
+    const plan = { tasks: [], done: 1, total: 3, current: "Implement", waiting: "Waiting for implement agent…" };
+    const items = workItemTranscript({
+      title: "Add todo",
+      requester: "me",
+      createdAt: "2026-10-20T10:00:00Z",
+      conversation: [],
+      runs: [run("b1", { stage: "build", status: "failed", startedAt: "2026-10-20T10:00:10Z" }), run("b2", { stage: "build", status: "running", startedAt: "2026-10-20T10:00:20Z" })],
+      gates: [],
+      plan,
+    });
+    expect(items.map((i) => i.type)).toEqual(["user", "tasks", "subagents", "waiting"]);
+    expect((items[2] as Extract<(typeof items)[number], { type: "subagents" }>).runs.map((r) => r.id)).toEqual(["b1", "b2"]);
+    expect(items.at(-1)).toMatchObject({ text: "Waiting for implement agent…" });
   });
 
   it("shows a running subagent's activity under its row", () => {

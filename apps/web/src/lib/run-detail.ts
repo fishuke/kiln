@@ -2,6 +2,8 @@
  * Run detail model: turns a work item (the root foreman run) or an agent run plus its events into
  * the transcript, agents tree, artifacts and metadata the page renders. Pure and serializable.
  */
+import { stepTitle } from "./run-tree";
+import type { PlanView } from "./run-plan";
 import { agentDisplayName, runStatus, runTitle, workItemStatus, type ArtifactLike, type RunLike, type RunStatus } from "./run-tree";
 
 export type AttachmentLike = { key: string; name: string; contentType: string; size: number };
@@ -28,7 +30,7 @@ export type GateView = {
 
 export type Step = { kind: "command" | "tool" | "reasoning" | "push" | "error"; label: string; detail?: string; output?: string; isError?: boolean; durationMs?: number };
 /** `activity` is a running subagent's own transcript, shown inline on the task page. */
-export type SubagentRef = { id: string; title: string; agent: string; status: RunStatus; activity?: TranscriptItem[] };
+export type SubagentRef = { id: string; title: string; agent: string; status: RunStatus; stage?: string; activity?: TranscriptItem[] };
 
 export type TranscriptItem =
   | { type: "user"; key: string; at: string; from: string; text: string; attachments: AttachmentLike[] }
@@ -37,7 +39,9 @@ export type TranscriptItem =
   | { type: "work"; key: string; at: string; durationMs: number; steps: Step[] }
   | { type: "subagents"; key: string; at: string; runs: SubagentRef[] }
   | { type: "gate"; key: string; at: string; gate: GateView }
-  | { type: "system"; key: string; at: string; text: string; tone?: "error" };
+  | { type: "system"; key: string; at: string; text: string; tone?: "error" }
+  | { type: "tasks"; key: string; at: string; plan: PlanView }
+  | { type: "waiting"; key: string; at: string; text: string };
 
 export type AgentNode = { id: string; href: string; title: string; agent: string; status: RunStatus; startedAt: string; finishedAt?: string; costUsd: number; children: AgentNode[] };
 
@@ -139,6 +143,8 @@ export function workItemTranscript(input: {
   attachments?: AttachmentLike[];
   /** Live activity per running run id (see runTranscript). */
   activity?: Record<string, TranscriptItem[]>;
+  /** The plan as a checklist: shown after the request, and what the task waits for at the end. */
+  plan?: PlanView;
 }): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   const first = input.conversation[0];
@@ -154,20 +160,27 @@ export function workItemTranscript(input: {
     else items.push({ type: "agent", key, at: c.at, text: c.text });
   });
   const top = input.runs.filter((r) => !r.parentRunId || !input.runs.some((p) => p.id === r.parentRunId));
-  for (const r of top) items.push({ type: "subagents", key: `run-${r.id}`, at: r.startedAt, runs: [{ id: r.id, title: runTitle(r, input.title), agent: r.agent, status: runStatus(r.status), activity: input.activity?.[r.id] }] });
+  for (const r of top) items.push({ type: "subagents", key: `run-${r.id}`, at: r.startedAt, runs: [{ id: r.id, title: input.plan?.tasks.find((t) => t.id === r.stage)?.label ?? stepTitle(r, input.title), agent: r.agent, status: runStatus(r.status), stage: r.stage, activity: input.activity?.[r.id] }] });
   for (const g of input.gates) if (g.state !== "open") items.push({ type: "system", key: `g-${g.id}`, at: g.decidedAt ?? g.openedAt, text: gateOutcome(g) });
   items.sort((a, b) => a.at.localeCompare(b.at));
+  if (input.plan) {
+    const after = items.findIndex((it) => it.type === "user") + 1;
+    items.splice(after, 0, { type: "tasks", key: "tasks", at: items[after - 1]?.at ?? input.createdAt, plan: input.plan });
+  }
   // Open decisions are what the factory waits on now: they always come last.
-  for (const g of input.gates) if (g.state === "open") items.push({ type: "gate", key: `g-${g.id}`, at: g.openedAt, gate: g });
+  const open = input.gates.filter((g) => g.state === "open");
+  for (const g of open) items.push({ type: "gate", key: `g-${g.id}`, at: g.openedAt, gate: g });
+  // An open decision already says what the task waits for.
+  if (input.plan?.waiting && !open.length) items.push({ type: "waiting", key: "waiting", at: "", text: input.plan.waiting });
   return mergeSubagents(items);
 }
 
-/** Consecutive "Launched 1 subagent" rows fold into one "Launched N subagents". */
+/** Consecutive runs of one stage (its attempts) fold into one "Launched N subagents"; each stage keeps its own. */
 function mergeSubagents(items: TranscriptItem[]): TranscriptItem[] {
   const out: TranscriptItem[] = [];
   for (const it of items) {
     const prev = out.at(-1);
-    if (it.type === "subagents" && prev?.type === "subagents") prev.runs.push(...it.runs);
+    if (it.type === "subagents" && prev?.type === "subagents" && prev.runs[0]?.stage === it.runs[0]?.stage) prev.runs.push(...it.runs);
     else out.push(it.type === "subagents" ? { ...it, runs: [...it.runs] } : it);
   }
   return out;

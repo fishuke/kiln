@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Bot, ChevronDown, ChevronRight, CircleAlert, GitBranch, Terminal, Wrench } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleX, GitBranch, ListChecks, LoaderCircle, Terminal, Wrench } from "lucide-react";
 import { useState } from "react";
 import { SentAttachments } from "@/components/kiln/attachments";
 import { GateCard } from "@/components/kiln/gate-card";
 import { Markdown } from "@/components/kiln/markdown";
 import { PersonAvatar, StatusSquare, personName } from "@/components/kiln/run-visuals";
 import type { Step, TranscriptItem } from "@/lib/run-detail";
+import type { PlanView, TaskLineStatus } from "@/lib/run-plan";
 import { relativeTime, shortDuration } from "@/lib/run-tree";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +45,14 @@ export function Transcript({
         if (it.type === "work")
           return showTools ? <WorkGroup key={it.key} durationMs={it.durationMs} steps={it.steps.filter((s) => showThinking || s.kind !== "reasoning")} working={live && i === items.length - 1} /> : null;
         if (it.type === "subagents") return <Subagents key={it.key} item={it} showThinking={showThinking} showTools={showTools} />;
+        if (it.type === "tasks") return <TasksCard key={it.key} plan={it.plan} />;
+        if (it.type === "waiting")
+          return (
+            <div key={it.key} className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" />
+              <span>{it.text}</span>
+            </div>
+          );
         if (it.type === "gate") {
           // The foreman usually posts the same text it asks about; show it once.
           const head = it.gate.question?.slice(0, 80);
@@ -168,6 +177,44 @@ function StepRow({ step }: { step: Step }) {
   );
 }
 
+const TASK_ICON: Record<TaskLineStatus, React.ReactNode> = {
+  done: <CircleCheck className="size-4 text-muted-foreground" />,
+  active: <LoaderCircle className="size-4 animate-spin text-violet-600 dark:text-violet-400" />,
+  waiting: <CircleDot className="size-4 text-orange-600 dark:text-orange-400" />,
+  failed: <CircleX className="size-4 text-pink-600 dark:text-pink-400" />,
+  todo: <Circle className="size-4 text-muted-foreground/60" />,
+};
+
+/** The plan as a checklist: one line per stage, the current one highlighted. */
+function TasksCard({ plan }: { plan: PlanView }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="rounded-xl border">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-11 w-full items-center gap-2 px-3 text-sm font-medium">
+        <ListChecks className="size-4" />
+        Tasks
+        <span className="ml-auto text-xs font-normal text-muted-foreground">
+          {plan.done}/{plan.total}
+        </span>
+        {open ? <ChevronDown className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4 text-muted-foreground" />}
+      </button>
+      {open && (
+        <ul className="flex flex-col gap-0.5 border-t p-2">
+          {plan.tasks.map((t) => (
+            <li key={t.id} className={cn("flex h-8 items-center gap-2.5 rounded-md px-2 text-sm", t.status === "todo" || t.status === "done" ? "text-muted-foreground" : "bg-muted/60 font-medium")}>
+              {TASK_ICON[t.status]}
+              <span className="truncate">{t.label}</span>
+              {t.attempts > 1 && <span className="shrink-0 text-xs font-normal text-muted-foreground">{t.attempts} attempts</span>}
+              {t.status === "waiting" && <span className="ml-auto shrink-0 text-xs font-normal text-orange-600 dark:text-orange-400">Needs you</span>}
+              {t.status === "failed" && <span className="ml-auto shrink-0 text-xs font-normal text-pink-600 dark:text-pink-400">Failed</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** How much of a running subagent's activity the task page shows inline; its own page has all of it. */
 const INLINE_ACTIVITY = 20;
 
@@ -180,7 +227,8 @@ function Subagents({ item, showThinking, showTools }: { item: Extract<Transcript
           <li key={r.id}>
             <Link href={`/runs/${r.id}?tab=agents&from=parent`} className="flex h-8 items-center gap-2.5 rounded-md px-1.5 text-sm font-medium hover:bg-muted">
               <StatusSquare status={r.status} size={20} />
-              <span className="truncate">{r.title}</span>
+              <span className="shrink-0">{r.agent}</span>
+              {r.title.toLowerCase() !== r.agent.toLowerCase() && <span className="truncate text-xs font-normal text-muted-foreground">{r.title}</span>}
             </Link>
             {r.activity && r.activity.length > 0 && (
               <div className="mt-2 mb-3 ml-3.5 border-l border-violet-500/40 pl-4">

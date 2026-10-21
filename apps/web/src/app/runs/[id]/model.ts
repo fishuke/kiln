@@ -1,4 +1,5 @@
 import type { ArtifactGroups, AgentNode, GateView, SubagentRef, TranscriptItem } from "@/lib/run-detail";
+import type { PlanView } from "@/lib/run-plan";
 import type { RunStatus } from "@/lib/run-tree";
 
 /** Everything the run detail page renders; built on the server, serializable to the client view. */
@@ -30,6 +31,8 @@ export type RunDetailModel = {
   review?: { verdict: string; findings: string[] };
   triage?: { kind: string; size: string; summary?: string; confidence: number };
   openGates: GateView[];
+  /** A task's plan as a checklist with progress; only on work items that have a plan. */
+  plan?: PlanView;
   workItem?: { id: string; state: string; blockedReason?: string; branch?: string; prUrl?: string; previewUrl?: string };
   runActions: { canStop: boolean; canPause: boolean; canResume: boolean; canReplay: boolean; canBenchmark: boolean };
   /** Agent run id whose live SSE stream the page follows. */

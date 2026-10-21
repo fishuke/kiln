@@ -1,3 +1,5 @@
+import { planView, type PlanLike } from "./run-plan";
+
 /**
  * The Runs list model. A work item is the root foreman run; the agent runs it started are its
  * children, and subagents nest under the run that spawned them (`parentRunId`). Runs without a
@@ -24,6 +26,8 @@ export type WorkItemLike = {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  blockedReason?: string;
+  plan?: PlanLike;
 };
 
 export type RunLike = {
@@ -52,6 +56,14 @@ export type RunRow = {
   href: string;
   title: string;
   status: RunStatus;
+  /** Why the task waits (blocked reason), shown next to its status. */
+  statusNote?: string;
+  /** A task's current stage and plan progress, e.g. "Review · 2/4". */
+  progress?: string;
+  /** On the latest run of a step that ran more than once: how many times it ran. */
+  attempts?: number;
+  /** On an earlier, superseded run of a step: which attempt it was (1 = first). */
+  attempt?: number;
   factory: string;
   /** Agent names in this row (the root foreman row carries "foreman"). */
   agent: string;
@@ -148,10 +160,20 @@ export function agentDisplayName(agent: string, factoryName?: string): string {
 export function runTitle(run: RunLike, workItemTitle?: string): string {
   // The API echoes the work item title on its runs; name those by their stage instead.
   if (run.title && run.title !== workItemTitle) return run.title;
+  const v = stepVerb(run);
+  return workItemTitle ? `${v} ${workItemTitle}` : `${v} run`;
+}
+
+function stepVerb(run: RunLike): string {
   const what = run.stage ?? run.agent;
   const verb: Record<string, string> = { triage: "Triage", spec: "Write spec for", build: "Build", implement: "Implement", verify: "Verify", review: "Review", plan: "Plan" };
-  const v = verb[run.agent] ?? verb[what] ?? what.charAt(0).toUpperCase() + what.slice(1);
-  return workItemTitle ? `${v} ${workItemTitle}` : `${v} run`;
+  return verb[run.agent] ?? verb[what] ?? what.charAt(0).toUpperCase() + what.slice(1);
+}
+
+/** A step's name under its task in the list: "Implement", "Review"; the task's title is already the parent row. */
+export function stepTitle(run: RunLike, workItemTitle: string): string {
+  if (run.title && run.title !== workItemTitle) return run.title;
+  return stepVerb(run).replace(/ for$/, "");
 }
 
 /** "1 Image, 1 Video" style label; undefined when there is nothing to show. */
@@ -182,7 +204,7 @@ function runRow(run: RunLike, wi: WorkItemLike | undefined, byParent: Map<string
   return {
     id: run.id,
     href: `/runs/${run.id}`,
-    title: runTitle(run, wi?.title),
+    title: wi ? stepTitle(run, wi.title) : runTitle(run),
     status: runStatus(run.status),
     factory: run.factory,
     agent: run.agent,
@@ -198,6 +220,29 @@ function runRow(run: RunLike, wi: WorkItemLike | undefined, byParent: Map<string
   };
 }
 
+/**
+ * Repeated runs of the same step (same agent and stage) fold into one row: the latest attempt,
+ * placed where it ran, with the earlier attempts (newest first) under it after its own subagents.
+ */
+function foldAttempts(rows: RunRow[], runs: RunLike[]): RunRow[] {
+  const key = (r: RunLike) => `${r.agent}|${r.stage ?? ""}`;
+  const groups = new Map<string, RunRow[]>();
+  runs.forEach((r, i) => groups.set(key(r), [...(groups.get(key(r)) ?? []), rows[i]!]));
+  return runs.flatMap((r, i) => {
+    const group = groups.get(key(r))!;
+    const latest = group[group.length - 1]!;
+    if (latest !== rows[i]) return [];
+    if (group.length === 1) return [latest];
+    const earlier = group.slice(0, -1).map((row, n) => ({ ...row, attempt: n + 1 })).reverse();
+    return [{ ...latest, attempts: group.length, children: [...latest.children, ...earlier] }];
+  });
+}
+
+/** Steps under a task, for its count badge: each step once, with its subagents, not every attempt. */
+export function stepCount(rows: RunRow[]): number {
+  return rows.reduce((n, r) => (r.attempt ? n : n + 1 + stepCount(r.children)), 0);
+}
+
 export function buildRunRows(workItems: WorkItemLike[], runs: RunLike[]): RunRow[] {
   const ids = new Set(runs.map((r) => r.id));
   const byParent = new Map<string, RunLike[]>();
@@ -209,7 +254,9 @@ export function buildRunRows(workItems: WorkItemLike[], runs: RunLike[]): RunRow
     else standalone.push(r);
   }
   const rows: RunRow[] = workItems.map((wi) => {
-    const children = (byWorkItem.get(wi.id) ?? []).map((r) => runRow(r, wi, byParent));
+    const own = byWorkItem.get(wi.id) ?? [];
+    const children = foldAttempts(own.map((r) => runRow(r, wi, byParent)), own);
+    const plan = planView({ state: wi.state, plan: wi.plan, runs: own });
     const media = { images: 0, videos: 0 };
     for (const c of flatten(children)) {
       media.images += c.images;
@@ -220,6 +267,8 @@ export function buildRunRows(workItems: WorkItemLike[], runs: RunLike[]): RunRow
       href: `/runs/${wi.id}`,
       title: wi.title,
       status: workItemStatus(wi.state),
+      ...(wi.blockedReason ? { statusNote: wi.blockedReason } : {}),
+      ...(plan ? { progress: `${plan.current ? `${plan.current} · ` : ""}${plan.done}/${plan.total}` } : {}),
       factory: wi.factory,
       agent: "foreman",
       source: wi.source.provider,
@@ -297,6 +346,8 @@ export function filterRows(rows: RunRow[], f: RunFilters): RunRow[] {
 
 function filterChildren(rows: RunRow[], f: RunFilters): RunRow[] {
   return rows.flatMap((r) => {
+    // A superseded attempt does not speak for the task: the latest attempt's row does.
+    if (r.attempt) return [];
     if (rowMatches(r, f)) return [r];
     const kids = filterChildren(r.children, f);
     return kids.length ? [{ ...r, children: kids }] : [];

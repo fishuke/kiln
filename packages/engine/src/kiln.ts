@@ -385,7 +385,21 @@ export class Kiln {
   }
 
   /** One pass of timers: gate nudges and expiry, schedules, CI waits, canaries, self-improvement. */
-  async tick(opts: { selfImprovement?: boolean } = {}) {
+  /** Remove sandboxes a restart or a failed clean-up left behind (containers, work directories). */
+  async sweepSandboxes(): Promise<string[]> {
+    const removed: string[] = [];
+    for (const p of Object.values(this.sandboxes)) {
+      try {
+        removed.push(...((await p?.sweep?.()) ?? []));
+      } catch (err) {
+        this.audit("kiln", "sandbox.sweep_failed", p!.name, { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    if (removed.length) this.audit("kiln", "sandbox.swept", "sandboxes", { removed });
+    return removed;
+  }
+
+  async tick(opts: { selfImprovement?: boolean; sweepSandboxes?: boolean } = {}) {
     await this.gates.tick();
     await this.automations.tick();
     this.workers.tick();
@@ -396,5 +410,6 @@ export class Kiln {
     }
     this.improvement.evaluateCanaries();
     if (opts.selfImprovement) for (const f of this.defs.list()) if (f.appliedSha) await this.improvement.check(f.id);
+    if (opts.sweepSandboxes) await this.sweepSandboxes();
   }
 }

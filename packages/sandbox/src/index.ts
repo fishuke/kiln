@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import type { Runner } from "@kiln/schema";
 import type { ObjectStore } from "@kiln/store";
 import { NodeCommandRunner, type CommandRunner, type ExecResult, type Proc } from "./process";
@@ -75,6 +75,8 @@ export interface SandboxProvider {
   readonly name: string;
   create(spec: SandboxSpec): Promise<Sandbox>;
   resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox>;
+  /** Remove sandboxes this provider left behind (a restart, a failed destroy): every one it did not create in this process. Returns what it removed. */
+  sweep?(): Promise<string[]>;
 }
 
 export class CommandBlocked extends Error {
@@ -135,6 +137,7 @@ async function runSetup(sandbox: Sandbox, spec: SandboxSpec) {
 
 export class LocalSandboxProvider implements SandboxProvider {
   readonly name = "local";
+  private readonly live = new Set<string>();
 
   constructor(
     private readonly root = join(tmpdir(), "kiln-sandboxes"),
@@ -147,16 +150,36 @@ export class LocalSandboxProvider implements SandboxProvider {
     const started = Date.now();
     const id = newId();
     const workdir = mkdtempSync(join(this.root, `${id}-`));
-    const sandbox = new LocalSandbox(id, workdir, spec, this.runner, started);
-    for (const repo of spec.repos) {
-      const args = ["clone", "--quiet", repo.url, repo.name];
-      const r = await this.runner.run("git", args, { cwd: workdir });
-      if (r.code !== 0) throw new Error(`git clone ${repo.url} failed: ${r.stderr}`);
-      if (repo.branch) await this.runner.run("git", ["checkout", "-q", "-B", repo.branch], { cwd: join(workdir, repo.name) });
+    const sandbox = this.track(new LocalSandbox(id, workdir, spec, this.runner, started));
+    try {
+      for (const repo of spec.repos) {
+        const args = ["clone", "--quiet", repo.url, repo.name];
+        const r = await this.runner.run("git", args, { cwd: workdir });
+        if (r.code !== 0) throw new Error(`git clone ${repo.url} failed: ${r.stderr}`);
+        if (repo.branch) await this.runner.run("git", ["checkout", "-q", "-B", repo.branch], { cwd: join(workdir, repo.name) });
+      }
+      await runSetup(sandbox, spec);
+    } catch (err) {
+      await sandbox.destroy();
+      throw err;
     }
-    await runSetup(sandbox, spec);
     sandbox.startedInMs = Date.now() - started;
     return sandbox;
+  }
+
+  private track(sandbox: LocalSandbox): LocalSandbox {
+    const dir = basename(sandbox.workdir);
+    this.live.add(dir);
+    sandbox.onDestroy = () => this.live.delete(dir);
+    return sandbox;
+  }
+
+  async sweep(): Promise<string[]> {
+    const stale = readdirSync(this.root, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && !this.live.has(d.name))
+      .map((d) => d.name);
+    for (const d of stale) rmSync(join(this.root, d), { recursive: true, force: true });
+    return stale;
   }
 
   async resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox> {
@@ -169,8 +192,11 @@ export class LocalSandboxProvider implements SandboxProvider {
     writeFileSync(archive, body);
     const r = await this.runner.run("tar", ["-xzf", archive, "-C", workdir]);
     rmSync(archive, { force: true });
-    if (r.code !== 0) throw new Error(`restoring snapshot failed: ${r.stderr}`);
-    const sandbox = new LocalSandbox(id, workdir, spec, this.runner, started);
+    if (r.code !== 0) {
+      rmSync(workdir, { recursive: true, force: true });
+      throw new Error(`restoring snapshot failed: ${r.stderr}`);
+    }
+    const sandbox = this.track(new LocalSandbox(id, workdir, spec, this.runner, started));
     sandbox.startedInMs = Date.now() - started;
     return sandbox;
   }
@@ -178,6 +204,7 @@ export class LocalSandboxProvider implements SandboxProvider {
 
 class LocalSandbox implements Sandbox {
   readonly provider = "local";
+  onDestroy?: () => void;
   startedInMs = 0;
 
   constructor(
@@ -247,6 +274,7 @@ class LocalSandbox implements Sandbox {
   }
 
   async destroy() {
+    this.onDestroy?.();
     rmSync(this.workdir, { recursive: true, force: true });
   }
 }
@@ -271,8 +299,8 @@ export function egressAllowlist(spec: SandboxSpec): string[] {
 export type EgressRoute = { network: string; proxy: string };
 export const DEFAULT_EGRESS: EgressRoute = { network: "kiln-egress", proxy: "http://kiln-egress-proxy:3128" };
 
-export function dockerRunArgs(name: string, spec: SandboxSpec, egress: EgressRoute = DEFAULT_EGRESS): string[] {
-  const args = ["run", "-d", "--name", name, "--label", "kiln.sandbox=1", "-w", "/workspace"];
+export function dockerRunArgs(name: string, spec: SandboxSpec, egress: EgressRoute = DEFAULT_EGRESS, owner = "kiln"): string[] {
+  const args = ["run", "-d", "--name", name, "--label", "kiln.sandbox=1", "--label", `kiln.owner=${owner}`, "-w", "/workspace"];
   for (const [k, v] of Object.entries(spec.labels ?? {})) args.push("--label", `${k}=${v}`);
   if (spec.runner.shape) args.push("--cpus", String(spec.runner.shape.vcpus), "--memory", `${spec.runner.shape.memoryGb}g`);
   // Repos are cloned inside the sandbox, so their hosts are always allowed. Nothing to reach → no network;
@@ -296,10 +324,12 @@ export function dockerRunArgs(name: string, spec: SandboxSpec, egress: EgressRou
 /** Disposable Docker containers. Snapshots copy the workspace; with `checkpoint` CRIU also keeps processes. */
 export class DockerSandboxProvider implements SandboxProvider {
   readonly name = "docker";
+  private readonly live = new Set<string>();
 
   constructor(
     private readonly runner: CommandRunner = new NodeCommandRunner(),
-    private readonly options: { checkpoint?: boolean; hostTmp?: string; volumes?: string[]; pullPolicy?: "Always" | "IfNotPresent" | "Never"; egress?: EgressRoute } = {},
+    /** `owner` labels the containers (kiln.owner) so a sweep only removes its own: the API and a worker on the same host keep apart. */
+    private readonly options: { checkpoint?: boolean; hostTmp?: string; volumes?: string[]; pullPolicy?: "Always" | "IfNotPresent" | "Never"; egress?: EgressRoute; owner?: string } = {},
   ) {}
 
   private async must(args: string[], stdin?: string, env?: Record<string, string>): Promise<ExecResult> {
@@ -328,18 +358,46 @@ export class DockerSandboxProvider implements SandboxProvider {
     const cached = policy === "Always" ? { code: 1 } : await this.runner.run("docker", ["image", "inspect", spec.runner.image]);
     // A private image is always pulled with its credential, so access is checked on every run.
     if (policy !== "Never" && (cached.code !== 0 || spec.registryAuth)) await this.pull(spec);
-    const args = dockerRunArgs(name, spec, this.options.egress);
+    const args = dockerRunArgs(name, spec, this.options.egress, this.owner);
     // Host volumes from the worker's configuration (`kiln worker --volumes HOST:CONTAINER[:ro]`).
     for (const v of this.options.volumes ?? []) args.splice(args.indexOf(spec.runner.image), 0, "-v", v);
-    await this.must(args);
-    const sandbox = new DockerSandbox(id, name, spec, this.runner, this.options);
-    for (const repo of spec.repos) {
-      await this.must(["exec", name, "git", "clone", "--quiet", repo.url, `/workspace/${repo.name}`]);
-      if (repo.branch) await this.must(["exec", "-w", `/workspace/${repo.name}`, name, "git", "checkout", "-q", "-B", repo.branch]);
+    const sandbox = this.track(new DockerSandbox(id, name, spec, this.runner, this.options));
+    try {
+      await this.must(args);
+      for (const repo of spec.repos) {
+        await this.must(["exec", name, "git", "clone", "--quiet", repo.url, `/workspace/${repo.name}`]);
+        if (repo.branch) await this.must(["exec", "-w", `/workspace/${repo.name}`, name, "git", "checkout", "-q", "-B", repo.branch]);
+      }
+      await runSetup(sandbox, spec);
+    } catch (err) {
+      await sandbox.destroy();
+      throw err;
     }
-    await runSetup(sandbox, spec);
     sandbox.startedInMs = Date.now() - started;
     return sandbox;
+  }
+
+  private get owner() {
+    return this.options.owner ?? "kiln";
+  }
+
+  private track(sandbox: DockerSandbox): DockerSandbox {
+    this.live.add(sandbox.container);
+    sandbox.onDestroy = () => this.live.delete(sandbox.container);
+    return sandbox;
+  }
+
+  /** Containers labeled kiln.sandbox=1 that this process did not create. Unlabeled owners (older containers) count as the default owner's. */
+  async sweep(): Promise<string[]> {
+    const r = await this.runner.run("docker", ["ps", "-a", "--filter", "label=kiln.sandbox=1", "--format", '{{.Names}}\t{{.Label "kiln.owner"}}']);
+    if (r.code !== 0) throw new Error(`docker ps failed: ${r.stderr}`);
+    const stale = r.stdout
+      .split("\n")
+      .map((l) => l.trim().split("\t"))
+      .filter(([name, owner]) => name && !this.live.has(name) && (owner || "kiln") === this.owner)
+      .map(([name]) => name!);
+    if (stale.length) await this.runner.run("docker", ["rm", "-f", ...stale]);
+    return stale;
   }
 
   async resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox> {
@@ -351,11 +409,17 @@ export class DockerSandboxProvider implements SandboxProvider {
     const host = mkdtempSync(join(this.options.hostTmp ?? tmpdir(), "kiln-resume-"));
     const archive = join(host, "snap.tgz");
     writeFileSync(archive, body);
-    await this.must(dockerRunArgs(name, spec, this.options.egress));
-    await this.must(["cp", archive, `${name}:/tmp/snap.tgz`]);
-    await this.must(["exec", name, "tar", "-xzf", "/tmp/snap.tgz", "-C", "/workspace"]);
-    rmSync(host, { recursive: true, force: true });
-    const sandbox = new DockerSandbox(id, name, spec, this.runner, this.options);
+    const sandbox = this.track(new DockerSandbox(id, name, spec, this.runner, this.options));
+    try {
+      await this.must(dockerRunArgs(name, spec, this.options.egress, this.owner));
+      await this.must(["cp", archive, `${name}:/tmp/snap.tgz`]);
+      await this.must(["exec", name, "tar", "-xzf", "/tmp/snap.tgz", "-C", "/workspace"]);
+    } catch (err) {
+      await sandbox.destroy();
+      throw err;
+    } finally {
+      rmSync(host, { recursive: true, force: true });
+    }
     sandbox.startedInMs = Date.now() - started;
     return sandbox;
   }
@@ -365,6 +429,7 @@ class DockerSandbox implements Sandbox {
   readonly provider = "docker";
   readonly workdir = "/workspace";
   startedInMs = 0;
+  onDestroy?: () => void;
 
   constructor(
     readonly id: string,
@@ -449,6 +514,8 @@ class DockerSandbox implements Sandbox {
   }
 
   async destroy() {
+    // Forget it first: if removal fails, the next sweep retries it.
+    this.onDestroy?.();
     await this.runner.run("docker", ["rm", "-f", this.container]);
   }
 }

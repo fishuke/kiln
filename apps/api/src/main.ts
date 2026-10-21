@@ -19,6 +19,8 @@ if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
 // Runs and stage steps live in this process; whatever the last one left going cannot finish now.
 const recovered = kiln.recoverInterrupted();
 if (recovered.runs.length || recovered.workItems.length) console.log(`Stopped ${recovered.runs.length} run(s) and ${recovered.workItems.length} task(s) cut off by the last restart.`);
+// Their sandboxes are still on disk or running as containers; remove them before they fill the host.
+void kiln.sweepSandboxes().then((removed) => removed.length && console.log(`Removed ${removed.length} sandbox(es) left by the last restart.`));
 
 let app: ReturnType<typeof createApp>;
 // MCP calls the API in-process with the caller's token, so scopes are enforced in one place.
@@ -43,5 +45,5 @@ const tickMs = Number(process.env.KILN_TICK_MS ?? 15_000);
 let ticks = 0;
 setInterval(() => {
   ticks += 1;
-  kiln.tick({ selfImprovement: ticks % Math.max(1, Math.round(3_600_000 / tickMs)) === 0 }).catch((err) => console.error("tick failed", err));
+  kiln.tick({ selfImprovement: ticks % Math.max(1, Math.round(3_600_000 / tickMs)) === 0, sweepSandboxes: ticks % Math.max(1, Math.round(600_000 / tickMs)) === 0 }).catch((err) => console.error("tick failed", err));
 }, tickMs);

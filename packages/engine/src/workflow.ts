@@ -266,7 +266,9 @@ export class Workflow {
     this.move(wi, "blocked", reason);
   }
 
+  /** Cancel the work item and stop every run of it (and their subagents) that is still going. */
   async cancel(id: string, by: string) {
+    for (const r of this.k.runs.list({ workItemId: id })) await this.k.runs.cancelTree(r.id, by);
     const wi = this.get(id);
     if (!wi || !isActive(wi.state)) return wi;
     for (const g of this.k.gates.list({ workItemId: id, state: "open" })) this.k.store.put(C.gates, { ...g, state: "expired", decidedBy: by });
@@ -564,6 +566,8 @@ export class Workflow {
 
   /** The agents answered or checked something without changing code: no pull request, the requester confirms it is done. */
   private async finishWithoutChanges(wi: Item, summary: string | undefined): Promise<StepResult> {
+    // Stopped or cancelled while the agent worked: leave it that way.
+    if (!isActive(this.get(wi.id)?.state ?? wi.state)) return "wait";
     this.save(wi);
     this.move(wi, "handed_off", "finished without code changes");
     await this.k.gates.open({ workItem: wi, kind: "merge", name: "merge", title: `Confirm "${wi.title}" is done`, question: `Finished without code changes, so there is no pull request.\n${summary ?? ""}\nApprove to close the task, or request changes to continue.` });

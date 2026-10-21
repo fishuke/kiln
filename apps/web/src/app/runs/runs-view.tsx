@@ -229,7 +229,7 @@ function RunTreeRow({ row, depth, expanded, onToggle, onCancel }: { row: RunRow;
           <button type="button" aria-label={open ? "Collapse children" : "Expand children"} aria-expanded={open} onClick={() => onToggle(row.id)} className="relative z-10 size-6 shrink-0">
             <span className="absolute inset-0 transition-opacity group-hover/row:opacity-0">
               <StatusSquare status={row.status} />
-              {!open && (
+              {!open && count > 0 && (
                 <span aria-label={`${count} steps`} className="absolute -right-1 -bottom-1 flex size-3.5 items-center justify-center rounded-full bg-black text-[9px] font-semibold text-white ring-1 ring-background dark:bg-white dark:text-black">
                   {count}
                 </span>
@@ -242,9 +242,9 @@ function RunTreeRow({ row, depth, expanded, onToggle, onCancel }: { row: RunRow;
         ) : (
           <StatusSquare status={row.status} className="relative" />
         )}
-        <span className="pointer-events-none relative min-w-0 flex-1 truncate text-sm font-medium">
-          {row.attempt ? <span className="text-muted-foreground">Attempt {row.attempt}</span> : row.title}
-          {row.attempts && <span className="ml-2 text-xs font-normal text-muted-foreground">{row.attempts} attempts</span>}
+        <span className="pointer-events-none relative flex min-w-0 flex-1 items-baseline gap-2 text-sm font-medium">
+          <span className="truncate">{row.attempt ? <span className="text-muted-foreground">Attempt {row.attempt}</span> : row.title}</span>
+          {row.attempts && <span className="shrink-0 text-xs font-normal text-muted-foreground">{row.attempts} attempts</span>}
         </span>
         <span className="relative flex shrink-0 items-center gap-3">
           <span className="flex items-center [&>*+*]:-ml-6 [&>*+*]:transition-[margin] [&>*+*]:duration-300 [&>*+*]:ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover/row:[&>*+*]:ml-1">

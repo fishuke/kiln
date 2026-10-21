@@ -33,7 +33,7 @@ describe("buildRunRows", () => {
     expect(root!.children[1]!.children.map((c) => c.id)).toEqual(["r3"]);
     expect(root!.images).toBe(2);
     expect(root!.videos).toBe(1);
-    expect(root!.children[0]!.title).toBe("Triage Item wi_1");
+    expect(root!.children[0]!.title).toBe("Triage");
     expect(root!.children[0]!.source).toBe("orchestration");
   });
 

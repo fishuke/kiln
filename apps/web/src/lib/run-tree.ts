@@ -155,10 +155,20 @@ export function agentDisplayName(agent: string, factoryName?: string): string {
 export function runTitle(run: RunLike, workItemTitle?: string): string {
   // The API echoes the work item title on its runs; name those by their stage instead.
   if (run.title && run.title !== workItemTitle) return run.title;
+  const v = stepVerb(run);
+  return workItemTitle ? `${v} ${workItemTitle}` : `${v} run`;
+}
+
+function stepVerb(run: RunLike): string {
   const what = run.stage ?? run.agent;
   const verb: Record<string, string> = { triage: "Triage", spec: "Write spec for", build: "Build", implement: "Implement", verify: "Verify", review: "Review", plan: "Plan" };
-  const v = verb[run.agent] ?? verb[what] ?? what.charAt(0).toUpperCase() + what.slice(1);
-  return workItemTitle ? `${v} ${workItemTitle}` : `${v} run`;
+  return verb[run.agent] ?? verb[what] ?? what.charAt(0).toUpperCase() + what.slice(1);
+}
+
+/** A step's name under its task in the list: "Implement", "Review"; the task's title is already the parent row. */
+export function stepTitle(run: RunLike, workItemTitle: string): string {
+  if (run.title && run.title !== workItemTitle) return run.title;
+  return stepVerb(run).replace(/ for$/, "");
 }
 
 /** "1 Image, 1 Video" style label; undefined when there is nothing to show. */
@@ -189,7 +199,7 @@ function runRow(run: RunLike, wi: WorkItemLike | undefined, byParent: Map<string
   return {
     id: run.id,
     href: `/runs/${run.id}`,
-    title: runTitle(run, wi?.title),
+    title: wi ? stepTitle(run, wi.title) : runTitle(run),
     status: runStatus(run.status),
     factory: run.factory,
     agent: run.agent,

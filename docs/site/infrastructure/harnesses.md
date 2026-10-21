@@ -95,7 +95,7 @@ Agents report structured results by writing `.kiln/result.json` in the repositor
 | --- | --- |
 | `TRIAGE` | `{"kind": "feature\|bug\|chore\|incident\|question", "size": "xs\|s\|m\|l\|xl", "summary": "...", "duplicateOf": "optional issue key"}` |
 | `FOREMAN` | `{"dispatch": {"stage": "triage\|spec\|build\|review\|handoff", "agent": "name", "context": "..."}}` or `{"ask": "question for the requester"}` |
-| `SPEC` | `{"specPath": "docs/specs/<id>.md", "criteria": ["AC1: ..."], "stories": ["..."], "openQuestions": ["..."]}` |
+| `SPEC` | `{"specPath": "docs/specs/<id>.md", "why": "...", "goal": "...", "approach": "...", "criteria": ["AC1: ..."], "stories": ["..."], "outOfScope": ["..."], "risks": ["..."], "openQuestions": ["..."]}` |
 | `IMPLEMENT` | `{"summary": "...", "testsPassed": true, "memories": [{"title": "...", "body": "..."}]}` |
 | `VERIFY` | `{"testsPassed": true, "playwrightReport": "playwright-report/results.json"}` |
 | `REVIEW` | `{"verdict": "accepted\|changes_requested\|needs_human", "findings": ["file:line — issue — fix"]}` |

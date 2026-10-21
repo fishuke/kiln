@@ -577,6 +577,69 @@ describe("spec stage failures", () => {
   });
 });
 
+describe("spec review", () => {
+  const specGate = async (kiln: ReturnType<typeof createTestKiln>["kiln"], id: string) => {
+    void kiln.workflow.advance(id);
+    await waitFor(kiln, id, ["awaiting_spec"]);
+    return kiln.gates.list({ workItemId: id, state: "open" }).find((g) => g.kind === "spec")!;
+  };
+  /** The fake spec agent, reporting `result` instead of its own. */
+  const specReporting = (result: object) =>
+    new FakeHarness(async (ctx) => {
+      const out = await fakeAgentScript(ctx);
+      await ctx.opts.sandbox.writeFile(`${ctx.opts.cwd}/.kiln/result.json`, JSON.stringify(result));
+      return out;
+    });
+  const create = (kiln: ReturnType<typeof createTestKiln>["kiln"]) =>
+    kiln.workflow.create({ factory: "webapp", title: "Redesign the billing page", body: "- show invoices\n- show plan", source: { provider: "api" }, requester: "a@acme.test" });
+
+  it("asks the spec agent for the why, the goal and the approach", async () => {
+    const { kiln } = createTestKiln({ preview: false });
+    const wi = await create(kiln);
+    await specGate(kiln, wi.id);
+    const prompt = kiln.runs.list().find((r) => r.workItemId === wi.id && r.stage === "spec")!.startState.prompt;
+    expect(prompt).toContain("why this change is needed");
+    expect(prompt).toContain("the goal");
+    expect(prompt).toContain("open question instead of inventing one");
+  });
+
+  it("opens with why, goal and approach, then the criteria, out of scope, risks and open questions", async () => {
+    const agents = fakeAgents();
+    const spec = specReporting({
+        why: "Finance cannot find old invoices and files tickets.",
+        goal: "Invoices are self-serve; billing tickets drop.",
+        approach: "List invoices on the billing page.",
+        criteria: ["AC1: The billing page lists the last 12 invoices"],
+        outOfScope: ["Editing invoices"],
+        risks: [],
+        openQuestions: ["Show credit notes too?"],
+      });
+    const { kiln } = createTestKiln({ preview: false, harness: (type, agentType) => (agentType === "SPEC" ? spec : agents(type, agentType)) });
+    const wi = await create(kiln);
+    const gate = await specGate(kiln, wi.id);
+    const q = gate.question!;
+    expect(q.indexOf("Why: Finance")).toBeGreaterThanOrEqual(0);
+    expect(q.indexOf("Why:")).toBeLessThan(q.indexOf("Goal:"));
+    expect(q.indexOf("Goal:")).toBeLessThan(q.indexOf("Approach:"));
+    expect(q.indexOf("Approach:")).toBeLessThan(q.indexOf("Acceptance criteria:"));
+    expect(q.indexOf("Acceptance criteria:")).toBeLessThan(q.indexOf("- AC1:"));
+    expect(q).toContain("Out of scope:\n- Editing invoices");
+    expect(q).not.toContain("Risks and trade-offs");
+    expect(q).toContain("Open questions:\n- Show credit notes too?");
+    expect(kiln.workflow.get(wi.id)!.spec).toMatchObject({ why: expect.stringContaining("Finance"), goal: expect.any(String), outOfScope: ["Editing invoices"] });
+  });
+
+  it("still opens the gate for a result without the new fields", async () => {
+    const agents = fakeAgents();
+    const spec = specReporting({ criteria: ["AC1: The billing page lists invoices"], stories: [], openQuestions: [] });
+    const { kiln } = createTestKiln({ preview: false, harness: (type, agentType) => (agentType === "SPEC" ? spec : agents(type, agentType)) });
+    const wi = await create(kiln);
+    const q = (await specGate(kiln, wi.id)).question!;
+    expect(q.startsWith("- AC1: The billing page lists invoices")).toBe(true);
+    expect(q).not.toContain("Why:");
+  });
+});
+
 describe("retrying a spec", () => {
   type K = ReturnType<typeof createTestKiln>["kiln"];
   const specRuns = (kiln: K, id: string) => kiln.runs.list().filter((r) => r.workItemId === id && r.stage === "spec");

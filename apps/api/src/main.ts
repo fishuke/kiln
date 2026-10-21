@@ -16,6 +16,10 @@ if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   process.once("SIGTERM", () => void telemetry.shutdown());
 }
 
+// Runs and stage steps live in this process; whatever the last one left going cannot finish now.
+const recovered = kiln.recoverInterrupted();
+if (recovered.runs.length || recovered.workItems.length) console.log(`Stopped ${recovered.runs.length} run(s) and ${recovered.workItems.length} task(s) cut off by the last restart.`);
+
 let app: ReturnType<typeof createApp>;
 // MCP calls the API in-process with the caller's token, so scopes are enforced in one place.
 const mcp = createMcpHandler(config.publicUrl, async (input, init) => app.fetch(new Request(input as string, init)), { resourceMetadata: `${config.publicUrl.replace(/\/$/, "")}/.well-known/oauth-protected-resource/mcp` });

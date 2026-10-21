@@ -26,6 +26,7 @@ export const ERROR_CATALOG: Record<string, ErrorSpec> = {
   internal_error: { http: 500, retryable: "automatic", state: "ERROR", title: "Internal error" },
   infrastructure_timeout: { http: 500, retryable: false, state: "ERROR", title: "Infrastructure timeout" },
   agent_process_failed: { http: 500, retryable: false, state: "ERROR", title: "The agent process failed" },
+  interrupted_by_restart: { http: 500, retryable: false, state: "ERROR", title: "Kiln restarted while the run was going" },
 };
 
 export type ErrorCode = keyof typeof ERROR_CATALOG;

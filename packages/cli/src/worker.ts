@@ -68,7 +68,7 @@ export function readConfigFile(path: string): Partial<WorkerConfig> {
 
 export function providerFor(cfg: WorkerConfig): SandboxProvider {
   if (cfg.backend === "kubernetes") return new KubernetesSandboxProvider(undefined, cfg.namespace);
-  if (cfg.backend === "docker") return new DockerSandboxProvider(undefined, { volumes: cfg.volumes, pullPolicy: cfg.imagePullPolicy });
+  if (cfg.backend === "docker") return new DockerSandboxProvider(undefined, { volumes: cfg.volumes, pullPolicy: cfg.imagePullPolicy, owner: `worker:${cfg.workerId}` });
   return new LocalSandboxProvider(cfg.workspaceRoot);
 }
 

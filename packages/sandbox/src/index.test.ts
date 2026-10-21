@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MemoryObjectStore } from "@kiln/store";
@@ -50,6 +50,18 @@ describe("local sandbox", () => {
     expect(await sbx.readFile("api/.where")).toMatch(/\/api\n$/);
     expect(await sbx.readFile(".ws")).toBe("api/\napp/\n");
     await sbx.destroy();
+  });
+
+  it("sweeps work directories a restart or a failed setup left behind, never a live one", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-node-sweep-"));
+    mkdirSync(join(root, "sbx_old-abc"));
+    const provider = new LocalSandboxProvider(root);
+    const live = await provider.create({ runner, repos: [{ name: "app", url: gitRepo() }] });
+    await expect(provider.create({ runner: { ...runner, setupCommands: ["exit 3"] }, repos: [] })).rejects.toThrow();
+    expect(await provider.sweep()).toEqual(["sbx_old-abc"]);
+    expect(readdirSync(root)).toEqual([live.workdir.split("/").pop()]);
+    await live.destroy();
+    expect(await provider.sweep()).toEqual([]);
   });
 
   it("runs every command through the guardrail", async () => {
@@ -109,6 +121,28 @@ describe("docker sandbox", () => {
   it("makes Node's fetch use the egress proxy (corepack downloads pnpm with it)", () => {
     expect(dockerRunArgs("kiln-x", spec)).toContain("NODE_USE_ENV_PROXY=1");
     expect(dockerRunArgs("kiln-y", { ...spec, repos: [], runner: { ...spec.runner, egress: [] } })).not.toContain("NODE_USE_ENV_PROXY=1");
+  });
+
+  it("labels containers with their owner and sweeps only its own leftovers", async () => {
+    let created = "";
+    const fake = new FakeCommandRunner((_cmd, args) => {
+      if (args[0] === "run") created = args[args.indexOf("--name") + 1]!;
+      if (args[0] === "ps") return { code: 0, stdout: `kiln-old\tkiln\nkiln-legacy\t\nkiln-w1\tworker:w1\n${created}\tkiln\n`, stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    expect(dockerRunArgs("kiln-x", spec, undefined, "worker:w1")).toEqual(expect.arrayContaining(["--label", "kiln.owner=worker:w1"]));
+    const provider = new DockerSandboxProvider(fake);
+    const sbx = await provider.create(spec);
+    expect(await provider.sweep()).toEqual(["kiln-old", "kiln-legacy"]);
+    expect(fake.calls.at(-1)?.args).toEqual(["rm", "-f", "kiln-old", "kiln-legacy"]);
+    await sbx.destroy();
+    expect(await provider.sweep()).toContain(created);
+  });
+
+  it("removes the container when cloning or setup fails", async () => {
+    const fake = new FakeCommandRunner((_cmd, args) => (args.includes("clone") ? { code: 128, stdout: "", stderr: "no access" } : { code: 0, stdout: "", stderr: "" }));
+    await expect(new DockerSandboxProvider(fake).create(spec)).rejects.toThrow(/no access/);
+    expect(fake.calls.at(-1)?.args.slice(0, 2)).toEqual(["rm", "-f"]);
   });
 
   it("uses a cached image, clones, runs setup and destroys", async () => {

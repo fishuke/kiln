@@ -285,6 +285,19 @@ describe("tasks", () => {
   });
 });
 
+describe("foreman updates", () => {
+  it("posts one update per finished stage with the outcome and the next stage", async () => {
+    const { kiln } = createTestKiln({ preview: false });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Add a footer link", body: "", source: { provider: "api" }, requester: "a@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    const done = await waitFor(kiln, wi.id, ["handed_off"]);
+    const updates = done.conversation.filter((m) => m.role === "foreman" && / done[:.]/.test(m.text)).map((m) => m.text);
+    expect(updates[0]).toBe("Triage done. Next: Implement.");
+    expect(updates).toContain("Implement done. Next: Verify.");
+    expect(new Set(updates).size).toBe(updates.length);
+  });
+});
+
 describe("inbox and definition changes", () => {
   it("lists items per person with read and resolved state, and clears answered ones", async () => {
     const { kiln } = createTestKiln({ preview: false });

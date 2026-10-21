@@ -25,6 +25,13 @@ const TYPE_TO_KIND: Record<string, StageKind> = {
 
 type StepResult = "continue" | "wait" | "done";
 
+const STAGE_LABEL: Record<StageKind, string> = { triage: "Triage", spec: "Spec", build: "Implement", verify: "Verify", review: "Review", preview: "Preview", handoff: "Hand off", custom: "", blueprint: "" };
+
+/** A stage's name in words people use; custom and blueprint stages keep their own id. */
+export function stageLabel(stage: Pick<PlanStage, "id" | "kind">): string {
+  return STAGE_LABEL[stage.kind] || stage.id.charAt(0).toUpperCase() + stage.id.slice(1);
+}
+
 type SpecResult = { specPath?: string; why?: string; goal?: string; approach?: string; criteria?: string[]; stories?: string[]; outOfScope?: string[]; risks?: string[]; openQuestions?: string[]; plan?: string };
 
 /** What the spec agent is asked for: the reasoning a reviewer needs before the criteria. */
@@ -575,9 +582,16 @@ export class Workflow {
   }
 
   private nextStage(wi: Item): StepResult {
+    const done = wi.plan!.stages[wi.plan!.cursor];
     wi.plan!.cursor += 1;
+    if (done) this.stageUpdate(wi, done, wi.plan!.stages[wi.plan!.cursor]);
     this.save(wi);
     return "continue";
+  }
+
+  /** The foreman's short update when a stage finishes; the agent's own summary is already in the conversation. */
+  private stageUpdate(wi: Item, done: PlanStage, next: PlanStage | undefined) {
+    this.say(wi, "foreman", "foreman", `${stageLabel(done)} done.${next ? ` Next: ${stageLabel(next)}.` : ""}`);
   }
 
   /** Loop back to an earlier stage (on_fail), bounded by max_loops. */

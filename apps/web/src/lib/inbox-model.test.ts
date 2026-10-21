@@ -61,6 +61,7 @@ describe("buildInbox", () => {
   it("names the primary action", () => {
     expect(primaryAction(gateEntry(gate()))).toBe("Approve spec");
     expect(primaryAction(gateEntry(gate({ kind: "preview" })))).toBe("Accept preview");
+    expect(primaryAction(gateEntry(gate({ kind: "merge" })))).toBe("Approve");
     expect(primaryAction(gateEntry(gate({ kind: "question" })))).toBe("Answer");
   });
 });

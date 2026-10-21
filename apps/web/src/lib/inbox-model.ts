@@ -187,7 +187,7 @@ export function primaryAction(e: Pick<InboxEntry, "kind" | "gateKind" | "command
   if (e.kind === "question") return "Answer";
   if (e.kind === "spec_review") return "Approve spec";
   if (e.gateKind === "preview") return "Accept preview";
-  if (e.gateKind === "merge") return "Confirm it landed";
+  if (e.gateKind === "merge") return "Approve";
   if (e.kind === "pr_review") return "Approve";
   return "View run";
 }

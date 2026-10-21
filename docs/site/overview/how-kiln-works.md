@@ -78,7 +78,7 @@ Rejecting a spec sends the item back to the spec stage with your feedback. Rejec
 
 ## Completion
 
-The factory never merges. A run token can push only `kiln/*` branches and cannot approve or merge. Your branch protection and reviewers do the rest. When the pull request merges, GitHub's `pull_request` webhook completes the work item. Approving the merge gate (**Confirm it landed**) instead marks it complete by human confirmation. **Request changes** on the merge gate, or a follow-up message while the work waits for its merge, sends your note to the agents: the work goes back to the build stage and returns with an updated pull request and a new merge gate. A linked Linear or Jira issue moves to its done state.
+The factory never merges. A run token can push only `kiln/*` branches and cannot approve or merge. Your branch protection and reviewers do the rest. When the pull request merges, GitHub's `pull_request` webhook completes the work item. **Approve** on the merge gate instead marks it complete by human confirmation. **Request changes** on the merge gate, or a follow-up message while the work waits for its merge, sends your note to the agents: the work goes back to the build stage and returns with an updated pull request and a new merge gate. A linked Linear or Jira issue moves to its done state.
 
 New review comments on a handed-off pull request (any review that is not an approval) send the item back to build with the comments as findings.
 

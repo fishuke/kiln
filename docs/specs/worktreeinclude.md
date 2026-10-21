@@ -5,6 +5,32 @@ A run clones the repository fresh, so files git ignores (`.env`, local config, c
 cannot run the app or its tests. Today the only way to provide them is a worker volume mount, which cannot be limited
 to the files a repository wants. Cyrus solves this with a `.worktreeinclude` file; Kiln should accept the same file.
 
+## Why this is needed
+Asked in review by fishukee@gmail.com: "why is this necessary tho?" Short answer: it is not necessary for every
+team, but every way Kiln has today to get a local-only file into a checkout has a gap, and the gaps add up for the
+common case of an app that reads `.env` at startup.
+
+What exists today and where it stops:
+- **Team secrets** (`secrets:` on an agent) arrive as environment variables, never as files. An app or test suite
+  that reads `.env`, a `local.json` or a certificate from disk does not see them. Kiln also only puts secrets of a
+  known type into provider variables; it has no "write this secret to this path" option.
+- **Runner `setupCommands`** are definitions and live in Git, so they cannot contain the secret contents. A setup
+  command can `echo "$VAR" > .env` from an environment variable, but then every file needs a secret per line and a
+  command per file, and the pattern has to be repeated in every factory.
+- **Worker `--volumes`** mounts a host directory into every Docker sandbox on that worker, for every repository and
+  every run, with no per-repository scoping. It is a worker-wide setting that the repository cannot shape, and the
+  `local` backend has no mounts at all.
+- **Run input `files`** are set by Kiln itself (prompts, specs) at run creation; people do not control them, and they
+  are not meant to carry secrets.
+
+What `.worktreeinclude` adds: the repository, not the operator, says which ignored files it needs; the operator keeps
+the real files on the worker, never in Git or in the factory; and the copy is scoped per repository and refused
+outside the source directory. Cyrus users already keep such a file, so repositories moving to Kiln bring it unchanged.
+
+When it is not needed: if all your apps and tests read configuration from environment variables only, team secrets
+already cover you and this feature can be ignored. With no `.worktreeinclude` and no source configured, nothing
+changes (AC4).
+
 ## Behavior
 - A repository may contain `.worktreeinclude` at its root, in gitignore syntax. It lists files to copy into every run's
   checkout.
@@ -60,6 +86,8 @@ to the files a repository wants. Cyrus solves this with a `.worktreeinclude` fil
 - AC10: Docs describe the file, the source directory layout, the config option and the safety rules.
 
 ## Open questions
+- Is the feature worth building at all (fishukee@gmail.com)? Answered above under "Why this is needed": optional,
+  but the alternatives each leave a gap. Reviewers decide whether the gap matters for their repositories.
 - Source layout: is `<source>/<repo name>/` right, or should the source be the main clone of a single repository
   (Cyrus's behavior)? The spec assumes the per-repository subdirectory so multi-repo runs work.
 - Should the source be settable per runner definition in the factory (definitions in Git), or only on the worker/

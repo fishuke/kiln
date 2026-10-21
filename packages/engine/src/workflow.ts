@@ -200,7 +200,7 @@ export class Workflow {
       return this.get(id)!;
     }
     this.addMessage(id, input.by, input.text, attachments);
-    if (!input.fromRun && wi.state === "blocked" && !open.length) await this.resume(id, `resumed after a message from ${input.by}`);
+    if (!input.fromRun && wi.state === "blocked" && !open.length) void this.resume(id, `resumed after a message from ${input.by}`);
     return this.get(id)!;
   }
 
@@ -214,18 +214,19 @@ export class Workflow {
       if (g.kind === "question" && !g.command) this.k.store.put(C.gates, { ...g, state: "expired", decision: "retry", decidedBy: by, decidedVia: "web", decidedAt: now });
     this.touch(id, by, `retried by ${by}`);
     this.k.audit(by, "work_item.retry", id);
-    await this.resume(id, `retried by ${by}`);
+    void this.resume(id, `retried by ${by}`);
     return this.get(id)!;
   }
 
-  private async resume(id: string, reason: string) {
+  /** Unblock the task at the stage that stopped; the returned promise settles when the pipeline does. */
+  private resume(id: string, reason: string): Promise<void> {
     const wi = this.get(id)!;
     wi.blockedReason = undefined;
     wi.loops = {};
     this.save(wi);
     const stage = wi.plan?.stages[wi.plan.cursor];
     this.move(wi, stage?.kind === "spec" ? "planning" : "building", reason);
-    await this.advance(id);
+    return this.advance(id);
   }
 
   park(id: string, reason: string) {

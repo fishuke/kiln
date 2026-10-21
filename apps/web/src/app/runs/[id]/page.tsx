@@ -74,6 +74,9 @@ async function workItemModel(wi: WorkItemDetail, factories: { id: string; name: 
   const runs = wi.runs;
   const root = workItemNode(wi, runs);
   const liveRun = runs.find((r) => r.status === "running");
+  // What running subagents are doing right now, shown under their rows.
+  const running = runs.filter((r) => r.status === "running");
+  const activity = Object.fromEntries(await Promise.all(running.map(async (r) => [r.id, runTranscript(await safe(() => api.runEvents(r.id), []))] as const)));
   const fname = factoryName(factories, wi.factory);
   const usage = [{ label: `Foreman · ${wi.title}`, costUsd: Math.max(0, wi.costUsd - runs.reduce((n, r) => n + r.costUsd, 0)) }, ...runs.map((r) => ({ label: `${cap(r.agent)} · ${runTitle(r, wi.title)}`, costUsd: r.costUsd }))].filter((u, i) => i > 0 || u.costUsd > 0);
   return {
@@ -86,7 +89,7 @@ async function workItemModel(wi: WorkItemDetail, factories: { id: string; name: 
     status,
     live: status === "running" || Boolean(liveRun),
     subagents: root.children.map((c) => ({ id: c.id, title: c.title, agent: c.agent, status: c.status })),
-    transcript: workItemTranscript({ conversation: wi.conversation, runs, gates, title: wi.title, body: wi.body, requester: wi.requester, createdAt: wi.createdAt, attachments: wi.attachments }),
+    transcript: workItemTranscript({ conversation: wi.conversation, runs, gates, title: wi.title, body: wi.body, requester: wi.requester, createdAt: wi.createdAt, attachments: wi.attachments, activity }),
     tree: [root],
     artifacts: collectArtifacts({ runs, pr: wi.pr, branch: wi.branch, prState: wi.completion?.by === "merge" ? "merged" : wi.state === "cancelled" ? "closed" : "open", previewUrl: wi.previewUrl, evidenceVideos: evidenceVideos(wi) }),
     metadata: {

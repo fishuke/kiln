@@ -535,7 +535,8 @@ describe("spec stage failures", () => {
     await waitFor(kiln, wi.id, ["blocked"]);
     const question = kiln.gates.list({ workItemId: wi.id, state: "open" }).find((g) => g.name === "spec-failed")!;
 
-    await kiln.workflow.retry(wi.id, "a@acme.test");
+    // Returns as soon as the task is unblocked, without waiting for the spec run.
+    expect((await kiln.workflow.retry(wi.id, "a@acme.test")).state).toBe("planning");
     expect(kiln.gates.get(question.id)).toMatchObject({ state: "expired", decision: "retry", decidedBy: "a@acme.test" });
     await waitFor(kiln, wi.id, ["awaiting_spec"]);
     await expect(kiln.workflow.retry(wi.id, "a@acme.test")).rejects.toMatchObject({ code: "conflict" });

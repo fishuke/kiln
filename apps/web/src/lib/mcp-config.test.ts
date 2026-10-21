@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CUSTOM_SUGGESTION, fieldsError, fillTemplate, MCP_TEMPLATES, parseMcpJson, secretRefs, toMcpJson, toMcpName } from "./mcp-config";
+import { CUSTOM_SUGGESTION, fieldsError, fillTemplate, MCP_TEMPLATES, parseMcpJson, pickVariant, secretRefs, toMcpJson, toMcpName } from "./mcp-config";
 
 describe("MCP config", () => {
   it("parses the named, bare and Claude Code shapes", () => {
@@ -21,8 +21,8 @@ describe("MCP config", () => {
     expect(secretRefs({ command: "x", args: ["{{A}}"], env: { B: "pre {{ B_2 }} post", C: "{{A}}" } })).toEqual(["A", "B_2"]);
   });
 
-  it("round-trips templates", () => {
-    for (const t of MCP_TEMPLATES) {
+  it("round-trips templates and their variants", () => {
+    for (const t of MCP_TEMPLATES.flatMap((t) => (t.variants ?? [undefined]).map((v) => pickVariant(t, v?.id)))) {
       const values = Object.fromEntries((t.fields ?? []).map((f) => [f.key, f.kind === "url" ? "https://x.example.com" : "v"]));
       const server = JSON.parse(JSON.stringify(fillTemplate(t.server, t.fields ?? [], values))) as typeof t.server;
       const r = parseMcpJson(toMcpJson(t.id, server));
@@ -41,6 +41,21 @@ describe("MCP config", () => {
       url: "https://mcp.us.signoz.cloud/mcp",
       headers: { "SIGNOZ-API-KEY": "{{SIGNOZ_API_KEY}}", "X-SigNoz-URL": "https://signoz.acme.test" },
     });
+  });
+
+  it("offers SigNoz Cloud and a self-hosted local server (#51)", () => {
+    const signoz = MCP_TEMPLATES.find((t) => t.id === "signoz")!;
+    expect(signoz.variants?.map((v) => v.label)).toEqual(["SigNoz Cloud", "Self-hosted"]);
+    // The template itself is its first variant, so code that ignores variants still gets Cloud.
+    expect(pickVariant(signoz)).toMatchObject({ server: signoz.server, mode: "managed" });
+    const self = pickVariant(signoz, "self-hosted");
+    expect(self).toMatchObject({ id: "signoz", name: "SigNoz", mode: "direct" });
+    expect(self.fields?.map((f) => f.key)).toEqual(["SIGNOZ_URL", "SIGNOZ_API_KEY"]);
+    expect(fillTemplate(self.server, self.fields!, { SIGNOZ_URL: "https://signoz.acme.test" })).toMatchObject({
+      command: "signoz-mcp-server",
+      env: { SIGNOZ_URL: "https://signoz.acme.test", SIGNOZ_API_KEY: "{{SIGNOZ_API_KEY}}" },
+    });
+    expect(pickVariant(signoz, "nope")).toEqual(pickVariant(signoz));
   });
 
   it("slugifies display names", () => {

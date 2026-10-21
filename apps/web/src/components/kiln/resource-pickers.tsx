@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { Bot, Cloud, Container, Eye, EyeOff, KeyRound, Laptop, Pencil, Plug, Plus, Search, Server, X } from "lucide-react";
 import { toast } from "sonner";
 import { createMcpServers, createTeamSecret } from "@/app/f/[factory]/settings/actions";
-import { McpFields, useMcpFields } from "@/components/kiln/mcp-fields";
+import { McpFields, useMcpFields, VariantChoice } from "@/components/kiln/mcp-fields";
 import { InfoTip } from "@/components/kiln/info-tip";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { HARNESSES, harnessLabel, hostOptions, modelLabel, modelsFor } from "@/lib/agent-catalog";
-import { BUILTIN_SETUP, fillTemplate, SERVER_TEMPLATES, templateFields } from "@/lib/mcp-config";
+import { BUILTIN_SETUP, fillTemplate, pickVariant, SERVER_TEMPLATES, templateFields } from "@/lib/mcp-config";
 import { cn } from "@/lib/utils";
 
 export const INHERIT = "__inherit";
@@ -351,13 +351,15 @@ export function AddMcpDialog({
 }) {
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<string>("custom");
+  const [variant, setVariant] = useState<string>();
   const [json, setJson] = useState("");
   const [pending, start] = useTransition();
   const match = (n: string) => n.toLowerCase().includes(q.toLowerCase());
   const available = useMemo(() => servers.filter((s) => !selected.includes(s.name) && match(s.name)), [servers, selected, q]); // eslint-disable-line react-hooks/exhaustive-deps
   const templates = SERVER_TEMPLATES.filter((t) => !servers.some((s) => s.name === t.id) && match(t.name));
   const pickedServer = servers.find((s) => s.name === mode);
-  const template = SERVER_TEMPLATES.find((t) => `tpl:${t.id}` === mode);
+  const base = SERVER_TEMPLATES.find((t) => `tpl:${t.id}` === mode);
+  const template = useMemo(() => base && pickVariant(base, variant), [base, variant]);
   const builtinSetup = pickedServer?.builtin ? BUILTIN_SETUP[pickedServer.name] : undefined;
   const needsConnect = Boolean(pickedServer?.missing?.length && builtinSetup);
   const fields = template ? templateFields(template) : needsConnect ? builtinSetup!.fields : [];
@@ -365,6 +367,7 @@ export function AddMcpDialog({
   const pick = (m: string) => {
     form.reset();
     setMode(m);
+    setVariant(undefined);
   };
   const close = () => {
     setJson("");
@@ -464,6 +467,16 @@ export function AddMcpDialog({
                   <p className="text-sm text-muted-foreground">
                     {template?.description ?? pickedServer?.description ?? "An MCP server from your team registry."}
                   </p>
+                  {base?.variants && (
+                    <VariantChoice
+                      variants={base.variants}
+                      value={variant}
+                      onChange={(id) => {
+                        form.reset();
+                        setVariant(id);
+                      }}
+                    />
+                  )}
                   {fields.length > 0 && (
                     <McpFields
                       fields={fields}

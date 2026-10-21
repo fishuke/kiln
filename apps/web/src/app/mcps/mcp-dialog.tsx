@@ -6,7 +6,7 @@ import { Activity, Database, Globe, Search, Settings, Terminal, Theater, X } fro
 import type { McpServer } from "@kiln/sdk-ts";
 import { FigmaIcon } from "@/components/kiln/mcp-icons";
 import { GitHubIcon, LinearIcon, SentryIcon } from "@/components/kiln/brand-icons";
-import { McpFields, useMcpFields } from "@/components/kiln/mcp-fields";
+import { McpFields, useMcpFields, VariantChoice } from "@/components/kiln/mcp-fields";
 import { useAction } from "@/components/kiln/use-action";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -15,6 +15,7 @@ import {
   CUSTOM_SUGGESTION,
   templateFields,
   fillTemplate,
+  pickVariant,
   MCP_TEMPLATES,
   parseMcpJson,
   secretRefs,
@@ -52,6 +53,7 @@ type Builtin = { kiln_id: string; description: string; connected: boolean; missi
 export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { open: boolean; onOpenChange: (o: boolean) => void; secrets: string[]; builtins: Builtin[]; server?: McpServer }) {
   const [query, setQuery] = useState("");
   const [template, setTemplate] = useState<McpTemplate | "custom">("custom");
+  const [variant, setVariant] = useState<string>();
   const [display, setDisplay] = useState(server?.name ?? "");
   const [config, setConfig] = useState(server ? toMcpJson(server.name, server) : "");
   const [mode, setMode] = useState<"managed" | "direct">(server?.mode ?? "managed");
@@ -61,7 +63,7 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
   const [pending, run] = useAction();
   const router = useRouter();
 
-  const t = template === "custom" ? undefined : template;
+  const t = useMemo(() => (template === "custom" ? undefined : pickVariant(template, variant)), [template, variant]);
   // A template with fields is filled in through its form; its JSON stays available for edits.
   const tFields = useMemo(() => (t && !t.id.startsWith("custom") ? templateFields(t) : []), [t]);
   const guided = tFields.length > 0 && !showJson;
@@ -78,6 +80,7 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
 
   const pick = (t: McpTemplate | "custom") => {
     setTemplate(t);
+    setVariant(undefined);
     setShowJson(false);
     form.reset();
     if (t === "custom") {
@@ -94,6 +97,15 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
     setDescription(t.id.startsWith("custom") ? "" : t.description);
     setMode(t.mode);
     setModeTouched(true);
+  };
+
+  const pickRun = (id: string) => {
+    if (template === "custom") return;
+    const v = pickVariant(template, id);
+    setVariant(id);
+    form.reset();
+    setConfig(toMcpJson(name || v.id, v.server));
+    setMode(v.mode);
   };
 
   const reset = () => {
@@ -180,6 +192,13 @@ export function McpDialog({ open, onOpenChange, secrets, builtins, server }: { o
               <Input value={display} onChange={(e) => setDisplay(e.target.value)} placeholder="MCP server name" className="h-10" />
               {display && name !== display && <span className="text-xs text-muted-foreground">Agents refer to it as <code className="font-mono">{name || "…"}</code></span>}
             </label>
+
+            {template !== "custom" && template.variants && (
+              <div className="mt-5 grid gap-1.5">
+                <span className="text-sm font-medium">How it runs</span>
+                <VariantChoice variants={template.variants} value={variant} onChange={pickRun} />
+              </div>
+            )}
 
             {guided ? (
               <div className="mt-5">

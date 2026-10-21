@@ -160,11 +160,9 @@ export function GateCard({ gate, prUrl, previewUrl, onDone, compact, hideQuestio
                 <Button disabled={pending} onClick={() => send("approve")}>
                   {approveLabel(gate)}
                 </Button>
-                {gate.kind !== "merge" && (
-                  <Button variant="outline" disabled={pending} onClick={() => send("reject")}>
-                    {gate.command ? "Block it" : "Request changes"}
-                  </Button>
-                )}
+                <Button variant="outline" disabled={pending} onClick={() => send("reject")}>
+                  {gate.command ? "Block it" : "Request changes"}
+                </Button>
               </>
             )}
             {canRetrySpec(gate) && !retry && (

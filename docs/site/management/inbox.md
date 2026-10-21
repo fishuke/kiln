@@ -33,7 +33,7 @@ A Review item opens the diff in the side pane, file by file. Hover a line and cl
 - **Comment only** posts the line comments without a verdict.
 - **Merge** merges the pull request; the task completes.
 
-Kiln acts as your own GitHub account, never as the Kiln app (agents never approve or merge; see ADR-010). Link GitHub once from the pane or your linked accounts. If you merged elsewhere, **Confirm it landed** closes the task.
+Kiln acts as your own GitHub account, never as the Kiln app (agents never approve or merge; see ADR-010). Link GitHub once from the pane or your linked accounts. If you merged elsewhere, **Confirm it landed** closes the task. On the run page, **Request changes** on the merge gate (or a follow-up message) sends your note to the agents without a GitHub review.
 
 ## Ready to merge
 

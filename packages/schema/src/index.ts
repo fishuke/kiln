@@ -230,6 +230,18 @@ export const Factory = z
     scoring: z.object({ defaultModel: z.string().optional() }).strict().optional(),
     blueprint: Blueprint.optional(),
     /**
+     * How the foreman runs a task. `pipeline` (default): Kiln walks the stages. `agent`: the
+     * foreman agent plans, dispatches agents, talks to people and is woken by events.
+     */
+    foreman: z
+      .object({
+        mode: z.enum(["pipeline", "agent"]).default("pipeline"),
+        /** Foreman turns per task before Kiln stops and asks a person. */
+        maxTurns: z.number().int().min(1).max(500).default(60),
+      })
+      .strict()
+      .optional(),
+    /**
      * One task per incident. A report that matches an open task by identity (alert fingerprint,
      * tracker issue, URL), or from another source by content, joins that task instead.
      */

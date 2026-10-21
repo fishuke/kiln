@@ -2,17 +2,18 @@ import { BUILTIN_DECISIONS, runDecision, top } from "@kiln/decide";
 import type { ResolvedFactory } from "@kiln/definitions";
 import { collectPlaywrightEvidence, criteriaCovered, previewCard } from "@kiln/evidence";
 import { evalBool, type Decision, type PipelineStage } from "@kiln/schema";
+import { foremanPrompt, movesWork, parseActions, type ForemanActions } from "./agent-foreman";
 import { correlationKeys } from "./dedupe";
 import { KilnError } from "./errors";
 import { BUILTIN_GATES } from "./gates";
 import type { Kiln } from "./kiln";
-import { isActive, transition } from "./state";
+import { isActive, transition, TRANSITIONS } from "./state";
 import { fileUrl } from "./media";
-import { C, newId, type Attachment, type ExecutionOverrides, type Gate, type Run, type RunMode, type Source, type WorkItem, type WorkItemState } from "./types";
+import { C, newId, type ForemanEvent, type Attachment, type ExecutionOverrides, type Gate, type Run, type RunMode, type Source, type WorkItem, type WorkItemState } from "./types";
 
 export type StageKind = "triage" | "spec" | "build" | "verify" | "review" | "preview" | "handoff" | "custom" | "blueprint";
 export type PlanStage = PipelineStage & { kind: StageKind };
-type Plan = { mode: "pipeline" | "foreman" | "direct" | "blueprint"; stages: PlanStage[]; cursor: number };
+type Plan = { mode: "pipeline" | "foreman" | "direct" | "blueprint" | "agent"; stages: PlanStage[]; cursor: number };
 type Item = WorkItem & { plan?: Plan; pendingDiff?: { additions: number; deletions: number; files: number } };
 
 const TYPE_TO_KIND: Record<string, StageKind> = {
@@ -24,6 +25,21 @@ const TYPE_TO_KIND: Record<string, StageKind> = {
 };
 
 type StepResult = "continue" | "wait" | "done";
+
+function specFrom(wi: WorkItem, res: SpecResult, run: Run): NonNullable<WorkItem["spec"]> {
+  return {
+    path: res.specPath ?? `docs/specs/${wi.id}.md`,
+    ...(res.why ? { why: res.why } : {}),
+    ...(res.goal ? { goal: res.goal } : {}),
+    ...(res.approach ? { approach: res.approach } : {}),
+    criteria: res.criteria ?? [],
+    stories: res.stories ?? [],
+    ...(res.outOfScope?.length ? { outOfScope: res.outOfScope } : {}),
+    ...(res.risks?.length ? { risks: res.risks } : {}),
+    openQuestions: res.openQuestions ?? [],
+    ...(run.model ? { model: run.model } : {}),
+  };
+}
 
 const STAGE_LABEL: Record<StageKind, string> = { triage: "Triage", spec: "Spec", build: "Implement", verify: "Verify", review: "Review", preview: "Preview", handoff: "Hand off", custom: "", blueprint: "" };
 
@@ -227,6 +243,11 @@ export class Workflow {
       return this.get(id)!;
     }
     this.addMessage(id, input.by, input.text, attachments);
+    if (this.isAgentMode(wi) && !input.fromRun) {
+      if (wi.state === "blocked") this.unblock(id, `resumed after a message from ${input.by}`);
+      this.queue(id, "message", `${input.by}: ${input.text}${attachments.length ? ` (attached ${attachments.map((a) => a.name).join(", ")})` : ""}`);
+      return this.get(id)!;
+    }
     if (!input.fromRun && wi.state === "blocked" && !open.length) void this.resume(id, `resumed after a message from ${input.by}`);
     // Waiting for its merge: a message is feedback on the pull request.
     if (!input.fromRun && wi.state === "handed_off" && wi.pr) void this.revise(id, input.by, input.text);
@@ -247,6 +268,15 @@ export class Workflow {
     return this.get(id)!;
   }
 
+  /** An agent-mode task that stopped goes back to work; the foreman decides what to do next. */
+  private unblock(id: string, reason: string) {
+    const wi = this.get(id)!;
+    wi.blockedReason = undefined;
+    wi.foreman = { turns: wi.foreman?.turns ?? 0, idleTurns: 0, failedTurns: 0 };
+    this.save(wi);
+    this.move(wi, "building", reason);
+  }
+
   /** Unblock the task at the stage that stopped; the returned promise settles when the pipeline does. */
   private resume(id: string, reason: string): Promise<void> {
     const wi = this.get(id)!;
@@ -261,7 +291,13 @@ export class Workflow {
   /** After a restart no stage is in flight: tasks that were working stop as blocked, ready to retry. CI waits resume on the tick. */
   recoverInterrupted(): string[] {
     const working: WorkItemState[] = ["received", "triaging", "planning", "building", "reviewing"];
-    const stuck = this.list().filter((wi) => working.includes(wi.state) && wi.blockedReason !== "waiting for CI");
+    const all = this.list().filter((wi) => working.includes(wi.state) && wi.blockedReason !== "waiting for CI");
+    // An agent foreman picks up where it was: it hears which runs were cut off and decides.
+    for (const wi of all.filter((w) => this.isAgentMode(w))) {
+      const cut = this.k.runs.list({ workItemId: wi.id }).filter((r) => r.status !== "succeeded" && r.finishedAt && r.finishedAt >= wi.updatedAt && r.stage !== "foreman");
+      this.queue(wi.id, "restarted", `Kiln restarted while this task was working.${cut.length ? ` Runs cut off: ${cut.map((r) => `${r.agent} (${r.id})`).join(", ")}.` : ""} Decide what to run again.`);
+    }
+    const stuck = all.filter((w) => !this.isAgentMode(w));
     for (const wi of stuck) this.park(wi.id, "Kiln restarted while this task was working. Retry or send a message to continue.");
     return stuck.map((wi) => wi.id);
   }
@@ -407,7 +443,8 @@ export class Workflow {
     return [...lines, ...extra].join("\n");
   }
 
-  private async agentRun(wi: Item, agent: string, stage: string, prompt: string, opts: { push?: boolean; collect?: Parameters<Kiln["runs"]["execute"]>[0]["collect"]; mode?: RunMode; model?: string } = {}): Promise<Run> {
+  /** Throws when the task's or the factory's budget is spent. */
+  private checkBudget(wi: Item) {
     const r = this.resolved(wi);
     const caps = [wi.budgetUsd, ...Object.values(r.parsed.policies).map((p) => p.maxUsdPerWorkItem)].filter((n): n is number => typeof n === "number");
     const cap = caps.length ? Math.min(...caps) : undefined;
@@ -422,6 +459,12 @@ export class Workflow {
       const spent = this.k.runs.list({ factory: wi.factory }).filter((x) => x.startedAt >= start.toISOString()).reduce((s, x) => s + x.costUsd, 0);
       if (spent >= monthly) throw new KilnError("budget_exceeded", `monthly budget of $${monthly} for ${wi.factory} reached ($${spent.toFixed(2)} spent)`);
     }
+  }
+
+  /** `silent`: the run's summary stays out of the conversation (the agent foreman speaks for itself). */
+  private async agentRun(wi: Item, agent: string, stage: string, prompt: string, opts: { push?: boolean; collect?: Parameters<Kiln["runs"]["execute"]>[0]["collect"]; mode?: RunMode; model?: string; silent?: boolean } = {}): Promise<Run> {
+    const r = this.resolved(wi);
+    this.checkBudget(wi);
     const agentType = r.agents[agent]?.agentType;
     const mode = opts.mode ?? (wi.mode === "orchestrate" && (agentType === "FOREMAN" || agentType === "IMPLEMENT") ? "orchestrate" : undefined);
     const run = await this.k.runs.execute({
@@ -438,20 +481,31 @@ export class Workflow {
       overrides: opts.model ? { ...wi.execution, model: opts.model } : wi.execution,
     });
     const fresh = this.get(wi.id)!;
-    fresh.costUsd += run.costUsd;
-    fresh.branch = this.branch(wi);
-    const diff = run.result?.diffStat as { additions: number; deletions: number; files: number } | undefined;
-    if (diff && fresh.pr) {
-      fresh.pr.additions = (fresh.pr.additions ?? 0) + diff.additions;
-      fresh.pr.deletions = (fresh.pr.deletions ?? 0) + diff.deletions;
-      fresh.pr.changedFiles = Math.max(fresh.pr.changedFiles ?? 0, diff.files);
-      fresh.pr.commits = (fresh.pr.commits ?? 0) + 1;
-    } else if (diff) {
-      fresh.pendingDiff = { additions: (fresh.pendingDiff?.additions ?? 0) + diff.additions, deletions: (fresh.pendingDiff?.deletions ?? 0) + diff.deletions, files: Math.max(fresh.pendingDiff?.files ?? 0, diff.files) };
-    }
-    this.say(fresh, agent, "agent", run.summary || `${agent} ${run.status}`);
+    this.countRun(fresh, run);
+    if (!opts.silent) this.say(fresh, agent, "agent", run.summary || `${agent} ${run.status}`);
     this.save(fresh);
     Object.assign(wi, fresh);
+    this.absorbProposals(wi, run, agent);
+    return run;
+  }
+
+  /** A finished run's cost, branch and diff size go onto the work item (not saved). */
+  private countRun(wi: Item, run: Run) {
+    wi.costUsd += run.costUsd;
+    wi.branch = this.branch(wi);
+    const diff = run.result?.diffStat as { additions: number; deletions: number; files: number } | undefined;
+    if (diff && wi.pr) {
+      wi.pr.additions = (wi.pr.additions ?? 0) + diff.additions;
+      wi.pr.deletions = (wi.pr.deletions ?? 0) + diff.deletions;
+      wi.pr.changedFiles = Math.max(wi.pr.changedFiles ?? 0, diff.files);
+      wi.pr.commits = (wi.pr.commits ?? 0) + 1;
+    } else if (diff) {
+      wi.pendingDiff = { additions: (wi.pendingDiff?.additions ?? 0) + diff.additions, deletions: (wi.pendingDiff?.deletions ?? 0) + diff.deletions, files: Math.max(wi.pendingDiff?.files ?? 0, diff.files) };
+    }
+  }
+
+  /** Memories and definition changes an agent proposed; people review them. */
+  private absorbProposals(wi: Item, run: Run, agent: string) {
     const memories = (run.result?.memories as { title: string; body: string; tags?: string[] }[] | undefined) ?? [];
     for (const m of memories) this.k.memories.propose(wi.factory, { ...m, author: agent, sourceRunId: run.id });
     // Agents may propose definition changes (prompts, skills, settings); people review them in the inbox.
@@ -463,10 +517,217 @@ export class Workflow {
         this.say(wi, "kiln", "system", `Could not record the proposed definition change: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    return run;
+  }
+
+  // ---- Agent foreman: turns that answer with actions, woken by events (see agent-foreman.ts) ----
+
+  /** Record something the agent foreman should hear about and wake it. */
+  private queue(workItemId: string, type: ForemanEvent["type"], text: string, runId?: string) {
+    this.k.store.put<ForemanEvent>(C.foremanEvents, { id: newId("fev"), workItemId, at: this.k.clock.now().toISOString(), type, text, ...(runId ? { runId } : {}) });
+    void this.advance(workItemId);
+  }
+
+  private isAgentMode(wi: Item) {
+    return wi.plan?.mode === "agent";
+  }
+
+  /** Move only when the state machine allows it; the agent foreman picks agents in any order. */
+  private moveIfAllowed(wi: Item, to: WorkItemState, reason: string): Item {
+    return wi.state !== to && TRANSITIONS[wi.state].includes(to) ? this.move(wi, to, reason) : wi;
+  }
+
+  private async foremanTurn(wi: Item): Promise<StepResult> {
+    const st = (wi.foreman ??= { turns: 0, idleTurns: 0, failedTurns: 0 });
+    if (wi.blockedReason === "waiting for CI") {
+      const checks = wi.branch ? await this.k.forge.checks(this.repoOf(wi), wi.branch) : { status: "success" as const, runs: [] };
+      if (checks.status === "pending") return "wait";
+      wi.blockedReason = undefined;
+      this.save(wi);
+      const failed = checks.runs.filter((r) => r.conclusion !== "success").map((r) => r.name);
+      this.k.store.put<ForemanEvent>(C.foremanEvents, { id: newId("fev"), workItemId: wi.id, at: this.k.clock.now().toISOString(), type: "ci", text: checks.status === "failure" ? `CI failed: ${failed.join(", ")}` : "CI passed" });
+    }
+    const events = this.k.store.list<ForemanEvent>(C.foremanEvents, (e) => e.workItemId === wi.id).sort((a, b) => a.at.localeCompare(b.at));
+    if (st.turns === 0 && !events.length) events.push({ id: "start", workItemId: wi.id, at: wi.createdAt, type: "start", text: "New task. Acknowledge it, write your checklist and start the work." });
+    if (!events.length) return "wait";
+    const max = this.resolved(wi).factory.foreman?.maxTurns ?? 60;
+    if (st.turns >= max) {
+      this.park(wi.id, `the foreman took ${st.turns} turns without finishing`);
+      await this.k.gates.open({ workItem: wi, kind: "question", name: "foreman-stuck", title: `The foreman needs help with "${wi.title}"`, question: `It took ${st.turns} turns without finishing. Reply with guidance, or reject to stop.` });
+      return "wait";
+    }
+    for (const e of events) if (e.type === "run_finished" && e.runId) await this.absorbRun(wi, e.runId);
+    st.turns += 1;
+    if (wi.state === "received") wi = this.move(wi, "triaging", "the foreman is on it");
+    this.save(wi);
+    const r = this.resolved(wi);
+    const agents = Object.values(r.agents)
+      .filter((a) => a.agentType !== "FOREMAN")
+      .map((a) => ({ name: a.name, agentType: a.agentType, description: a.description }));
+    const runs = this.k.runs.list({ workItemId: wi.id }).filter((x) => x.stage !== "foreman");
+    const prompt = foremanPrompt({ wi, runs, gates: this.k.gates.list({ workItemId: wi.id }), events, agents });
+    const run = await this.agentRun(wi, this.agentFor(wi, "FOREMAN")!, "foreman", prompt, { push: false, silent: true });
+    const parsed = run.status === "succeeded" ? parseActions(run.result) : { ok: false as const, error: run.summary ?? run.status };
+    if (!parsed.ok) {
+      wi.foreman!.failedTurns += 1;
+      this.save(wi);
+      if (wi.foreman!.failedTurns >= 2) {
+        this.park(wi.id, `the foreman could not finish its turn: ${parsed.error}`);
+        return "wait";
+      }
+      // The events stay queued for the next try; tell the foreman what went wrong.
+      this.queue(wi.id, "error", `Your last turn did not produce valid actions: ${parsed.error}`);
+      return "wait";
+    }
+    for (const e of events) this.k.store.delete(C.foremanEvents, e.id);
+    wi.foreman!.failedTurns = 0;
+    return this.applyActions(wi, parsed.actions);
+  }
+
+  /** A finished agent run: its cost, typed result and pull request land on the work item. */
+  private async absorbRun(wi: Item, runId: string) {
+    const run = this.k.runs.get(runId);
+    if (!run) return;
+    this.countRun(wi, run);
+    this.absorbProposals(wi, run, run.agent);
+    const type = this.resolved(wi).agents[run.agent]?.agentType;
+    const res = (run.result ?? {}) as Record<string, unknown>;
+    if (type === "TRIAGE" && run.status === "succeeded") {
+      wi.triage = { kind: String(res.kind ?? "feature"), size: String(res.size ?? "m"), summary: res.summary as string | undefined, duplicateOf: res.duplicateOf as string | undefined, confidence: 0.9 };
+      await this.chooseRepo(wi, res.repo as string | undefined);
+    }
+    if (type === "SPEC" && run.status === "succeeded") wi.spec = specFrom(wi, res as SpecResult, run);
+    if (type === "REVIEW" && run.status === "succeeded") wi.review = { verdict: String(res.verdict ?? "accepted"), findings: (res.findings as string[] | undefined) ?? [], reviewers: wi.review?.reviewers ?? [] };
+    this.save(wi);
+    if ((type === "IMPLEMENT" || type === "CUSTOM" || type === "SPEC") && this.hasBranch(wi)) {
+      const hadPr = Boolean(wi.pr);
+      const pr = await this.ensurePullRequest(wi, type === "SPEC" && !wi.pr);
+      if (pr) this.k.runs.addArtifact(run.id, { kind: "pr", name: `${pr.repo}#${pr.number}${hadPr ? " (updated)" : ""}`, url: pr.url });
+    }
+  }
+
+  /** Start an agent for the foreman; its end comes back as an event. `from` continues an earlier run. */
+  private dispatch(wi: Item, d: { agent: string; brief: string; stage?: string; title?: string }, from?: Run) {
+    const agent = this.resolved(wi).agents[d.agent];
+    if (!agent || agent.agentType === "FOREMAN") throw new KilnError("invalid_request", `there is no agent named ${d.agent} to dispatch`);
+    this.checkBudget(wi);
+    const writes = ["IMPLEMENT", "SPEC", "CUSTOM"].includes(agent.agentType);
+    const stage = d.stage ?? from?.stage ?? agent.agentType.toLowerCase();
+    void this.k.runs
+      .execute({
+        factory: wi.factory,
+        sha: wi.definitionSha,
+        agent: d.agent,
+        stage,
+        prompt: d.brief,
+        workItem: wi,
+        branch: this.branch(wi),
+        push: writes,
+        overrides: wi.execution,
+        ...(d.title ? { title: d.title } : {}),
+        ...(from ? { continuationOf: from.id } : {}),
+      })
+      .then((run) => this.queue(wi.id, "run_finished", `${run.agent} (${run.id}, ${stage}) ${run.status}${run.summary ? `: ${run.summary}` : ""}`, run.id))
+      .catch((err) => this.queue(wi.id, "error", `${d.agent} could not run: ${err instanceof Error ? err.message : String(err)}`));
+    const to: WorkItemState = writes ? (agent.agentType === "SPEC" ? "planning" : "building") : agent.agentType === "TRIAGE" ? "triaging" : "reviewing";
+    return this.moveIfAllowed(wi, to, `${d.agent} started`);
+  }
+
+  private async applyActions(wi: Item, a: ForemanActions): Promise<StepResult> {
+    const id = wi.id;
+    if (a.tasks) {
+      // Newly finished items get a line in the conversation, as in "Completed Triage the request (1/4)".
+      const before = new Set((wi.tasks ?? []).filter((t) => t.status === "done").map((t) => t.title));
+      a.tasks.forEach((t, i) => {
+        if (t.status === "done" && !before.has(t.title)) this.say(wi, "foreman", "system", `Completed ${t.title} (${i + 1}/${a.tasks!.length})`);
+      });
+      wi.tasks = a.tasks;
+    }
+    this.save(wi);
+    for (const text of [a.say ?? []].flat().filter((t) => t.trim())) await this.k.notify(wi, text);
+    wi = this.get(id)!;
+    const problems: string[] = [];
+    const attempt = async (what: string, fn: () => unknown) => {
+      try {
+        await fn();
+      } catch (err) {
+        problems.push(`${what}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+    for (const d of a.dispatch ?? []) await attempt(`dispatch ${d.agent}`, () => (wi = this.dispatch(wi, d)));
+    for (const f of a.followUp ?? []) {
+      await attempt(`followUp ${f.runId}`, () => {
+        const prev = this.k.runs.get(f.runId);
+        if (!prev || prev.workItemId !== id) throw new KilnError("invalid_request", `run ${f.runId} is not part of this task`);
+        const prompt = [prev.startState.prompt, "", "## What you reported", prev.summary ?? prev.status, "", "## Follow-up from the foreman", f.message].join("\n");
+        wi = this.dispatch(wi, { agent: prev.agent, brief: prompt, stage: prev.stage, title: prev.title }, prev);
+      });
+    }
+    if (a.ask) {
+      const q = a.ask;
+      await attempt("ask", () =>
+        this.k.gates.open({
+          workItem: wi,
+          kind: "question",
+          name: "foreman-question",
+          title: q.question.length > 120 ? `${q.question.slice(0, 117)}…` : q.question,
+          question: q.question,
+          ...(q.options?.length ? { questions: [{ id: "q1", question: q.question, type: "single_select" as const, options: q.options }] } : {}),
+        }),
+      );
+    }
+    if (a.approveSpec) {
+      await attempt("approveSpec", async () => {
+        if (!wi.spec) throw new KilnError("conflict", "there is no spec yet; dispatch the spec agent first");
+        const spec = wi.spec;
+        wi = this.moveIfAllowed(wi, "awaiting_spec", "spec ready for approval");
+        await this.k.gates.open({
+          workItem: wi,
+          kind: "spec",
+          name: "spec-approval",
+          def: this.gateDef(wi, "spec-approval"),
+          title: `Approve the spec for "${wi.title}"`,
+          question: [...specOverview(spec), ...spec.criteria.map((c) => `- ${c}`), ...section("Out of scope", spec.outOfScope), ...section("Risks and trade-offs", spec.risks)].join("\n"),
+          evidence: wi.pr ? [{ label: "Spec PR", url: wi.pr.url }] : [],
+        });
+      });
+    }
+    if (a.waitForCi) {
+      if (wi.branch && wi.pr) {
+        wi = this.moveIfAllowed(wi, "building", "waiting for CI");
+        wi.blockedReason = "waiting for CI";
+        this.save(wi);
+      } else problems.push("waitForCi: there is no pull request to wait on");
+    }
+    if (a.handOff) await attempt("handOff", () => this.handoff(wi, typeof a.handOff === "object" ? a.handOff.summary : undefined));
+    else if (a.finish !== undefined) await attempt("finish", () => this.finishWithoutChanges(wi, a.finish));
+    wi = this.get(id)!;
+    const live = this.k.runs.list({ workItemId: id }).some((x) => x.status === "running" && x.stage !== "foreman");
+    const asked = this.k.gates.list({ workItemId: id, state: "open" }).length > 0;
+    if (problems.length) {
+      this.queue(id, "error", problems.join("\n"));
+      return "wait";
+    }
+    if (movesWork(a) || live || asked || !isActive(wi.state)) {
+      wi.foreman!.idleTurns = 0;
+      this.save(wi);
+      return "wait";
+    }
+    wi.foreman!.idleTurns += 1;
+    this.save(wi);
+    if (wi.foreman!.idleTurns >= 2) {
+      this.park(id, "the foreman stopped without a next step");
+      return "wait";
+    }
+    this.queue(id, "nudge", "Nothing is running and nobody was asked anything. Pick the next step: dispatch, followUp, ask, approveSpec, waitForCi, handOff or finish.");
+    return "wait";
   }
 
   private async step(wi: Item): Promise<StepResult> {
+    if (!wi.plan && this.resolved(wi).factory.foreman?.mode === "agent" && !wi.pipeline && this.agentFor(wi, "FOREMAN")) {
+      wi.plan = { mode: "agent", cursor: 0, stages: [] };
+      this.save(wi);
+    }
+    if (wi.plan?.mode === "agent") return this.foremanTurn(wi);
     // Waiting at a gate: nothing to do until it is decided.
     const waitingOn = wi.state === "awaiting_spec" ? "spec" : wi.state === "awaiting_preview" ? "preview" : undefined;
     if (waitingOn && this.k.gates.list({ workItemId: wi.id, state: "open" }).some((g) => g.kind === waitingOn)) return "wait";
@@ -726,18 +987,7 @@ export class Workflow {
       if (run.status !== "succeeded") return this.specFailed(wi, stage, run);
       res = (run.result ?? res) as typeof res;
     }
-    wi.spec = {
-      path: res.specPath ?? `docs/specs/${wi.id}.md`,
-      ...(res.why ? { why: res.why } : {}),
-      ...(res.goal ? { goal: res.goal } : {}),
-      ...(res.approach ? { approach: res.approach } : {}),
-      criteria: res.criteria ?? [],
-      stories: res.stories ?? [],
-      ...(res.outOfScope?.length ? { outOfScope: res.outOfScope } : {}),
-      ...(res.risks?.length ? { risks: res.risks } : {}),
-      openQuestions: res.openQuestions ?? [],
-      ...(run.model ? { model: run.model } : {}),
-    };
+    wi.spec = specFrom(wi, res, run);
     if (wi.specRetry) delete wi.specRetry.model;
     const stillFailing = await this.checkCriteria(wi, wi.spec.criteria);
     const pr = await this.ensurePullRequest(wi, true);
@@ -972,7 +1222,8 @@ export class Workflow {
     return { title: wi.title, files: files.map((f) => f.path), additions: files.reduce((n, f) => n + f.additions, 0), deletions: files.reduce((n, f) => n + f.deletions, 0) };
   }
 
-  private async handoff(wi: Item): Promise<StepResult> {
+  /** `summary`: what changed and where to look, written by the agent foreman for the reviewer. */
+  private async handoff(wi: Item, summary?: string): Promise<StepResult> {
     if (wi.state === "handed_off") return "wait";
     if (!wi.pr) return this.finishWithoutChanges(wi, this.lastSummary(wi));
     const repo = this.repoOf(wi);
@@ -982,7 +1233,7 @@ export class Workflow {
     const msg = [skip ? `Ready to merge, no code review needed: ${wi.pr.url}` : `Ready for review: ${wi.pr.url}`, wi.previewUrl ? `Preview: ${wi.previewUrl}` : "", wi.review?.verdict === "needs_human" ? "Some review findings need your judgment; they are on the PR." : ""].filter(Boolean).join("\n");
     await this.k.notify(wi, msg);
     // Low risk: no inbox item; the task is listed as ready to merge (ReviewService.readyToMerge).
-    if (!skip) await this.k.gates.open({ workItem: wi, kind: "merge", name: "merge", title: `Review "${wi.title}"`, question: `Review the changes, then merge ${wi.pr.url}.`, evidence: [{ label: "Pull request", url: wi.pr.url }], assignees: wi.review?.reviewers });
+    if (!skip) await this.k.gates.open({ workItem: wi, kind: "merge", name: "merge", title: `Review "${wi.title}"`, question: `${summary ? `${summary}\n\n` : ""}Review the changes, then merge ${wi.pr.url}.`, evidence: [{ label: "Pull request", url: wi.pr.url }], assignees: wi.review?.reviewers });
     await this.moveTrackerIssue(wi, "handoff");
     return "done";
   }
@@ -991,6 +1242,13 @@ export class Workflow {
   async onGateDecided(gate: Gate) {
     const wi = this.get(gate.workItemId);
     if (!wi || !isActive(wi.state)) return;
+    if (this.isAgentMode(wi) && !(gate.kind === "merge" && gate.state === "approved")) {
+      const by = gate.decidedBy ?? "a person";
+      if (wi.state === "blocked") this.unblock(wi.id, `${gate.title} decided`);
+      else if (wi.state === "awaiting_spec" || wi.state === "handed_off" || wi.state === "awaiting_preview") this.move(wi, gate.state === "approved" && gate.kind === "spec" ? "building" : gate.kind === "spec" ? "planning" : "building", `${gate.title} ${gate.state}`);
+      this.queue(wi.id, "gate_decided", `${gate.kind} "${gate.title}" ${gate.state} by ${by}${gate.answer ? `: ${gate.answer}` : ""}`);
+      return;
+    }
     if (gate.kind === "merge") {
       if (gate.state === "approved") await this.complete(wi.id, { by: "human", ref: `gate:${gate.id}:${gate.decidedBy}` });
       if (gate.state === "rejected") {

@@ -151,14 +151,17 @@ You make the change the request (and its approved spec) asks for, prove it works
 5. **Review your own diff** as a stranger would before you report.
    - List every comment line you added. Delete each one that repeats the code or that a reader cannot understand on its own.
    - Decide for each test you wrote whether it earns its place. Delete scaffolding tests, and any production seam that only existed for them.
-6. **Deliver.** Commit and finish; do not wait for CI. Kiln pushes the branch, opens or updates the pull request with its description (the request, criteria and evidence), applies the factory label and asks a person to review it. CI failures come back to you as a follow-up.
+6. **Deliver.** Commit and finish; do not wait for CI. Kiln pushes the branch, opens or updates the pull request with the title and description you report, adds the evidence and the tracking links below it, applies the factory label and asks a person to review it. CI failures come back to you as a follow-up.
 
 ## Report
 
-Put it in the \`summary\` of your result. Write for the reviewer who is about to read the diff: short active sentences, one idea each, sized to the change.
-- Why: the problem in one or two sentences.
-- What: at most three outcomes. Not files, functions or commits.
-- Verification: what you ran and its result, links to visual proof, and anything you could not verify.
+Put the pull request in the \`pr\` field of your result, \`{ "title": "...", "body": "..." }\`, and one line in \`summary\`. Write for the reviewer who is about to read the diff: short active sentences, one idea each, sized to the change.
+- Title: a conventional commit, \`<type>(<scope>): <outcome>\` in lowercase, for example \`feat(cart): keep discount codes across sessions\` or \`fix(cart): round totals to the cent\`.
+- Body, in this order:
+  - \`## Why\`: the problem in one or two sentences. Reference the issue (\`#224\`) when there is one.
+  - \`## What\`: at most three bullets, each an outcome. Not files, functions or commits.
+  - \`## Verification\`: what you ran and its result, the visual proof you saved, and anything you could not verify.
+- Leave out the evidence links, the work item and tracker links and any attribution: Kiln adds them. When the repository has a pull request template, fill it instead and keep these rules for its sections.
 
 ## Follow-ups
 

@@ -74,7 +74,11 @@ export async function fakeAgentScript(ctx: FakeScriptContext): Promise<{ summary
       const r = await sh(`git add -A && (git diff --cached --quiet || git commit -q -m "feat: ${name}")`);
       if (r.code !== 0) throw new Error(`commit failed: ${r.stderr}`);
       const remember = /remember:\s*(.+)/i.exec(prompt)?.[1];
-      await result({ summary: `Implemented ${file}`, testsPassed: true, ...(remember ? { memories: [{ title: remember.trim(), body: `Learned while building "${title}".` }] } : {}) });
+      const pr = {
+        title: `feat: ${title.charAt(0).toLowerCase()}${title.slice(1)}`,
+        body: [`## Why`, `People asked for this: ${title}.`, "", "## What", `- ${title} works end to end.`, "", "## Verification", `- Unit test in src/kiln/${name}.test.ts passes.`].join("\n"),
+      };
+      await result({ summary: `Implemented ${file}`, testsPassed: true, pr, ...(remember ? { memories: [{ title: remember.trim(), body: `Learned while building "${title}".` }] } : {}) });
       return { summary: steer ? `Implemented ${file}; next action used the steering note` : `Implemented ${file}`, costUsd: cost };
     }
     case "VERIFY": {

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { z } from "zod";
 import { BUILTIN_DECISIONS, guardCommand, runDecision } from "@kiln/decide";
 import type { DefinitionTree, ResolvedAgent, ResolvedFactory } from "@kiln/definitions";
 import type { HarnessSession } from "@kiln/harness";
@@ -69,12 +70,20 @@ const RESULT_PROTOCOL: Record<string, string> = {
   TRIAGE: '{"kind": "feature|bug|chore|incident|question", "size": "xs|s|m|l|xl", "summary": "...", "duplicateOf": "optional issue key"}',
   FOREMAN: '{"dispatch": {"stage": "triage|spec|build|review|handoff", "agent": "name", "context": "..."}} or {"ask": "question for the requester"}',
   SPEC: '{"specPath": "docs/specs/<id>.md", "why": "...", "goal": "...", "approach": "...", "criteria": ["AC1: ..."], "stories": ["..."], "outOfScope": ["..."], "risks": ["..."], "openQuestions": ["..."]}',
-  IMPLEMENT: '{"summary": "...", "testsPassed": true, "memories": [{"title": "...", "body": "..."}]}',
+  IMPLEMENT: '{"summary": "...", "testsPassed": true, "pr": {"title": "feat(scope): outcome in lowercase", "body": "## Why\\n...\\n\\n## What\\n- ...\\n\\n## Verification\\n- ..."}, "memories": [{"title": "...", "body": "..."}]}',
   VERIFY: '{"testsPassed": true, "playwrightReport": "playwright-report/results.json"}',
   REVIEW: '{"verdict": "accepted|changes_requested|needs_human", "findings": ["file:line — issue — fix"]}',
   PLAN: '{"epics": [{"title": "...", "milestone": "...", "dependsOn": [], "issues": [{"title": "...", "body": "...", "criteria": ["..."], "factory": "alias"}]}]}',
   CUSTOM: '{"summary": "..."}',
 };
+
+const ReportedPullRequest = z.object({ title: z.string().trim().min(1).max(256), body: z.string().trim().min(1) });
+
+/** The pull request title and description an implement agent reported in `.kiln/result.json`, when it gave a valid one. */
+export function reportedPullRequest(result: Record<string, unknown> | undefined): { title: string; body: string } | undefined {
+  const parsed = ReportedPullRequest.safeParse(result?.pr);
+  return parsed.success ? parsed.data : undefined;
+}
 
 export function resultProtocol(agentType: string): string {
   const shape = RESULT_PROTOCOL[agentType] ?? RESULT_PROTOCOL.CUSTOM!;

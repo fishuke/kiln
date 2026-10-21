@@ -5,7 +5,7 @@ owner: docs
 section: Developer tools
 ---
 
-A **task** is a work item seen through the API: one request with its conversation, runs and outputs. A **run** is one agent execution. The foreman path starts several runs per task; agents can start subagents, so runs form a tree whose first run is the task's root.
+A **task** is a work item seen through the API: one request with its conversation, runs and outputs. A **run** is one agent execution. The foreman path starts several runs per task; agents can start subagents, so runs form a tree whose first run is the task's root. When a stage finishes, the foreman adds a short update to the conversation, for example "Implement done. Next: Verify."
 
 ## Dispatching work
 

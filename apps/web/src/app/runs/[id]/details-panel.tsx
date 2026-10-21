@@ -33,7 +33,7 @@ export function DetailsPanel({ model, tab, onTab, isChild }: { model: RunDetailM
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="relative min-h-0 flex-1 overflow-y-auto p-4">
         {tab === "timeline" && <Timeline nodes={model.tree} currentId={model.id} />}
         {tab === "agents" && <AgentsTab nodes={model.tree} currentId={model.id} />}
         {tab === "artifacts" && <ArtifactsTab model={model} />}

@@ -190,7 +190,7 @@ export function RunDetailView({ model }: { model: RunDetailModel }) {
               </Tooltip>
             </div>
           </div>
-          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-[976px] px-6 pt-2 pb-8">
               <Transcript
                 items={model.transcript}

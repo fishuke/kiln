@@ -27,7 +27,8 @@ export type GateView = {
 };
 
 export type Step = { kind: "command" | "tool" | "reasoning" | "push" | "error"; label: string; detail?: string; output?: string; isError?: boolean; durationMs?: number };
-export type SubagentRef = { id: string; title: string; agent: string; status: RunStatus };
+/** `activity` is a running subagent's own transcript, shown inline on the task page. */
+export type SubagentRef = { id: string; title: string; agent: string; status: RunStatus; activity?: TranscriptItem[] };
 
 export type TranscriptItem =
   | { type: "user"; key: string; at: string; from: string; text: string; attachments: AttachmentLike[] }
@@ -127,7 +128,18 @@ export function runTranscript(events: EventLike[], opts: { prompt?: string; prom
 }
 
 /** Work item transcript: the foreman conversation, the subagents it launched and its gates, in time order. */
-export function workItemTranscript(input: { conversation: ConversationLike[]; runs: RunLike[]; gates: GateView[]; title: string; body?: string; requester: string; createdAt: string; attachments?: AttachmentLike[] }): TranscriptItem[] {
+export function workItemTranscript(input: {
+  conversation: ConversationLike[];
+  runs: RunLike[];
+  gates: GateView[];
+  title: string;
+  body?: string;
+  requester: string;
+  createdAt: string;
+  attachments?: AttachmentLike[];
+  /** Live activity per running run id (see runTranscript). */
+  activity?: Record<string, TranscriptItem[]>;
+}): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   const first = input.conversation[0];
   const opening = `${input.title}${input.body ? `\n\n${input.body}` : ""}`;
@@ -142,7 +154,7 @@ export function workItemTranscript(input: { conversation: ConversationLike[]; ru
     else items.push({ type: "agent", key, at: c.at, text: c.text });
   });
   const top = input.runs.filter((r) => !r.parentRunId || !input.runs.some((p) => p.id === r.parentRunId));
-  for (const r of top) items.push({ type: "subagents", key: `run-${r.id}`, at: r.startedAt, runs: [{ id: r.id, title: runTitle(r, input.title), agent: r.agent, status: runStatus(r.status) }] });
+  for (const r of top) items.push({ type: "subagents", key: `run-${r.id}`, at: r.startedAt, runs: [{ id: r.id, title: runTitle(r, input.title), agent: r.agent, status: runStatus(r.status), activity: input.activity?.[r.id] }] });
   for (const g of input.gates) if (g.state !== "open") items.push({ type: "system", key: `g-${g.id}`, at: g.decidedAt ?? g.openedAt, text: gateOutcome(g) });
   items.sort((a, b) => a.at.localeCompare(b.at));
   // Open decisions are what the factory waits on now: they always come last.

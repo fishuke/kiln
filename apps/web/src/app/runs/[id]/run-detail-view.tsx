@@ -196,6 +196,7 @@ export function RunDetailView({ model }: { model: RunDetailModel }) {
                 items={model.transcript}
                 showThinking={showThinking}
                 showTools={showTools}
+                live={!model.isWorkItem && model.live}
                 prUrl={model.workItem?.prUrl}
                 previewUrl={model.workItem?.previewUrl}
               />
@@ -621,10 +622,13 @@ function FollowupComposer({ model }: { model: RunDetailModel }) {
   const files = useAttachments();
   const router = useRouter();
   const canSend = (text.trim().length > 0 || files.attachments.length > 0) && !files.uploading && !pending;
+  // On a task page, a message while a subagent works steers that agent, as on its own page.
+  const steering = model.isWorkItem && model.streamRunId ? { id: model.streamRunId, title: model.subagents.find((s) => s.id === model.streamRunId)?.title } : undefined;
+  const placeholder = steering ? `Steer ${steering.title ? `"${steering.title}"` : "the running agent"}` : "Follow up";
   const submit = () => {
     if (!canSend) return;
     start(async () => {
-      const r = await sendFollowup({ id: model.id, isWorkItem: model.isWorkItem, text, attachments: files.attachments });
+      const r = await sendFollowup({ id: model.id, isWorkItem: model.isWorkItem, steerRunId: steering?.id, text, attachments: files.attachments });
       if (!r.ok) {
         toast.error("Could not send your message", { description: r.error });
         return;
@@ -659,7 +663,7 @@ function FollowupComposer({ model }: { model: RunDetailModel }) {
           }
         }}
         rows={1}
-        placeholder="Follow up"
+        placeholder={placeholder}
         className="block max-h-48 min-h-8 w-full resize-none bg-transparent px-1 text-sm leading-6 outline-none placeholder:text-muted-foreground [field-sizing:content]"
       />
       <div className="mt-1 flex items-center">

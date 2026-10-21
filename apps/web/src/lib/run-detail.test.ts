@@ -42,6 +42,24 @@ describe("workItemTranscript", () => {
     expect(sub.runs.map((r) => r.id)).toEqual(["r1", "r2"]);
     expect(sub.runs[0]!.title).toBe("Triage Add todo");
   });
+
+  it("shows a running subagent's activity under its row", () => {
+    const events: EventLike[] = [
+      { seq: 1, at: "2026-10-20T10:00:12Z", type: "tool_call", text: "pnpm install", data: { name: "bash", input: { command: "pnpm install" } } },
+      { seq: 2, at: "2026-10-20T10:00:13Z", type: "message", text: "Reading the setup docs" },
+    ];
+    const items = workItemTranscript({
+      title: "Add todo",
+      requester: "me",
+      createdAt: "2026-10-20T10:00:00Z",
+      conversation: [],
+      runs: [run("r1", { startedAt: "2026-10-20T10:00:10Z" })],
+      gates: [],
+      activity: { r1: runTranscript(events) },
+    });
+    const sub = items.find((i) => i.type === "subagents") as Extract<(typeof items)[number], { type: "subagents" }>;
+    expect(sub.runs[0]!.activity?.map((i) => i.type)).toEqual(["work", "agent"]);
+  });
 });
 
 describe("helpers", () => {

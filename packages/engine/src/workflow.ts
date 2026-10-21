@@ -266,7 +266,9 @@ export class Workflow {
     this.move(wi, "blocked", reason);
   }
 
+  /** Cancel the work item and stop every run of it (and their subagents) that is still going. */
   async cancel(id: string, by: string) {
+    for (const r of this.k.runs.list({ workItemId: id })) await this.k.runs.cancelTree(r.id, by);
     const wi = this.get(id);
     if (!wi || !isActive(wi.state)) return wi;
     for (const g of this.k.gates.list({ workItemId: id, state: "open" })) this.k.store.put(C.gates, { ...g, state: "expired", decidedBy: by });
@@ -555,9 +557,20 @@ export class Workflow {
       wi.plan!.stages.splice(wi.plan!.cursor + 1, 0, { id: "handoff", kind: "handoff", action: "handoff" });
       return this.nextStage(wi);
     }
+    return this.finishWithoutChanges(wi, run.summary);
+  }
+
+  private lastSummary(wi: Item): string | undefined {
+    return this.k.runs.list({ workItemId: wi.id }).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).find((r) => r.summary)?.summary;
+  }
+
+  /** The agents answered or checked something without changing code: no pull request, the requester confirms it is done. */
+  private async finishWithoutChanges(wi: Item, summary: string | undefined): Promise<StepResult> {
+    // Stopped or cancelled while the agent worked: leave it that way.
+    if (!isActive(this.get(wi.id)?.state ?? wi.state)) return "wait";
     this.save(wi);
-    this.move(wi, "handed_off", "blueprint finished");
-    await this.k.gates.open({ workItem: wi, kind: "merge", name: "merge", title: `Confirm "${wi.title}" is done`, question: `The blueprint finished without a pull request.\n${run.summary ?? ""}\nApprove to close the task.` });
+    this.move(wi, "handed_off", "finished without code changes");
+    await this.k.gates.open({ workItem: wi, kind: "merge", name: "merge", title: `Confirm "${wi.title}" is done`, question: `Finished without code changes, so there is no pull request.\n${summary ?? ""}\nApprove to close the task, or request changes to continue.` });
     return "done";
   }
 
@@ -780,12 +793,18 @@ export class Workflow {
       .join("\n");
   }
 
+  /** Whether the work item's branch is on the forge: a pull request exists or one of its runs pushed it. */
+  private hasBranch(wi: Item): boolean {
+    if (wi.pr) return true;
+    return this.k.runs.list({ workItemId: wi.id }).some((r) => ((r.result?.pushed as unknown[] | undefined) ?? []).length > 0);
+  }
+
   private async ensurePullRequest(wi: Item, draft: boolean) {
     const repo = this.repoOf(wi);
     const alias = this.resolved(wi).factory.alias ?? wi.factory;
     const body = this.prBody(wi);
     const branch = this.branch(wi);
-    if (!(await this.k.forge.listPullRequests(repo, { state: "all", head: branch })).length && !this.k.forgeHasBranch(repo, branch)) return undefined;
+    if (!this.hasBranch(wi)) return undefined;
     if (wi.pr) {
       const pr = await this.k.forge.updatePullRequest(repo, wi.pr.number, { body, draft });
       return pr;
@@ -824,6 +843,7 @@ export class Workflow {
       }
       return "continue";
     }
+    if (!this.hasBranch(wi)) return this.finishWithoutChanges(wi, last?.summary);
     const hadPr = Boolean(wi.pr);
     const pr = await this.ensurePullRequest(wi, false);
     if (pr && last) this.k.runs.addArtifact(last.id, { kind: "pr", name: `${pr.repo}#${pr.number}${hadPr ? " (updated)" : ""}`, url: pr.url });
@@ -832,6 +852,7 @@ export class Workflow {
   }
 
   private async verify(wi: Item, stage: PlanStage): Promise<StepResult> {
+    if (!this.hasBranch(wi)) return this.finishWithoutChanges(wi, this.lastSummary(wi));
     const repo = this.repoOf(wi);
     const requires = stage.requires ?? ["ci_green"];
     const problems: string[] = [];
@@ -939,10 +960,7 @@ export class Workflow {
 
   private async handoff(wi: Item): Promise<StepResult> {
     if (wi.state === "handed_off") return "wait";
-    if (!wi.pr) {
-      this.park(wi.id, "nothing to hand off: no pull request was opened");
-      return "wait";
-    }
+    if (!wi.pr) return this.finishWithoutChanges(wi, this.lastSummary(wi));
     const repo = this.repoOf(wi);
     await this.k.forge.addLabels(repo, wi.pr.number, [`factory:${this.resolved(wi).factory.alias ?? wi.factory}`]);
     this.move(wi, "handed_off", "pull request ready for a human merge");

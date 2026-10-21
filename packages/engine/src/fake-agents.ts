@@ -58,6 +58,10 @@ export async function fakeAgentScript(ctx: FakeScriptContext): Promise<{ summary
     }
     case "IMPLEMENT": {
       if (/\[fail-implement\]/.test(prompt)) throw new Error("could not build the change");
+      if (/\[no-change\]/.test(prompt)) {
+        await result({ summary: "Checked it: nothing in the code needs to change." });
+        return { summary: "Checked it: nothing in the code needs to change.", costUsd: cost };
+      }
       const waitMs = Number(opts.env?.KILN_FAKE_STEER_WAIT_MS ?? process.env.KILN_FAKE_STEER_WAIT_MS ?? 0);
       const steer = waitMs ? await ctx.nextSteer(waitMs) : undefined;
       const conventions = [...opts.instructions.matchAll(/^- Convention: ([^.]+)\./gm)].map((m) => m[1]!.trim());

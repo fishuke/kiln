@@ -351,11 +351,6 @@ export class Kiln {
     }
   }
 
-  forgeHasBranch(repo: RepoRef, branch: string): boolean {
-    const f = this.forge as Forge & { branchSha?: (r: RepoRef, b: string) => string | undefined };
-    return f.branchSha ? Boolean(f.branchSha(repo, branch)) : true;
-  }
-
   /** Kiln's own commits (self-improvement, skills, memories, routers) to a config repo branch. */
   async commitFiles(repo: RepoRef & { ref?: string }, branch: string, files: Record<string, string | null>, message: string) {
     const work = mkdtempSync(join(tmpdir(), "kiln-commit-"));

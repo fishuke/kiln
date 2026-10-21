@@ -1287,7 +1287,7 @@ A stage's behavior comes from its agent's `agentType` or its action:
 | --- | --- |
 | `TRIAGE` | Classifies kind and size. |
 | `SPEC` | Writes the spec as a draft pull request, checks each criterion with the `spec-check` decision, rewrites failing criteria once, then opens the stage's gate. If the agent fails twice, it opens a `spec-failed` question with the reason and parks the item instead. A spec review or a `spec-failed` question can be retried: the spec is written again from scratch, optionally on another model for that run. See [Retrying a spec](../product-owners/approving-specs-and-previews.md#retrying-a-spec). |
-| `IMPLEMENT` or `CUSTOM` | Builds the change. Two failed attempts open a `build-failed` question and park the item. |
+| `IMPLEMENT` or `CUSTOM` | Builds the change. Two failed attempts open a `build-failed` question and park the item. If the agent pushed nothing (it answered a question or found nothing to change), there is no pull request: Kiln skips verify, preview and review, and opens a "Confirm ... is done" merge gate with the agent's answer. Approve closes the task; requesting changes sends it back to the agent. |
 | `VERIFY` | Runs the verify agent and checks `requires`. |
 | `REVIEW` | Reviews the pull request. `changes_requested` with findings loops back with `on_fail`. For an advisory stage without `on_fail`, or with its loops used up, Kiln posts the findings on the pull request as "Advisory review findings:" and moves on. `needs_human` posts the findings for a person and moves on. |
 | `preview.deploy` | Deploys a preview, posts a card to the pull request and opens the stage's gate. Skipped when no preview provider is set or there is no pull request. |

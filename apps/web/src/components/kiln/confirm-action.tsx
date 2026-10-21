@@ -23,6 +23,7 @@ export function ConfirmAction({
   title,
   description,
   confirmLabel = "Delete",
+  cancelLabel = "Cancel",
   destructive = true,
   action,
   success,
@@ -34,6 +35,7 @@ export function ConfirmAction({
   title: string;
   description?: React.ReactNode;
   confirmLabel?: string;
+  cancelLabel?: string;
   destructive?: boolean;
   action: () => Promise<Result>;
   success?: string;
@@ -59,7 +61,7 @@ export function ConfirmAction({
             {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
             <Button
               variant={destructive ? "destructive" : "default"}
               disabled={pending}

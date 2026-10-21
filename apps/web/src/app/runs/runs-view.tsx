@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, Bot, Building2, Calendar, ChevronDown, ChevronRight, Circle, ImageIcon, ListFilter, Route, SlidersHorizontal, User, X } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { ConfirmAction } from "@/components/kiln/confirm-action";
 import { DateRangePicker, formatRange } from "@/components/kiln/date-range-picker";
 import { HeaderIconButton, HeaderSearch, MenuSearch } from "@/components/kiln/header-controls";
 import { AgentIcon, Chip, PersonAvatar, SourceIcon, StatusGlyph, StatusSquare, personName } from "@/components/kiln/run-visuals";
@@ -14,6 +15,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { agentDisplayName, filterRows, mediaChipLabel, parseRunFilters, relativeTime, runFiltersToQuery, RUN_STATUSES, SOURCES, sourceLabel, STATUS_LABEL, type RunFilters, type RunRow, type RunStatus, type SortKey } from "@/lib/run-tree";
 import { cn } from "@/lib/utils";
+import { stopRun } from "./actions";
+import { RunContextMenu } from "./run-context-menu";
 import { SetupPanel, SetupRing, type SetupTask } from "./setup-panel";
 
 type FactoryOpt = { id: string; name: string; alias: string };
@@ -30,6 +33,7 @@ export function RunsView({ rows, me, factories, setup }: { rows: RunRow[]; me: s
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [setupOpen, setSetupOpen] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [cancelling, setCancelling] = useState<{ row: RunRow; isWorkItem: boolean } | null>(null);
 
   useEffect(() => {
     try {
@@ -162,7 +166,7 @@ export function RunsView({ rows, me, factories, setup }: { rows: RunRow[]; me: s
             ) : (
               <ul className="flex flex-col">
                 {shown.map((r) => (
-                  <RunTreeRow key={r.id} row={r} depth={0} expanded={expanded} onToggle={(id) => setExpanded((s) => toggleSet(s, id))} />
+                  <RunTreeRow key={r.id} row={r} depth={0} expanded={expanded} onToggle={(id) => setExpanded((s) => toggleSet(s, id))} onCancel={(row, isWorkItem) => setCancelling({ row, isWorkItem })} />
                 ))}
               </ul>
             )}
@@ -170,6 +174,16 @@ export function RunsView({ rows, me, factories, setup }: { rows: RunRow[]; me: s
         </div>
         {setupOpen && <SetupPanel tasks={setup} alias={alias} />}
       </div>
+      <ConfirmAction
+        open={cancelling !== null}
+        onOpenChange={(o) => !o && setCancelling(null)}
+        title="Cancel this run?"
+        description={cancelling && (cancelling.isWorkItem ? <>“{cancelling.row.title}” and every agent working on it will stop.</> : <>The agent working on “{cancelling.row.title}” will stop.</>)}
+        confirmLabel="Cancel run"
+        cancelLabel="Keep running"
+        action={() => stopRun({ id: cancelling!.row.id, isWorkItem: cancelling!.isWorkItem })}
+        success="Run cancelled"
+      />
     </div>
   );
 }
@@ -195,7 +209,7 @@ function collectAgents(rows: RunRow[]): string[] {
   return rows.flatMap((r) => [r.agent, ...collectAgents(r.children)]);
 }
 
-function RunTreeRow({ row, depth, expanded, onToggle }: { row: RunRow; depth: number; expanded: Set<string>; onToggle: (id: string) => void }) {
+function RunTreeRow({ row, depth, expanded, onToggle, onCancel }: { row: RunRow; depth: number; expanded: Set<string>; onToggle: (id: string) => void; onCancel: (row: RunRow, isWorkItem: boolean) => void }) {
   const open = expanded.has(row.id);
   const hasKids = row.children.length > 0;
   const href = depth > 0 ? `${row.href}?tab=agents&from=parent` : row.href;
@@ -203,7 +217,13 @@ function RunTreeRow({ row, depth, expanded, onToggle }: { row: RunRow; depth: nu
   const count = countAll(row.children);
   return (
     <li>
-      <div className={cn("group/row relative flex h-12 items-center gap-3 rounded-lg px-2 hover:bg-foreground/5", open && "bg-foreground/5")} style={{ paddingLeft: 8 + depth * 40 }}>
+      <RunContextMenu
+        row={row}
+        href={href}
+        onCancel={(r) => onCancel(r, depth === 0)}
+        className={cn("group/row relative flex h-12 items-center gap-3 rounded-lg px-2 transition-colors hover:bg-foreground/5 data-popup-open:bg-foreground/[0.07]", open && "bg-foreground/5")}
+        style={{ paddingLeft: 8 + depth * 40 }}
+      >
         <Link href={href} className="absolute inset-0 rounded-lg" aria-label={row.title} />
         {hasKids ? (
           <button type="button" aria-label={open ? "Collapse children" : "Expand children"} aria-expanded={open} onClick={() => onToggle(row.id)} className="relative z-10 size-6 shrink-0">
@@ -254,11 +274,11 @@ function RunTreeRow({ row, depth, expanded, onToggle }: { row: RunRow; depth: nu
             {relativeTime(row.updatedAt)}
           </span>
         </span>
-      </div>
+      </RunContextMenu>
       {hasKids && open && (
         <ul>
           {row.children.map((c) => (
-            <RunTreeRow key={c.id} row={c} depth={depth + 1} expanded={expanded} onToggle={onToggle} />
+            <RunTreeRow key={c.id} row={c} depth={depth + 1} expanded={expanded} onToggle={onToggle} onCancel={onCancel} />
           ))}
         </ul>
       )}

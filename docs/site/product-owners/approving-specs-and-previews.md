@@ -11,12 +11,14 @@ Kiln pauses twice for a product owner: once to approve the spec before code is w
 
 The spec gate opens when the spec agent has written the spec. You get a request in the source thread or issue, and in your inbox, that shows:
 
+- why the change is needed, the goal, and the approach in plain words,
 - the acceptance criteria, numbered `AC1`, `AC2`, …,
-- open questions, if any,
+- what is out of scope, and risks and trade-offs, if any,
+- open questions, if any. When the request gives no convincing reason for the change, the spec agent asks here instead of inventing one,
 - criteria that are "Not yet testable", if any,
 - a link to the spec pull request. The spec is a Markdown file, by default `docs/specs/<work item id>.md`, on a draft pull request.
 
-Read the criteria as a checklist the finished work must pass. See [Writing acceptance criteria](acceptance-criteria.md).
+Start with the why and the goal: if they do not convince you, reject the spec with your question. Read the criteria as a checklist the finished work must pass. See [Writing acceptance criteria](acceptance-criteria.md).
 
 | You | Result |
 | --- | --- |

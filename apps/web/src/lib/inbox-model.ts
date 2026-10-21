@@ -163,6 +163,11 @@ export function buildInbox(gates: GateLike[], stuck: StuckWorkItem[]): InboxEntr
   return entries.sort((a, b) => Number(b.urgent) - Number(a.urgent) || b.at.localeCompare(a.at));
 }
 
+/** The sidebar badge: the same entries the inbox page lists. */
+export function inboxCount(gates: GateLike[], stuck: StuckWorkItem[]): number {
+  return buildInbox(gates, stuck).length;
+}
+
 export type InboxFilters = { factory?: string[]; read?: ("read" | "unread")[]; kind?: InboxKind[]; q?: string };
 
 export function filterInbox(entries: InboxEntry[], f: InboxFilters): InboxEntry[] {

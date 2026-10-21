@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInbox, canRetrySpec, filterInbox, gateEntry, INBOX_KINDS, primaryAction, questionOptions, questionPrompt, retryModel, type GateLike } from "./inbox-model";
+import { buildInbox, canRetrySpec, inboxCount, filterInbox, gateEntry, INBOX_KINDS, primaryAction, questionOptions, questionPrompt, retryModel, type GateLike } from "./inbox-model";
 
 const gate = (over: Partial<GateLike> = {}): GateLike => ({ id: "g1", workItemId: "wi_1", factory: "kiln", kind: "spec", title: "Approve the spec", state: "open", evidence: [], openedAt: "2026-10-20T10:00:00Z", assignees: [], ...over });
 
@@ -14,6 +14,15 @@ describe("questionOptions", () => {
   });
   it("needs at least two options", () => {
     expect(questionOptions({ question: "Why?\n- only one" })).toEqual([]);
+  });
+});
+
+describe("inboxCount", () => {
+  it("skips resolved gates and counts blocked work without a gate, like the inbox page", () => {
+    const stuck = [{ id: "wi_9", factory: "kiln", title: "y", state: "blocked", updatedAt: "2026-10-20T09:00:00Z" }];
+    expect(inboxCount([gate({ resolved: true })], [])).toBe(0);
+    expect(inboxCount([gate({ resolved: true })], stuck)).toBe(1);
+    expect(inboxCount([gate()], stuck)).toBe(2);
   });
 });
 

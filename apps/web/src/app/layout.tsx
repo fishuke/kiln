@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/kiln/sidebar";
 import { THEME_SCRIPT } from "@/components/kiln/theme";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { inboxCount, type GateLike } from "@/lib/inbox-model";
 import { api, safe } from "@/lib/kiln";
 import { isAuthPage } from "@/lib/session";
 import { usageLabel } from "@/lib/usage";
@@ -22,9 +23,10 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 async function shell() {
-  const [factories, inbox, me, usage] = await Promise.all([
+  const [factories, inbox, items, me, usage] = await Promise.all([
     safe(() => api.factories(), []),
     safe(() => api.inbox({ all: true }), []),
+    safe(() => api.workItems(), []),
     safe(() => api.me(), undefined),
     safe(() => api.usage(), undefined),
   ]);
@@ -38,7 +40,7 @@ async function shell() {
     : undefined;
   const team = me?.currentTeam ? { id: me.currentTeam.id, name: me.currentTeam.name } : undefined;
   const teams = (me?.teams ?? []).map((t) => ({ id: t.id, name: t.name }));
-  return { factories, inboxCount: inbox.length, user, team, teams, usage: usage ? usageLabel(usage.limit) : undefined, appearance: me?.user?.appearance };
+  return { factories, inboxCount: inboxCount(inbox as GateLike[], items), user, team, teams, usage: usage ? usageLabel(usage.limit) : undefined, appearance: me?.user?.appearance };
 }
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

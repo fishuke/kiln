@@ -36,14 +36,17 @@ export async function startRun(input: { factory: string; text: string; attachmen
  * Follow-up from the run composer. Root foreman runs (work items) get a message; agent runs use
  * POST /runs/:id/followups and fall back to steering the live run (attachments become links).
  */
-export async function sendFollowup(input: { id: string; isWorkItem: boolean; text: string; attachments: Attachment[] }): Promise<ActionResult> {
+/** `steerRunId`: on a task page, the subagent working right now; the message steers it instead of messaging the foreman. */
+export async function sendFollowup(input: { id: string; isWorkItem: boolean; steerRunId?: string; text: string; attachments: Attachment[] }): Promise<ActionResult> {
   const text = input.text.trim();
   if (!text && !input.attachments.length) return { ok: false, error: "Write a message first" };
   // The API needs message text; files sent alone get a short one.
   const message = text || "Attached files";
   try {
     if (input.isWorkItem) {
-      await api.message(input.id, message, input.attachments);
+      // Steer only; if the agent has just finished, the message goes to the foreman instead.
+      const steered = input.steerRunId ? await api.steer(input.steerRunId, withAttachmentLinks(text, input.attachments)).then(() => true, () => false) : false;
+      if (!steered) await api.message(input.id, message, input.attachments);
     } else {
       try {
         await api.followup(input.id, message, { attachments: input.attachments });

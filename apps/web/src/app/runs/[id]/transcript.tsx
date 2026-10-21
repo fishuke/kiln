@@ -11,10 +11,25 @@ import type { Step, TranscriptItem } from "@/lib/run-detail";
 import { relativeTime, shortDuration } from "@/lib/run-tree";
 import { cn } from "@/lib/utils";
 
-export function Transcript({ items, showThinking, showTools, prUrl, previewUrl }: { items: TranscriptItem[]; showThinking: boolean; showTools: boolean; prUrl?: string; previewUrl?: string }) {
+/** `live`: the agent is still working, so its latest steps start open. */
+export function Transcript({
+  items,
+  showThinking,
+  showTools,
+  prUrl,
+  previewUrl,
+  live,
+}: {
+  items: TranscriptItem[];
+  showThinking: boolean;
+  showTools: boolean;
+  prUrl?: string;
+  previewUrl?: string;
+  live?: boolean;
+}) {
   return (
     <div className="flex flex-col gap-5">
-      {items.map((it) => {
+      {items.map((it, i) => {
         if (it.type === "user") return <UserMessage key={it.key} item={it} />;
         if (it.type === "agent")
           return (
@@ -26,8 +41,9 @@ export function Transcript({ items, showThinking, showTools, prUrl, previewUrl }
             </div>
           );
         if (it.type === "reasoning") return showThinking ? <Reasoning key={it.key} text={it.text} durationMs={it.durationMs} /> : null;
-        if (it.type === "work") return showTools ? <WorkGroup key={it.key} durationMs={it.durationMs} steps={it.steps.filter((s) => showThinking || s.kind !== "reasoning")} /> : null;
-        if (it.type === "subagents") return <Subagents key={it.key} item={it} />;
+        if (it.type === "work")
+          return showTools ? <WorkGroup key={it.key} durationMs={it.durationMs} steps={it.steps.filter((s) => showThinking || s.kind !== "reasoning")} working={live && i === items.length - 1} /> : null;
+        if (it.type === "subagents") return <Subagents key={it.key} item={it} showThinking={showThinking} showTools={showTools} />;
         if (it.type === "gate") {
           // The foreman usually posts the same text it asks about; show it once.
           const head = it.gate.question?.slice(0, 80);
@@ -96,13 +112,14 @@ function summary(steps: Step[]) {
   return parts.join(" · ");
 }
 
-function WorkGroup({ durationMs, steps }: { durationMs: number; steps: Step[] }) {
+function WorkGroup({ durationMs, steps, working }: { durationMs: number; steps: Step[]; working?: boolean }) {
   if (!steps.length) return null;
   return (
     <Disclosure
+      defaultOpen={working}
       label={
         <>
-          Worked for {shortDuration(durationMs)}
+          {working ? "Working" : "Worked"} for {shortDuration(durationMs)}
           <span className="sr-only">: {summary(steps)}</span>
         </>
       }
@@ -151,7 +168,10 @@ function StepRow({ step }: { step: Step }) {
   );
 }
 
-function Subagents({ item }: { item: Extract<TranscriptItem, { type: "subagents" }> }) {
+/** How much of a running subagent's activity the task page shows inline; its own page has all of it. */
+const INLINE_ACTIVITY = 20;
+
+function Subagents({ item, showThinking, showTools }: { item: Extract<TranscriptItem, { type: "subagents" }>; showThinking: boolean; showTools: boolean }) {
   const n = item.runs.length;
   return (
     <Disclosure defaultOpen icon={<Bot className="size-4" />} label={`Launched ${n} subagent${n === 1 ? "" : "s"}`}>
@@ -162,6 +182,16 @@ function Subagents({ item }: { item: Extract<TranscriptItem, { type: "subagents"
               <StatusSquare status={r.status} size={20} />
               <span className="truncate">{r.title}</span>
             </Link>
+            {r.activity && r.activity.length > 0 && (
+              <div className="mt-2 mb-3 ml-3.5 border-l border-violet-500/40 pl-4">
+                {r.activity.length > INLINE_ACTIVITY && (
+                  <Link href={`/runs/${r.id}?tab=agents&from=parent`} className="mb-3 block text-xs text-muted-foreground hover:text-foreground">
+                    {r.activity.length - INLINE_ACTIVITY} earlier steps · open the full run
+                  </Link>
+                )}
+                <Transcript items={r.activity.slice(-INLINE_ACTIVITY)} showThinking={showThinking} showTools={showTools} live={r.status === "running"} />
+              </div>
+            )}
           </li>
         ))}
       </ul>

@@ -25,6 +25,26 @@ const TYPE_TO_KIND: Record<string, StageKind> = {
 
 type StepResult = "continue" | "wait" | "done";
 
+type SpecResult = { specPath?: string; why?: string; goal?: string; approach?: string; criteria?: string[]; stories?: string[]; outOfScope?: string[]; risks?: string[]; openQuestions?: string[]; plan?: string };
+
+/** What the spec agent is asked for: the reasoning a reviewer needs before the criteria. */
+const SPEC_BRIEF = [
+  "Write the spec. Start with why this change is needed (the problem, who has it, what it costs today), the goal (what is better when it ships, and how we will know),",
+  "and the approach in plain words. Then numbered, testable acceptance criteria (AC1, AC2, …) and user stories, what is out of scope, and the risks and trade-offs.",
+  "Add any other section that helps the reader decide. If the request gives no convincing reason for the change, say so as an open question instead of inventing one.",
+].join(" ");
+
+/** The why, goal and approach that open a spec review, then the heading for the criteria. */
+function specOverview(spec: NonNullable<WorkItem["spec"]>): string[] {
+  const parts = ([["Why", spec.why], ["Goal", spec.goal], ["Approach", spec.approach]] as const).filter(([, text]) => text?.trim());
+  if (!parts.length) return [];
+  return [...parts.flatMap(([label, text]) => [`${label}: ${text!.trim()}`, ""]), "Acceptance criteria:"];
+}
+
+function section(title: string, items: string[] | undefined): string[] {
+  return items?.length ? [`${title}:`, ...items.map((i) => `- ${i}`)] : [];
+}
+
 /**
  * Drives each work item through its stages. The foreman picks the shortest path from triage
  * and typed decisions; a pipeline definition, when present, fixes the graph instead. Each step
@@ -665,11 +685,11 @@ export class Workflow {
       wi,
       stage.agent!,
       "spec",
-      this.briefing(wi, ["", planOnly ? "Write the plan for this change." : "Write the spec with numbered, testable acceptance criteria (AC1, AC2, …) and user stories.", ...feedback], wi.specRetry?.messagesFrom),
+      this.briefing(wi, ["", planOnly ? "Write the plan for this change." : SPEC_BRIEF, ...feedback], wi.specRetry?.messagesFrom),
       planOnly ? { mode: "plan", push: false, model } : { model },
     );
     if (run.status !== "succeeded") return this.specFailed(wi, stage, run);
-    let res = (run.result ?? {}) as { specPath?: string; criteria?: string[]; stories?: string[]; openQuestions?: string[]; plan?: string };
+    let res = (run.result ?? {}) as SpecResult;
     const failing = await this.checkCriteria(wi, res.criteria ?? []);
     if (failing.length && (wi.loops.spec ?? 0) < 1 && !planOnly) {
       wi.loops.spec = (wi.loops.spec ?? 0) + 1;
@@ -677,7 +697,18 @@ export class Workflow {
       if (run.status !== "succeeded") return this.specFailed(wi, stage, run);
       res = (run.result ?? res) as typeof res;
     }
-    wi.spec = { path: res.specPath ?? `docs/specs/${wi.id}.md`, criteria: res.criteria ?? [], stories: res.stories ?? [], openQuestions: res.openQuestions ?? [], ...(run.model ? { model: run.model } : {}) };
+    wi.spec = {
+      path: res.specPath ?? `docs/specs/${wi.id}.md`,
+      ...(res.why ? { why: res.why } : {}),
+      ...(res.goal ? { goal: res.goal } : {}),
+      ...(res.approach ? { approach: res.approach } : {}),
+      criteria: res.criteria ?? [],
+      stories: res.stories ?? [],
+      ...(res.outOfScope?.length ? { outOfScope: res.outOfScope } : {}),
+      ...(res.risks?.length ? { risks: res.risks } : {}),
+      openQuestions: res.openQuestions ?? [],
+      ...(run.model ? { model: run.model } : {}),
+    };
     if (wi.specRetry) delete wi.specRetry.model;
     const stillFailing = await this.checkCriteria(wi, wi.spec.criteria);
     const pr = await this.ensurePullRequest(wi, true);
@@ -694,7 +725,10 @@ export class Workflow {
       runId: planOnly ? run.id : undefined,
       question: [
         ...(res.plan ? [res.plan] : []),
+        ...specOverview(wi.spec),
         ...wi.spec.criteria.map((c) => `- ${c}`),
+        ...section("Out of scope", wi.spec.outOfScope),
+        ...section("Risks and trade-offs", wi.spec.risks),
         ...(wi.spec.openQuestions.length ? ["Open questions:", ...wi.spec.openQuestions.map((q) => `- ${q}`)] : []),
         ...(stillFailing.length ? ["Not yet testable:", ...stillFailing.map((c) => `- ${c}`)] : []),
         "",

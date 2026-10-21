@@ -101,8 +101,8 @@ export type WorkItem = {
   triage?: { kind: string; size: string; summary?: string; duplicateOf?: string; confidence: number };
   /** owner/name of the repository triage picked, in a factory with several; unset means the first. */
   repo?: string;
-  /** `model` is the model the spec run used, when known. */
-  spec?: { path: string; criteria: string[]; stories: string[]; openQuestions: string[]; model?: string };
+  /** `model` is the model the spec run used, when known. `why`, `goal` and `approach` lead the spec review. */
+  spec?: { path: string; why?: string; goal?: string; approach?: string; criteria: string[]; stories: string[]; outOfScope?: string[]; risks?: string[]; openQuestions: string[]; model?: string };
   /** Set by a spec retry: spec gates whose notes the next spec run ignores, people's messages from `messagesFrom` on, and the model for that run only. */
   specRetry?: { ignoreGates: string[]; messagesFrom: number; model?: string };
   branch?: string;

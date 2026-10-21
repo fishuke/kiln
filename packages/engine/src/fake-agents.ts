@@ -50,10 +50,10 @@ export async function fakeAgentScript(ctx: FakeScriptContext): Promise<{ summary
     case "SPEC": {
       const criteria = criteriaFrom(prompt);
       const specPath = `docs/specs/${wi}.md`;
-      await opts.sandbox.writeFile(p(specPath), [`# Spec: ${title}`, "", "## Acceptance criteria", ...criteria.map((c) => `- ${c}`), ""].join("\n"));
+      await opts.sandbox.writeFile(p(specPath), [`# Spec: ${title}`, "", "## Why", `People asked for this: ${title}`, "", "## Acceptance criteria", ...criteria.map((c) => `- ${c}`), ""].join("\n"));
       const r = await sh(`git add -A && git commit -q --allow-empty -m "spec: ${slug(title)}"`);
       if (r.code !== 0) throw new Error(`commit failed: ${r.stderr}`);
-      await result({ specPath, criteria, stories: criteria.map((c) => `As a user, ${c.replace(/^AC\d+:\s*/, "").toLowerCase()}`), openQuestions: [] });
+      await result({ specPath, why: `People asked for this: ${title}`, goal: `${title} works end to end`, approach: "Change the smallest part of the code that delivers it", criteria, stories: criteria.map((c) => `As a user, ${c.replace(/^AC\d+:\s*/, "").toLowerCase()}`), openQuestions: [] });
       return { summary: `Wrote ${specPath} with ${criteria.length} criteria`, costUsd: cost };
     }
     case "IMPLEMENT": {

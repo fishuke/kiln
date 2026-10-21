@@ -43,6 +43,11 @@ export async function fakeAgentScript(ctx: FakeScriptContext): Promise<{ summary
       return { summary: `Triaged as ${kind}/${size}`, costUsd: cost };
     }
     case "FOREMAN": {
+      if (prompt.includes("## Events since your last turn")) {
+        const actions = fakeForemanTurn(prompt);
+        await result(actions);
+        return { summary: actions.say ? String(actions.say) : "Foreman turn", costUsd: cost };
+      }
       const stage = /\b(spec|ambiguous|unclear|large|design)\b/i.test(prompt) || /"size":"(m|l|xl)"/.test(prompt.replace(/\s/g, "")) ? "spec" : "build";
       await result({ dispatch: { stage, agent: stage, context: title } });
       return { summary: `Dispatching ${stage}`, costUsd: cost };
@@ -123,4 +128,47 @@ export async function fakeAgentScript(ctx: FakeScriptContext): Promise<{ summary
 export function fakeAgents(): (type: string, agentType: string) => HarnessAdapter {
   const harness = new FakeHarness(fakeAgentScript);
   return () => harness;
+}
+
+/** Section `## name` of a foreman prompt, as its bullet lines. */
+function sectionLines(prompt: string, name: string): string[] {
+  const m = new RegExp(`## ${name}\\n([\\s\\S]*?)(?:\\n## |$)`).exec(prompt);
+  return m ? m[1]!.split("\n").filter((l) => l.startsWith("- ")) : [];
+}
+
+/**
+ * A scripted agent foreman: triage, implement, review, hand off. It answers people's messages by
+ * sending them to the implement agent, re-runs work a restart cut off, and asks a question when the
+ * request says [ask].
+ */
+export function fakeForemanTurn(prompt: string): Record<string, unknown> {
+  const title = prompt.split("\n")[0]!.replace(/^#\s*/, "");
+  const runs = sectionLines(prompt, "Agent runs").map((l) => {
+    const [id, who, status] = l.slice(2).split(" · ");
+    const agent = who!.split(" ")[0]!;
+    return { id: id!, agent, status: status! };
+  });
+  const agents = sectionLines(prompt, "Agents you can dispatch").map((l) => {
+    const m = /^- (\S+) \((\w+)\)/.exec(l)!;
+    return { name: m[1]!, type: m[2]! };
+  });
+  const events = sectionLines(prompt, "Events since your last turn");
+  const by = (type: string) => agents.find((a) => a.type === type)?.name;
+  const last = (agent?: string) => [...runs].reverse().find((r) => r.agent === agent);
+  const tasks = (done: number) => ["Triage the request", "Implement the change", "Review the change", "Hand off the pull request"].map((t, i) => ({ title: t, status: i < done ? "done" : i === done ? "active" : "todo" }));
+  const brief = (what: string) => `# ${title}\n\n${what}`;
+  const implement = by("IMPLEMENT");
+  if (events.some((e) => e.startsWith("- restarted: "))) return { say: "Picking up where I left off.", dispatch: [{ agent: implement!, title: `Implement ${title}`, brief: brief("Implement the change and its tests."), stage: "build" }] };
+  if (!runs.length) {
+    const first = by("TRIAGE") ?? implement!;
+    return { say: `On it: ${title}.`, tasks: tasks(0), dispatch: [{ agent: first, title: `Triage ${title}`, brief: brief("Research the request."), stage: by("TRIAGE") ? "triage" : "build" }] };
+  }
+  const message = events.find((e) => e.startsWith("- message: "));
+  if (message && last(implement)) return { say: "Got it, updating the change.", followUp: [{ runId: last(implement)!.id, message: message.replace(/^- message: [^:]+: /, "") }] };
+  if (/\[ask\]/.test(prompt) && !prompt.includes("## Decisions by people") && !prompt.includes("## Waiting on people")) return { ask: { question: "Should remembered lists be per server or global?", options: ["Per server", "Global"] } };
+  if (!last(implement)) return { tasks: tasks(1), dispatch: [{ agent: implement!, title: `Implement ${title}`, brief: brief("Implement the change and its tests."), stage: "build" }] };
+  if (last(implement)!.status !== "succeeded") return { say: "The change did not build; I need a hand.", ask: { question: "The implement agent failed. How should I continue?" } };
+  const review = by("REVIEW");
+  if (review && !last(review)) return { tasks: tasks(2), dispatch: [{ agent: review, title: `Review ${title}`, brief: brief("Review the pull request adversarially."), stage: "review" }] };
+  return { say: "The change is ready for your review.", tasks: tasks(4), handOff: { summary: "Adds the change with tests. Review focus: the remembered-list storage." } };
 }

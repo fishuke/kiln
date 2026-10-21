@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bot, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleX, GitBranch, ListChecks, LoaderCircle, Terminal, Wrench } from "lucide-react";
+import { Bot, Check, ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot, CircleX, GitBranch, ListChecks, LoaderCircle, Terminal, Wrench } from "lucide-react";
 import { useState } from "react";
 import { SentAttachments } from "@/components/kiln/attachments";
 import { GateCard } from "@/components/kiln/gate-card";
@@ -59,6 +59,13 @@ export function Transcript({
           const said = Boolean(head && items.some((x) => x.type === "agent" && x.text.includes(head)));
           return <GateCard key={it.key} gate={it.gate} prUrl={prUrl} previewUrl={previewUrl} hideQuestion={said && it.gate.kind !== "question"} />;
         }
+        if (it.type === "system" && /^Completed .+ \(\d+\/\d+\)$/.test(it.text))
+          return (
+            <div key={it.key} className="flex items-center gap-2 border-b pb-3 text-xs text-muted-foreground">
+              <Check className="size-3.5 shrink-0" />
+              <span>{it.text}</span>
+            </div>
+          );
         return (
           <div key={it.key} className={cn("flex items-start gap-2 text-xs text-muted-foreground", it.tone === "error" && "text-red-600 dark:text-red-400")}>
             {it.tone === "error" ? <CircleAlert className="mt-px size-3.5 shrink-0" /> : <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />}

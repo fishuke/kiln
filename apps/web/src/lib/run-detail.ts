@@ -145,6 +145,8 @@ export function workItemTranscript(input: {
   activity?: Record<string, TranscriptItem[]>;
   /** The plan as a checklist: shown after the request, and what the task waits for at the end. */
   plan?: PlanView;
+  /** An agent foreman's turns (runs of stage "foreman"), as their transcripts: shown as its own work. */
+  turns?: Record<string, TranscriptItem[]>;
 }): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   const first = input.conversation[0];
@@ -160,7 +162,11 @@ export function workItemTranscript(input: {
     else items.push({ type: "agent", key, at: c.at, text: c.text });
   });
   const top = input.runs.filter((r) => !r.parentRunId || !input.runs.some((p) => p.id === r.parentRunId));
-  for (const r of top) items.push({ type: "subagents", key: `run-${r.id}`, at: r.startedAt, runs: [{ id: r.id, title: input.plan?.tasks.find((t) => t.id === r.stage)?.label ?? stepTitle(r, input.title), agent: r.agent, status: runStatus(r.status), stage: r.stage, activity: input.activity?.[r.id] }] });
+  for (const r of top.filter((x) => x.stage === "foreman")) {
+    // The foreman speaks through the conversation; a turn shows its thinking and the commands it ran.
+    for (const it of input.turns?.[r.id] ?? []) if (it.type === "work" || it.type === "reasoning") items.push({ ...it, key: `${r.id}-${it.key}` });
+  }
+  for (const r of top.filter((x) => x.stage !== "foreman")) items.push({ type: "subagents", key: `run-${r.id}`, at: r.startedAt, runs: [{ id: r.id, title: input.plan?.tasks.find((t) => t.id === r.stage)?.label ?? stepTitle(r, input.title), agent: r.agent, status: runStatus(r.status), stage: r.stage, activity: input.activity?.[r.id] }] });
   for (const g of input.gates) if (g.state !== "open") items.push({ type: "system", key: `g-${g.id}`, at: g.decidedAt ?? g.openedAt, text: gateOutcome(g) });
   items.sort((a, b) => a.at.localeCompare(b.at));
   if (input.plan) {

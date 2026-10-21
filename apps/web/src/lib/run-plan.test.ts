@@ -44,6 +44,24 @@ describe("planView", () => {
   });
 });
 
+describe("planView with the agent foreman's checklist", () => {
+  it("uses the foreman's own titles and status", () => {
+    const tasks = [
+      { title: "Triage: research the request", status: "done" as const },
+      { title: "Implement persistence", status: "active" as const },
+      { title: "Hand off PR to user", status: "todo" as const },
+    ];
+    const v = planView({ state: "building", tasks, runs: [run("build", "running")] })!;
+    expect(v.tasks.map((t) => [t.label, t.status])).toEqual([
+      ["Triage: research the request", "done"],
+      ["Implement persistence", "active"],
+      ["Hand off PR to user", "todo"],
+    ]);
+    expect([v.done, v.total, v.current]).toEqual([1, 3, "Implement persistence"]);
+    expect(planView({ state: "building", tasks, runs: [], openGates: [{ title: "Which storage?" }] })!.tasks[1]!.status).toBe("waiting");
+  });
+});
+
 describe("waitingFor", () => {
   it("names CI, and nothing for a stop or a finished task", () => {
     expect(waitingFor({ state: "building", blockedReason: "waiting for CI", runs: [] })).toBe("Waiting for CI…");

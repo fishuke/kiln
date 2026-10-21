@@ -66,6 +66,13 @@ describe("buildRunRows", () => {
     expect(buildRunRows([wi("wi_p", { state: "building", plan })], [])[0]!.progress).toBe("Implement · 1/3");
   });
 
+  it("leaves an agent foreman's turns out of the children and shows its checklist progress", () => {
+    const tasks = [{ title: "Triage", status: "done" as const }, { title: "Implement", status: "active" as const }];
+    const [row] = buildRunRows([wi("wi_f", { state: "building", tasks })], [run("f1", { workItemId: "wi_f", agent: "foreman", stage: "foreman" }), run("i1", { workItemId: "wi_f", stage: "build" })]);
+    expect(row!.children.map((c) => c.id)).toEqual(["i1"]);
+    expect(row!.progress).toBe("Implement · 1/2");
+  });
+
   it("keeps runs without a work item as roots", () => {
     const rows = buildRunRows([], [run("b1", { kind: "benchmark" })]);
     expect(rows[0]!.source).toBe("benchmark");

@@ -1,4 +1,4 @@
-import { planView, type PlanLike } from "./run-plan";
+import { planView, type PlanLike, type TaskLike } from "./run-plan";
 
 /**
  * The Runs list model. A work item is the root foreman run; the agent runs it started are its
@@ -28,6 +28,7 @@ export type WorkItemLike = {
   completedAt?: string;
   blockedReason?: string;
   plan?: PlanLike;
+  tasks?: TaskLike[];
 };
 
 export type RunLike = {
@@ -248,7 +249,8 @@ export function buildRunRows(workItems: WorkItemLike[], runs: RunLike[]): RunRow
   const byParent = new Map<string, RunLike[]>();
   const byWorkItem = new Map<string, RunLike[]>();
   const standalone: RunLike[] = [];
-  for (const r of [...runs].sort((a, b) => a.startedAt.localeCompare(b.startedAt))) {
+  // An agent foreman's turns are the task's own work, not child runs.
+  for (const r of [...runs].filter((x) => x.stage !== "foreman").sort((a, b) => a.startedAt.localeCompare(b.startedAt))) {
     if (r.parentRunId && ids.has(r.parentRunId)) byParent.set(r.parentRunId, [...(byParent.get(r.parentRunId) ?? []), r]);
     else if (r.workItemId) byWorkItem.set(r.workItemId, [...(byWorkItem.get(r.workItemId) ?? []), r]);
     else standalone.push(r);
@@ -256,7 +258,7 @@ export function buildRunRows(workItems: WorkItemLike[], runs: RunLike[]): RunRow
   const rows: RunRow[] = workItems.map((wi) => {
     const own = byWorkItem.get(wi.id) ?? [];
     const children = foldAttempts(own.map((r) => runRow(r, wi, byParent)), own);
-    const plan = planView({ state: wi.state, plan: wi.plan, runs: own });
+    const plan = planView({ state: wi.state, plan: wi.plan, runs: own, tasks: wi.tasks });
     const media = { images: 0, videos: 0 };
     for (const c of flatten(children)) {
       media.images += c.images;

@@ -78,9 +78,12 @@ async function workItemModel(wi: WorkItemDetail, factories: { id: string; name: 
   // What running subagents are doing right now, shown under their rows.
   const running = runs.filter((r) => r.status === "running");
   const activity = Object.fromEntries(await Promise.all(running.map(async (r) => [r.id, runTranscript(await safe(() => api.runEvents(r.id), []))] as const)));
+  // An agent foreman's turns show as its own work in the conversation (the most recent ones).
+  const turnRuns = runs.filter((r) => r.stage === "foreman").slice(-40);
+  const turns = Object.fromEntries(await Promise.all(turnRuns.map(async (r) => [r.id, runTranscript(await safe(() => api.runEvents(r.id), []))] as const)));
   const fname = factoryName(factories, wi.factory);
   // The API returns the engine's plan on the work item; the SDK type does not name it.
-  const plan = planView({ state: wi.state, plan: (wi as { plan?: PlanLike }).plan, blockedReason: wi.blockedReason, runs, openGates: gates.filter((g) => g.state === "open") });
+  const plan = planView({ state: wi.state, plan: (wi as { plan?: PlanLike }).plan, blockedReason: wi.blockedReason, runs: runs.filter((r) => r.stage !== "foreman"), openGates: gates.filter((g) => g.state === "open"), tasks: wi.tasks });
   const usage = [{ label: `Foreman · ${wi.title}`, costUsd: Math.max(0, wi.costUsd - runs.reduce((n, r) => n + r.costUsd, 0)) }, ...runs.map((r) => ({ label: `${cap(r.agent)} · ${runTitle(r, wi.title)}`, costUsd: r.costUsd }))].filter((u, i) => i > 0 || u.costUsd > 0);
   return {
     id: wi.id,
@@ -92,7 +95,7 @@ async function workItemModel(wi: WorkItemDetail, factories: { id: string; name: 
     status,
     live: status === "running" || Boolean(liveRun),
     subagents: root.children.map((c) => ({ id: c.id, title: c.title, agent: c.agent, status: c.status })),
-    transcript: workItemTranscript({ conversation: wi.conversation, runs, gates, title: wi.title, body: wi.body, requester: wi.requester, createdAt: wi.createdAt, attachments: wi.attachments, activity, plan }),
+    transcript: workItemTranscript({ conversation: wi.conversation, runs, gates, title: wi.title, body: wi.body, requester: wi.requester, createdAt: wi.createdAt, attachments: wi.attachments, activity, plan, turns }),
     tree: [root],
     artifacts: collectArtifacts({ runs, pr: wi.pr, branch: wi.branch, prState: wi.completion?.by === "merge" ? "merged" : wi.state === "cancelled" ? "closed" : "open", previewUrl: wi.previewUrl, evidenceVideos: evidenceVideos(wi) }),
     metadata: {

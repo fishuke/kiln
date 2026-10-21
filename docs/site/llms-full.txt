@@ -845,6 +845,18 @@ These need no token:
 - `GET /api/v1/factory-files/schemas`, `/schemas/v1` (every document) and `/schemas/v1/{document}` (for example `agent.schema.json`), with `ETag` and `If-None-Match`.
 - `POST /api/v1/factory-files/validate {files: [{path, content}]}` returns `diagnostics` (path, line, code, message, severity) and `deferredResolutions`: models, secrets, MCP servers, worker hosts and aliases that are only checked when the tree is applied. Limits: 256 files, 256 KB per file, 2 MB in total. `kiln files validate [path]` calls it.
 
+## Agent foreman
+
+`foreman: { mode: agent }` in factory.yaml makes the foreman an agent instead of a fixed list of stages. It works in turns. Each turn it reads the task (the request, the conversation, its checklist, every agent run and its result, the pull request, people's decisions) and the events since its last turn. Then it answers with actions: a message to the requester, its checklist, agents to start (in parallel), follow-ups to an agent that already has the context, a question, spec approval, waiting for CI, the hand-off with a summary for the reviewer, or finishing without a code change. Kiln carries the actions out and wakes the foreman when an agent finishes, a person replies or decides, or CI finishes. Nothing runs while it waits.
+
+```yaml
+foreman:
+  mode: agent      # pipeline (default) or agent
+  maxTurns: 60     # turns per task before Kiln stops and asks a person
+```
+
+Kiln still opens the pull requests, applies the budgets and leaves the merge to people. After a restart the foreman hears which runs were cut off and picks up from there.
+
 ## Blueprints
 
 `blueprint` in factory.yaml replaces the foreman's own workflow with an explicit graph:
@@ -947,6 +959,9 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `blueprint.stages` | object | yes |  |
 | `blueprint.edges` | object |  | default `{}` |
 | `blueprint.staffing` | object | yes |  |
+| `foreman` | object |  |  |
+| `foreman.mode` | `pipeline` \| `agent` |  | default `"pipeline"` |
+| `foreman.maxTurns` | integer |  | default `60`, min 1, max 500 |
 | `deduplication` | object |  |  |
 | `deduplication.enabled` | boolean |  | default `true` |
 | `deduplication.windowHours` | integer |  | default `24`, min 1, max 720 |

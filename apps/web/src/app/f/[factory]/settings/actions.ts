@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { patchYaml } from "@/lib/frontmatter";
-import type { McpServerInput } from "@kiln/sdk-ts";
+import { KilnApiError, type McpServerInput } from "@kiln/sdk-ts";
 import { connectionOptions, type ChannelOption, type OptionKind } from "@/lib/api/factory-admin";
 import { isMissingEndpoint } from "@/lib/api/missing";
 import { readDefinitionFile, saveFiles, type FileChange, type SaveResult } from "@/lib/definition-write";
@@ -76,9 +76,12 @@ export async function createTeamSecret(input: { name: string; value: string; des
   const name = input.name.trim();
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return { ok: false, error: "Use letters, digits and underscores, e.g. OPENAI_API_KEY." };
   if (!input.value) return { ok: false, error: "Enter a value." };
+  // Always the current team's secret, also for a server admin (whose /secrets writes go to server secrets).
   try {
-    const r = (await api.setSecret(name, input.value)) as { ok: true; scope?: string };
-    if (input.description && r.scope === "team") await api.updateManagedSecret("team", name, { description: input.description }).catch(() => undefined);
+    await api.createManagedSecret({ scope: "team", name, value: input.value, description: input.description }).catch((e: unknown) => {
+      if (!(e instanceof KilnApiError && e.status === 409)) throw e;
+      return api.updateManagedSecret("team", name, { value: input.value, description: input.description });
+    });
   } catch (e) {
     return { ok: false, error: errorMessage(e) };
   }

@@ -4,7 +4,8 @@ import { useState } from "react";
 import { ExternalLink, Eye, EyeOff } from "lucide-react";
 import { createTeamSecret } from "@/app/f/[factory]/settings/actions";
 import { Input } from "@/components/ui/input";
-import { fieldsError, withDefaults, type TemplateField } from "@/lib/mcp-config";
+import { fieldsError, withDefaults, type TemplateField, type TemplateVariant } from "@/lib/mcp-config";
+import { cn } from "@/lib/utils";
 
 /** Values typed into an MCP server's fields; `saveSecrets` stores the secret ones as team secrets. */
 export function useMcpFields(fields: TemplateField[], missing?: string[], source = "MCP") {
@@ -88,6 +89,28 @@ export function McpFields({
           </>
         )}
       </p>
+    </div>
+  );
+}
+
+/** Picks how a template's server runs, such as a vendor's cloud or self-hosted. */
+export function VariantChoice({ variants, value, onChange }: { variants: TemplateVariant[]; value?: string; onChange: (id: string) => void }) {
+  const current = value ?? variants[0]?.id;
+  return (
+    <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="How it runs">
+      {variants.map((v) => (
+        <button
+          key={v.id}
+          type="button"
+          role="radio"
+          aria-checked={current === v.id}
+          onClick={() => onChange(v.id)}
+          className={cn("flex flex-col justify-start rounded-lg border p-2.5 text-left hover:bg-muted", current === v.id && "border-foreground ring-1 ring-foreground")}
+        >
+          <div className="text-sm font-medium">{v.label}</div>
+          <div className="text-xs text-muted-foreground">{v.hint}</div>
+        </button>
+      ))}
     </div>
   );
 }

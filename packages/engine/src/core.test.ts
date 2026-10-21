@@ -8,6 +8,7 @@ import { fakeAgents, fakeAgentScript } from "./fake-agents";
 import { validateFiles } from "./factory-files";
 import { runState, taskStage } from "./run-state";
 import { parseTicketRef } from "./tasks";
+import { C } from "./types";
 import { createTestKiln, sampleTree, waitFor } from "./testing";
 
 const fake = new FakeHarness(fakeAgentScript);
@@ -495,6 +496,37 @@ describe("spec stage failures", () => {
     expect(gates.some((g) => g.kind === "spec")).toBe(false);
     expect(gates.find((g) => g.name === "spec-failed")).toMatchObject({ kind: "question", state: "open" });
     expect(gates.find((g) => g.name === "spec-failed")!.question).toContain("setup command failed");
+  });
+
+  it("resumes a task whose question expired when someone sends a message", async () => {
+    const failing = new FakeHarness(async () => {
+      throw new Error("setup command failed: npm ci");
+    });
+    const agents = fakeAgents();
+    let specRuns = 0;
+    const { kiln } = createTestKiln({
+      preview: false,
+      harness: (type, agentType) => (agentType === "SPEC" && ++specRuns <= 2 ? failing : agents(type, agentType)),
+    });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Redesign the billing page", body: "- show invoices", source: { provider: "api" }, requester: "a@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    await waitFor(kiln, wi.id, ["blocked"]);
+    const question = kiln.gates.list({ workItemId: wi.id, state: "open" }).find((g) => g.name === "spec-failed")!;
+    kiln.store.put(C.gates, { ...question, state: "expired", decidedBy: "kiln:expiry" });
+
+    await kiln.workflow.message(wi.id, { by: "a@acme.test", text: "try again" });
+    const resumed = await waitFor(kiln, wi.id, ["awaiting_spec"]);
+    expect(resumed.blockedReason).toBeUndefined();
+    expect(resumed.conversation.some((m) => m.role === "human" && m.text === "try again")).toBe(true);
+  });
+
+  it("only adds a message to the conversation when the task is not blocked", async () => {
+    const { kiln } = createTestKiln({ preview: false });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix typo", body: "", source: { provider: "api" }, requester: "a@acme.test" });
+    await kiln.workflow.message(wi.id, { by: "a@acme.test", text: "also the footer" });
+    const after = kiln.workflow.get(wi.id)!;
+    expect(after.state).toBe(wi.state);
+    expect(after.conversation.at(-1)).toMatchObject({ role: "human", text: "also the footer" });
   });
 });
 

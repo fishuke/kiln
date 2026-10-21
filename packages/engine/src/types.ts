@@ -121,6 +121,10 @@ export type WorkItem = {
   costUsd: number;
   budgetUsd?: number;
   blockedReason?: string;
+  /** The agent foreman's checklist for the task, in its own words. */
+  tasks?: ForemanTask[];
+  /** Agent foreman bookkeeping: turns taken, and turns in a row that did nothing or failed. */
+  foreman?: { turns: number; idleTurns: number; failedTurns: number };
   projectId?: string;
   trackerKey?: string;
   /** Set when an automation with execution overrides started this item. */
@@ -504,6 +508,10 @@ export type WorkerRecord = {
   completed: number;
 };
 
+export type ForemanTask = { title: string; status: "todo" | "active" | "done" | "blocked" };
+/** Something that happened since the agent foreman's last turn. */
+export type ForemanEvent = { id: string; workItemId: string; at: string; type: "start" | "run_finished" | "message" | "gate_decided" | "ci" | "restarted" | "nudge" | "error"; text: string; runId?: string };
+
 export const C = {
   workItems: "work_items",
   runs: "runs",
@@ -528,6 +536,8 @@ export const C = {
   benchmarkTrials: "benchmark_trials",
   inboxState: "inbox_state",
   workers: "workers",
+  /** Events waiting for an agent foreman's next turn; deleted once the turn has read them. */
+  foremanEvents: "foreman_events",
   scorerMeta: "scorer_meta",
   connections: "connections",
   connectionStates: "connection_oauth_states",

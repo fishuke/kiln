@@ -12,6 +12,7 @@ import {
   Laptop,
   Link2,
   List,
+  ListChecks,
   PanelRight,
   Pause,
   Play,
@@ -676,6 +677,12 @@ function FollowupComposer({ model }: { model: RunDetailModel }) {
         >
           <Plus className="size-4" />
         </button>
+        {model.plan && (
+          <span title="Tasks done" className="ml-1 flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs text-muted-foreground">
+            <ListChecks className="size-3.5" />
+            {model.plan.done}/{model.plan.total}
+          </span>
+        )}
         <button
           type="submit"
           aria-label="Send (Enter)"

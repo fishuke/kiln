@@ -231,6 +231,26 @@ describe("tasks", () => {
     expect(() => kiln.tasks.get(wi.id)).toThrow(/unknown task/);
   });
 
+  it("a task that changes no code asks to confirm it is done instead of opening a pull request or checking CI", async () => {
+    const { kiln, forge } = createTestKiln({ preview: false });
+    let prs = 0;
+    let checks = 0;
+    const open = forge.openPullRequest.bind(forge);
+    const check = forge.checks.bind(forge);
+    forge.openPullRequest = (input) => ((prs += 1), open(input));
+    forge.checks = (repo, ref) => ((checks += 1), check(repo, ref));
+    const d = await kiln.tasks.dispatch("webapp", { prompt: "Can you check the signoz mcp [no-change]", by: "po@acme.test" });
+    const wi = await waitFor(kiln, d.taskId, ["handed_off"]);
+    expect(wi.pr).toBeUndefined();
+    expect(prs).toBe(0);
+    expect(checks).toBe(0);
+    const gate = kiln.gates.list({ workItemId: wi.id, state: "open" })[0]!;
+    expect(gate).toMatchObject({ kind: "merge", title: expect.stringMatching(/^Confirm/) });
+    expect(gate.question).toContain("nothing in the code needs to change");
+    await kiln.gates.decide(gate.id, { decision: "approve", by: "po@acme.test", via: "test" });
+    await waitFor(kiln, wi.id, ["complete"]);
+  });
+
   it("plan mode always stops for an approved plan first", async () => {
     const { kiln } = createTestKiln({ preview: false });
     const d = await kiln.tasks.dispatch("webapp", { prompt: "Fix typo in nav", mode: "plan", by: "po@acme.test" });

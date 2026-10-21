@@ -5,7 +5,9 @@
 import type { RunLike } from "./run-tree";
 
 export type PlanStageLike = { id: string; kind: string; agent?: string };
-export type PlanLike = { cursor: number; stages: PlanStageLike[] };
+export type PlanLike = { mode?: string; cursor: number; stages: PlanStageLike[] };
+/** The agent foreman's own checklist. */
+export type TaskLike = { title: string; status: "todo" | "active" | "done" | "blocked" };
 
 export type TaskLineStatus = "done" | "active" | "waiting" | "failed" | "todo";
 export type TaskLine = { id: string; label: string; status: TaskLineStatus; attempts: number };
@@ -37,7 +39,9 @@ export function planView(input: {
   blockedReason?: string;
   runs: Pick<RunLike, "agent" | "stage" | "status" | "startedAt">[];
   openGates?: { title: string }[];
+  tasks?: TaskLike[];
 }): PlanView | undefined {
+  if (input.tasks?.length) return foremanView(input, input.tasks);
   const { plan, state } = input;
   if (!plan?.stages.length) return undefined;
   const finished = FINISHED.includes(state);
@@ -60,6 +64,24 @@ export function planView(input: {
     done: tasks.filter((t) => t.status === "done").length,
     total: tasks.length,
     current: finished || !at ? undefined : stageName(at),
+    waiting: waitingFor(input),
+  };
+}
+
+/** The agent foreman's checklist; a person-facing wait shows on its active line. */
+function foremanView(input: Parameters<typeof planView>[0], list: TaskLike[]): PlanView {
+  const finished = FINISHED.includes(input.state);
+  const waiting = input.state === "blocked" || WAITING_ON_PERSON.includes(input.state) || Boolean(input.openGates?.length);
+  const tasks = list.map((t, i): TaskLine => {
+    let status: TaskLineStatus = finished || t.status === "done" ? "done" : t.status === "todo" ? "todo" : t.status === "blocked" ? "waiting" : "active";
+    if (status === "active" && (waiting || input.state === "failed")) status = input.state === "failed" ? "failed" : "waiting";
+    return { id: `t${i}`, label: t.title, status, attempts: 0 };
+  });
+  return {
+    tasks,
+    done: tasks.filter((t) => t.status === "done").length,
+    total: tasks.length,
+    current: finished ? undefined : list.find((t) => t.status === "active")?.title,
     waiting: waitingFor(input),
   };
 }

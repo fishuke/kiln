@@ -77,6 +77,13 @@ describe("URL state", () => {
     expect(parseRunFilters(new URLSearchParams("")).mine).toBe(true);
     expect(parseRunFilters(new URLSearchParams("all=1")).mine).toBe(false);
   });
+
+  it("hides completed and cancelled runs by default", () => {
+    expect(parseRunFilters(new URLSearchParams("")).status).toEqual(["running", "failed", "blocked"]);
+    expect(parseRunFilters(new URLSearchParams("all=1")).status).toBeUndefined();
+    expect(parseRunFilters(new URLSearchParams("status=complete")).status).toEqual(["complete"]);
+  });
+
   it("round-trips", () => {
     const f = parseRunFilters(new URLSearchParams("mine=1&status=failed,running&createdOn=2026-10-01.2026-10-20&sort=title&dir=asc"));
     expect(f).toMatchObject({ mine: true, status: ["failed", "running"], from: "2026-10-01", to: "2026-10-20", sort: "title", dir: "asc" });

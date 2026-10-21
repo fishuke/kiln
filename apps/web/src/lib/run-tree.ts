@@ -308,7 +308,10 @@ export function sortRows(rows: RunRow[], key: SortKey, dir: "asc" | "desc"): Run
 
 const list = (v: string | null | undefined) => (v ? v.split(",").filter(Boolean) : undefined);
 
-/** Reads the Runs filters from the URL. With no parameters at all, "My runs" is on. */
+/** Statuses the default view shows: finished work (Complete, Cancelled) is hidden until asked for. */
+export const DEFAULT_STATUSES: RunStatus[] = ["running", "failed", "blocked"];
+
+/** Reads the Runs filters from the URL. With no parameters at all, "My runs" and the active statuses are on. */
 export function parseRunFilters(sp: URLSearchParams | Record<string, string | string[] | undefined>): RunFilters {
   const get = (k: string): string | undefined => {
     if (sp instanceof URLSearchParams) return sp.get(k) ?? undefined;
@@ -317,9 +320,10 @@ export function parseRunFilters(sp: URLSearchParams | Record<string, string | st
   };
   const keys = sp instanceof URLSearchParams ? [...sp.keys()] : Object.keys(sp).filter((k) => sp[k] !== undefined);
   const created = get("createdOn")?.split(".");
+  const isDefault = keys.length === 0;
   return {
-    mine: keys.length === 0 ? true : get("mine") === "1",
-    status: list(get("status"))?.filter((s): s is RunStatus => (RUN_STATUSES as string[]).includes(s)),
+    mine: isDefault ? true : get("mine") === "1",
+    status: isDefault ? [...DEFAULT_STATUSES] : list(get("status"))?.filter((s): s is RunStatus => (RUN_STATUSES as string[]).includes(s)),
     agent: list(get("agent")),
     factory: list(get("factory")),
     source: list(get("source")),
@@ -345,7 +349,7 @@ export function runFiltersToQuery(f: RunFilters, opts: { createdChip?: boolean }
   if (f.sort && f.sort !== "updated") p.set("sort", f.sort);
   if (f.dir === "asc") p.set("dir", "asc");
   const s = p.toString();
-  // An empty query means "default" (My runs on); "all" keeps an explicitly cleared state.
+  // An empty query means "default" (My runs and active statuses on); "all" keeps an explicitly cleared state.
   return s ? `?${s}` : "?all=1";
 }
 

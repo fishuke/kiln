@@ -5,7 +5,7 @@ owner: docs
 section: Developer tools
 ---
 
-A **task** is a work item seen through the API: one request with its conversation, runs and outputs. A **run** is one agent execution. The foreman path starts several runs per task; agents can start subagents, so runs form a tree whose first run is the task's root. When a stage finishes, the foreman adds a short update to the conversation, for example "Implement done. Next: Verify."
+A **task** is a work item seen through the API: one request with its conversation, runs and outputs. A **run** is one agent execution. The foreman path starts several runs per task; agents can start subagents, so runs form a tree whose first run is the task's root. When a stage finishes, the foreman adds a short update to the conversation, for example "Implement done. Next: Verify." When a run ends on a temporary platform error (the network or the egress proxy away during a restart, a provider overloaded), Kiln retries it after 5 s, 20 s and 60 s, and then runs the stage again after 1, 2, 5, 10, 20 and 30 minutes. None of this reaches the conversation or asks anyone; the task stops only when all of it fails.
 
 ## Dispatching work
 

@@ -303,7 +303,11 @@ export class RunService {
     const max = Math.max(1, input.maxAttempts ?? this.k.options.maxRunAttempts ?? 3);
     let run = await this.executeOnce(input);
     while (run.status === "error" && retriesAutomatically(run.error) && (run.attempt ?? 1) < max) {
-      this.record(run, "retry", `attempt ${(run.attempt ?? 1) + 1} after ${run.error!.code}: ${run.error!.message}`);
+      // Wait before trying again: a restart or a network blip needs a moment to pass.
+      const delays = this.k.options.retryDelaysMs ?? [5_000, 20_000, 60_000];
+      const wait = delays[Math.min((run.attempt ?? 1) - 1, delays.length - 1)] ?? 0;
+      this.record(run, "retry", `attempt ${(run.attempt ?? 1) + 1} in ${Math.round(wait / 1000)}s after ${run.error!.code}: ${run.error!.message}`);
+      if (wait) await new Promise((r) => setTimeout(r, wait));
       run = await this.executeOnce(input, run);
     }
     return run;

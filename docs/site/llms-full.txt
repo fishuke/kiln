@@ -2965,6 +2965,20 @@ Kiln runs its own commands as trusted, so the command guard does not check them:
 
 Commands the agent runs through the sandbox's command API pass the [command guard](../configuration/decisions.md#command-guard).
 
+## Cleaning up sandboxes
+
+A sandbox is removed when its run ends, and also when cloning or setup fails. Sandboxes a restart cut off (a deploy or a crash during a run) are removed when the server starts, and a sweep every 10 minutes removes any that a failed clean-up left behind.
+
+The sweep only removes sandboxes the server itself made: Docker containers labeled `kiln.sandbox=1` with `kiln.owner=kiln` (or no owner, for containers from older versions), and work directories under the local backend's root. A `kiln worker` labels its containers `kiln.owner=worker:<worker id>`, so the server leaves them alone on a shared host. A paused run resumes from its snapshot in object storage, so removing its container after a restart loses nothing.
+
+On a Docker host, images and build cache from earlier deploys also take space. Prune them from time to time:
+
+```sh
+docker system df
+docker builder prune -af
+docker image prune -af
+```
+
 ## Pause and resume
 
 A running agent can be paused, for example while it waits at a gate, and resumed later on any node.

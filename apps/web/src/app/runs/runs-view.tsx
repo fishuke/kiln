@@ -275,6 +275,7 @@ function RunTreeRow({ row, depth, expanded, onToggle, onCancel }: { row: RunRow;
             <PersonAvatar name={row.creator || "Kiln"} />
             <span className="sr-only">Created by {personName(row.creator || "kiln")}</span>
           </span>
+          {depth === 0 && row.progress && <span className="pointer-events-none hidden text-xs text-muted-foreground tabular-nums md:inline">{row.progress}</span>}
           {depth === 0 && (
             <span className={cn("pointer-events-auto relative w-20 truncate text-right text-xs font-medium", STATUS_TEXT[row.status])} title={row.statusNote}>
               {ROOT_STATUS_LABEL[row.status]}

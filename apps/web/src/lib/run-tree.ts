@@ -1,3 +1,5 @@
+import { planView, type PlanLike } from "./run-plan";
+
 /**
  * The Runs list model. A work item is the root foreman run; the agent runs it started are its
  * children, and subagents nest under the run that spawned them (`parentRunId`). Runs without a
@@ -25,6 +27,7 @@ export type WorkItemLike = {
   updatedAt: string;
   completedAt?: string;
   blockedReason?: string;
+  plan?: PlanLike;
 };
 
 export type RunLike = {
@@ -55,6 +58,8 @@ export type RunRow = {
   status: RunStatus;
   /** Why the task waits (blocked reason), shown next to its status. */
   statusNote?: string;
+  /** A task's current stage and plan progress, e.g. "Review · 2/4". */
+  progress?: string;
   /** On the latest run of a step that ran more than once: how many times it ran. */
   attempts?: number;
   /** On an earlier, superseded run of a step: which attempt it was (1 = first). */
@@ -251,6 +256,7 @@ export function buildRunRows(workItems: WorkItemLike[], runs: RunLike[]): RunRow
   const rows: RunRow[] = workItems.map((wi) => {
     const own = byWorkItem.get(wi.id) ?? [];
     const children = foldAttempts(own.map((r) => runRow(r, wi, byParent)), own);
+    const plan = planView({ state: wi.state, plan: wi.plan, runs: own });
     const media = { images: 0, videos: 0 };
     for (const c of flatten(children)) {
       media.images += c.images;
@@ -262,6 +268,7 @@ export function buildRunRows(workItems: WorkItemLike[], runs: RunLike[]): RunRow
       title: wi.title,
       status: workItemStatus(wi.state),
       ...(wi.blockedReason ? { statusNote: wi.blockedReason } : {}),
+      ...(plan ? { progress: `${plan.current ? `${plan.current} · ` : ""}${plan.done}/${plan.total}` } : {}),
       factory: wi.factory,
       agent: "foreman",
       source: wi.source.provider,

@@ -51,6 +51,7 @@ describe("buildRunRows", () => {
     );
     const [root] = rows;
     expect(root!.statusNote).toBe("implement failed twice");
+    expect(root!.progress).toBeUndefined();
     expect(root!.children.map((c) => c.id)).toEqual(["t1", "b3"]);
     const latest = root!.children[1]!;
     expect(latest.status).toBe("running");
@@ -58,6 +59,11 @@ describe("buildRunRows", () => {
     expect(latest.children.map((c) => [c.id, c.attempt])).toEqual([["b2", 2], ["b1", 1]]);
     expect(latest.children[0]!.children.map((c) => c.id)).toEqual(["s1"]);
     expect(stepCount(root!.children)).toBe(2);
+  });
+
+  it("shows the current stage and plan progress on a task", () => {
+    const plan = { cursor: 1, stages: [{ id: "triage", kind: "triage" }, { id: "build", kind: "build" }, { id: "handoff", kind: "handoff" }] };
+    expect(buildRunRows([wi("wi_p", { state: "building", plan })], [])[0]!.progress).toBe("Implement · 1/3");
   });
 
   it("keeps runs without a work item as roots", () => {

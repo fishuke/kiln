@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import type { Run, Score, WorkItemDetail } from "@kiln/sdk-ts";
 import { api, safe } from "@/lib/kiln";
 import { agentLabel, agentTree, collectArtifacts, runTranscript, workItemNode, workItemTranscript, type GateView } from "@/lib/run-detail";
+import { planView, type PlanLike } from "@/lib/run-plan";
 import { runSource, runStatus, runTitle, workItemStatus } from "@/lib/run-tree";
 import type { RunDetailModel } from "./model";
 import { RunDetailView } from "./run-detail-view";
@@ -78,6 +79,8 @@ async function workItemModel(wi: WorkItemDetail, factories: { id: string; name: 
   const running = runs.filter((r) => r.status === "running");
   const activity = Object.fromEntries(await Promise.all(running.map(async (r) => [r.id, runTranscript(await safe(() => api.runEvents(r.id), []))] as const)));
   const fname = factoryName(factories, wi.factory);
+  // The API returns the engine's plan on the work item; the SDK type does not name it.
+  const plan = planView({ state: wi.state, plan: (wi as { plan?: PlanLike }).plan, blockedReason: wi.blockedReason, runs, openGates: gates.filter((g) => g.state === "open") });
   const usage = [{ label: `Foreman · ${wi.title}`, costUsd: Math.max(0, wi.costUsd - runs.reduce((n, r) => n + r.costUsd, 0)) }, ...runs.map((r) => ({ label: `${cap(r.agent)} · ${runTitle(r, wi.title)}`, costUsd: r.costUsd }))].filter((u, i) => i > 0 || u.costUsd > 0);
   return {
     id: wi.id,
@@ -89,7 +92,7 @@ async function workItemModel(wi: WorkItemDetail, factories: { id: string; name: 
     status,
     live: status === "running" || Boolean(liveRun),
     subagents: root.children.map((c) => ({ id: c.id, title: c.title, agent: c.agent, status: c.status })),
-    transcript: workItemTranscript({ conversation: wi.conversation, runs, gates, title: wi.title, body: wi.body, requester: wi.requester, createdAt: wi.createdAt, attachments: wi.attachments, activity }),
+    transcript: workItemTranscript({ conversation: wi.conversation, runs, gates, title: wi.title, body: wi.body, requester: wi.requester, createdAt: wi.createdAt, attachments: wi.attachments, activity, plan }),
     tree: [root],
     artifacts: collectArtifacts({ runs, pr: wi.pr, branch: wi.branch, prState: wi.completion?.by === "merge" ? "merged" : wi.state === "cancelled" ? "closed" : "open", previewUrl: wi.previewUrl, evidenceVideos: evidenceVideos(wi) }),
     metadata: {
@@ -117,6 +120,7 @@ async function workItemModel(wi: WorkItemDetail, factories: { id: string; name: 
     review: wi.review,
     triage: wi.triage,
     openGates: gates.filter((g) => g.state === "open"),
+    plan,
     workItem: { id: wi.id, state: wi.state, blockedReason: wi.blockedReason, branch: wi.branch, prUrl: wi.pr?.url, previewUrl: wi.previewUrl },
     runActions: { canStop: !["complete", "cancelled", "failed"].includes(wi.state), canPause: false, canResume: false, canReplay: false, canBenchmark: false },
     streamRunId: liveRun?.id,

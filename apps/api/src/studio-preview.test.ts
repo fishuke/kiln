@@ -155,8 +155,9 @@ describe("preview proxy (HTTP)", () => {
     vi.stubEnv("KILN_STUDIO_PREVIEW_DOMAIN", DOMAIN);
     const { seen, address } = await upstream();
     const { kiln } = createTestKiln({ preview: false });
-    setPreviewResolver(kiln, resolver({ [ID]: address }));
     const app = createApp(kiln);
+    // After createApp, which registers the real Studio as the resolver.
+    setPreviewResolver(kiln, resolver({ [ID]: address }));
     const res = await app.fetch(new Request(`http://${HOST}/api/v1/me`, { headers: { authorization: "Bearer nope" } }));
     expect(res.status).toBe(201);
     expect(seen.url).toBe("/api/v1/me");

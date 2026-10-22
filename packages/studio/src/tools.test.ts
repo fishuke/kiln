@@ -26,6 +26,7 @@ function make() {
     sandboxes: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-tools-"))),
     harness: () => harness,
     templates: { test: { id: "test", name: "Test", scaffold: ["echo hi > README.md"], install: [], dev: "sleep 60", egress: [] } },
+    image: "kiln-runner-studio:test",
     previewUrl: (target) => `https://${target}.preview.test`,
   });
   studios.push(studio);

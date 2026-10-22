@@ -1992,6 +1992,29 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/workers/{instance}/runs/{runId}/complete` | `worker` | Report a run's result, artifacts and pushed branches |
 | DELETE | `/api/v1/workers/{instance}` | `worker` | Disconnect; its running runs fail and are retried |
 
+## Studio
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/studio/apps` | — | Your team's Studio Apps |
+| POST | `/api/v1/studio/apps` | — | Create an App from a template or an existing repository; it starts as creating |
+| GET | `/api/v1/studio/apps/{id}` | — | An App with its chats and versions (newest first) |
+| PATCH | `/api/v1/studio/apps/{id}` | — | Rename an App, change its ship mode, Kiln Project or dev command |
+| POST | `/api/v1/studio/apps/{id}/pause` | — | Snapshot an App's workspace and free its sandbox; the next use resumes it |
+| POST | `/api/v1/studio/apps/{id}/chats` | — | Start a chat (its own worktree and preview), optionally with a first message |
+| GET | `/api/v1/studio/chats/{id}` | — | A chat with its turns (oldest first) |
+| POST | `/api/v1/studio/chats/{id}/messages` | — | Send a message: starts a turn, or steers the running one |
+| POST | `/api/v1/studio/chats/{id}/apply` | — | Apply a chat's checkpoints to the App's main line as a version |
+| GET | `/api/v1/studio/chats/{id}/diff` | — | The chat's changes since it branched or was last applied |
+| GET | `/api/v1/studio/chats/{id}/preview` | — | The chat's live preview (starts its dev server) |
+| GET | `/api/v1/studio/chats/{id}/events` | — | Server-sent events: the chat and its latest turn whenever they change |
+| POST | `/api/v1/studio/versions/{id}/restore` | — | Restore a version as a new version |
+| POST | `/api/v1/studio/versions/{id}/bookmark` | — | Pin or unpin a version |
+| GET | `/api/v1/studio/versions/{id}/diff` | — | A version's changes against its parent |
+| GET | `/api/v1/studio/versions/{id}/preview` | — | Preview an earlier version |
+| GET | `/api/v1/studio/status` | — | What is working and what needs you, across your team's Apps |
+| POST | `/api/v1/studio/tools/{name}` | — | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, focus, show) |
+
 ## Errors
 
 Errors are JSON: `{ "error": "message" }` with status 400 (invalid request; `issues` lists the fields), 401 (missing or invalid token), 402 (`{ "error": "budget_exceeded", "message": ... }`: the team's spend limit is reached and auto-stop is on), 403 (token lacks the scope), 404 (unknown resource), 409 (wrong state or already exists), 410 (expired invite) or 413 (upload too large).
@@ -2126,6 +2149,16 @@ List my factories, then help me send a task to the right one and follow it throu
 | `send_task` | Send new work to a factory's foreman (factory, title, note), or hand a task you worked on locally back (task_id, branch or pr_url, note). |
 | `spawn_agent` | Start a subagent of your factory for part of the work. Returns at once with the child run; follow it with get_run. Only agents whose spawnableBy allows you can be started. |
 | `steer_run` | Send a steering message to a running agent. |
+| `studio_apply` | Studio: Apply a chat's changes to the app's main line as a new version. |
+| `studio_bookmark` | Studio: Pin or unpin a version. |
+| `studio_focus` | Studio: Move the person's screen to an app and, optionally, a chat. (Moves the caller's screen; changes nothing on the server.) |
+| `studio_look` | Studio: The live preview of a chat (its URL). |
+| `studio_new_chat` | Studio: Start a new chat (a parallel line of work) in an app, optionally with a first message. |
+| `studio_open_app` | Studio: Open an app by id, or create one from a name and a source (a template or a repository). |
+| `studio_restore` | Studio: Restore an earlier version as a new version; nothing is lost. |
+| `studio_send` | Studio: Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them. |
+| `studio_show` | Studio: Show the preview, the code or the history in the person's screen. (Moves the caller's screen; changes nothing on the server.) |
+| `studio_status` | Studio: What is running and what needs the person, for one app or all of them. |
 | `validate_factory_files` | Validate a whole definition tree without saving it: diagnostics with file and line, plus what is resolved only when applied. With apply=true and a factory, applies it (definitions:write). |
 
 ## Related pages

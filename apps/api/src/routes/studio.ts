@@ -98,6 +98,7 @@ export const routes: Route[] = [
   { method: "get", path: "/api/v1/studio/versions/{id}/diff", summary: "A version's changes against its parent", scope: "read", tag: S },
   { method: "get", path: "/api/v1/studio/versions/{id}/preview", summary: "Preview an earlier version", scope: "read", tag: S },
   { method: "get", path: "/api/v1/studio/status", summary: "What is working and what needs you, across your team's Apps", scope: "read", tag: S },
+  { method: "get", path: "/api/v1/studio/events", summary: "Server-sent events for your team's Apps: Studio events and merge gate reviews", scope: "read", tag: S },
   {
     method: "post",
     path: "/api/v1/studio/tools/{name}",
@@ -316,6 +317,25 @@ export function register(ctx: RouteContext) {
         const off = kiln.bus.subscribe("*", (e) => {
           const p = e.payload as { chatId?: string; turnId?: string };
           if (e.type.startsWith("studio.") && p.chatId === chatId) queue = queue.then(() => send(p.turnId));
+        });
+        await new Promise<void>((resolve) => stream.onAbort(resolve));
+        off();
+        await queue;
+      });
+    }),
+  );
+  app.get(
+    "/api/v1/studio/events",
+    wrap((c) => {
+      const team = caller(c, "read").team;
+      const s = studio();
+      return streamSSE(c, async (stream) => {
+        let queue = Promise.resolve();
+        const off = kiln.bus.subscribe("*", (e) => {
+          if (!e.type.startsWith("studio.") && !e.type.startsWith("merge_gate.")) return;
+          const appId = (e.payload as { appId?: unknown }).appId;
+          if (typeof appId !== "string" || s.getApp(appId)?.app.team !== team) return;
+          queue = queue.then(() => (stream.aborted ? undefined : stream.writeSSE({ event: e.type, data: JSON.stringify(e) })));
         });
         await new Promise<void>((resolve) => stream.onAbort(resolve));
         off();

@@ -131,6 +131,29 @@ describe("Studio API", () => {
     expect(app.setup).toMatchObject({ envRequired: ["ANTHROPIC_API_KEY", "APP_NAME"], envMissing: ["ANTHROPIC_API_KEY", "APP_NAME"] });
   });
 
+  it("streams the team's Studio and merge gate events, and no other team's", async () => {
+    const { app, client, kiln } = setup();
+    const ours = await client.studioCreateApp({ name: "Ours", source: { kind: "template", template: "test" } });
+    await studioFor(kiln)!.ready(ours.id);
+    const theirs = await studioFor(kiln)!.createApp({ team: "team_other", by: "x", name: "Theirs", source: { kind: "template", template: "test" } });
+    await studioFor(kiln)!.ready(theirs.id);
+    const res = await app.request("/api/v1/studio/events");
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    const publish = (type: string, payload: Record<string, unknown>) =>
+      (kiln.bus as unknown as { publish(t: string, p: unknown): void }).publish(type, payload);
+    publish("merge_gate.review_updated", { appId: theirs.id, state: "waiting_for_review" });
+    publish("merge_gate.review_updated", { appId: ours.id, state: "waiting_for_review" });
+    publish("run.finished", { runId: "run_x", outcome: "succeeded", costUsd: 0 });
+    while (!text.includes(ours.id)) text += decoder.decode((await reader.read()).value);
+    await reader.cancel();
+    expect(text).toContain("event: merge_gate.review_updated");
+    expect(text).not.toContain(theirs.id);
+    expect(text).not.toContain("run.finished");
+  });
+
   it("streams a chat's events from the bus", async () => {
     const { app, client, kiln } = setup();
     const created = await client.studioCreateApp({ name: "Live", source: { kind: "template", template: "test" } });
@@ -182,7 +205,10 @@ describe("Studio API", () => {
 
   it("serves the Studio tools over MCP with the caller's team", async () => {
     const { kiln } = setup();
-    const app = createApp(kiln, { devAuth: true, mcp: createMcpHandler("http://kiln.test", async (input, init) => app.fetch(new Request(input as string, init))) });
+    const app = createApp(kiln, {
+      devAuth: true,
+      mcp: createMcpHandler("http://kiln.test", async (input, init) => app.fetch(new Request(input as string, init))),
+    });
     const mcp = new Client({ name: "test", version: "1.0.0" });
     await mcp.connect(
       new StreamableHTTPClientTransport(new URL("http://kiln.test/mcp"), {

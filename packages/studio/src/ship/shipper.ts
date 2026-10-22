@@ -261,7 +261,7 @@ export class Shipper {
       if (title) await forge.updatePullRequest(ref, pr.number, { title });
       if (pr.state !== "uat") {
         // New changes after the author was done: back to testing, and the reviewers' item goes away until they're ready again.
-        this.opts.mergeGate.pullRequestClosed(pr);
+        this.opts.mergeGate.pullRequestClosed({ repo: pr.repo, number: pr.number, merged: false });
         pr = this.transition(pr, "uat", STUDIO_AGENT);
       }
     } else {
@@ -307,7 +307,16 @@ export class Shipper {
     if (actor.by !== pr.createdBy) throw new StudioError("invalid", `only the author (${pr.createdBy}) marks it ready for review`);
     if (pr.state !== "uat") throw new StudioError("conflict", `the pull request is already ${pr.state}`);
     const ready = this.transition(pr, "ready_for_review", actor.by);
-    return this.applyGate(ready, await this.opts.mergeGate.readyForReview(ready));
+    const app = this.app(pr.appId);
+    const outcome = await this.opts.mergeGate.readyForReview({
+      scope: { kind: "app", appId: app.id, team: app.team },
+      repo: pr.repo,
+      number: pr.number,
+      by: actor.by,
+      pullRequestId: pr.id,
+      ...(ready.previewUrl ? { preview: { url: ready.previewUrl, status: "ready" as const } } : {}),
+    });
+    return this.applyGate(ready, outcome);
   }
 
   private async cancel(pr: AppPullRequest, actor: Actor): Promise<AppPullRequest> {
@@ -316,7 +325,7 @@ export class Shipper {
     const forge = this.forgeOf(this.app(pr.appId));
     if (!forge.closePullRequest) throw new StudioError("unavailable", `the ${forge.name} forge can't close pull requests`);
     await forge.closePullRequest(toRef(pr.repo, pr.forge), pr.number);
-    if (pr.state !== "uat") this.opts.mergeGate.pullRequestClosed(pr);
+    if (pr.state !== "uat") this.opts.mergeGate.pullRequestClosed({ repo: pr.repo, number: pr.number, merged: false, by: actor.by });
     return this.transition(pr, "cancelled", actor.by);
   }
 

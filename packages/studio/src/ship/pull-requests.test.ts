@@ -69,7 +69,16 @@ describe("the App's pull request", () => {
     const { shipper, app, change, gate, states } = await setup();
     await change();
     const pr = await shipper.ship(app.id, { state: "ready_for_review" }, author);
-    expect(gate.asked).toEqual([expect.objectContaining({ id: pr.id, appId: app.id, repo: "acme/web", number: pr.number, state: "ready_for_review" })]);
+    expect(gate.asked).toEqual([
+      {
+        scope: { kind: "app", appId: app.id, team: "t1" },
+        repo: "acme/web",
+        number: pr.number,
+        by: "creator@x.test",
+        pullRequestId: pr.id,
+        preview: { url: `https://pr-${pr.number}.web.preview.test`, status: "ready" },
+      },
+    ]);
     expect(pr).toMatchObject({ state: "waiting_for_review", reviewReasons: ["a person reviews every change"] });
     // The gate's own event (merge_gate.review_updated) is the one needs-you notification.
     expect(states).toEqual([
@@ -110,7 +119,7 @@ describe("the App's pull request", () => {
     const cancelled = await shipper.ship(app.id, { state: "cancelled" }, admin);
     expect(cancelled.state).toBe("cancelled");
     expect((await forge.getPullRequest(web, ready.number))!.state).toBe("closed");
-    expect(gate.closed).toEqual([expect.objectContaining({ id: ready.id, number: ready.number })]);
+    expect(gate.closed).toEqual([{ repo: "acme/web", number: ready.number, merged: false, by: "admin@x.test" }]);
     const again = await shipper.ship(app.id, {}, author);
     expect(again.number).not.toBe(ready.number);
     expect(again.state).toBe("uat");

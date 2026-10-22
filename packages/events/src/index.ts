@@ -43,6 +43,17 @@ export type KilnEventMap = {
     url: string;
     priority: "finished";
   };
+  /** ADR-014: a pull request marked ready for review was merged by the gate, sent to a person, merged later or closed. */
+  "merge_gate.review_updated": {
+    reviewId: string;
+    appId?: string;
+    factory?: string;
+    pullRequestId?: string;
+    repo: string;
+    number: number;
+    state: "deciding" | "merged" | "needs_review" | "closed";
+    priority: "needs_you" | "finished";
+  };
 };
 
 /** How urgently a Studio event should reach the person (ADR-012): spoken, a badge, or silent. */

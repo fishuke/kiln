@@ -511,9 +511,9 @@ uat ──ready──▶ ready_for_review ──gate──▶ merged
 ```
 
 - **UAT**: the author tests it; new turns update the same pull request.
-- **ready_for_review**: the author is done. Ship calls the merge gate (ADR-014) once: `readyForReview(pr: AppPullRequest): Promise<{ outcome: "merged" } | { outcome: "review"; reasons: string[] }>`. `merged` sets the state to `merged`; `review` sets it to `waiting_for_review` with the reasons.
+- **ready_for_review**: the author is done. Ship calls the merge gate (ADR-014) once: `readyForReview({ scope, repo, number, by, pullRequestId, preview? })` → `{ outcome: "merged" } | { outcome: "review"; reasons: string[] }`. `merged` sets the state to `merged`; `review` sets it to `waiting_for_review` with the reasons.
 - **waiting_for_review**: a person reviews and merges on the forge. The merge gate, not ship, creates the reviewers' Inbox item and raises the single `needs_you` event (`merge_gate.review_updated`). Ship maps that event onto its pull request record and emits nothing for the same transition.
-- **merged** (by the gate, or a person on the forge, seen through the forge webhook) and **cancelled** (the pull request is closed) are final. The gate's `pullRequestClosed(pr)` removes its Inbox item.
+- **merged** (by the gate, or a person on the forge, seen through the forge webhook) and **cancelled** (the pull request is closed) are final. The gate's `pullRequestClosed({ repo, number, merged: false })` removes its Inbox item.
 - The merge gate is **off by default** (ADR-014): with it off, `readyForReview` always answers `review`.
 
 ```ts
@@ -539,18 +539,37 @@ export type AppPullRequest = {
 // store: studio_pull_requests
 ```
 
-- One open pull request per App. `ship` or a `review` push opens it in `uat`; later pushes update it (same branch) and set `versionId` and the previews again. A push to an App in `ready_for_review` or `waiting_for_review` moves it back to `uat` (and calls the gate's `pullRequestClosed`, so its Inbox item clears until the author is ready again).
+- One open pull request per App. `ship` or a `review` push opens it in `uat`; later pushes update it (same branch) and set `versionId` and the previews again. A push to an App in `ready_for_review` or `waiting_for_review` moves it back to `uat` (and calls the gate's `pullRequestClosed({ repo, number, merged: false })`, so its Inbox item clears until the author is ready again).
 - `ready_for_review` is set only by a person, the author (`createdBy`); actors `studio` and `agent:*` are refused.
-- `cancelled` (the author or a team admin) closes the pull request on the forge (`Forge.closePullRequest`) and, when it was past `uat`, calls the gate's `pullRequestClosed(pr)`.
+- `cancelled` (the author or a team admin) closes the pull request on the forge (`Forge.closePullRequest`) and, when it was past `uat`, calls the gate's `pullRequestClosed({ repo, number, merged: false, by })`.
 - `merged` and `cancelled` are final; the next `ship` opens a new pull request. `Shipper.reviewUpdated` maps `merge_gate.review_updated` (`merged` → `merged`, `closed` → `cancelled`); `Shipper.forgeMerged(repo, number)` records a merge seen through the forge webhook while the gate wasn't involved.
 
+### Merge gate (ADR-014)
+
+Contract: [merge-gate.md](merge-gate.md). Ship calls the gate when the author marks the App's pull request ready for review, never when it is only opened. `packages/studio` redeclares these types structurally (no `@kiln/engine` import); `apps/api/src/routes/studio.ts` passes `kiln.mergeGate` as `ShipperOptions.mergeGate`. The App switch is `AppDefinitions.policy(target).mergeGate`, which `apps/api/src/routes/merge-gate.ts` registers with `kiln.mergeGate.useAppPolicy`.
+
 ```ts
-// ship/merge-gate.ts, redeclared structurally; the API passes kiln.mergeGate as ShipperOptions.mergeGate
 export interface StudioMergeGate {
-  readyForReview(pr: AppPullRequest): Promise<{ outcome: "merged" } | { outcome: "review"; reasons: string[] }>;
-  pullRequestClosed(pr: AppPullRequest): unknown;
+  readyForReview(input: {
+    scope: { kind: "app"; appId: string; team: string };
+    repo: string; // AppPullRequest.repo, "owner/name"
+    number: number; // AppPullRequest.number
+    by: string; // the author who marked it ready
+    pullRequestId: string; // AppPullRequest.id
+    preview?: { url?: string; status: "ready" | "failed" | "none" }; // AppPullRequest.previewUrl, when there is one
+    tests?: "passed" | "failed" | "none";
+    areas?: string[]; // the parts of the app it touches, if Studio knows them
+    link?: string; // the App in Studio, where a reviewer opens it
+  }): Promise<{ outcome: "merged" } | { outcome: "review"; reasons: string[] }>;
+  pullRequestClosed(input: { repo: string; number: number; merged: boolean; by?: string }): unknown;
 }
 ```
+
+- `merged`: set the `AppPullRequest` to `merged`. `review`: set it to `waiting_for_review` with `reasons`.
+- The gate creates the Inbox item (`studio_pr_review`, for the team's owners and admins) and the one needs-you event, `merge_gate.review_updated` (`{ reviewId; appId; pullRequestId; repo; number; state; priority }`). Ship adds no Inbox item and emits no `needs_you` event for `waiting_for_review`.
+- A person's later merge reaches the gate through the forge webhook; ship follows `merge_gate.review_updated` with `state: "merged"` (or its own `forgeMerged`) to set `merged`.
+- Cancelling a pull request that is `waiting_for_review`: call `pullRequestClosed({ repo, number, merged: false })` so the Inbox item clears.
+- The switch is the App definition's `mergeGate` policy, off by default. Studio never turns it on.
 
 ### Forge additions (`packages/integrations`)
 

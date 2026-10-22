@@ -14,6 +14,7 @@ import * as inbox from "./inbox";
 import { mcpServerRoutes } from "./mcp-servers";
 import { meRoutes } from "./me";
 import * as measure from "./measure";
+import * as mergeGate from "./merge-gate";
 import * as reviews from "./reviews";
 import * as runs from "./runs";
 import * as scorers from "./scorers";
@@ -51,6 +52,7 @@ export const MODULES = [
   workers,
   studio,
   studioDefinitions,
+  mergeGate,
 ];
 const PLATFORM: ((ctx: RouteContext) => void)[] = [
   authRoutes,

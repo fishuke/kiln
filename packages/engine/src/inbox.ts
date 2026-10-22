@@ -3,13 +3,19 @@ import { page, taskStage } from "./run-state";
 import { C, type GateQuestion, type InboxState, type Run, type TaskStage } from "./types";
 import { isSpecGate } from "./workflow";
 
-export const INBOX_ITEM_KINDS = ["question", "answer_question", "spec_review", "pr_review", "blocked", "failed"] as const;
+export const INBOX_ITEM_KINDS = ["question", "answer_question", "spec_review", "pr_review", "studio_pr_review", "blocked", "failed"] as const;
 export type InboxKind = (typeof INBOX_ITEM_KINDS)[number];
 
 export type InboxItem = {
   id: string;
   kind: InboxKind;
-  factory: string;
+  /** Unset for a Studio App's items, which belong to `team`. */
+  factory?: string;
+  team?: string;
+  appId?: string;
+  /** A pull request the merge gate did not merge (ADR-014), and the decision's reasons. */
+  mergeReviewId?: string;
+  reasons?: string[];
   taskId?: string;
   title: string;
   description?: string;
@@ -34,7 +40,20 @@ export type InboxItem = {
   resolvedAt?: string;
 };
 
-export type InboxFilter = { user: string; scope?: "mine" | "team"; factory?: string; kind?: InboxKind[]; read?: boolean; q?: string; includeResolved?: boolean; limit?: number; cursor?: string; visible?: (factory: string) => boolean };
+export type InboxFilter = {
+  user: string;
+  scope?: "mine" | "team";
+  factory?: string;
+  kind?: InboxKind[];
+  read?: boolean;
+  q?: string;
+  includeResolved?: boolean;
+  limit?: number;
+  cursor?: string;
+  visible?: (factory: string) => boolean;
+  /** Items that belong to a team (Studio Apps) rather than a factory. */
+  inTeam?: (team: string) => boolean;
+};
 
 const RECENT_MS = 7 * 86_400_000;
 
@@ -78,13 +97,26 @@ export class InboxService {
           title: g.title,
           description: g.question,
           ...(g.questions?.length ? { questions: g.questions } : {}),
-          actions: [...(kind === "question" ? ["answer", "reject"] : kind === "spec_review" ? ["approve", "request_changes"] : ["approve", "reject"]), ...(isSpecGate(g) ? ["retry"] : [])],
+          actions: [
+            ...(kind === "question" ? ["answer", "reject"] : kind === "spec_review" ? ["approve", "request_changes"] : ["approve", "reject"]),
+            ...(isSpecGate(g) ? ["retry"] : []),
+          ],
           recipients: g.assignees.length ? g.assignees : wi ? [wi.requester] : this.admins(),
           urgency: g.urgency ?? 0.5,
           createdAt: g.openedAt,
         });
       } else if (g.kind === "question" && g.state === "answered" && g.decidedAt && now - new Date(g.decidedAt).getTime() < RECENT_MS && wi) {
-        items.push({ ...common, id: `answer:${g.id}`, kind: "answer_question", title: `Answered: ${g.title}`, description: g.answer, actions: ["view"], recipients: [wi.requester], urgency: 0.1, createdAt: g.decidedAt });
+        items.push({
+          ...common,
+          id: `answer:${g.id}`,
+          kind: "answer_question",
+          title: `Answered: ${g.title}`,
+          description: g.answer,
+          actions: ["view"],
+          recipients: [wi.requester],
+          urgency: 0.1,
+          createdAt: g.decidedAt,
+        });
       }
     }
     // Blocked and failed tasks only when nothing else on the task needs the person.
@@ -110,9 +142,26 @@ export class InboxService {
         createdAt: wi.updatedAt,
       });
     }
-    for (const r of this.k.store.list<Run>(C.runs, (r) => !r.workItemId && !r.parentRunId && r.kind === "work" && (r.status === "failed" || r.status === "error"))) {
+    for (const r of this.k.store.list<Run>(
+      C.runs,
+      (r) => !r.workItemId && !r.parentRunId && r.kind === "work" && (r.status === "failed" || r.status === "error"),
+    )) {
       if (!r.finishedAt || now - new Date(r.finishedAt).getTime() > RECENT_MS || !r.creator || r.creator.includes(":")) continue;
-      items.push({ id: `run:${r.id}:failed`, kind: "failed", factory: r.factory, title: `Failed: ${r.title ?? r.agent}`, description: r.error?.message ?? r.summary, url: this.k.link(`/agent-runs/${r.id}`), urls: [], artifacts: r.artifacts.map((a) => ({ url: a.url, title: a.name })), runId: r.id, actions: ["view", "followup"], recipients: [r.creator], urgency: 0.4, createdAt: r.finishedAt });
+      items.push({
+        id: `run:${r.id}:failed`,
+        kind: "failed",
+        factory: r.factory,
+        title: `Failed: ${r.title ?? r.agent}`,
+        description: r.error?.message ?? r.summary,
+        url: this.k.link(`/agent-runs/${r.id}`),
+        urls: [],
+        artifacts: r.artifacts.map((a) => ({ url: a.url, title: a.name })),
+        runId: r.id,
+        actions: ["view", "followup"],
+        recipients: [r.creator],
+        urgency: 0.4,
+        createdAt: r.finishedAt,
+      });
     }
     for (const c of this.k.definitionChanges.list({ state: "open" })) {
       const wi = c.workItemId ? this.k.workflow.get(c.workItemId) : undefined;
@@ -154,6 +203,7 @@ export class InboxService {
         createdAt: p.createdAt,
       });
     }
+    items.push(...this.k.mergeGate.inboxItems());
     return items;
   }
 
@@ -166,14 +216,18 @@ export class InboxService {
     const q = filter.q?.toLowerCase();
     const mine = (filter.scope ?? "mine") === "mine";
     const rows = this.all()
-      .filter((i) => !filter.visible || filter.visible(i.factory))
+      .filter((i) =>
+        i.factory === undefined ? !filter.inTeam || (i.team !== undefined && filter.inTeam(i.team)) : !filter.visible || filter.visible(i.factory),
+      )
       .filter((i) => !mine || i.recipients.includes(filter.user))
       .filter((i) => !filter.factory || i.factory === filter.factory)
       .filter((i) => !filter.kind?.length || filter.kind.includes(i.kind))
       .filter((i) => !q || i.title.toLowerCase().includes(q) || (i.description ?? "").toLowerCase().includes(q))
       .map((i) => {
         const s = states.get(i.id);
-        return mine ? { ...i, isRead: s?.read ?? false, ...(s?.resolvedAt ? { resolvedAt: s.resolvedAt } : {}) } : { ...i, ...(s?.resolvedAt ? { resolvedAt: s.resolvedAt } : {}) };
+        return mine
+          ? { ...i, isRead: s?.read ?? false, ...(s?.resolvedAt ? { resolvedAt: s.resolvedAt } : {}) }
+          : { ...i, ...(s?.resolvedAt ? { resolvedAt: s.resolvedAt } : {}) };
       })
       .filter((i) => filter.includeResolved || !i.resolvedAt)
       .filter((i) => filter.read === undefined || !mine || i.isRead === filter.read)
@@ -196,7 +250,14 @@ export class InboxService {
       if (!known.has(itemId)) return { id: given, ok: false };
       const id = `${user}|${itemId}`;
       const prev = this.k.store.get<InboxState>(C.inboxState, id);
-      const next: InboxState = { id, user, itemId, read: prev?.read ?? false, ...(prev?.resolvedAt ? { resolvedAt: prev.resolvedAt } : {}), updatedAt: this.k.clock.now().toISOString() };
+      const next: InboxState = {
+        id,
+        user,
+        itemId,
+        read: prev?.read ?? false,
+        ...(prev?.resolvedAt ? { resolvedAt: prev.resolvedAt } : {}),
+        updatedAt: this.k.clock.now().toISOString(),
+      };
       if (patch.read !== undefined) next.read = patch.read;
       if (patch.resolvedAt) next.resolvedAt = patch.resolvedAt;
       if (patch.clearResolved) delete next.resolvedAt;

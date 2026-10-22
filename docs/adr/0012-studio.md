@@ -4,7 +4,7 @@ Status: Proposed · Date: 2026-10-22
 
 ## Context
 
-Factories are built for repeatable, reviewed work: specs, gates, pull requests and a person who merges (ADR-002, ADR-008). That is too much ceremony for the start of a project, when someone wants to talk to one model, see the result in seconds and change direction freely. Chat-to-preview tools work this way, and people expect it. Kiln has most of the parts (sandboxes, harnesses, steering, snapshots, the chat UI) but no live preview of a running dev server, no lightweight versions, and no way to start without a factory and a repository. We also want to drive this hands-free with a realtime voice model that moves between projects and chats.
+Factories are built for repeatable, reviewed work: specs, gates, pull requests and a person who merges (ADR-002, ADR-008). That is too much ceremony for the start of a project, when someone wants to talk to one model, see the result in seconds and change direction freely. Chat-to-preview tools work this way, and people expect it. Kiln has most of the parts (sandboxes, harnesses, steering, snapshots, the chat UI) but no live preview of a running dev server, no lightweight versions, and no way to start without a factory and a repository. We also want people to drive it by voice, so every action must be callable by clients other than the web UI.
 
 ## Decision
 
@@ -22,9 +22,9 @@ Kiln gets a **Studio**, separate from factories, that a project can later **grad
 
 **Live preview.** `Sandbox` gains `expose(port)`, with a fake, so the API can proxy a chat's dev server, hot reload included. Previews are served from their own origin (`<id>.preview.<domain>`, wildcard DNS and certificate), never from Kiln's origin, so code an agent generated can't read Kiln's cookies or call its API. Local development may use a direct `localhost` port.
 
-**One control surface.** Every Studio action is a zod-typed tool in `packages/studio`, exposed through the API and the Kiln MCP: `status`, `open_project`, `new_chat`, `send`, `apply`, `restore`, `bookmark`, `look`. The web UI, MCP clients and voice all use it. The tools are of two kinds: _server tools_ change Studio, _client tools_ (`focus`, `show`) move the person's screen. A **focus** (project and chat) is the default target of a message. Studio events (`turn.finished`, `chat.needs_input`, `version.created`) go on the event bus with a priority: _needs you_, _finished_ or _progress_.
+**One control surface.** Every Studio action is a zod-typed tool in `packages/studio`, exposed through the API and the Kiln MCP: `status`, `open_project`, `new_chat`, `send`, `apply`, `restore`, `bookmark`, `look`. The web UI, MCP clients and the voice session (ADR-013) all use it. The tools are of two kinds: _server tools_ change Studio, _client tools_ (`focus`, `show`) move the person's screen. A **focus** (project and chat) is the default target of a message. Studio events (`turn.finished`, `chat.needs_input`, `version.created`) go on the event bus with a priority: _needs you_, _finished_ or _progress_.
 
-**Voice is a conductor, not a coder.** A realtime voice model sits behind a `VoiceProvider` interface in `packages/voice`, with a fake; OpenAI Realtime is the first adapter. The browser connects over WebRTC with a short-lived token the API mints from the team's key (ADR-007). Voice calls the same tools as everyone else. It relays the person's words to a chat as they said them, adding only routing context. It speaks _needs you_ events at the next pause, never over the person, shows _finished_ events as badges, and keeps _progress_ silent. It asks for a spoken confirmation before Apply, Restore or Graduate. Its conversation and focus are stored on the server, so a dropped or expired session resumes. Toward factories, voice is read-only; deciding a gate by voice needs its own ADR.
+**Voice.** Each chat composer has dictation (speech to text, no realtime model). Spoken conversation with chats and moving between them by voice are decided in ADR-013, as a client of the tools above.
 
 **Graduation.** "Turn into factory" is a person's action. It creates a repository on the forge, pushes `main` with its history, creates a factory from a template pointed at that repository, and seeds a project brief from the chats and bookmarked versions. The Studio project then becomes read-only.
 
@@ -45,9 +45,9 @@ Every agent push in `cowboy` mode is recorded in the audit log.
 
 ## Consequences
 
-- New packages: `packages/studio` (projects, chats, turns, versions, tools) and `packages/voice`. New sandbox capability: `expose(port)` on the local and Docker backends first, Kubernetes later.
-- Studio state (projects, chats, turns, versions, voice sessions) is runtime state in the Store. Code lives in the project's Git repository, saved through sandbox snapshots. Studio projects are not factory definitions.
-- `apps/api/src/app.ts` gains Studio routes, the preview proxy and voice token minting. That file is protected, so the change needs explicit approval.
+- New packages: `packages/studio` (projects, chats, turns, versions, tools). New sandbox capability: `expose(port)` on the local and Docker backends first, Kubernetes later.
+- Studio state (projects, chats, turns, versions) is runtime state in the Store. Code lives in the project's Git repository, saved through sandbox snapshots. Studio projects are not factory definitions.
+- `apps/api/src/app.ts` gains Studio routes, and the preview proxy. That file is protected, so the change needs explicit approval.
 - Self-hosters who want Studio need wildcard DNS and a certificate for the preview domain.
 - Keeping a sandbox and an agent session open while a person works costs more than a factory turn (ADR-011). Idle pause and the per-project limit on running chats bound that cost.
 - Because the control surface comes first, Studio can be driven from Claude Code over MCP before voice exists, and the tools can be tested without audio.

@@ -4,7 +4,7 @@ Status: idea, not scheduled · Raised 2026-10-20, reworked 2026-10-22 · Decisio
 
 ## The idea
 
-Before a project is ready for a factory, you want to talk to one model and watch the app appear on the right, like chat-to-preview tools. Studio is that space. Describe an app, see it running in seconds, keep changing it, run several lines of work at once, and do all of it by voice if you like. When the project matures, **Turn into factory** gives it a repository and a factory that builds and maintains features with the usual gates and reviews.
+Before a project is ready for a factory, you want to talk to one model and watch the app appear on the right, like chat-to-preview tools. Studio is that space. Describe an app, see it running in seconds, keep changing it, run several lines of work at once, and talk to it if you like. When the project matures, **Turn into factory** gives it a repository and a factory that builds and maintains features with the usual gates and reviews.
 
 Studio sits next to factories, not inside them: no spec, no gates, no pull requests until the project graduates.
 
@@ -71,24 +71,9 @@ Every Studio action is a typed tool, available through the API and the Kiln MCP.
 - **Focus** is the project and chat you're looking at, and the default target of a message. "Add a logo" needs no name.
 - Studio events go on the event bus with a priority: **needs you** (an agent asks something), **finished** (a turn or chat is done), **progress**. The top bar shows a badge for anything that needs you.
 
-## Voice: a conductor, not a coder
+## Voice
 
-A realtime voice model (OpenAI Realtime first, behind a `VoiceProvider` interface) lets you work without touching anything:
-
-> "How's it going with Daily Done?" — it summarizes and opens the project with its preview.
-> "Add a logo." — it goes to the chat in focus.
-> "Spawn another chat and add due dates there." — a new chat starts and your screen follows; the first chat keeps working.
-> _(later)_ "The checkout chat needs you." — "Who needs me?" — it reads the question and switches there.
-
-The rules that make this work:
-
-- **Relay, don't paraphrase.** Your words reach the coding agent as you said them, plus routing context (which chat, which element you pointed at).
-- **When to interrupt.** It speaks "needs you" events at the next pause and never over you. "Finished" events are badges, spoken only when you're idle. Progress stays silent. Quiet mode turns everything into badges.
-- **It confirms out loud** before Apply, Restore or Graduate.
-- **Every turn writes a title and a two-sentence summary**, which voice reads instead of diffs.
-- **Sessions resume.** The voice conversation and the focus are stored on the server, so a dropped or expired connection picks up where you were.
-- **Uploads** ("use this logo") are the one hands-free gap: the screen shows a drop zone.
-- **Factories** are read-only by voice ("how is the kiln-self factory doing?"). Deciding a gate by voice needs its own ADR.
+Every chat composer has a mic for **dictation**: speech becomes text in the box. Talking to a chat, and moving between chats and projects by voice, is a separate idea that builds on the tools above: see [Voice](voice.md) and [ADR-013](../adr/0013-voice.md).
 
 ## Graduation
 
@@ -100,7 +85,7 @@ The rules that make this work:
 2. **A one-chat MVP.** `Sandbox.expose`, the preview proxy, the Next.js template and runner image, one chat per project, versions, History and Bookmarks, the three modes.
 3. **Several chats.** Worktrees, a preview per chat, Apply with conflict resolution, subagent activity in the UI.
 4. **Control surface.** `studio.*` API and MCP tools, focus and client tools, events with priorities, the attention badge.
-5. **Voice.** `VoiceProvider`, the OpenAI Realtime adapter, the browser client, spoken events, resumable sessions.
+5. **Voice.** Its own track; see [Voice](voice.md). Dictation ships with phase 2.
 6. **Graduation.** Forge repository creation, a factory from a template, the project brief.
 
 The control surface comes before voice on purpose: with the right tools, voice is mostly UI, and the tools can be tested without a microphone.

@@ -156,6 +156,7 @@ export function studioFor(kiln: Kiln): Studio | undefined {
     image: process.env.KILN_STUDIO_IMAGE || kiln.options.defaultImage || DEFAULT_RUNNER_IMAGE,
     previewUrl: previewUrlFor(),
     ...(previewConfig() ? { previewDomain: process.env.KILN_STUDIO_PREVIEW_DOMAIN!.trim() } : {}),
+    ...(process.env.KILN_STUDIO_TEMPLATES?.trim() ? { templatesDir: process.env.KILN_STUDIO_TEMPLATES.trim() } : {}),
     ...over,
   });
   services.set(kiln, studio);

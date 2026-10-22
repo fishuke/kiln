@@ -42,6 +42,8 @@ export type StudioOptions = {
   /** Model keys for a harness run (BYOK). */
   credentials?: (app: App, type: HarnessType) => Record<string, string>;
   templates?: Record<string, Template>;
+  /** Where prepared templates live ({templates} in a scaffold command); the studio runner image has them at /opt/kiln/templates. */
+  templatesDir?: string;
   /** Runner image when the template names none (KILN_STUDIO_IMAGE, else the server's runner image). */
   image: string;
   previewUrl: (target: string, address: SandboxAddress) => string;
@@ -276,7 +278,7 @@ export class Studio {
       let title: string;
       if (app.source.kind === "template") {
         await must(sandbox, ".", "mkdir -p app");
-        for (const cmd of template!.scaffold) await must(sandbox, "app", cmd, env);
+        for (const cmd of template!.scaffold) await must(sandbox, "app", cmd.replaceAll("{templates}", shellQuote(this.opts.templatesDir ?? "/opt/kiln/templates")), env);
         await must(sandbox, "app", "git init -q -b main");
         title = `Created ${app.name}`;
       } else {

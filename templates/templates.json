@@ -3,11 +3,11 @@
     "id": "nextjs",
     "name": "Next.js",
     "scaffold": [
-      "test -d /opt/kiln/templates/nextjs && cp -a /opt/kiln/templates/nextjs/. . || pnpm dlx create-next-app@15 . --ts --tailwind --app --eslint --use-pnpm --yes --skip-install"
+      "test -d {templates}/nextjs && cp -a {templates}/nextjs/. . || pnpm dlx create-next-app@15 . --ts --tailwind --app --eslint --use-pnpm --yes --skip-install"
     ],
     "install": [
       "test -d node_modules || cp -al \"$(dirname \"$(git rev-parse --path-format=absolute --git-common-dir)\")/node_modules\" node_modules 2>/dev/null || true",
-      "pnpm install --prefer-offline"
+      "pnpm install --prefer-offline --ignore-workspace"
     ],
     "dev": "pnpm next dev --turbopack --port {port} --hostname 0.0.0.0",
     "ready": { "path": "/", "timeoutMs": 60000 },

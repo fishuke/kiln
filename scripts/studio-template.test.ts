@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Runner } from "@kiln/schema";
 import { parse } from "yaml";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bootCheck, devCommand, loadTemplates, Template, TEMPLATE_DIR, waitForHttp } from "./studio-template.js";
+import { bootCheck, devCommand, loadTemplates, Template, TEMPLATE_DIR, TEMPLATES_DIR, waitForHttp } from "./studio-template.js";
 
 const ROOT = join(import.meta.dirname, "..");
 
@@ -37,7 +37,7 @@ describe("Studio's Next.js template", () => {
 
   it("hard-links the project's node_modules into a worktree before installing", () => {
     expect(nextjs.install[0]).toMatch(/^test -d node_modules \|\| cp -al .*--git-common-dir.*\|\| true$/);
-    expect(nextjs.install.at(-1)).toBe("pnpm install --prefer-offline");
+    expect(nextjs.install.at(-1)).toBe("pnpm install --prefer-offline --ignore-workspace");
   });
 
   it("allows the preview domain's hosts as dev origins, without the port", async () => {
@@ -60,7 +60,7 @@ describe("Studio's Next.js template", () => {
 
   it("copies the directory the Studio image installs", () => {
     const dockerfile = readFileSync(join(ROOT, "runners/images/studio/Dockerfile"), "utf8");
-    expect(nextjs.scaffold[0]).toContain(`cp -a ${TEMPLATE_DIR}/. .`);
+    expect(nextjs.scaffold[0]!.replaceAll("{templates}", TEMPLATES_DIR)).toContain(`cp -a ${TEMPLATE_DIR}/. .`);
     expect(dockerfile).toContain(`WORKDIR ${TEMPLATE_DIR}`);
     expect(dockerfile).toContain("pnpm install --frozen-lockfile");
   });

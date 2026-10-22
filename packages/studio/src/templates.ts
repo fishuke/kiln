@@ -2,7 +2,7 @@
 export type Template = {
   id: string;
   name: string;
-  /** Run in <workdir>/app, an empty directory, to create the app. Trusted commands. */
+  /** Run in <workdir>/app, an empty directory, to create the app. Trusted commands; {templates} is the directory holding prepared templates. */
   scaffold: string[];
   /** Run in each worktree before its dev server starts. */
   install: string[];
@@ -24,12 +24,13 @@ export const TEMPLATES: Record<string, Template> = {
     id: "nextjs",
     name: "Next.js",
     scaffold: [
-      "test -d /opt/kiln/templates/nextjs && cp -a /opt/kiln/templates/nextjs/. . || pnpm dlx create-next-app@15 . --ts --tailwind --app --eslint --use-pnpm --yes --skip-install",
+      "test -d {templates}/nextjs && cp -a {templates}/nextjs/. . || pnpm dlx create-next-app@15 . --ts --tailwind --app --eslint --use-pnpm --yes --skip-install",
     ],
     install: [
+      // --ignore-workspace: a local sandbox can sit inside another pnpm workspace (Kiln's own .data in development).
       // A worktree hard-links the app's node_modules (0.2 s) instead of copying it out of the image's store (20 s).
       'test -d node_modules || cp -al "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/node_modules" node_modules 2>/dev/null || true',
-      "pnpm install --prefer-offline",
+      "pnpm install --prefer-offline --ignore-workspace",
     ],
     dev: "pnpm next dev --turbopack --port {port} --hostname 0.0.0.0",
     ready: { path: "/", timeoutMs: 60000 },

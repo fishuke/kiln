@@ -10,7 +10,8 @@ import { z } from "zod";
 const run = promisify(execFile);
 
 /** Where the Studio runner image keeps the Next.js template (runners/images/studio/Dockerfile). */
-export const TEMPLATE_DIR = "/opt/kiln/templates/nextjs";
+export const TEMPLATES_DIR = "/opt/kiln/templates";
+export const TEMPLATE_DIR = `${TEMPLATES_DIR}/nextjs`;
 
 /** The `Template` shape from docs/specs/studio.md. */
 export const Template = z
@@ -88,7 +89,7 @@ export async function bootCheck(opts: { image: string; template: Template; port?
   try {
     const mapped = (await run("docker", ["port", id, String(port)])).stdout.trim().split("\n")[0]!;
     const start = performance.now();
-    const scaffoldMs = await sh("/workspace", ["mkdir -p project && cd project", ...opts.template.scaffold].join("\n"));
+    const scaffoldMs = await sh("/workspace", ["mkdir -p project && cd project", ...opts.template.scaffold.map((c) => c.replaceAll("{templates}", TEMPLATES_DIR))].join("\n"));
     const worktreeMs = await sh(
       "/workspace/project",
       [

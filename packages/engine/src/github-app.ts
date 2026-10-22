@@ -97,6 +97,18 @@ export class GitHubAppService {
     return this.allCredentials()[0];
   }
 
+  /** Reseals the apps' credentials still under the previous KILN_SECRET_KEY; returns how many. */
+  rotate(): number {
+    let n = 0;
+    for (const s of this.stored()) {
+      const sealed = this.k.vault.reseal(s.sealed);
+      if (sealed === undefined) continue;
+      this.k.store.put(APPS, { ...s, sealed } satisfies Stored);
+      n++;
+    }
+    return n;
+  }
+
   private stored(): Stored[] {
     return this.k.store.list<Stored>(APPS).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }

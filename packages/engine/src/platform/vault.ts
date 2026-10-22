@@ -75,12 +75,17 @@ export type SecretResolver = {
   provide(envVar: string): Record<string, string> | undefined;
 };
 
+const vaultKey = (secret?: string) => (secret ? createHash("sha256").update(`kiln-vault:${secret}`).digest() : undefined);
+
 /** Team and personal secrets. Values are write-only: the API returns metadata, runs get values. */
 export class SecretVault {
   private readonly key?: Buffer;
+  /** KILN_SECRET_KEY_PREVIOUS while a rotation is under way: still read, never written. */
+  private readonly previousKey?: Buffer;
 
   constructor(private readonly k: Kiln) {
-    this.key = k.options.secretKey ? createHash("sha256").update(`kiln-vault:${k.options.secretKey}`).digest() : undefined;
+    this.key = vaultKey(k.options.secretKey);
+    this.previousKey = vaultKey(k.options.previousSecretKey);
   }
 
   /** Encrypt with KILN_SECRET_KEY (AES-256-GCM); for engine services that keep credentials outside the vault. */
@@ -97,9 +102,46 @@ export class SecretVault {
     if (sealed.startsWith("plain:")) return JSON.parse(sealed.slice(6));
     const [, iv, tag, ct] = sealed.split(":");
     if (!this.key || !iv || !tag || !ct) throw new Error("cannot read a sealed secret without KILN_SECRET_KEY");
-    const d = createDecipheriv("aes-256-gcm", this.key, Buffer.from(iv, "base64url"));
-    d.setAuthTag(Buffer.from(tag, "base64url"));
-    return JSON.parse(Buffer.concat([d.update(Buffer.from(ct, "base64url")), d.final()]).toString("utf8"));
+    for (const key of [this.key, this.previousKey]) {
+      if (!key) continue;
+      try {
+        const d = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64url"));
+        d.setAuthTag(Buffer.from(tag, "base64url"));
+        return JSON.parse(Buffer.concat([d.update(Buffer.from(ct, "base64url")), d.final()]).toString("utf8"));
+      } catch {
+        // Wrong key: try the previous one.
+      }
+    }
+    throw new Error("cannot read a sealed secret: it was sealed with a different KILN_SECRET_KEY (set the old one as KILN_SECRET_KEY_PREVIOUS to rotate)");
+  }
+
+  /** The value sealed with the current key, or undefined when it already is (or there is no key to seal with). */
+  reseal(sealed: string): string | undefined {
+    if (!this.key) return undefined;
+    if (!sealed.startsWith("plain:")) {
+      const [, iv, tag, ct] = sealed.split(":");
+      try {
+        const d = createDecipheriv("aes-256-gcm", this.key, Buffer.from(iv ?? "", "base64url"));
+        d.setAuthTag(Buffer.from(tag ?? "", "base64url"));
+        Buffer.concat([d.update(Buffer.from(ct ?? "", "base64url")), d.final()]);
+        return undefined;
+      } catch {
+        // Not the current key: reseal below (unseal throws if no key reads it).
+      }
+    }
+    return this.seal(this.unseal(sealed));
+  }
+
+  /** Reseals every team and personal secret still under the previous key (or stored in plain text); returns how many. */
+  rotate(): number {
+    let n = 0;
+    for (const s of this.k.store.list<ManagedSecret>(P.secrets)) {
+      const value = this.reseal(s.value);
+      if (value === undefined) continue;
+      this.k.store.put(P.secrets, { ...s, value });
+      n++;
+    }
+    return n;
   }
 
   private id(scope: "team" | "personal", owner: string, name: string) {

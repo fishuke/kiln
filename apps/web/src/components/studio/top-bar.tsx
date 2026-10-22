@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { Bell, Check, ChevronsUpDown, LayoutGrid, Plus, Settings2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +14,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -23,7 +21,6 @@ import type { StudioClient } from "@/lib/studio/client";
 import { cowboyConfirmation, needsYouCount, SHIP_MODES, shipModeCopy } from "@/lib/studio/model";
 import type { AppSource, ShipMode, StatusReport, StudioApp } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
-import { DevCommand, MissingEnv } from "./setup-panel";
 
 /** A square initial for an app, like a factory's avatar. */
 export function AppAvatar({ name, className }: { name: string; className?: string }) {
@@ -118,7 +115,10 @@ export function NeedsYouMenu({ status, href }: { status?: StatusReport; href: (a
 }
 
 /** Ship mode: Safe, Review or Cowboy, one line each. Cowboy on an imported repository asks first. */
-export function ShipModePicker({ value, onChange, source }: { value: ShipMode; onChange: (m: ShipMode) => void; source?: AppSource }) {
+const RANK: Record<ShipMode, number> = { safe: 0, review: 1, cowboy: 2 };
+
+/** Ship mode: Safe, Review or Cowboy, one line each. Modes above the policy's cap are disabled; Cowboy on an imported repository asks first. */
+export function ShipModePicker({ value, onChange, source, max, disabled }: { value: ShipMode; onChange: (m: ShipMode) => void; source?: AppSource; max?: ShipMode; disabled?: boolean }) {
   const [confirming, setConfirming] = useState(false);
   const confirmation = cowboyConfirmation(source);
   return (
@@ -133,9 +133,17 @@ export function ShipModePicker({ value, onChange, source }: { value: ShipMode; o
       >
         {SHIP_MODES.map((m) => {
           const copy = shipModeCopy(m);
+          const off = disabled || (max !== undefined && RANK[m] > RANK[max]);
           return (
-            <Label key={m} className={cn("flex cursor-pointer items-start gap-3 rounded-lg border p-3 font-normal transition-colors hover:bg-muted/50", value === m && "border-foreground/30 bg-muted/40")}>
-              <RadioGroupItem value={m} className="mt-0.5" />
+            <Label
+              key={m}
+              className={cn(
+                "flex cursor-pointer items-start gap-3 rounded-lg border p-3 font-normal transition-colors hover:bg-muted/50",
+                value === m && "border-foreground/30 bg-muted/40",
+                off && "cursor-not-allowed opacity-50 hover:bg-transparent",
+              )}
+            >
+              <RadioGroupItem value={m} disabled={off} className="mt-0.5" />
               <span className="flex flex-col gap-0.5">
                 <span className="text-sm font-medium">{copy.label}</span>
                 <span className="text-xs text-muted-foreground">{copy.line}</span>
@@ -167,48 +175,14 @@ export function ShipModePicker({ value, onChange, source }: { value: ShipMode; o
   );
 }
 
-/** App settings: name, ship mode, and for an imported repository the dev command and env. */
-export function AppSettings({ client, app, onChanged }: { client: StudioClient; app: StudioApp; onChanged: () => void }) {
-  const [name, setName] = useState(app.name);
-  useEffect(() => setName(app.name), [app.name]);
-  const update = async (patch: Parameters<StudioClient["updateApp"]>[1]) => {
-    await client.updateApp(app.id, patch);
-    onChanged();
-  };
+/** The App's settings page (ship mode, workspace and the App definition). */
+export function AppSettingsLink({ appId }: { appId: string }) {
   return (
-    <Dialog>
-      <Tooltip>
-        <TooltipTrigger render={<DialogTrigger render={<Button size="icon-sm" variant="ghost" aria-label="App settings" />} />}>
-          <Settings2 />
-        </TooltipTrigger>
-        <TooltipContent>App settings</TooltipContent>
-      </Tooltip>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>App settings</DialogTitle>
-          <DialogDescription>{app.source.kind === "repo" ? `Imported from ${app.source.repo}` : "Next.js template"}</DialogDescription>
-        </DialogHeader>
-        <form
-          className="flex flex-col gap-1.5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (name.trim() && name.trim() !== app.name) void update({ name: name.trim() });
-          }}
-        >
-          <Label htmlFor="app-name" className="text-xs text-muted-foreground">
-            Name
-          </Label>
-          <Input id="app-name" value={name} onChange={(e) => setName(e.target.value)} onBlur={(e) => e.currentTarget.form?.requestSubmit()} />
-        </form>
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-muted-foreground">Ship mode</span>
-          <ShipModePicker value={app.shipMode} source={app.source} onChange={(shipMode) => void update({ shipMode })} />
-        </div>
-        {app.setup && <DevCommand app={app} onSave={(devCommand) => update({ devCommand })} />}
-        {app.setup && (
-<MissingEnv keys={app.setup.envMissing} />
-        )}
-      </DialogContent>
-    </Dialog>
+    <Tooltip>
+      <TooltipTrigger render={<Button size="icon-sm" variant="ghost" aria-label="App settings" render={<Link href={`/studio/${appId}/settings`} />} nativeButton={false} />}>
+        <Settings2 />
+      </TooltipTrigger>
+      <TooltipContent>App settings</TooltipContent>
+    </Tooltip>
   );
 }

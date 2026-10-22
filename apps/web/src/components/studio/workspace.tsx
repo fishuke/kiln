@@ -35,7 +35,7 @@ import { Confirm } from "./confirm";
 import { HistoryPanel } from "./history-panel";
 import { EmptyPreview, PreviewingBanner, PreviewPane, type PreviewView } from "./preview-pane";
 import { SetupPanel } from "./setup-panel";
-import { AppSettings, AppSwitcher, NeedsYouMenu } from "./top-bar";
+import { AppSettingsLink, AppSwitcher, NeedsYouMenu } from "./top-bar";
 import { TasksPanel } from "./child-chats";
 import { ShipControl } from "./ship";
 import { ConflictNote, TurnView } from "./turn-view";
@@ -461,7 +461,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
             />
           )}
           <NeedsYouMenu status={status} href={(a, c) => `/studio/${a}?chat=${c}`} />
-          {app && <AppSettings client={client} app={app} onChanged={() => void refresh()} />}
+          <AppSettingsLink appId={appId} />
         </div>
       </header>
       <div className="flex shrink-0 border-b p-1.5 lg:hidden" role="tablist" aria-label="Pane">

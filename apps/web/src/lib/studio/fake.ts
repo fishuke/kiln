@@ -292,15 +292,15 @@ export class FakeStudioClient implements StudioClient {
   }
 
   async chatDiff(chatId: string) {
-    this.must(this.chats.get(chatId), "Chat");
+    const chat = this.must(this.chats.get(chatId), "Chat");
     const titles = (this.unapplied.get(chatId) ?? []).map((c) => c.title);
     const turns = [...this.turns.values()].filter((t) => t.chatId === chatId && t.checkpoint).map((t) => t.title ?? "");
-    return { diff: fakeDiff(titles.length ? titles : turns.slice(-1)) };
+    return { diff: fakeDiff(this.appsById.get(chat.appId)?.name ?? "", (titles.length ? titles : turns.slice(-1)).join(" ")) };
   }
 
   async versionDiff(versionId: string) {
     const v = this.must(this.versions.get(versionId), "Version");
-    return { diff: fakeDiff([v.title]) };
+    return { diff: fakeDiff(this.appsById.get(v.appId)?.name ?? "", v.title) };
   }
 
   /** The fake preview page for an App at version `n`; it renders content that matches the App. */
@@ -505,7 +505,7 @@ export class FakeStudioClient implements StudioClient {
       };
     };
     const turns = [
-      turn("st_1", "sc_main", 170, "A habit tracker: a list of daily habits I can tick off, with a streak counter for each"),
+      turn("st_1", "sc_main", 170, "Daily habits I can tick off, with a streak counter for each"),
       turn("st_2", "sc_main", 120, "Make the streak a flame badge and add a weekly heatmap"),
       turn("st_3", "sc_main", 60, "Does the heatmap work on mobile?"),
       turn("st_4", "sc_main", 20, "Add a dark mode toggle in the header"),
@@ -535,7 +535,9 @@ export function titleFrom(prompt: string): string {
     .replace(/^(please|can you|could you|i want|i'd like)\s+/i, "")
     .split(/[.:,;!?\n]/)[0]!
     .trim();
-  const words = clause.split(/\s+/).slice(0, 9).join(" ");
+  const list = clause.split(/\s+/).slice(0, 12);
+  while (list.length > 1 && /^(a|an|the|and|with|in|to|of|for)$/i.test(list[list.length - 1]!)) list.pop();
+  const words = list.join(" ");
   return words ? words[0]!.toUpperCase() + words.slice(1) : "Untitled";
 }
 
@@ -583,14 +585,14 @@ function outcomeFor(prompt: string, mode: ChatMode): Outcome {
 function script(prompt: string, mode: ChatMode): Activity[] {
   const at = "";
   const steps: Activity[] = [
-    { kind: "reasoning", text: `The person wants: ${prompt}. Look at the current page and components first.`, at },
+    { kind: "reasoning", text: "Start from the page and the components it uses, then change the smallest set of files.", at },
     { kind: "tool", name: "Read", text: "app/page.tsx", at },
   ];
   if (mode === "build" && !/\?\s*$/.test(prompt)) {
     steps.push(
       { kind: "subagent", name: "Explore", text: "Found 4 components under components/ and the theme in app/globals.css", at },
       { kind: "tool", name: "Edit", text: "app/page.tsx", at },
-      { kind: "tool", name: "Write", text: "components/habit-card.tsx", at },
+      { kind: "tool", name: "Write", text: /search|filter|tag|recipe/i.test(prompt) ? "components/recipe-search.tsx" : /dark|theme/i.test(prompt) ? "components/theme-toggle.tsx" : "components/habit-card.tsx", at },
       { kind: "tool", name: "Bash", text: "pnpm tsc --noEmit", at },
     );
   }
@@ -598,9 +600,61 @@ function script(prompt: string, mode: ChatMode): Activity[] {
   return steps;
 }
 
-function fakeDiff(titles: string[]): string {
-  const title = titles.join("; ") || "No changes";
-  return [
+/** A plausible diff for what was asked in this App. */
+function fakeDiff(app: string, asked: string): string {
+  if (/recipe/i.test(app) || /search|filter|tag/i.test(asked)) return RECIPE_SEARCH_DIFF;
+  return THEME_TOGGLE_DIFF;
+}
+
+const RECIPE_SEARCH_DIFF = [
+  "diff --git a/app/page.tsx b/app/page.tsx",
+  "--- a/app/page.tsx",
+  "+++ b/app/page.tsx",
+  "@@ -1,9 +1,13 @@",
+  ' import { RecipeGrid } from "@/components/recipe-grid";',
+  '+import { RecipeSearch } from "@/components/recipe-search";',
+  ' import { recipes } from "@/lib/recipes";',
+  " ",
+  " export default function Home() {",
+  "   return (",
+  '     <main className="mx-auto max-w-3xl p-6">',
+  '       <h1 className="text-2xl font-semibold">Recipes</h1>',
+  "-      <RecipeGrid recipes={recipes} />",
+  "+      <RecipeSearch recipes={recipes}>",
+  "+        {(found) => <RecipeGrid recipes={found} />}",
+  "+      </RecipeSearch>",
+  "     </main>",
+  "   );",
+  "diff --git a/components/recipe-search.tsx b/components/recipe-search.tsx",
+  "new file mode 100644",
+  "--- /dev/null",
+  "+++ b/components/recipe-search.tsx",
+  "@@ -0,0 +1,14 @@",
+  '+"use client";',
+  '+import { useState } from "react";',
+  '+import type { Recipe } from "@/lib/recipes";',
+  "+",
+  '+const TAGS = ["Quick", "Vegetarian", "Dessert", "Batch cook"];',
+  "+",
+  "+export function RecipeSearch({ recipes, children }: { recipes: Recipe[]; children: (found: Recipe[]) => React.ReactNode }) {",
+  '+  const [query, setQuery] = useState("");',
+  "+  const [tags, setTags] = useState<string[]>([]);",
+  "+  const q = query.toLowerCase();",
+  "+  const found = recipes.filter((r) => (r.title + r.ingredients.join(\" \")).toLowerCase().includes(q) && tags.every((t) => r.tags.includes(t)));",
+  "+  return <>{/* search field and TAGS chips */}{children(found)}</>;",
+  "+}",
+  "+",
+  "diff --git a/lib/recipes.ts b/lib/recipes.ts",
+  "--- a/lib/recipes.ts",
+  "+++ b/lib/recipes.ts",
+  "@@ -1,3 +1,4 @@",
+  " export type Recipe = {",
+  "   title: string;",
+  "   ingredients: string[];",
+  "+  tags: string[];",
+].join("\n");
+
+const THEME_TOGGLE_DIFF = [
     "diff --git a/app/page.tsx b/app/page.tsx",
     "--- a/app/page.tsx",
     "+++ b/app/page.tsx",
@@ -625,7 +679,6 @@ function fakeDiff(titles: string[]): string {
     "+++ b/components/theme-toggle.tsx",
     "@@ -0,0 +1,9 @@",
     '+"use client";',
-    `+// ${title}`,
     '+import { Moon, Sun } from "lucide-react";',
     "+",
     "+export function ThemeToggle() {",
@@ -642,4 +695,3 @@ function fakeDiff(titles: string[]): string {
     '+    <div className="rounded-xl border bg-card p-4 shadow-sm">',
     "       {habit.name}",
   ].join("\n");
-}

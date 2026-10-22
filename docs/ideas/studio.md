@@ -25,6 +25,7 @@ Team
 - **Kiln Project.** Groups Apps and factories, for example _Saba_: the frontend App and the backend factory. Its **environments** (variables and secrets, such as the API URL a preview should use) are inherited by its Apps' previews and its factories' runs. Each layer can override: team → project → App or factory.
 - **Chat.** A parallel line of work ("pricing page" while "fix login" runs). Each chat has its own preview, so chats don't overwrite each other.
 - **Subagents** belong to a chat. The lead agent spawns them through its harness; Studio shows them as nested activity.
+- **Lead chats.** Any chat can split work across parallel agents, the same way factory agents do: it starts subagent runs with a brief each, you or the lead can message them while they work or after they finish, their results come back to the lead, and the lead applies their work. Children appear under their lead with their own preview, and you can stop any of them. It's the same runs, agents and Kiln MCP tools factories use, so there is one way of working across Kiln. This works by voice too: you talk to the lead.
 - Idle chats pause using sandbox snapshots, and an App has a limit on how many chats run at once.
 
 ## Versions
@@ -39,10 +40,10 @@ Team
 | ------ | ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
 | Safe   | You click Apply                                              | Nothing is pushed until you ask                                                   |
 | Review | You click Apply                                              | The agent opens a pull request from a `studio/<app>` branch; a person merges      |
-| Cowboy | Automatic after every turn that changes files, in every chat | Template App: the agent pushes main. Imported App: only the `studio/<app>` branch |
+| Cowboy | Automatic after every turn that changes files, in every chat | Straight to main: no pull request, no UAT, no gate. Imported App: only once you opt in |
 
-- A template App defaults to **Cowboy**: it's an experiment, so who cares. An imported App defaults to **Review**. No agent ever pushes to an imported repository's main branch.
-- Cowboy pushing main is the only place an agent merges, and only on the repository Kiln created for a template App, until that App is coupled to a factory ([ADR-012](../adr/0012-studio.md)).
+- A template App defaults to **Cowboy**: it's an experiment, so who cares. An imported App defaults to **Review**, but if it's your own repo and you'd rather go fast, switch it to Cowboy and it pushes main too. A repo linked to a factory never gets Cowboy pushes to main.
+- Cowboy pushing main is the only place an agent merges, and only on the repository Kiln created for a template App, until that App is linked to a factory ([ADR-012](../adr/0012-studio.md)).
 
 ## From Studio to a reviewed pull request
 
@@ -51,20 +52,22 @@ This mirrors how a customer and a developer already work together in a tracker:
 1. A customer opens the App in Studio, asks for a change and sees it in the preview.
 2. **Ship** (or Review mode) opens a pull request. The App shows its state: **UAT**.
 3. The customer tests it in the built-in preview, and in the pull request's deployment preview if one is configured. More messages keep updating the same pull request.
-4. The customer moves it to **Ready for review**, and it appears in the reviewers' Inbox in Kiln. Or they **Cancel** it: the pull request closes and no reviewer is bothered.
-5. A developer reviews and merges on the forge.
+4. The customer marks it **Ready for review**, or **Cancels** it: the pull request closes and no reviewer is bothered. An open pull request alone is never treated as ready.
+5. The App's **merge gate** ([ADR-014](../adr/0014-merge-gate.md)) checks it. If it's safe to merge, Kiln merges it and you're not asked. If not, it lands in your Inbox for review.
+6. The customer sees every step in Studio: UAT, Ready for review, merged, or waiting for review.
 
-Who may open, ship or review an App is part of the separate roles plan.
+Each App's policy caps the ship mode per role: a customer can use Cowboy on an App they created, and only Review on your production App. Who may open, ship or review an App is part of the separate roles plan.
 
-## Coupling to a factory
+## Apps and factories
 
-An App can be coupled to the factory that owns its repository, but doesn't have to be. When it is:
+Studio sits in Kiln's sidebar next to Factories, and an App is a sibling of a factory, built from the same definitions: the agent and model, skills (some mandatory for that App), MCPs, policies, decisions and budgets. A new App starts with defaults from the team and the Kiln Project, so nobody configures anything to begin.
+
+An App can be linked to a factory, but doesn't have to be. When it is:
 
 - The factory's automations run on the App's pull requests like on any other: `pull_request_opened` for checks, `pull_request_merged` for deploy follow-up and monitoring (see [Factories after merge](factory-deployments.md)).
-- ADR-008 applies to that repository unchanged.
+- Merges into that repository follow ADR-008 and the merge gate.
 - **Turn into factory** on a template App creates a factory pointed at its repository and writes a project brief from the chats and bookmarked versions.
 
-Later, an App might get its own skills or agents (for example a legal review) without a full factory. That isn't planned yet.
 
 ## Modes
 
@@ -92,7 +95,7 @@ Every Studio action is a typed tool, available through the API and the Kiln MCP.
 | `open_app`, `new_chat`                                 | server | Start or open work                                                                 |
 | `send(chat, text)`                                     | server | Prompt or steer a chat's agent                                                     |
 | `apply`, `restore`, `bookmark`                         | server | Manage versions                                                                    |
-| `ship`                                                 | server | Open or update the App's pull request, or move it to Ready for review or Cancelled |
+| `ship`                                                 | server | Open or update the App's pull request, or mark it Ready for review or Cancelled |
 | `look(chat)`                                           | server | A screenshot of the preview                                                        |
 | `focus(app, chat)`, `show(preview \| code \| history)` | client | Move your screen                                                                   |
 
@@ -109,8 +112,8 @@ Every chat composer has a mic for **dictation**. Talking to a chat, and moving b
 2. **A one-chat MVP.** `Sandbox.expose`, the preview proxy, the Next.js template and runner image, importing a GitHub repo, one chat per App, versions, History and Bookmarks, the modes, dictation.
 3. **Several chats.** Worktrees, a preview per chat, Apply with conflict resolution, subagent activity in the UI.
 4. **Control surface.** `studio.*` API and MCP tools, focus and client tools, events with priorities, the attention badge.
-5. **Shipping.** Pushing per ship mode, pull requests from Studio, UAT → Ready for review → Inbox, Cancel.
-6. **Projects and factories.** Apps in Kiln Projects, project environments, coupling an App to a factory, Turn into factory.
+5. **Shipping and the merge gate.** Pushing per ship mode, ship-mode caps per role, pull requests from Studio, UAT → Ready for review → merge gate (merge, or review in the Inbox), Cancel, and the status visible to the author.
+6. **Projects and factories.** Apps in Kiln Projects, project environments, App definitions (agents, mandatory skills, MCPs, policies), linking an App to a factory, Turn into factory.
 7. **Several repositories in one App.** Run a frontend and its backend in one sandbox, wire the frontend to the local backend, and ship linked pull requests under one review. This fixes previews that hit the live API because the backend change isn't deployed yet.
 
 Voice is its own track; see [Voice](voice.md).
@@ -120,7 +123,7 @@ Voice is its own track; see [Voice](voice.md).
 - Which model each mode uses by default, and whether an App can mix harnesses across chats.
 - Budgets: a spend limit per App, and what happens when it is reached mid-turn.
 - How a design system or existing components are made available so previews look like the product.
-- Who an App's reviewers are by default: the factory's people when coupled, otherwise the App's owner.
+- Who an App's reviewers are by default: the linked factory's people, otherwise the App's owner.
 
 ## Related
 

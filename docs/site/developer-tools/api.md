@@ -437,6 +437,27 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/workers/{instance}/runs/{runId}/complete` | `worker` | Report a run's result, artifacts and pushed branches |
 | DELETE | `/api/v1/workers/{instance}` | `worker` | Disconnect; its running runs fail and are retried |
 
+## Studio
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/studio/apps/{id}/definition` | — | An App's own Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/apps/{id}/definition` | — | Replace an App's own definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/apps/{id}/definition` | — | Change an App's own definition layer from settings |
+| POST | `/api/v1/studio/apps/{id}/definition/use` | — | Point an App's own definition layer at an earlier sha |
+| GET | `/api/v1/studio/projects/{id}/definition` | — | A Kiln Project's Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/projects/{id}/definition` | — | Replace a Kiln Project's definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/projects/{id}/definition` | — | Change a Kiln Project's definition layer from settings |
+| POST | `/api/v1/studio/projects/{id}/definition/use` | — | Point a Kiln Project's definition layer at an earlier sha |
+| GET | `/api/v1/studio/team/definition` | — | The team's Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/team/definition` | — | Replace the team's definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/team/definition` | — | Change the team's definition layer from settings |
+| POST | `/api/v1/studio/team/definition/use` | — | Point the team's definition layer at an earlier sha |
+| GET | `/api/v1/studio/apps/{id}/settings` | — | An App's resolved settings and its own values |
+| GET | `/api/v1/studio/team/settings` | — | The team's Studio defaults, resolved |
+| GET | `/api/v1/studio/projects/{id}/settings` | — | A Kiln Project's Studio defaults, resolved |
+| GET | `/api/v1/studio/apps/{id}/definition/export` | — | An App's definition in kiln/v1 layout (?resolved=false for its own layer) |
+
 ## Merge gate
 
 | Method | Path | Scope | What it does |

@@ -8,13 +8,15 @@ Factories are built for repeatable, reviewed work: specs, gates, pull requests a
 
 ## Decision
 
-Kiln gets a **Studio**, separate from factories. A Studio **App** works on its own and can be coupled to a factory when the team wants automation around it.
+Kiln gets a **Studio**, an entry in Kiln's sidebar next to Factories. A Studio **App** is a sibling of a factory: it is built from the same definitions (agents, skills, MCPs, policies, decisions), works on its own, and can be linked to a factory when the team wants automation around it.
 
 **Model.** Team → Kiln Project (optional) → App → Chat → lead agent → subagents.
 
 - An **App** is one Git repository inside one sandbox. It starts from a **template** (first: Next.js) or **imports an existing repository** through a forge connection. Its `main` line is the App's history of versions. "App" is used rather than "project" because a Kiln Project already groups factories ([Portfolio](../site/management/portfolio.md)).
 - A **Kiln Project** can group Apps and factories, for example one product's frontend App and its backend factory. Its environments (variables and secrets) are inherited by its Apps' previews and its factories' runs, and each layer can override them (team → project → app or factory).
 - A **chat** is a line of work on its own Git worktree and branch, with its own dev server port and preview. It has one lead agent: a harness session (ADR-004, ADR-009) with the model the person picks, steered by each message. Subagents are spawned by the harness inside the chat's worktree; Kiln shows them and does not orchestrate them.
+- **Chats use the same agents and runs as factories.** Every agent execution in a chat is a run, and a chat's agent starts parallel agents the way factory agents do: as subagent runs through the Kiln MCP (`spawn_agent`, `run_agents`), limited by the agent's `spawnableBy` and the nesting limit, messaged and resumed with follow-ups, and stopped with interrupt ([Tasks, runs and subagents](../site/developer-tools/tasks-and-runs.md)). The agents come from the App's definition, in the same format as a factory's. Studio adds only what is specific to it: each child run gets its own worktree and live preview by default, its work becomes versions through Apply, and the chat UI shows the run tree. Anything runs lack for this, such as forking the parent's conversation or telling the parent when a child finishes, is added to runs for factories and Studio alike, not built separately. Child runs count against the App's limit on running chats and its budget.
+- An **App's definition** uses the factory definition format (`kiln/v1`): the lead agent and model, skills (some marked mandatory, loaded into every chat), MCPs, policies, decisions and budgets. A new App gets defaults inherited from the team and the Kiln Project, so nobody has to configure anything to start. App definitions are stored by content hash, edited in the UI, and can be exported to Git. Pipelines and automations are optional.
 - One sandbox per App runs every chat's dev server. Chats pause when idle, using the existing sandbox snapshots, and an App has a limit on how many chats can run at once.
 
 **Versions.** A turn that changes files makes a checkpoint commit on its chat's branch. A turn that changes nothing makes nothing, in any mode. **Apply** merges a chat into the App's `main` and records a version with a one-line title written by the model. Restore makes a new version with an old version's tree, so history is never rewritten. Bookmarks are pinned versions.
@@ -27,21 +29,21 @@ Kiln gets a **Studio**, separate from factories. A Studio **App** works on its o
 | -------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `safe`   | Apply is a person's click                                                                               | Nothing is pushed until the person asks                                                              |
 | `review` | Apply is a person's click                                                                               | The agent pushes a `studio/<app>` branch and opens a pull request; a person merges                   |
-| `cowboy` | Every chat applies after each turn that changes files; on a conflict the chat's agent resolves it first | Template App: the agent pushes `main`. Imported App: the agent pushes the `studio/<app>` branch only |
+| `cowboy` | Every chat applies after each turn that changes files; on a conflict the chat's agent resolves it first | The agent pushes `main`: no pull request, no UAT, no merge gate. On an imported App only after a person opts in (below); until then, the `studio/<app>` branch |
 
-The default is `cowboy` for an App from a template and `review` for an imported App. No agent ever pushes to an imported repository's default branch.
+The default is `cowboy` for an App from a template and `review` for an imported App. A person who may change the App's policy can opt an imported App into cowboy pushes to its default branch, for example their own hobby repository; until they do, no agent pushes an imported repository's default branch. A repository linked to a factory never gets cowboy pushes to its default branch. An App's policy sets the highest ship mode each role may use, so a customer can use `cowboy` on an App they created and only `review` on the team's production App; people pick their ship mode up to that cap.
 
-**A Studio exception to ADR-008.** Pushing `main` in `cowboy` mode is an agent merging, which ADR-008 forbids for factories. It is allowed only for an App started from a template, on the repository Kiln created for it, because that is an experiment and not production code. The push credential a Studio run receives is scoped to that one repository. Every agent push is recorded in the audit log. The exception ends when the repository is coupled to a factory.
+**A Studio exception to ADR-008.** Pushing `main` in `cowboy` mode is an agent merging, which ADR-008 forbids for factories. It is allowed for an App started from a template, on the repository Kiln created for it, and for an imported App whose policy a person opted in, because those are the owner's own experiments. The push credential a Studio run receives is scoped to that one repository. Every agent push is recorded in the audit log. The exception ends when the repository is linked to a factory.
 
 **Studio pull requests and review.** In `review` mode, or when a person clicks **Ship**, Studio opens a pull request and the App's pull request moves through states the author controls:
 
 - **UAT**: the author tests it in the built-in preview, and in the pull request's deployment preview when a preview provider is configured (see [Previews](../site/integrations/previews.md)). New turns keep updating the same pull request.
-- **Ready for review**: the pull request appears in the Inbox of the App's reviewers. A person reviews and merges on the forge.
+- **Ready for review**: the author is done testing. Only now does the App's merge gate (ADR-014) check it: if it's safe to merge, Kiln merges it; otherwise it appears in the reviewers' Inbox and a person reviews and merges. Not every Studio pull request needs a person's review.
 - **Cancelled**: the pull request is closed and nothing reaches a reviewer.
 
 The App records the pull request, its previews and its state, so the people involved see the same status in Studio and the Inbox.
 
-**Coupling to a factory (optional).** An App can be coupled to the factory that owns its repository. The factory's automations then run on the App's pull requests the same way as on any other: for example `pull_request_opened` for checks, `pull_request_merged` for deploy follow-up. ADR-008 applies to that repository unchanged. "Turn into factory" on a template App creates a factory pointed at its repository and seeds a project brief from the chats and bookmarked versions. Adding skills or agents to an App without a factory is a possible later step, not part of this decision.
+**Linking to a factory (optional).** An App can be linked to a factory, for example the one that owns its repository or one that monitors deployments. The factory's automations then run on the App's pull requests the same way as on any other: for example `pull_request_opened` for checks, `pull_request_merged` for deploy follow-up. Merges into a linked factory's repository follow ADR-008 and ADR-014. "Turn into factory" on a template App creates a factory pointed at its repository and seeds a project brief from the chats and bookmarked versions.
 
 **Live preview.** `Sandbox` gains `expose(port)` so the API can proxy a chat's dev server, hot reload included. Previews are served from their own origin (`sc-<id>.<preview domain>`, wildcard DNS and certificate), never from Kiln's origin, so code an agent generated can't read Kiln's cookies or call its API. The preview domain should be a separate registrable domain, so preview code can't set cookies on Kiln's domain. The proxy drops cookies and Kiln credentials in both directions. Sandboxes reach the API only through a dedicated preview network. Local development may use a direct `localhost` port.
 
@@ -54,7 +56,7 @@ The App records the pull request, its previews and its state, so the people invo
 ## Consequences
 
 - New package `packages/studio` (Apps, chats, turns, versions, pull request states, tools). New sandbox capability `expose(port)` on the local, Docker and Kubernetes backends.
-- Studio state (Apps, chats, turns, versions, pull request states) is runtime state in the Store. Code lives in the App's Git repository, saved through sandbox snapshots and pushed to the forge according to the ship mode. Apps are not factory definitions.
+- Studio state (Apps, chats, turns, versions, pull request states) is runtime state in the Store. Code lives in the App's Git repository, saved through sandbox snapshots and pushed to the forge according to the ship mode. An App's definition is a factory-format definition stored by content hash; its runtime state is not.
 - Studio routes and the preview proxy register through `apps/api/src/routes/index.ts`, so `apps/api/src/app.ts` doesn't change. Websockets for hot reload are handled in `apps/api/src/main.ts`.
 - The Inbox gains a kind of item: a Studio pull request ready for review.
 - Kiln Projects gain environments, used by Studio previews and factory runs alike.

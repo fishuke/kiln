@@ -403,6 +403,22 @@ The SDK re-declares these types (it doesn't depend on `packages/studio`), and a 
 - **Preview pane.** Preview and Code tabs (Code shows the chat diff), a route field, reload, and open in a new tab. It reloads on `turn_finished`.
 - **Server actions** call `api.studio*` (the `lib/kiln.ts` proxy); the page polls `studioChat` every 2 s while a turn runs, or uses the SSE route once it exists.
 
+## App definitions
+
+Specified in [App definitions](app-definitions.md). What other Studio work builds against:
+
+- `@kiln/schema`: `AppManifest` (`app.yaml`), `AppPolicy` (`policies/<name>.yaml` in an App tree) and `AppShipMode` (the same values as `ShipMode`).
+- An App's agents are factory agents (`agents/<name>/agent.md`: model, MCP servers, skills, `spawnableBy`), resolved with the factory's `resolveAgent`. Every App has a `general` agent from the built-in layer, so nothing needs configuring.
+- `@kiln/studio`: `AppDefinitions` (content-hashed layers team → Kiln Project → App, store collections `studio_app_definitions` and `studio_app_definition_refs`) and
+
+  ```ts
+  chatConfig(targetOf(app), opts?: { agent?: string; harness?: HarnessType; model?: string }): ChatAgentConfig
+  ```
+
+  The turn runner calls it before `harness.start` for the chat's agent (`new_chat({ agent? })`, default `general`) and for each agent it spawns as a subagent run. It appends `instructions` (the agent's instructions plus every mandatory skill) to the mode instructions, passes `skills` as `StartOptions.skills`, records `definitionSha` on the turn, and resolves `mcpServers` through a `StudioOptions` hook the API provides. A chat's explicit harness or model overrides the definition's. An unknown agent throws `StudioError("invalid")`. Ship mode caps (overall and per team role), the imported-App default-branch opt-in and the merge gate switch live only in the App definition's policies: read them with `appDefinitions.policy(targetOf(app))` (`AppPolicySummary`, with who changed each and when) and `maxShipMode(policy, role)`. Both switches are off by default.
+- API: `apps/api/src/routes/studio-definitions.ts` (`/api/v1/studio/{apps/{id},projects/{id},team}/definition` and `/settings`, `/api/v1/studio/apps/{id}/definition/export`); `appDefinitionsFor(kiln)` returns the instance `routes/studio.ts` should pass to `Studio`.
+- Web: `apps/web/src/components/studio-settings/` exports `AppSettingsView({ scope, settings, canEditPolicy })` and `APP_SETTINGS_NAV`, which the `/studio` pages mount inside a `SettingsColumn` (for example at `/studio/[app]/settings`, with `settings = await api.studioSettings({ app })`).
+
 ## Later (not built in phases 1–4)
 
 These types are recorded so later work and the UI agree on them. None of this is built yet, and no forge pushing exists.

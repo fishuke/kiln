@@ -221,6 +221,10 @@ export const CloudProviders = z
   .strict();
 export type CloudProviders = z.infer<typeof CloudProviders>;
 
+/** Spending caps: factory.yaml `budgets`; Studio Apps use `monthlyUsd`. */
+export const Budgets = z.object({ perWorkItemUsd: z.number().positive().optional(), monthlyUsd: z.number().positive().optional() }).strict();
+export type Budgets = z.infer<typeof Budgets>;
+
 export const Factory = z
   .object({
     schemaVersion: z.literal(SCHEMA_VERSION),
@@ -303,7 +307,7 @@ export const Factory = z
       .strict()
       .optional(),
     defaultPipeline: z.string().optional(),
-    budgets: z.object({ perWorkItemUsd: z.number().positive().optional(), monthlyUsd: z.number().positive().optional() }).strict().optional(),
+    budgets: Budgets.optional(),
   })
   .strict()
   .superRefine((f, ctx) => {
@@ -434,6 +438,49 @@ export const Policy = z
   })
   .strict();
 export type Policy = z.infer<typeof Policy>;
+
+/** When a chat's work reaches a Studio App's main line (ADR-012); the same values as @kiln/studio's ShipMode. */
+export const AppShipMode = z.enum(["safe", "review", "cowboy"]);
+export type AppShipMode = z.infer<typeof AppShipMode>;
+
+/** `app.yaml`: the root of a Studio App definition layer (team, Kiln Project or App). */
+export const AppManifest = z
+  .object({
+    schemaVersion: z.literal(SCHEMA_VERSION),
+    name: z.string().min(1).max(100).optional(),
+    description: z.string().optional(),
+    skills: z
+      .object({
+        /** Skills always loaded into every chat's lead agent. A later layer can add to the list, not remove from it. */
+        mandatory: z.array(z.string().min(1)).optional(),
+      })
+      .strict()
+      .optional(),
+    /** The budget that applies to an App: what its chats may spend in a calendar month. */
+    budgets: Budgets.pick({ monthlyUsd: true }).strict().optional(),
+  })
+  .strict();
+export type AppManifest = z.infer<typeof AppManifest>;
+
+/** `policies/<name>.yaml` in a Studio App tree: ship mode caps and the merge gate. */
+export const AppPolicy = Policy.pick({ description: true })
+  .extend({
+    shipMode: z
+      .object({
+        /** The highest ship mode anyone may pick for the App. */
+        max: AppShipMode.optional(),
+        /** The highest ship mode per team role. */
+        roles: z.object({ owner: AppShipMode.optional(), admin: AppShipMode.optional(), member: AppShipMode.optional() }).strict().optional(),
+        /** Imported App: `cowboy` pushes the repository's default branch instead of `studio/<app>` (ADR-012). Off by default. */
+        pushDefaultBranch: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    /** Pull requests marked ready for review go through the App's merge gate (ADR-014). Off by default: a person reviews every one. */
+    mergeGate: z.boolean().optional(),
+  })
+  .strict();
+export type AppPolicy = z.infer<typeof AppPolicy>;
 
 export const RunnerPlatform = z
   .object({
@@ -673,6 +720,8 @@ export const fileKinds = {
   webhook: Webhook,
   decision: Decision,
   memory: MemoryFrontmatter,
+  app: AppManifest,
+  "app-policy": AppPolicy,
 } as const;
 export type FileKind = keyof typeof fileKinds;
 

@@ -1,0 +1,6 @@
+description: Members ship through review
+shipMode:
+  max: cowboy
+  roles: { member: review }
+  pushDefaultBranch: false
+mergeGate: true

@@ -155,7 +155,7 @@ export function ActivityTrace({ turn }: { turn: Turn }) {
               <Hammer />
             </TraceIcon>
             <TraceTitle>{workTitle(turn)}</TraceTitle>
-            {!live && tools > 0 && <TraceDescription className="text-xs">{tools} steps</TraceDescription>}
+            {!live && tools > 0 && <TraceDescription className="text-xs">{tools} {tools === 1 ? "step" : "steps"}</TraceDescription>}
           </TraceLine>
         </TraceCollapsibleTrigger>
         <TraceCollapsibleContent>
@@ -215,7 +215,7 @@ export function QuestionNote({ question }: { question: string }) {
         <MessageCircleQuestion className="text-amber-600 dark:text-amber-400" />
       </ItemMedia>
       <ItemContent>
-        <ItemTitle className="text-xs font-medium tracking-wide text-amber-700 uppercase dark:text-amber-400">Waiting for your answer</ItemTitle>
+        <ItemTitle className="text-xs font-medium tracking-wide text-amber-700 uppercase dark:text-amber-400">Needs you</ItemTitle>
         <ItemDescription className="line-clamp-none text-foreground">{question}</ItemDescription>
       </ItemContent>
     </Item>
@@ -276,7 +276,7 @@ export function TurnView({
           {card === "discarded" && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Undo2 className="size-3.5" />
-              {turn.mode === "plan" ? "Plan" : "Chat"} mode changes nothing, so the edits were undone.
+              Changes discarded in {turn.mode === "plan" ? "Plan" : "Chat"} mode
             </div>
           )}
           {card === "failed" && (

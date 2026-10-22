@@ -89,10 +89,10 @@ export function DevCommand({ app, onSave }: { app: StudioApp; onSave: (cmd: stri
       )}
       <span className="text-xs text-muted-foreground">
         {setup.devOverride
-          ? `Overridden. Detected: ${setup.devDetected ?? "none"}.`
+          ? `Detected: ${setup.devDetected ?? "none"}`
           : setup.devDetected
-            ? "Detected from package.json."
-            : "Set one to start the preview."}
+            ? "From package.json"
+            : "No dev script in package.json"}
       </span>
     </div>
   );
@@ -113,7 +113,7 @@ export function MissingEnv({ keys, onSave }: { keys: string[]; onSave: (values: 
         try {
           await onSave(filled);
           setValues({});
-          toast.success("Saved as team secrets. The app picks them up when it restarts.");
+          toast.success("Secrets saved");
         } catch (err) {
           toast.error(err instanceof Error ? err.message : String(err));
         } finally {
@@ -125,14 +125,14 @@ export function MissingEnv({ keys, onSave }: { keys: string[]; onSave: (values: 
         <KeyRound className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
         <div>
           <div className="font-medium">
-            {keys.length} environment {keys.length === 1 ? "variable is" : "variables are"} missing
+            Missing environment {keys.length === 1 ? "variable" : "variables"}
           </div>
           <div className="text-xs text-muted-foreground">
-            From the repository&apos;s .env.example. They&apos;re stored as team{" "}
+            From .env.example. Saved as team{" "}
             <Link href="/secrets" className="underline underline-offset-2 hover:text-foreground">
               secrets
             </Link>
-            , never committed.
+            .
           </div>
         </div>
       </div>

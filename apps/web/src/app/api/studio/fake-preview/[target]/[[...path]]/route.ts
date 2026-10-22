@@ -31,7 +31,7 @@ h1{font-size:28px;margin:0 0 4px}p{color:var(--muted);margin:0 0 24px}.card{back
 @media (max-width:640px){.grid{grid-template-columns:repeat(7,1fr)}nav{display:none}}
 </style></head><body><header><b>Streaks</b><nav><span>Today</span><span>History</span><span>Settings</span></nav></header>
 <main><h1>${route === "/" ? "Today" : esc(route.slice(1))}</h1><p>${esc(title)}</p>
-${habits.map((h, i) => `<div class="card${i % 2 ? "" : " done"}"><span class="check"></span>${esc(h)}<span class="flame">🔥 ${3 + ((i * 5 + n) % 12)}</span></div>`).join("")}
+${habits.map((h, i) => `<div class="card${i % 2 ? "" : " done"}"><span class="check"></span>${esc(h)}<span class="flame">${3 + ((i * 5 + n) % 12)}</span></div>`).join("")}
 <div class="grid">${cells}</div><small>Preview of ${esc(target)} · version ${n} · ${esc(route)}</small></main></body></html>`;
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 }

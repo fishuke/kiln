@@ -12,7 +12,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -20,6 +19,7 @@ import { InputGroupButton } from "@/components/ui/input-group";
 import { Kbd } from "@/components/ui/kbd";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { modelLabel, modelsFor } from "@/lib/agent-catalog";
 import { MODES, usd, type chatUsage } from "@/lib/studio/model";
 import type { ChatMode } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
@@ -66,31 +66,12 @@ function ModeMenu({ mode, onChange }: { mode: ChatMode; onChange: (m: ChatMode) 
   );
 }
 
-export const MODELS: { provider: string; models: { id: string; name: string }[] }[] = [
-  {
-    provider: "Anthropic",
-    models: [
-      { id: "claude-opus-5-5", name: "Claude Opus 5.5" },
-      { id: "claude-sonnet-5", name: "Claude Sonnet 5" },
-      { id: "claude-haiku-5-5", name: "Claude Haiku 5.5" },
-    ],
-  },
-  {
-    provider: "OpenAI",
-    models: [
-      { id: "gpt-5", name: "GPT-5" },
-      { id: "gpt-5-mini", name: "GPT-5 mini" },
-    ],
-  },
-];
-
 export function modelName(id: string | undefined): string {
-  if (!id) return "Default model";
-  return MODELS.flatMap((p) => p.models).find((m) => m.id === id)?.name ?? id;
+  return id ? modelLabel(id) : "Default model";
 }
 
 /** Model Selector. A chat keeps its model, so it's locked once the chat has turns. */
-function ModelSelector({ model, onChange, locked }: { model?: string; onChange: (m: string | undefined) => void; locked: boolean }) {
+function ModelSelector({ model, onChange, locked, harness }: { model?: string; onChange: (m: string | undefined) => void; locked: boolean; harness: string }) {
   const trigger = (
     <InputGroupButton size="xs" variant="ghost" disabled={locked} aria-label={`Model: ${modelName(model)}`} className="gap-1 px-2 text-muted-foreground">
       {modelName(model)}
@@ -107,22 +88,19 @@ function ModelSelector({ model, onChange, locked }: { model?: string; onChange: 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={trigger} />
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align="start" className="max-h-80 w-56 overflow-y-auto">
         <DropdownMenuRadioGroup value={model ?? ""} onValueChange={(v: string) => onChange(v || undefined)}>
-          <DropdownMenuRadioItem value="" closeOnClick>
-            Default model
-          </DropdownMenuRadioItem>
-          {MODELS.map((p) => (
-            <DropdownMenuGroup key={p.provider}>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>{p.provider}</DropdownMenuLabel>
-              {p.models.map((m) => (
-                <DropdownMenuRadioItem key={m.id} value={m.id} closeOnClick>
-                  {m.name}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuGroup>
-          ))}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Model</DropdownMenuLabel>
+            <DropdownMenuRadioItem value="" closeOnClick>
+              Default model
+            </DropdownMenuRadioItem>
+            {modelsFor(harness).map((m) => (
+              <DropdownMenuRadioItem key={m.id} value={m.id} closeOnClick>
+                {m.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuGroup>
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -185,7 +163,7 @@ function DictationButton({ onText }: { onText: (text: string) => void }) {
       >
         {on ? <MicOff /> : <Mic />}
       </TooltipTrigger>
-      <TooltipContent>{on ? "Listening… click to stop" : "Dictate"}</TooltipContent>
+      <TooltipContent>{on ? "Stop dictation" : "Dictate"}</TooltipContent>
     </Tooltip>
   );
 }
@@ -219,19 +197,6 @@ function UsageButton({ usage }: { usage: ReturnType<typeof chatUsage> }) {
   );
 }
 
-/** Suggestion chips above the composer. */
-export function Suggestions({ items, onPick }: { items: string[]; onPick: (s: string) => void }) {
-  if (!items.length) return null;
-  return (
-    <div className="flex scroll-fade-x scrollbar-none gap-2 overflow-x-auto overscroll-x-contain pb-0.5">
-      {items.map((s) => (
-        <Button key={s} variant="outline" size="sm" className="shrink-0 rounded-full font-normal" onClick={() => onPick(s)}>
-          {s}
-        </Button>
-      ))}
-    </div>
-  );
-}
 
 /**
  * The Studio composer: Prompt Input with the mode menu, Model Selector, dictation and usage.
@@ -243,6 +208,7 @@ export function Composer({
   model,
   onModelChange,
   modelLocked,
+  harness = "claude-code",
   working,
   usage,
   onSubmit,
@@ -255,6 +221,7 @@ export function Composer({
   model?: string;
   onModelChange: (m: string | undefined) => void;
   modelLocked: boolean;
+  harness?: string;
   working: boolean;
   usage?: ReturnType<typeof chatUsage>;
   onSubmit: (text: string) => Promise<boolean>;
@@ -273,9 +240,9 @@ export function Composer({
     if (ok) setText("");
   };
   const hint = working
-    ? "Steer the agent: it reads this while it works…"
+    ? "Steer the running turn"
     : (placeholder ??
-      (mode === "build" ? "Ask Kiln to build or change something…" : mode === "chat" ? "Ask a question about your app…" : "Describe what to plan…"));
+      (mode === "build" ? "Describe a change" : mode === "chat" ? "Ask a question" : "Describe what to plan"));
   return (
     <PromptInput
       value={text}
@@ -288,14 +255,6 @@ export function Composer({
       autoFocus={autoFocus}
       textareaRef={textareaRef}
       textareaClassName="max-h-60 min-h-16"
-      header={
-        working ? (
-          <span className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
-            <span className="size-1.5 animate-pulse rounded-full bg-violet-500" />
-            Working. A message now steers this turn.
-          </span>
-        ) : undefined
-      }
       trailing={
         <>
           {usage && usage.turns > 0 && <UsageButton usage={usage} />}
@@ -305,7 +264,7 @@ export function Composer({
       tools={
         <>
           <ModeMenu mode={mode} onChange={onModeChange} />
-          <ModelSelector model={model} onChange={onModelChange} locked={modelLocked} />
+          <ModelSelector model={model} onChange={onModelChange} locked={modelLocked} harness={harness} />
         </>
       }
     />

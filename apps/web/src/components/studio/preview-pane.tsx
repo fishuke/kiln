@@ -129,7 +129,7 @@ export function PreviewingBanner({
         }
         icon={<Undo2 />}
         title={`Restore v${number}?`}
-        description="This makes a new version with this one's code. Nothing is lost: every later version stays in History."
+        description="Creates a new version with this version's code. Later versions stay in History."
         action="Restore"
         onConfirm={onRestore}
       />
@@ -305,9 +305,9 @@ export function EmptyPreview({ starting }: { starting?: boolean }) {
       <div className="flex size-14 items-center justify-center rounded-2xl border bg-background shadow-xs">
         {starting ? <LoaderCircle className="size-6 animate-spin text-muted-foreground" /> : <AppWindow className="size-6 text-muted-foreground" />}
       </div>
-      <div className="text-sm font-medium">{starting ? "Setting up your app" : "Your app appears here"}</div>
+      <div className="text-sm font-medium">{starting ? "Setting up" : "No preview yet"}</div>
       <p className="max-w-xs text-sm text-muted-foreground">
-        {starting ? "Creating the workspace. This takes a few seconds." : "Describe what you want on the left. The preview updates after every change."}
+        {starting ? "Creating the workspace" : "Send a message to start building"}
       </p>
     </div>
   );

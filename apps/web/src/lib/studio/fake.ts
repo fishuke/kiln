@@ -319,7 +319,7 @@ export class FakeStudioClient implements StudioClient {
     const chat = this.must(this.chats.get(chatId), "Chat");
     const turns = [...this.turns.values()].filter((t) => t.chatId === chatId && t.checkpoint);
     const latest = [...this.versions.values()].filter((v) => v.projectId === chat.projectId).length;
-    return this.preview(chatId, turns.at(-1)?.title ?? this.appsById.get(chat.projectId)?.name ?? "New app", latest + turns.length);
+    return this.preview(chatId, turns.at(-1)?.title ?? this.appsById.get(chat.projectId)?.name ?? "New app", latest);
   }
 
   async versionPreview(versionId: string): Promise<Preview> {
@@ -475,7 +475,7 @@ export function titleFrom(prompt: string): string {
     .replace(/^(please|can you|could you|i want|i'd like)\s+/i, "")
     .split(/[.:,;!?\n]/)[0]!
     .trim();
-  const words = clause.split(/\s+/).slice(0, 7).join(" ");
+  const words = clause.split(/\s+/).slice(0, 9).join(" ");
   return words ? words[0]!.toUpperCase() + words.slice(1) : "Untitled";
 }
 

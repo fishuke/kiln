@@ -144,7 +144,7 @@ export function HistoryPanel({
           previewing={previewing}
           onPreview={onPreview}
           onBookmark={onBookmark}
-          empty="No versions yet. Each change you keep becomes one."
+          empty="No versions yet"
         />
       </TabsContent>
       <TabsContent value="bookmarks" className="min-h-0 overflow-y-auto">
@@ -154,7 +154,7 @@ export function HistoryPanel({
           previewing={previewing}
           onPreview={onPreview}
           onBookmark={onBookmark}
-          empty="Bookmark a version to find it here."
+          empty="No bookmarks yet"
         />
       </TabsContent>
     </Tabs>

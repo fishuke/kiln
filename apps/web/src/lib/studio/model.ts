@@ -3,9 +3,9 @@ import { parsePatch, type DiffLine } from "@/lib/diff";
 import type { AppSource, Chat, ChatMode, Preview, ShipMode, StatusReport, StudioApp, Turn, Version } from "./types";
 
 export const MODES: { id: ChatMode; label: string; hint: string }[] = [
-  { id: "build", label: "Build", hint: "Reads, edits and runs your app." },
-  { id: "chat", label: "Chat", hint: "Answers questions. Changes nothing." },
-  { id: "plan", label: "Plan", hint: "Reads, then writes a plan to build." },
+  { id: "build", label: "Build", hint: "Reads, edits and runs the app" },
+  { id: "chat", label: "Chat", hint: "Reads only" },
+  { id: "plan", label: "Plan", hint: "Reads, then writes a plan" },
 ];
 
 /** ⌥P: Build → Chat → Plan → Build. */
@@ -21,32 +21,20 @@ export function defaultShipMode(source?: AppSource): ShipMode {
   return source?.kind === "repo" ? "review" : "cowboy";
 }
 
-/**
- * The ship mode labels and one-line explanations, in one place. An imported repository is someone's
- * real code, so Cowboy pushes only a `studio/<app id>` branch there, never the default branch.
- */
-export function shipModeCopy(mode: ShipMode, source?: AppSource, appId = "<app id>"): { label: string; line: string } {
-  const branch = `studio/${appId}`;
-  switch (mode) {
-    case "safe":
-      return { label: "Safe", line: "You apply each change. Nothing is pushed until you ask." };
-    case "review":
-      return {
-        label: "Review",
-        line:
-          source?.kind === "repo"
-            ? "You apply each change. The agent opens a pull request and never pushes to main."
-            : "You apply each change. The agent opens a pull request and you merge it.",
-      };
-    case "cowboy":
-      return {
-        label: "Cowboy",
-        line:
-          source?.kind === "repo"
-            ? `Every change applies right away, and the agent pushes the ${branch} branch.`
-            : "Every change applies right away, and the agent pushes main.",
-      };
-  }
+export const SHIP_MODE_COPY: Record<ShipMode, { label: string; line: string }> = {
+  safe: { label: "Safe", line: "Nothing leaves the sandbox until you ship" },
+  review: { label: "Review", line: "Opens a pull request for review" },
+  cowboy: { label: "Cowboy", line: "Pushes straight to main" },
+};
+
+/** Ship mode labels and their one line, in one place. */
+export function shipModeCopy(mode: ShipMode): { label: string; line: string } {
+  return SHIP_MODE_COPY[mode];
+}
+
+/** Choosing Cowboy on an imported repository needs a confirmation; this is its text. */
+export function cowboyConfirmation(source: AppSource | undefined): string | undefined {
+  return source?.kind === "repo" ? `Changes will push straight to main of ${source.repo}.` : undefined;
 }
 
 export function slug(s: string): string {
@@ -199,15 +187,6 @@ export function routesFrom(paths: string[]): string[] {
     routes.add(`/${segs.join("/")}`);
   }
   return [...routes].sort();
-}
-
-/** Follow-up chips under the last turn. */
-export function suggestionsFor(turn: Turn | undefined): string[] {
-  if (!turn) return ["A landing page for a coffee roaster", "A habit tracker with streaks", "A kanban board with drag and drop", "A recipe box with search"];
-  if (turn.status === "running") return [];
-  if (turn.plan) return [];
-  if (turn.question) return [];
-  return ["Make it responsive", "Polish the spacing and type", "Add a loading state", "Add tests for this"];
 }
 
 /** Spend across a chat's turns, for the Context pattern. */

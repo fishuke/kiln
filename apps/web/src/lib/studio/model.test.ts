@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  cowboyConfirmation,
   defaultShipMode,
   fileTree,
   groupByDay,
@@ -138,11 +139,15 @@ describe("modes and ship modes", () => {
   it("defaults an imported repository to Review and a template to Cowboy", () => {
     expect(defaultShipMode({ kind: "repo", repo: "acme/shop", branch: "main" })).toBe("review");
     expect(defaultShipMode({ kind: "template", template: "nextjs" })).toBe("cowboy");
-    expect(shipModeCopy("review", { kind: "repo", repo: "acme/shop", branch: "main" }).line).toMatch(/never pushes to main/);
   });
-  it("says Cowboy pushes a studio branch for an imported repository", () => {
-    expect(shipModeCopy("cowboy").line).toMatch(/pushes main/);
-    expect(shipModeCopy("cowboy", { kind: "repo", repo: "acme/shop", branch: "main" }, "sp_1").line).toMatch(/studio\/sp_1 branch/);
+  it("keeps one plain line per ship mode", () => {
+    expect(shipModeCopy("safe").line).toBe("Nothing leaves the sandbox until you ship");
+    expect(shipModeCopy("review").line).toBe("Opens a pull request for review");
+    expect(shipModeCopy("cowboy").line).toBe("Pushes straight to main");
+  });
+  it("asks before Cowboy on an imported repository", () => {
+    expect(cowboyConfirmation({ kind: "repo", repo: "acme/shop" })).toBe("Changes will push straight to main of acme/shop.");
+    expect(cowboyConfirmation({ kind: "template", template: "nextjs" })).toBeUndefined();
   });
 });
 

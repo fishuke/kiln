@@ -474,13 +474,7 @@ export class Workflow {
       throw new KilnError("budget_exceeded", `budget of $${cap} reached ($${wi.costUsd.toFixed(2)} spent)`);
     }
     const monthly = r.factory.budgets?.monthlyUsd;
-    if (monthly !== undefined) {
-      const start = new Date(this.k.clock.now());
-      start.setUTCDate(1);
-      start.setUTCHours(0, 0, 0, 0);
-      const spent = this.k.runs.list({ factory: wi.factory }).filter((x) => x.startedAt >= start.toISOString()).reduce((s, x) => s + x.costUsd, 0);
-      if (spent >= monthly) throw new KilnError("budget_exceeded", `monthly budget of $${monthly} for ${wi.factory} reached ($${spent.toFixed(2)} spent)`);
-    }
+    if (monthly !== undefined) this.k.runs.assertMonthlyBudget(wi.factory, monthly);
   }
 
   /** `silent`: the run's summary stays out of the conversation (the agent foreman speaks for itself). */

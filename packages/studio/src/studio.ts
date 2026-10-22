@@ -48,7 +48,7 @@ export type StudioOptions = {
   /** Imported apps: a clone URL with a short-lived repo-scoped token, and the branch to use. */
   clone?: (source: RepoSource) => Promise<{ url: string; branch?: string }>;
   /** Environment for installs, dev servers and runs (Kiln secrets and environment templates). */
-  env?: (app: App) => Record<string, string>;
+  env?: (app: App) => AppEnv;
   maxRunningChats?: number;
   /** The version preview listens here, chats on the ports after it. Default 4100. */
   basePort?: number;
@@ -59,7 +59,11 @@ export type StudioOptions = {
 };
 
 type Dev = { proc: Proc; port: number; state: "starting" | "ready" | "failed" };
-type Live = { sandbox: Sandbox; devs: Map<string, Dev>; shownVersion?: string };
+/** An App's environment: the values people assigned (team → Kiln Project → App), and which of them are secret. */
+export type AppEnv = { env: Record<string, string>; secretValues: string[] };
+
+/** `addresses`: where each dev server port is reachable, asked of the sandbox once per port. */
+type Live = { sandbox: Sandbox; devs: Map<string, Dev>; addresses: Map<number, SandboxAddress>; shownVersion?: string };
 type Running = { session?: HarnessSession; turnId: string; done: Promise<void> };
 
 const STUDIO_FILE = ".kiln/studio.json";
@@ -110,6 +114,17 @@ export class Studio {
 
   constructor(private readonly opts: StudioOptions) {
     this.templates = opts.templates ?? TEMPLATES;
+    this.reconcile();
+  }
+
+  /** On startup: what a restart cut off can't continue, so it fails and the chat asks the person. */
+  private reconcile() {
+    const reason = "interrupted by a restart";
+    for (const a of this.opts.store.list<App>(C.apps, (x) => x.status === "creating")) this.touch(C.apps, { ...a, status: "failed", error: reason });
+    for (const t of this.opts.store.list<Turn>(C.turns, (x) => x.status === "running")) {
+      this.save(C.turns, { ...t, status: "failed", reply: t.reply || reason, finishedAt: this.now() });
+    }
+    for (const c of this.opts.store.list<Chat>(C.chats, (x) => x.status === "working")) this.touch(C.chats, { ...c, status: "needs_you", question: `The agent failed: ${reason}` });
   }
 
   // ---- reads ----
@@ -162,7 +177,6 @@ export class Studio {
     name: string;
     projectId?: string;
     source?: AppSource;
-    shipMode?: ShipMode;
     harness?: HarnessType;
     model?: string;
   }): Promise<App> {
@@ -177,7 +191,7 @@ export class Studio {
       name: input.name,
       source,
       // Imported repositories ship by pull request; templates are experiments (ADR-012).
-      shipMode: input.shipMode ?? (source.kind === "repo" ? "review" : "cowboy"),
+      shipMode: source.kind === "repo" ? "review" : "cowboy",
       harness: input.harness ?? "claude-code",
       ...(input.model ? { model: input.model } : {}),
       status: "creating",
@@ -233,12 +247,15 @@ export class Studio {
 
   /** Stop every dev server, agent and sandbox without snapshotting (process shutdown, tests). */
   async shutdown(): Promise<void> {
-    const stops = [...this.running.values()].map((r) => r.session?.stop());
+    const running = [...this.running.values()];
+    const stops = await Promise.allSettled(running.map((r) => r.session?.stop()));
+    // Let stopped turns finish their bookkeeping before their sandboxes go away.
+    await Promise.allSettled(running.map((r) => r.done));
     for (const live of this.live.values()) this.stopDevs(live);
-    const destroys = [...this.live.values()].map((live) => live.sandbox.destroy());
+    const destroys = await Promise.allSettled([...this.live.values()].map((live) => live.sandbox.destroy()));
     this.live.clear();
     // Stop everything even when one step fails, then report every failure.
-    const failed = (await Promise.allSettled([...stops, ...destroys])).filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    const failed = [...stops, ...destroys].filter((r): r is PromiseRejectedResult => r.status === "rejected");
     if (failed.length)
       throw new AggregateError(
         failed.map((f) => f.reason),
@@ -252,7 +269,7 @@ export class Studio {
       const clone = app.source.kind === "repo" ? await this.opts.clone!(app.source) : undefined;
       // The provider clones an imported repository into "app" and allows its host for the clone.
       const sandbox = await this.opts.sandboxes.create(this.spec(app, clone?.url));
-      this.live.set(app.id, { sandbox, devs: new Map() });
+      this.live.set(app.id, { sandbox, devs: new Map(), addresses: new Map() });
       const env = this.env(app);
       await must(sandbox, ".", "mkdir -p chats");
       let mainBranch = "main";
@@ -414,7 +431,8 @@ export class Studio {
         env: { ...this.env(p), ...this.opts.credentials?.(p, chat.harness) },
       });
       started();
-      for await (const e of entry.session.events) this.record(turn, e);
+      const clean = this.redactor(p);
+      for await (const e of entry.session.events) this.record(turn, e, clean);
       result = await entry.session.result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -435,7 +453,16 @@ export class Studio {
     }
     const after = this.opts.store.get<Turn>(C.turns, turn.id)!;
     const app = this.app(p.id);
-    if (app.shipMode === "cowboy" && after.checkpoint && !this.running.has(chatId)) await this.autoApply(app, chatId, after);
+    if (app.shipMode === "cowboy" && after.checkpoint && !this.running.has(chatId)) {
+      try {
+        await this.autoApply(app, chatId, after);
+      } catch (err) {
+        // The checkpoint is safe on the chat branch; the person can apply it by hand.
+        const question = `Applying this chat failed: ${err instanceof Error ? err.message : String(err)}`;
+        this.touch(C.chats, { ...this.chat(chatId), status: "needs_you", question });
+        this.opts.bus.publish("studio.needs_you", { appId: p.id, chatId, question, reason: "failed", priority: "needs_you" });
+      }
+    }
     try {
       await this.snapshot(p.id);
     } catch (err) {
@@ -444,19 +471,19 @@ export class Studio {
     }
   }
 
-  private record(turn: Turn, e: HarnessEvent) {
+  private record(turn: Turn, e: HarnessEvent, clean: (text: string) => string) {
     const at = this.now();
     let a: Activity | undefined;
     if (e.type === "message") {
-      a = { kind: "message", text: e.text, at };
-      turn.reply = e.text;
-    } else if (e.type === "reasoning") a = { kind: "reasoning", text: e.text, at };
+      a = { kind: "message", text: clean(e.text), at };
+      turn.reply = a.text;
+    } else if (e.type === "reasoning") a = { kind: "reasoning", text: clean(e.text), at };
     else if (e.type === "tool_call") {
       const input = (e.input ?? {}) as Record<string, unknown>;
       a = SUBAGENT_TOOLS.has(e.name)
-        ? { kind: "subagent", name: e.name, text: String(input.description ?? input.prompt ?? ""), at }
-        : { kind: "tool", name: e.name, ...(typeof input.file_path === "string" ? { text: input.file_path } : {}), at };
-    } else if (e.type === "error") a = { kind: "error", text: e.text, at };
+        ? { kind: "subagent", name: e.name, text: clean(String(input.description ?? input.prompt ?? "")), at }
+        : { kind: "tool", name: e.name, ...(typeof input.file_path === "string" ? { text: clean(input.file_path) } : {}), at };
+    } else if (e.type === "error") a = { kind: "error", text: clean(e.text), at };
     else if (e.type === "cost") turn.costUsd += e.usd;
     if (a) turn.activity.push(a);
     this.save(C.turns, turn);
@@ -466,12 +493,13 @@ export class Studio {
     const chat = this.chat(chatId);
     const sbx = live.sandbox;
     const meta = parseStudioFile(await sbx.readFile(`${chat.path}/${STUDIO_FILE}`));
-    turn.reply ||= result.summary;
+    const clean = this.redactor(p);
+    turn.reply ||= clean(result.summary);
     turn.costUsd = Math.max(turn.costUsd, result.costUsd);
-    const title = meta.title?.trim() ? oneLine(meta.title) : oneLine(turn.reply) || "Changes";
+    const title = clean(meta.title?.trim() ? oneLine(meta.title) : oneLine(turn.reply) || "Changes");
     turn.title = title;
-    if (meta.summary) turn.summary = meta.summary;
-    if (meta.question) turn.question = meta.question;
+    if (meta.summary) turn.summary = clean(meta.summary);
+    if (meta.question) turn.question = clean(meta.question);
     const changed = (await sbx.exec("git add -A && git diff --cached --quiet", { cwd: chat.path, trusted: true })).code !== 0;
     if (turn.mode === "build") {
       if (changed) await must(sbx, chat.path, `git commit -q -m ${shellQuote(title)}`);
@@ -629,7 +657,7 @@ export class Studio {
     for (const live of this.live.values()) {
       const key = live.shownVersion === target ? "version" : target;
       const dev = live.devs.get(key);
-      if (dev && live.sandbox.expose) return live.sandbox.expose(dev.port);
+      if (dev && live.sandbox.expose) return this.address(live, dev.port);
     }
     return undefined;
   }
@@ -650,13 +678,13 @@ export class Studio {
       live.devs.set(key, started);
       this.watchDev(live, key, started).catch(() => this.devFailed(live, key, started));
       const template = p.source.kind === "template" ? this.templates[p.source.template] : undefined;
-      this.checkReady(live.sandbox, started, template?.ready ?? DEFAULT_READY).catch(() => this.devFailed(live, key, started));
+      this.checkReady(live, started, template?.ready ?? DEFAULT_READY).catch(() => this.devFailed(live, key, started));
     }
-    return { target, url: this.opts.previewUrl(target, await live.sandbox.expose(running.port)), status: running.state };
+    return { target, url: this.opts.previewUrl(target, await this.address(live, running.port)), status: running.state };
   }
 
   /** Ready once GET `path` answers with any status; failed after `timeoutMs`. */
-  private async checkReady(sandbox: Sandbox, dev: Dev, ready: { path: string; timeoutMs: number }) {
+  private async checkReady(live: Live, dev: Dev, ready: { path: string; timeoutMs: number }) {
     const fetchImpl = this.opts.fetch ?? fetch;
     const deadline = Date.now() + ready.timeoutMs;
     while (dev.state === "starting") {
@@ -665,7 +693,7 @@ export class Studio {
         dev.state = "failed";
         return;
       }
-      const a = await sandbox.expose!(dev.port);
+      const a = await this.address(live, dev.port);
       if (await answers(fetchImpl, `http://${a.host}:${a.port}${ready.path}`, left)) dev.state = "ready";
       else await new Promise((r) => setTimeout(r, READY_POLL_MS));
     }
@@ -680,6 +708,14 @@ export class Studio {
     }
     // The next preview starts it again.
     if (live.devs.get(key) === dev) live.devs.delete(key);
+  }
+
+  private async address(live: Live, port: number): Promise<SandboxAddress> {
+    const known = live.addresses.get(port);
+    if (known) return known;
+    const a = await live.sandbox.expose!(port);
+    live.addresses.set(port, a);
+    return a;
   }
 
   /** A dev server whose output or address broke: the preview shows failed, and the next preview starts it again. */
@@ -727,7 +763,7 @@ export class Studio {
       const sandbox = await this.opts.sandboxes.resume(current.snapshot, this.spec(current), this.opts.objects);
       // Worktrees record absolute paths; a resumed workspace may live elsewhere.
       await sandbox.exec('for d in ../chats/* ../version; do [ -e "$d" ] && git worktree repair "$d"; done; true', { cwd: "app", trusted: true });
-      const live: Live = { sandbox, devs: new Map() };
+      const live: Live = { sandbox, devs: new Map(), addresses: new Map() };
       this.live.set(p.id, live);
       if (current.status === "paused") this.touch(C.apps, { ...current, status: "ready" });
       return live;
@@ -763,7 +799,13 @@ export class Studio {
   }
 
   private env(p: App): Record<string, string> {
-    return this.opts.env?.(p) ?? {};
+    return this.opts.env?.(p).env ?? {};
+  }
+
+  /** Replaces the App's secret values in text Studio stores or serves. */
+  private redactor(p: App): (text: string) => string {
+    const secrets = (this.opts.env?.(p).secretValues ?? []).filter((v) => v.length >= 6);
+    return (text) => secrets.reduce((t, v) => t.replaceAll(v, "[redacted]"), text);
   }
 
   /** Run `fn` after every earlier step on the same key (Git in one repository is not concurrent). */

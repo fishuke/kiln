@@ -89,28 +89,8 @@ import type {
 
 export type * from "./platform";
 export type * from "./studio";
-import type {
-  StudioApp,
-  StudioApplyResult,
-  StudioChat,
-  StudioChatMode,
-  StudioCreateApp,
-  StudioNewChat,
-  StudioPreview,
-  StudioStatusReport,
-  StudioToolResult,
-  StudioTurn,
-  StudioUpdateApp,
-  StudioVersion,
-} from "./studio";
-import {
-  studioScopePath,
-  type StudioAppSettings,
-  type StudioDefinitionLayer,
-  type StudioDefinitionSaved,
-  type StudioDefinitionScope,
-  type StudioSettingsPatch,
-} from "./studio-definitions";
+import type { StudioApp, StudioApplyResult, StudioChat, StudioChatMode, StudioCreateApp, StudioNewChat, StudioPreview, StudioStatusReport, StudioToolResult, StudioTurn, StudioUpdateApp, StudioVersion } from "./studio";
+import { studioScopePath, type StudioAppSettings, type StudioDefinitionLayer, type StudioDefinitionSaved, type StudioDefinitionScope, type StudioSettingsPatch } from "./studio-definitions";
 export * from "./studio-definitions";
 
 export type {
@@ -1188,10 +1168,8 @@ export class KilnClient {
       `/api/v1/studio/apps/${encodeURIComponent(appId)}/definition/export${this.q({ resolved: opts.resolved === false ? false : undefined })}`,
     );
 
-  webhookDeliveries = (uid: string) =>
-    this.request<(Omit<WebhookDelivery, "payload"> & { hasPayload: boolean })[]>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries`);
-  webhookDelivery = (uid: string, id: string) =>
-    this.request<WebhookDelivery>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries/${encodeURIComponent(id)}`);
+  webhookDeliveries = (uid: string) => this.request<(Omit<WebhookDelivery, "payload"> & { hasPayload: boolean })[]>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries`);
+  webhookDelivery = (uid: string, id: string) => this.request<WebhookDelivery>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries/${encodeURIComponent(id)}`);
 }
 
 export type ConnectionRow = {

@@ -62,16 +62,21 @@ describe("studio tools", () => {
 
   it("opens an app, starts a chat that the screen follows, and reports status", async () => {
     const studio = make();
+    // Ship mode is not a tool input: ship's setShipMode changes it after its cap check.
+    expect(await runTool(studio, "open_app", { name: "X", shipMode: "cowboy" }, caller)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("shipMode"),
+    });
     const opened = await runTool(studio, "open_app", { name: "Daily Done", source: { kind: "template", template: "test" } }, caller);
     expect(opened).toMatchObject({ ok: true, client: { focus: { app: expect.stringMatching(/^sa_/) } } });
     const appId = (opened as { client: { focus: { app: string } } }).client.focus.app;
     await studio.ready(appId);
-    studio.updateApp(appId, { shipMode: "safe" }); // so the person applies
     const chat = await runTool(studio, "new_chat", { app: appId, prompt: "write hello" }, caller);
     expect(chat).toMatchObject({ ok: true, client: { focus: { app: appId, chat: expect.stringMatching(/^sc_/) } } });
     const chatId = (chat as { client: { focus: { chat: string } } }).client.focus.chat;
     await studio.idle(chatId);
-    expect(await runTool(studio, "apply", { chat: chatId }, caller)).toMatchObject({ ok: true, data: { ok: true, version: { kind: "apply" } } });
+    // A template App is cowboy: the turn was applied already.
+    expect(await runTool(studio, "apply", { chat: chatId }, caller)).toEqual({ ok: true, data: { ok: false, nothing: true } });
     const status = await runTool(studio, "status", {}, caller);
     expect(status).toMatchObject({ ok: true, data: { apps: [{ id: appId, name: "Daily Done", latest: { title: "ok" } }] } });
     expect(await runTool(studio, "look", { chat: chatId }, caller)).toMatchObject({ ok: true, data: { url: `https://${chatId}.preview.test` } });

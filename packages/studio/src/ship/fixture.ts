@@ -79,9 +79,9 @@ export async function shipFixture(opts: ShipFixtureOptions = {}) {
     by: "creator@x.test",
     name: "Daily Done",
     source: opts.source ?? { kind: "template", template: "test" },
-    ...(opts.shipMode ? { shipMode: opts.shipMode } : {}),
   });
   await studio.ready(app.id);
+  if (opts.shipMode) studio.updateApp(app.id, { shipMode: opts.shipMode });
   /** One chat turn by the creator that changes a file, applied (cowboy applies by itself), and its pushes. */
   const change = async (text = "hello") => {
     const { chat } = await studio.newChat(app.id, { by: "creator@x.test", via: "web", prompt: `write note.txt ${text}` });

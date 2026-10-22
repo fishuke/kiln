@@ -2,7 +2,7 @@
  * Studio (ADR-012) as the API serves it. These mirror packages/studio's types; the SDK doesn't depend on
  * that package, and a test in apps/api checks they stay assignable.
  */
-export type StudioShipMode = "safe" | "review" | "cowboy";
+import type { StudioShipMode } from "./studio-definitions";
 export type StudioChatMode = "build" | "chat" | "plan";
 export type StudioVia = "web" | "mcp" | "api" | "voice";
 export type StudioAppSource = { kind: "template"; template: string } | { kind: "repo"; connection?: string; repo: string; branch?: string };
@@ -100,6 +100,7 @@ export type StudioStatusReport = {
 export type StudioClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" };
 export type StudioToolResult = { ok: true; data: unknown; client?: StudioClientAction } | { ok: false; error: string };
 
-export type StudioCreateApp = { name: string; projectId?: string; source?: StudioAppSource; shipMode?: StudioShipMode; harness?: string; model?: string };
-export type StudioUpdateApp = { name?: string; projectId?: string | null; shipMode?: StudioShipMode; devCommand?: string | null };
+/** Ship mode is not set here: ship's setShipMode changes it after the App policy's cap check. */
+export type StudioCreateApp = { name: string; projectId?: string; source?: StudioAppSource; harness?: string; model?: string };
+export type StudioUpdateApp = { name?: string; projectId?: string | null; devCommand?: string | null };
 export type StudioNewChat = { prompt?: string; mode?: StudioChatMode; harness?: string; model?: string; title?: string };

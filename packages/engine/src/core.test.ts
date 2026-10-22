@@ -1,5 +1,9 @@
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { FakeProvider, heuristicRule, type FakeRule } from "@kiln/decide";
-import { FakeHarness, type HarnessAdapter } from "@kiln/harness";
+import type { ResolvedAgent } from "@kiln/definitions";
+import { FakeHarness, type HarnessAdapter, type StartOptions } from "@kiln/harness";
 import { FakeForge } from "@kiln/integrations";
 import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
 import { describe, expect, it } from "vitest";
@@ -8,6 +12,7 @@ import { fakeAgents, fakeAgentScript } from "./fake-agents";
 import { validateFiles } from "./factory-files";
 import { runState, taskStage } from "./run-state";
 import { parseTicketRef } from "./tasks";
+import type { AppRunHost } from "./run-definition";
 import { C } from "./types";
 import { createTestKiln, sampleTree, waitFor } from "./testing";
 
@@ -290,6 +295,130 @@ describe("runs: sources, metadata, follow-ups, interrupts and subagent trees", (
     expect(timeline).toEqual(expect.arrayContaining(["created", "started", "spawn", "subagent.started", "subagent.finished", "finished"]));
     expect(kiln.runQuery.conversation(first.id).messages[1]).toMatchObject({ role: "user", text: "build it" });
     expect(kiln.runQuery.transcript(first.id)).toContain("## Prompt");
+  });
+});
+
+describe("provided workspaces", () => {
+  it("runs in a workspace someone else owns, under its own guard, and gives it back instead of destroying it", async () => {
+    const shared = await new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-shared-"))).create({
+      runner: { image: "node:22", backend: "local", setupCommands: [], egress: [] },
+      repos: [],
+    });
+    await shared.exec("mkdir -p work && cd work && git init -q -b main && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init", {
+      trusted: true,
+    });
+    const released: string[] = [];
+    const blocked: string[] = [];
+    const harness = new FakeHarness(async ({ opts }) => {
+      await opts.sandbox.exec("echo hi > note.txt", { cwd: opts.cwd });
+      await opts.sandbox.exec("rm -rf /", { cwd: opts.cwd }).catch((err: Error) => blocked.push(err.message));
+      return { summary: "ok" };
+    });
+    const { kiln } = createTestKiln({
+      harness: () => harness,
+      workspaces: {
+        acquire: async (run) => (run.metadata?.workspace === "shared" ? { sandbox: shared, cwd: "work" } : undefined),
+        release: async (run) => void released.push(run.id),
+      },
+    });
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    const run = await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "write a note", push: false, metadata: { workspace: "shared" } });
+    expect(run.status).toBe("succeeded");
+    expect(await shared.readFile("work/note.txt")).toBe("hi\n");
+    expect(blocked).toEqual(["blocked by guardrail: rm -rf /"]);
+    expect(run.startState.repos).toEqual([{ name: "work", url: "", sha: expect.stringMatching(/^[0-9a-f]{40}$/) }]);
+    expect(released).toEqual([run.id]);
+    expect(existsSync(shared.workdir)).toBe(true);
+    // A run the hook doesn't take gets its own sandbox as before.
+    const own = await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "x", push: false });
+    expect(own.status).toBe("succeeded");
+    expect(released).toEqual([run.id]);
+    await shared.destroy();
+  });
+});
+
+describe("Studio App runs", () => {
+  const agent = (name: string, over: Partial<ResolvedAgent> = {}): ResolvedAgent => ({
+    name,
+    agentType: "CUSTOM",
+    harness: { type: "claude-code", model: "claude-sonnet-5-5" },
+    instructions: `You are ${name}.\n\n## house-rules\n\nAlways write tests.`,
+    skills: ["design"],
+    spawnableBy: [],
+    idleTimeoutMinutes: 10,
+    credentialStrategy: "EXECUTOR",
+    requiredRepos: [],
+    secrets: [],
+    mcpServers: [],
+    ...over,
+  });
+  // The App's team is the test Kiln's default team, which `team` reads once the Kiln exists.
+  const host = (team: () => string, monthlyUsd?: number): AppRunHost => ({
+    definition: (id) => ({
+      sha: `app-${id}-v1`,
+      team: team(),
+      agents: { general: agent("general"), helper: agent("helper", { spawnableBy: ["general"] }), stranger: agent("stranger") },
+      skill: (_agent, name) => (name === "design" ? { body: "Use the design system.", description: "Design" } : undefined),
+      ...(monthlyUsd !== undefined ? { monthlyUsd } : {}),
+      env: { API_URL: "https://api.test", API_TOKEN: "app-secret-value" },
+      secretValues: ["app-secret-value"],
+    }),
+  });
+
+  it("resolves the App's agent, team, environment and skills, and redacts its secrets", async () => {
+    const seen: StartOptions[] = [];
+    const harness = new FakeHarness(async (ctx) => {
+      seen.push(ctx.opts);
+      ctx.emit({ type: "message", text: `token is ${ctx.opts.env?.API_TOKEN}` });
+      return { summary: "done", costUsd: 1 };
+    });
+    let kiln!: ReturnType<typeof createTestKiln>["kiln"];
+    ({ kiln } = createTestKiln({ harness: () => harness, apps: host(() => kiln.teams.ensureDefaultTeam().id) }));
+    const run = await kiln.runs.execute({ factory: "app:sa_1", app: "sa_1", sha: "", agent: "general", prompt: "build", push: false });
+    expect(run).toMatchObject({
+      status: "succeeded",
+      app: "sa_1",
+      factory: "app:sa_1",
+      team: kiln.teams.ensureDefaultTeam().id,
+      definitionSha: "app-sa_1-v1",
+      model: "claude-sonnet-5-5",
+    });
+    expect(seen[0]!.instructions).toContain("Always write tests.");
+    expect(seen[0]!.skills).toEqual([{ name: "design", body: "Use the design system.", description: "Design" }]);
+    expect(seen[0]!.env).toMatchObject({ API_URL: "https://api.test", API_TOKEN: "app-secret-value" });
+    expect(JSON.stringify(kiln.runs.events(run.id))).not.toContain("app-secret-value");
+    expect(kiln.runs.decisionsFor(run)).toEqual({});
+  });
+
+  it("spawns only App agents whose spawnableBy allows the parent", async () => {
+    let kiln!: ReturnType<typeof createTestKiln>["kiln"];
+    const harness = new FakeHarness(async (ctx) => {
+      if (ctx.opts.prompt === "lead") {
+        const id = ctx.opts.env!.KILN_RUN_ID!;
+        const child = await kiln.runs.spawn(id, { agent: "helper", prompt: "help", wait: true });
+        expect(child).toMatchObject({ app: "sa_1", factory: "app:sa_1", parentRunId: id, status: "succeeded" });
+        await expect(kiln.runs.spawn(id, { agent: "stranger", prompt: "x" })).rejects.toThrow(/may not spawn stranger/);
+      }
+      return { summary: "done" };
+    });
+    ({ kiln } = createTestKiln({ harness: () => harness, apps: host(() => kiln.teams.ensureDefaultTeam().id) }));
+    const run = await kiln.runs.execute({ factory: "app:sa_1", app: "sa_1", sha: "", agent: "general", prompt: "lead", push: false });
+    expect(run.status).toBe("succeeded");
+  });
+
+  it("stops at the App's monthly budget through the run budget check", async () => {
+    const harness = new FakeHarness(async () => ({ summary: "done", costUsd: 3 }));
+    let kiln!: ReturnType<typeof createTestKiln>["kiln"];
+    ({ kiln } = createTestKiln({ harness: () => harness, apps: host(() => kiln.teams.ensureDefaultTeam().id, 5) }));
+    const go = () => kiln.runs.execute({ factory: "app:sa_1", app: "sa_1", sha: "", agent: "general", prompt: "build", push: false });
+    expect((await go()).status).toBe("succeeded");
+    expect((await go()).status).toBe("succeeded");
+    await expect(go()).rejects.toMatchObject({ code: "budget_exceeded" });
+  });
+
+  it("refuses an App run on a server without Studio", async () => {
+    const { kiln } = createTestKiln({});
+    await expect(kiln.runs.execute({ factory: "app:sa_1", app: "sa_1", sha: "", agent: "general", prompt: "x", push: false })).rejects.toThrow(/no Studio/);
   });
 });
 

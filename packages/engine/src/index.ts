@@ -38,6 +38,7 @@ export * from "./definition-changes";
 export * from "./wizard";
 export * from "./factory-files";
 export * from "./workers";
+export * from "./run-definition";
 export * from "./worker-runtime";
 export * from "./prometheus";
 export * from "./defaults/prompts";

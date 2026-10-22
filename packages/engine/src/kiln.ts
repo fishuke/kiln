@@ -23,7 +23,8 @@ import { ConnectionService, IdentityService } from "./connections";
 import { ReviewService } from "./reviews";
 import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
 import { WebhookSourceService } from "./webhook-sources";
-import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
+import type { AppRunHost } from "./run-definition";
+import { LocalSandboxProvider, type Sandbox, type SandboxProvider } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import { MemoryObjectStore, MemoryStore, type ObjectStore, type Store } from "@kiln/store";
 import { AutomationService } from "./automations";
@@ -68,12 +69,25 @@ import { DecisionJudge, ScoringService, type Judge } from "./scoring";
 import { SecretsBroker } from "./secrets";
 import { SkillService } from "./skills";
 import { TaskService } from "./tasks";
-import { C, newId, systemClock, type AuditEntry, type Clock, type DecisionLog, type GateQuestion, type WorkItem } from "./types";
+import { C, newId, systemClock, type AuditEntry, type Clock, type DecisionLog, type GateQuestion, type Run, type WorkItem } from "./types";
 import { WorkerRegistry } from "./workers";
 import { Workflow } from "./workflow";
 import { FactoryWizard } from "./wizard";
 
+/**
+ * Where a run works when it shouldn't get a sandbox of its own: a Studio App's run works in the App's
+ * sandbox, in a chat's worktree. `acquire` answers undefined for runs it doesn't take; `release` is
+ * called once the agent finished, with the workspace still there, instead of destroying the sandbox.
+ */
+export interface WorkspaceProvider {
+  acquire(run: Run, parent?: Run): Promise<{ sandbox: Sandbox; cwd: string } | undefined>;
+  release(run: Run): Promise<void>;
+}
+
 export type KilnOptions = {
+  workspaces?: WorkspaceProvider;
+  /** Studio Apps' definitions, for App runs (ADR-012). */
+  apps?: AppRunHost;
   forge: Forge;
   store?: Store;
   objects?: ObjectStore;

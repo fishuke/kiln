@@ -94,7 +94,22 @@ export class CommandBlocked extends Error {
   }
 }
 
-async function guarded(spec: SandboxSpec, command: string): Promise<void> {
+/**
+ * A sandbox someone else owns, seen through another guard: agent (untrusted) commands pass `guard`
+ * (and `askHuman`), then run as trusted so the owner's guard doesn't apply twice. A run that works in
+ * a Studio App's sandbox uses this so the run's own command guard decides.
+ */
+export function withGuard(sandbox: Sandbox, guard: NonNullable<SandboxSpec["guard"]>, askHuman?: SandboxSpec["askHuman"]): Sandbox {
+  const spec = { guard, ...(askHuman ? { askHuman } : {}) };
+  return Object.assign(Object.create(sandbox) as Sandbox, {
+    async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
+      if (!opts.trusted) await guarded(spec, command);
+      return sandbox.exec(command, { ...opts, trusted: true });
+    },
+  });
+}
+
+async function guarded(spec: Pick<SandboxSpec, "guard" | "askHuman">, command: string): Promise<void> {
   if (!spec.guard) return;
   const verdict = await spec.guard(command);
   if (verdict === "allow") return;

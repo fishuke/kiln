@@ -196,6 +196,8 @@ export type Run = {
   replayOf?: string;
   /** Set when another agent spawned this run as a subagent. */
   parentRunId?: string;
+  /** A Studio App's run (ADR-012): its definition comes from KilnOptions.apps, and `factory` is `app:<id>`. */
+  app?: string;
   /** A name unique among the runs of its tree (a continuation keeps it); followups accept it in place of the id. */
   name?: string;
   /** When it finishes or asks a question, Kiln sends its parent a report as a follow-up. */

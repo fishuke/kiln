@@ -2,7 +2,20 @@ import { treeSha, type DefinitionError, type DefinitionTree } from "@kiln/defini
 import type { HarnessType } from "@kiln/schema";
 import type { Store } from "@kiln/store";
 import { StudioError, type ShipMode } from "../types";
-import { BUILTIN_LAYER, DEFAULT_AGENT, maxShipMode, resolveLayers, type LayerKind, type ResolvedAppDefinition, type ResolvedLayer } from "./resolve";
+import {
+  BUILTIN_LAYER,
+  changedPolicyKeys,
+  DEFAULT_AGENT,
+  layerPolicy,
+  maxShipMode,
+  type AppPolicySummary,
+  type PolicyChange,
+  type PolicyKey,
+  resolveLayers,
+  type LayerKind,
+  type ResolvedAppDefinition,
+  type ResolvedLayer,
+} from "./resolve";
 import { applySettingsPatch, settingsView, type AppSettings, type AppSettingsPatch, type DefinitionVersion } from "./settings";
 import { formatErrors, validateAppTree } from "./tree";
 
@@ -20,7 +33,14 @@ export function targetOf(app: { id: string; team: string; projectId?: string }):
 export const DEFINITION_COLLECTIONS = { definitions: "studio_app_definitions", refs: "studio_app_definition_refs" } as const;
 
 type StoredDefinition = { id: string; tree: DefinitionTree; createdBy: string; createdAt: string };
-type DefinitionRef = { id: string; kind: Exclude<LayerKind, "builtin">; sha: string; history: DefinitionVersion[] };
+type DefinitionRef = {
+  id: string;
+  kind: Exclude<LayerKind, "builtin">;
+  sha: string;
+  history: DefinitionVersion[];
+  /** Who last changed each policy setting of this layer, and when. */
+  policyChanges?: Partial<Record<PolicyKey, PolicyChange>>;
+};
 
 export class AppDefinitionError extends Error {
   constructor(readonly errors: DefinitionError[]) {
@@ -80,6 +100,9 @@ export class AppDefinitions {
     const ref = this.opts.store.get<DefinitionRef>(DEFINITION_COLLECTIONS.refs, id);
     if (ref?.sha === sha) return { sha, changed: false };
     const at = this.opts.clock.now().toISOString();
+    const before = layerPolicy(ref ? validateAppTree(this.tree(ref.sha)).policies : {});
+    const policyChanges = { ...ref?.policyChanges };
+    for (const key of changedPolicyKeys(before, layerPolicy(result.policies))) policyChanges[key] = { by, at };
     this.opts.store.transaction((s) => {
       if (!s.get(DEFINITION_COLLECTIONS.definitions, sha))
         s.put<StoredDefinition>(DEFINITION_COLLECTIONS.definitions, { id: sha, tree, createdBy: by, createdAt: at });
@@ -88,6 +111,7 @@ export class AppDefinitions {
         kind,
         sha,
         history: [...(ref?.history ?? []), { sha, by, at, ...(message ? { message } : {}) }],
+        ...(Object.keys(policyChanges).length ? { policyChanges } : {}),
       });
     });
     return { sha, changed: true };
@@ -96,6 +120,16 @@ export class AppDefinitions {
   /** Apply a settings patch to the layer and save the result. */
   edit(target: DefinitionTarget, patch: AppSettingsPatch, by: string, message?: string): { sha: string; changed: boolean } {
     return this.save(target, applySettingsPatch(this.layer(target).tree, this.layers(target).at(-1)!.tree, patch), by, message);
+  }
+
+  /**
+   * The policy settings a change would touch in the layer: a new tree, a settings patch, or an
+   * earlier sha. Policies are for people to change (ADR-014), so callers check who asks.
+   */
+  policyChanges(target: DefinitionTarget, change: { tree: DefinitionTree } | { patch: AppSettingsPatch } | { sha: string }): PolicyKey[] {
+    const current = this.layer(target).tree;
+    const next = "tree" in change ? change.tree : "sha" in change ? this.tree(change.sha) : applySettingsPatch(current, validateAppTree(current), change.patch);
+    return changedPolicyKeys(layerPolicy(validateAppTree(current).policies), layerPolicy(validateAppTree(next).policies));
   }
 
   /** Point the layer at an earlier sha from its history. */
@@ -107,6 +141,11 @@ export class AppDefinitions {
 
   resolve(target: DefinitionTarget): ResolvedAppDefinition {
     return resolveLayers(this.layers(target));
+  }
+
+  /** The App's ship mode caps, default-branch opt-in and merge gate switch, with who changed each. Ship and the merge gate read these. */
+  policy(target: DefinitionTarget): AppPolicySummary {
+    return this.resolve(target).policy;
   }
 
   /** Resolved values and the target layer's own values, for the settings page. */
@@ -171,10 +210,11 @@ export class AppDefinitions {
     return [
       BUILTIN_LAYER,
       ...chain.map((t): ResolvedLayer => {
-        const { kind } = refId(t);
-        const l = this.layer(t);
+        const { id: refKey, kind } = refId(t);
+        const ref = this.opts.store.get<DefinitionRef>(DEFINITION_COLLECTIONS.refs, refKey);
         const id = kind === "team" ? t.team : kind === "project" ? t.projectId! : t.appId!;
-        return { kind, id, ...(l.sha ? { sha: l.sha } : {}), tree: validateAppTree(l.tree) };
+        const tree = validateAppTree(ref ? this.tree(ref.sha) : {});
+        return { kind, id, ...(ref ? { sha: ref.sha } : {}), tree, ...(ref?.policyChanges ? { policyChanges: ref.policyChanges } : {}) };
       }),
     ];
   }

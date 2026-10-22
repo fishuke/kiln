@@ -340,7 +340,7 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
 
   server.registerTool(
     "update_app_settings",
-    { description: "Change a Studio App's own definition layer. null removes the App's value so it inherits from its project or team again. Every change is a new version.", inputSchema: { app: z.string(), patch: AppSettingsPatch } },
+    { description: "Change a Studio App's own definition layer (not its policy, which people change in the App's settings). null removes the App's value so it inherits from its project or team again. Every change is a new version.", inputSchema: { app: z.string(), patch: AppSettingsPatch.omit({ policy: true }) } },
     async ({ app, patch }) => json(await client.studioEditDefinition({ app }, patch)),
   );
 

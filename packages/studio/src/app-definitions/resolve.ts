@@ -4,15 +4,28 @@ import { parse as parseYaml, stringify } from "yaml";
 import type { AppLayerTree } from "./tree";
 
 export type LayerKind = "builtin" | "team" | "project" | "app";
-export type ResolvedLayer = { kind: LayerKind; id?: string; sha?: string; tree: AppLayerTree };
+export type ResolvedLayer = { kind: LayerKind; id?: string; sha?: string; tree: AppLayerTree; policyChanges?: Partial<Record<PolicyKey, PolicyChange>> };
 
+export type AppTeamRole = "owner" | "admin" | "member";
+export const POLICY_KEYS = ["maxShipMode", "roles", "pushDefaultBranch", "mergeGate"] as const;
+export type PolicyKey = (typeof POLICY_KEYS)[number];
+export type PolicyChange = { by: string; at: string };
+
+/** One layer's policies combined, before inheritance. A switch is undefined when no policy of the layer sets it. */
+export type LayerPolicy = { maxShipMode?: AppShipMode; roles: Partial<Record<AppTeamRole, AppShipMode>>; pushDefaultBranch?: boolean; mergeGate?: boolean };
+
+/** Ship mode caps and switches every Studio part reads from the App definition (the only place they live). */
 export type AppPolicySummary = {
   /** The highest ship mode anyone may pick: the lowest cap of every policy. */
   maxShipMode: AppShipMode;
-  /** The highest ship mode per role, the lowest cap per role. */
-  roles: Record<string, AppShipMode>;
-  /** On unless a policy turns it off. */
+  /** The highest ship mode per team role, the lowest cap per role. */
+  roles: Partial<Record<AppTeamRole, AppShipMode>>;
+  /** Imported App: cowboy pushes its default branch. On only if a policy turns it on and none turns it off. */
+  pushDefaultBranch: boolean;
+  /** The merge gate (ADR-014). On only if a policy turns it on and none turns it off. */
   mergeGate: boolean;
+  /** Who last changed each setting, and when, in any layer. */
+  changedBy: Partial<Record<PolicyKey, { by: string; at: string; layer: LayerKind }>>;
 };
 
 type SkillText = { description: string; body: string };
@@ -44,12 +57,35 @@ export const SHIP_MODES: readonly AppShipMode[] = ["safe", "review", "cowboy"];
 const lowest = (a: AppShipMode, b: AppShipMode) => (SHIP_MODES.indexOf(a) <= SHIP_MODES.indexOf(b) ? a : b);
 
 /** The highest ship mode a person with `role` may pick under these policies. */
-export function maxShipMode(policy: AppPolicySummary, role?: string): AppShipMode {
+export function maxShipMode(policy: AppPolicySummary, role?: AppTeamRole): AppShipMode {
   const byRole = role ? policy.roles[role] : undefined;
   return byRole ? lowest(policy.maxShipMode, byRole) : policy.maxShipMode;
 }
 
-/** The layer every App starts from: one Claude Code agent, `general`; no caps beyond `cowboy`; merge gate on. */
+/** Combine a layer's policy files: caps take the lowest; a switch is off if any file turns it off, else on if any turns it on. */
+export function layerPolicy(policies: AppLayerTree["policies"]): LayerPolicy {
+  const out: LayerPolicy = { roles: {} };
+  const mergeSwitch = (a: boolean | undefined, b: boolean | undefined) => (a === false || b === false ? false : a || b ? true : undefined);
+  for (const { policy: p } of Object.values(policies)) {
+    if (p.shipMode?.max) out.maxShipMode = out.maxShipMode ? lowest(out.maxShipMode, p.shipMode.max) : p.shipMode.max;
+    for (const [role, mode] of Object.entries(p.shipMode?.roles ?? {}) as [AppTeamRole, AppShipMode][])
+      out.roles[role] = out.roles[role] ? lowest(out.roles[role]!, mode) : mode;
+    const push = mergeSwitch(out.pushDefaultBranch, p.shipMode?.pushDefaultBranch);
+    const gate = mergeSwitch(out.mergeGate, p.mergeGate);
+    if (push === undefined) delete out.pushDefaultBranch;
+    else out.pushDefaultBranch = push;
+    if (gate === undefined) delete out.mergeGate;
+    else out.mergeGate = gate;
+  }
+  return out;
+}
+
+/** The settings a change from `before` to `after` touched. */
+export function changedPolicyKeys(before: LayerPolicy, after: LayerPolicy): PolicyKey[] {
+  return POLICY_KEYS.filter((k) => JSON.stringify(before[k] ?? null) !== JSON.stringify(after[k] ?? null));
+}
+
+/** The layer every App starts from: one Claude Code agent, `general`; no caps beyond `cowboy`; merge gate and default-branch pushes off. */
 export const BUILTIN_LAYER: ResolvedLayer = {
   kind: "builtin",
   tree: {
@@ -83,9 +119,13 @@ export function resolveLayers(layers: ResolvedLayer[]): ResolvedAppDefinition {
   const skillFiles: DefinitionTree = {};
   const mandatory: string[] = [];
   const policyFiles: DefinitionTree = {};
-  const policy: AppPolicySummary = { maxShipMode: "cowboy", roles: {}, mergeGate: true };
+  const policy: AppPolicySummary = { maxShipMode: "cowboy", roles: {}, pushDefaultBranch: false, mergeGate: false, changedBy: {} };
+  let pushOn = false;
+  let pushOff = false;
+  let gateOn = false;
+  let gateOff = false;
 
-  for (const { kind, tree } of layers) {
+  for (const { kind, tree, policyChanges } of layers) {
     for (const [agent, a] of Object.entries(tree.agents)) {
       const file = `agents/${agent}/agent.md`;
       const raw = tree.files[file] === undefined ? a.frontmatter : rawFrontmatter(tree.files[file]!);
@@ -110,15 +150,23 @@ export function resolveLayers(layers: ResolvedLayer[]): ResolvedAppDefinition {
       skills[skill] = { description: s.frontmatter.description, body: s.body, from: kind };
       for (const [p, c] of Object.entries(tree.files)) if (p.startsWith(`skills/${skill}/`)) skillFiles[p] = c;
     }
-    for (const [file, p] of Object.entries(tree.policies)) {
-      policyFiles[`policies/${kind === "app" ? "" : `${kind}-`}${file}.yaml`] = p.content;
-      if (p.policy.shipMode?.max) policy.maxShipMode = lowest(policy.maxShipMode, p.policy.shipMode.max);
-      for (const [role, mode] of Object.entries(p.policy.shipMode?.roles ?? {}))
-        policy.roles[role] = policy.roles[role] ? lowest(policy.roles[role]!, mode) : mode;
-      if (p.policy.mergeGate === false) policy.mergeGate = false;
+    for (const file of Object.keys(tree.policies)) policyFiles[`policies/${kind === "app" ? "" : `${kind}-`}${file}.yaml`] = tree.policies[file]!.content;
+    const lp = layerPolicy(tree.policies);
+    if (lp.maxShipMode) policy.maxShipMode = lowest(policy.maxShipMode, lp.maxShipMode);
+    for (const [role, mode] of Object.entries(lp.roles) as [AppTeamRole, AppShipMode][])
+      policy.roles[role] = policy.roles[role] ? lowest(policy.roles[role]!, mode) : mode;
+    pushOn ||= lp.pushDefaultBranch === true;
+    pushOff ||= lp.pushDefaultBranch === false;
+    gateOn ||= lp.mergeGate === true;
+    gateOff ||= lp.mergeGate === false;
+    for (const [key, change] of Object.entries(policyChanges ?? {}) as [PolicyKey, PolicyChange][]) {
+      const prev = policy.changedBy[key];
+      if (!prev || prev.at <= change.at) policy.changedBy[key] = { ...change, layer: kind };
     }
   }
 
+  policy.pushDefaultBranch = pushOn && !pushOff;
+  policy.mergeGate = gateOn && !gateOff;
   const warnings: string[] = [];
   const mandatorySkills = mandatory.filter((s) => {
     if (skills[s]) return true;

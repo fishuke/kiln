@@ -59,8 +59,7 @@ describe("Studio definition API", () => {
     const settings = await s.member.studioSettings({ app: "sa_1" });
     expect(settings.resolved).toMatchObject({
       name: "Pricing",
-      maxShipMode: "review",
-      mergeGate: true,
+      policy: { maxShipMode: "review", mergeGate: false },
       agents: [{ name: "general", harness: "claude-code", model: "claude-sonnet-5-5", mcpServers: ["figma"] }],
     });
     expect(settings.resolved.skills).toEqual([{ name: "house-style", description: "House style", body: "Named exports.", mandatory: true, from: "team" }]);
@@ -100,6 +99,18 @@ describe("Studio definition API", () => {
     expect((await s.member.studioSettings("team")).resolved.agents.map((a) => a.name)).toEqual(["general"]);
   });
 
+  it("lets only team owners and admins change an App's policy, and records who did", async () => {
+    const s = await setup();
+    s.studioApp("sa_1", s.team);
+    await expect(s.member.studioEditDefinition({ app: "sa_1" }, { policy: { mergeGate: true } })).rejects.toMatchObject({ status: 403 });
+    await expect(s.member.studioPutDefinition({ app: "sa_1" }, { "policies/studio.yaml": "mergeGate: true\n" })).rejects.toMatchObject({ status: 403 });
+    await s.member.studioEditDefinition({ app: "sa_1" }, { name: "Mine" });
+    await s.o.studioEditDefinition({ app: "sa_1" }, { policy: { mergeGate: true, pushDefaultBranch: true } });
+    const policy = (await s.member.studioSettings({ app: "sa_1" })).resolved.policy;
+    expect(policy).toMatchObject({ mergeGate: true, pushDefaultBranch: true, changedBy: { mergeGate: { by: "olga@acme.test", layer: "app" } } });
+    await s.member.studioEditDefinition({ app: "sa_1" }, { name: "Still mine" });
+  });
+
   it("reads and changes App settings through the Kiln MCP", async () => {
     const s = await setup();
     s.studioApp("sa_1", s.team);
@@ -111,9 +122,13 @@ describe("Studio definition API", () => {
       }),
     );
     const text = (r: unknown) => JSON.parse((r as { content: { text: string }[] }).content[0]!.text);
-    expect(text(await mcp.callTool({ name: "update_app_settings", arguments: { app: "sa_1", patch: { policy: { maxShipMode: "safe" } } } }))).toMatchObject({
-      changed: true,
+    expect(text(await mcp.callTool({ name: "update_app_settings", arguments: { app: "sa_1", patch: { name: "Pricing" } } }))).toMatchObject({ changed: true });
+    expect(text(await mcp.callTool({ name: "get_app_settings", arguments: { app: "sa_1" } })).resolved).toMatchObject({
+      name: "Pricing",
+      policy: { mergeGate: false },
     });
-    expect(text(await mcp.callTool({ name: "get_app_settings", arguments: { app: "sa_1" } })).resolved.maxShipMode).toBe("safe");
+    const refused = await mcp.callTool({ name: "update_app_settings", arguments: { app: "sa_1", patch: { policy: { mergeGate: true } } } });
+    expect(refused.isError).toBe(true);
+    expect((await s.o.studioSettings({ app: "sa_1" })).resolved.policy.mergeGate).toBe(false);
   });
 });

@@ -83,6 +83,11 @@ export function register(ctx: RouteContext) {
     return { team: team.id };
   };
 
+  /** App policies (ship mode caps, default-branch pushes, the merge gate) are changed by team owners and admins only. */
+  const policyEditor = (c: Context<Env>, t: DefinitionTarget, change: Parameters<typeof defs.policyChanges>[1]) => {
+    if (t.appId && defs.policyChanges(t, change).length) currentTeam(ctx, c, "admin");
+  };
+
   /** Saves a layer; an invalid tree answers 400 with each error as `file:line: message`. */
   const write = (c: Context<Env>, fn: () => { sha: string; changed: boolean }) => {
     try {
@@ -103,16 +108,19 @@ export function register(ctx: RouteContext) {
     app.put(`${base}/definition`, async (c) => {
       const t = target(c, true);
       const body = PutDefinition.parse(await c.req.json());
+      policyEditor(c, t, { tree: body.tree });
       return write(c, () => defs.save(t, body.tree, ctx.who(c), body.message));
     });
     app.patch(`${base}/definition`, async (c) => {
       const t = target(c, true);
       const body = AppSettingsPatch.parse(await c.req.json());
+      policyEditor(c, t, { patch: body });
       return write(c, () => defs.edit(t, body, ctx.who(c)));
     });
     app.post(`${base}/definition/use`, async (c) => {
       const t = target(c, true);
       const body = UseDefinition.parse(await c.req.json());
+      if (defs.layer(t).history.some((h) => h.sha === body.sha)) policyEditor(c, t, { sha: body.sha });
       return write(c, () => defs.use(t, body.sha, ctx.who(c)));
     });
     app.get(`${base}/settings`, (c) => c.json(defs.settings(target(c, false))));

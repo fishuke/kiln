@@ -3,7 +3,7 @@ import { HarnessType, SCHEMA_VERSION } from "@kiln/schema";
 import { parse, stringify } from "yaml";
 import { z } from "zod";
 import { ShipMode } from "../types";
-import { markdown, type LayerKind, type ResolvedAppDefinition } from "./resolve";
+import { markdown, type AppPolicySummary, type AppTeamRole, type LayerKind, type ResolvedAppDefinition } from "./resolve";
 import type { AppLayerTree } from "./tree";
 
 const Name = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/, "use up to 64 letters, digits, spaces, dots, underscores or dashes");
@@ -37,7 +37,19 @@ export const AppSettingsPatch = z
       })
       .strict()
       .optional(),
-    policy: z.object({ maxShipMode: ShipMode.nullable().optional(), mergeGate: z.boolean().nullable().optional() }).strict().optional(),
+    /** Written to policies/studio.yaml. Only team owners and admins may change it. */
+    policy: z
+      .object({
+        maxShipMode: ShipMode.nullable().optional(),
+        roles: z
+          .object({ owner: ShipMode.nullable().optional(), admin: ShipMode.nullable().optional(), member: ShipMode.nullable().optional() })
+          .strict()
+          .optional(),
+        pushDefaultBranch: z.boolean().nullable().optional(),
+        mergeGate: z.boolean().nullable().optional(),
+      })
+      .strict()
+      .optional(),
     budgets: z.object({ monthlyUsd: z.number().positive().nullable().optional() }).strict().optional(),
   })
   .strict();
@@ -107,6 +119,12 @@ export function applySettingsPatch(tree: DefinitionTree, layer: AppLayerTree, pa
     const policy: Record<string, unknown> = tree[SETTINGS_POLICY] ? (parse(tree[SETTINGS_POLICY]) ?? {}) : {};
     const shipMode = { ...(policy.shipMode as Record<string, unknown> | undefined) };
     drop(shipMode, "max", patch.policy.maxShipMode);
+    if (patch.policy.roles) {
+      const roles = { ...(shipMode.roles as Record<string, unknown> | undefined) };
+      for (const [role, mode] of Object.entries(patch.policy.roles)) drop(roles, role, mode);
+      drop(shipMode, "roles", Object.keys(roles).length ? roles : null);
+    }
+    drop(shipMode, "pushDefaultBranch", patch.policy.pushDefaultBranch);
     drop(policy, "shipMode", Object.keys(shipMode).length ? shipMode : null);
     drop(policy, "mergeGate", patch.policy.mergeGate);
     if (Object.keys(policy).length) next[SETTINGS_POLICY] = stringify(policy);
@@ -147,8 +165,7 @@ export type AppSettings = {
       from: LayerKind;
     }[];
     skills: { name: string; description: string; body: string; mandatory: boolean; from: LayerKind }[];
-    maxShipMode: ShipMode;
-    mergeGate: boolean;
+    policy: AppPolicySummary;
     monthlyUsd?: number;
   };
   own: {
@@ -157,8 +174,8 @@ export type AppSettings = {
     agents: Record<string, AgentSettings>;
     skills: string[];
     mandatory: string[];
-    maxShipMode?: ShipMode;
-    mergeGate?: boolean;
+    /** What this layer's policies/studio.yaml sets. */
+    policy: { maxShipMode?: ShipMode; roles: Partial<Record<AppTeamRole, ShipMode>>; pushDefaultBranch?: boolean; mergeGate?: boolean };
     monthlyUsd?: number;
   };
   warnings: string[];
@@ -199,19 +216,20 @@ export function settingsView(r: ResolvedAppDefinition, layer: AppLayerTree, meta
       skills: Object.entries(r.skills)
         .map(([name, s]) => ({ name, description: s.description, body: s.body, mandatory: r.mandatorySkills.includes(name), from: s.from }))
         .sort((a, b) => a.name.localeCompare(b.name)),
-      maxShipMode: r.policy.maxShipMode,
-      mergeGate: r.policy.mergeGate,
+      policy: r.policy,
       ...defined({ monthlyUsd: r.monthlyUsd }),
     },
     own: {
       ...defined({
         name: layer.manifest?.name,
         description: layer.manifest?.description,
-        maxShipMode: policy?.shipMode?.max,
-        mergeGate: policy?.mergeGate,
         monthlyUsd: layer.manifest?.budgets?.monthlyUsd,
       }),
       agents,
+      policy: {
+        ...defined({ maxShipMode: policy?.shipMode?.max, pushDefaultBranch: policy?.shipMode?.pushDefaultBranch, mergeGate: policy?.mergeGate }),
+        roles: policy?.shipMode?.roles ?? {},
+      },
       skills: Object.keys(layer.skills).sort(),
       mandatory: layer.manifest?.skills?.mandatory ?? [],
     },

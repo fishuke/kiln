@@ -1,5 +1,6 @@
-description: Customers ship through review
+description: Members ship through review
 shipMode:
-  max: review
-  roles: { customer: safe }
+  max: cowboy
+  roles: { member: review }
+  pushDefaultBranch: false
 mergeGate: true

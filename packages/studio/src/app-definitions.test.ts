@@ -93,7 +93,7 @@ describe("AppDefinitions", () => {
     });
     expect(r.agents.reviewer).toMatchObject({ description: "Reviews", harness: { type: "claude-code", model: "claude-opus-5-5" }, skills: ["house-style"] });
     expect(r.mandatorySkills).toEqual(["house-style"]);
-    expect(r.policy).toEqual({ maxShipMode: "review", roles: {}, mergeGate: true });
+    expect(r.policy).toMatchObject({ maxShipMode: "review", roles: {}, pushDefaultBranch: false, mergeGate: false });
     expect(r.monthlyUsd).toBe(500);
     expect(r.layers.map((l) => l.kind)).toEqual(["builtin", "team", "project", "app"]);
   });
@@ -105,7 +105,7 @@ describe("AppDefinitions", () => {
       {
         "skills/a/SKILL.md": skill("a", "Team a."),
         "app.yaml": "schemaVersion: kiln/v1\nskills: { mandatory: [a] }\n",
-        "policies/team.yaml": "shipMode: { max: review, roles: { customer: safe } }\n",
+        "policies/team.yaml": "shipMode: { max: review, roles: { member: safe } }\n",
         "agents/general/agent.md": agent("harness: { type: codex, model: gpt-5 }"),
       },
       "ann",
@@ -125,9 +125,29 @@ describe("AppDefinitions", () => {
     expect(r.mandatorySkills).toEqual(["a", "b"]);
     expect(r.skills.a).toMatchObject({ body: "App a.", from: "app" });
     expect(r.agents.general!.harness).toEqual({ type: "codex", model: "gpt-5-codex" });
-    expect(r.policy).toEqual({ maxShipMode: "review", roles: { customer: "safe" }, mergeGate: false });
-    expect(maxShipMode(r.policy, "customer")).toBe("safe");
+    expect(r.policy).toMatchObject({ maxShipMode: "review", roles: { member: "safe" }, mergeGate: false });
+    expect(maxShipMode(r.policy, "member")).toBe("safe");
+    expect(maxShipMode(r.policy, "admin")).toBe("review");
     expect(maxShipMode(r.policy)).toBe("review");
+  });
+
+  it("keeps the merge gate and default-branch pushes off until a person turns them on, and records who did", () => {
+    let now = "2026-10-22T10:00:00.000Z";
+    const d = new AppDefinitions({ store: new MemoryStore(), clock: { now: () => new Date(now) } });
+    expect(d.policy(app)).toMatchObject({ mergeGate: false, pushDefaultBranch: false, changedBy: {} });
+    d.edit(app, { policy: { mergeGate: true, pushDefaultBranch: true } }, "olga@acme.test");
+    expect(d.policy(app)).toMatchObject({
+      mergeGate: true,
+      pushDefaultBranch: true,
+      changedBy: { mergeGate: { by: "olga@acme.test", at: now, layer: "app" }, pushDefaultBranch: { by: "olga@acme.test", at: now, layer: "app" } },
+    });
+    now = "2026-10-22T11:00:00.000Z";
+    d.edit({ team: "t1" }, { policy: { mergeGate: false } }, "ada@acme.test");
+    d.edit(app, { name: "Unrelated" }, "max@acme.test");
+    const p = d.policy(app);
+    expect(p.mergeGate).toBe(false);
+    expect(p.changedBy.mergeGate).toEqual({ by: "ada@acme.test", at: now, layer: "team" });
+    expect(p.changedBy.pushDefaultBranch?.by).toBe("olga@acme.test");
   });
 
   it("stores every change by content hash and moves the ref back with use", () => {
@@ -168,7 +188,7 @@ describe("AppDefinitions", () => {
           reviewer: { description: "Reviews", model: "claude-opus-5-5", spawnableBy: ["general"] },
         },
         skills: { upsert: [{ name: "tone", description: "Tone", body: "Friendly." }], mandatory: ["tone"] },
-        policy: { maxShipMode: "safe", mergeGate: false },
+        policy: { maxShipMode: "safe", roles: { member: "safe" }, mergeGate: false },
         budgets: { monthlyUsd: 50 },
       },
       "ann",
@@ -204,13 +224,12 @@ describe("AppDefinitions", () => {
         from: "app",
       },
     ]);
-    expect(s.resolved).toMatchObject({ maxShipMode: "safe", mergeGate: false, monthlyUsd: 50 });
+    expect(s.resolved).toMatchObject({ policy: { maxShipMode: "safe", roles: { member: "safe" }, mergeGate: false }, monthlyUsd: 50 });
     expect(s.own).toMatchObject({
       agents: { general: { harness: "codex", model: "gpt-5-codex" }, reviewer: { description: "Reviews" } },
       mandatory: ["tone"],
       skills: ["tone"],
-      maxShipMode: "safe",
-      mergeGate: false,
+      policy: { maxShipMode: "safe", roles: { member: "safe" }, mergeGate: false },
       monthlyUsd: 50,
     });
     d.edit(
@@ -218,14 +237,15 @@ describe("AppDefinitions", () => {
       {
         agents: { general: { model: "gpt-5", harness: null }, reviewer: null },
         skills: { remove: ["tone"], mandatory: [] },
-        policy: { maxShipMode: null, mergeGate: null },
+        policy: { maxShipMode: null, roles: { member: null }, mergeGate: null },
         budgets: { monthlyUsd: null },
       },
       "ann",
     );
     const after = d.settings(app);
     expect(after.resolved.agents.map((a) => [a.name, a.harness, a.model])).toEqual([["general", "claude-code", "gpt-5"]]);
-    expect(after.resolved).toMatchObject({ maxShipMode: "cowboy", mergeGate: true, skills: [] });
+    expect(after.resolved).toMatchObject({ policy: { maxShipMode: "cowboy", roles: {}, mergeGate: false }, skills: [] });
+    expect(d.layer(app).tree["policies/studio.yaml"]).toBeUndefined();
     expect(after.own.monthlyUsd).toBeUndefined();
   });
 
@@ -262,7 +282,7 @@ describe("AppDefinitions", () => {
       mcpServers: ["figma"],
       secrets: ["FIGMA_TOKEN"],
       maxShipMode: "cowboy",
-      mergeGate: true,
+      mergeGate: false,
     });
     expect(c.instructions).toBe("Build pages.\n\n## house-style\n\nNamed exports.");
     expect(c.skills).toEqual([{ name: "charts", description: "charts rules", body: "Use recharts." }]);

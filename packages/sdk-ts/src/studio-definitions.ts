@@ -42,8 +42,26 @@ export type StudioSettingsPatch = {
   /** By agent name; `null` removes the layer's file for that agent. */
   agents?: Record<string, StudioAgentPatch | null>;
   skills?: { upsert?: { name: string; description: string; body: string }[]; remove?: string[]; mandatory?: string[] };
-  policy?: { maxShipMode?: StudioShipMode | null; mergeGate?: boolean | null };
+  /** Only team owners and admins may change it. */
+  policy?: {
+    maxShipMode?: StudioShipMode | null;
+    roles?: { owner?: StudioShipMode | null; admin?: StudioShipMode | null; member?: StudioShipMode | null };
+    pushDefaultBranch?: boolean | null;
+    mergeGate?: boolean | null;
+  };
   budgets?: { monthlyUsd?: number | null };
+};
+
+export type StudioTeamRole = "owner" | "admin" | "member";
+export type StudioPolicyKey = "maxShipMode" | "roles" | "pushDefaultBranch" | "mergeGate";
+
+/** Ship mode caps and switches of an App, resolved from its definition. */
+export type StudioAppPolicy = {
+  maxShipMode: StudioShipMode;
+  roles: Partial<Record<StudioTeamRole, StudioShipMode>>;
+  pushDefaultBranch: boolean;
+  mergeGate: boolean;
+  changedBy: Partial<Record<StudioPolicyKey, { by: string; at: string; layer: StudioLayerKind }>>;
 };
 
 export type StudioAppSettings = {
@@ -64,8 +82,7 @@ export type StudioAppSettings = {
       from: StudioLayerKind;
     }[];
     skills: { name: string; description: string; body: string; mandatory: boolean; from: StudioLayerKind }[];
-    maxShipMode: StudioShipMode;
-    mergeGate: boolean;
+    policy: StudioAppPolicy;
     monthlyUsd?: number;
   };
   own: {
@@ -74,8 +91,7 @@ export type StudioAppSettings = {
     agents: Record<string, StudioAgentSettings>;
     skills: string[];
     mandatory: string[];
-    maxShipMode?: StudioShipMode;
-    mergeGate?: boolean;
+    policy: { maxShipMode?: StudioShipMode; roles: Partial<Record<StudioTeamRole, StudioShipMode>>; pushDefaultBranch?: boolean; mergeGate?: boolean };
     monthlyUsd?: number;
   };
   warnings: string[];

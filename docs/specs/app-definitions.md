@@ -28,9 +28,10 @@ budgets:
 ```yaml
 # policies/studio.yaml
 shipMode:
-  max: review # highest ship mode anyone may pick: safe < review < cowboy
-  roles: { customer: safe } # per-role caps (roles are planned separately)
-mergeGate: true # Ready for review goes through the App's merge gate (ADR-014)
+  max: cowboy # highest ship mode anyone may pick: safe < review < cowboy
+  roles: { member: review } # caps per team role: owner, admin, member
+  pushDefaultBranch: false # imported App: cowboy pushes the default branch (ADR-012); off by default
+mergeGate: false # Ready for review goes through the App's merge gate (ADR-014); off by default
 ```
 
 `README.md` is ignored. Any other file is an error: `pipelines/feature.yaml: pipelines don't apply to Apps`, or `x.txt is not a known App definition file`.
@@ -57,7 +58,11 @@ export const AppManifest = z
 export const AppPolicy = Policy.pick({ description: true })
   .extend({
     shipMode: z
-      .object({ max: AppShipMode.optional(), roles: z.record(z.string().min(1), AppShipMode).optional() })
+      .object({
+        max: AppShipMode.optional(),
+        roles: z.object({ owner: AppShipMode.optional(), admin: AppShipMode.optional(), member: AppShipMode.optional() }).strict().optional(),
+        pushDefaultBranch: z.boolean().optional(),
+      })
       .strict()
       .optional(),
     mergeGate: z.boolean().optional(),
@@ -85,9 +90,29 @@ Built-in → team → Kiln Project (when the App has `projectId`) → App. Each 
 | `spawnableBy`         | Unset: every other agent of the App may spawn it.                                                                                                                                                                                                                        |
 | Shared skills         | By name; a later layer's skill replaces an earlier one. Every agent gets every shared skill plus its own, as in factories.                                                                                                                                               |
 | Mandatory skills      | The union over all layers: a team's mandatory skill can't be dropped by an App. A name with no skill is dropped with a warning.                                                                                                                                          |
-| Policies              | Every policy file of every layer applies. Ship mode caps take the lowest; `mergeGate` is on unless a policy turns it off.                                                                                                                                                |
+| Policies              | Every policy file of every layer applies. Ship mode caps (overall and per team role) take the lowest. `pushDefaultBranch` and `mergeGate` are on only if some policy turns them on and none turns them off; with no policy they are off (ADR-012, ADR-014).              |
 | Budgets               | The lowest `monthlyUsd` of all layers.                                                                                                                                                                                                                                   |
 | `name`, `description` | Last layer that sets it.                                                                                                                                                                                                                                                 |
+
+## Policy: the one source for ship mode caps and the merge gate
+
+The App definition's policies are the only place these settings live (CLAUDE.md, ADR-012, ADR-014). Ship and the merge gate read them; they keep no copy.
+
+```ts
+export type AppTeamRole = "owner" | "admin" | "member";
+export type PolicyKey = "maxShipMode" | "roles" | "pushDefaultBranch" | "mergeGate";
+export type AppPolicySummary = {
+  maxShipMode: ShipMode;                                  // default cowboy
+  roles: Partial<Record<AppTeamRole, ShipMode>>;
+  pushDefaultBranch: boolean;                             // default false
+  mergeGate: boolean;                                     // default false
+  changedBy: Partial<Record<PolicyKey, { by: string; at: string; layer: LayerKind }>>; // latest change of each, any layer
+};
+appDefinitions.policy(targetOf(app)): AppPolicySummary;
+maxShipMode(policy, role?: AppTeamRole): ShipMode;       // the cap for a person with that role
+```
+
+Every save compares the layer's policies before and after and records `{ by, at }` for each setting that changed, so ship can tell who opted an imported App into default-branch pushes.
 
 ## Storage and versions
 
@@ -96,7 +121,7 @@ Definitions are stored by content hash (`treeSha`); the ref is runtime state tha
 ```ts
 // Store collections
 studio_app_definitions      { id: sha; tree: DefinitionTree; createdBy; createdAt }      // immutable, content-addressed
-studio_app_definition_refs  { id: "team:<id>" | "project:<id>" | "app:<id>"; kind; sha; history: { sha; by; at; message? }[] } // oldest first
+studio_app_definition_refs  { id: "team:<id>" | "project:<id>" | "app:<id>"; kind; sha; history: { sha; by; at; message? }[]; policyChanges?: Partial<Record<PolicyKey, { by; at }>> } // oldest first
 ```
 
 Every change validates the new layer against its inherited layers, stores the tree under its sha and points the ref at it. Saving the current tree again changes nothing. `use(target, sha)` points the ref at an earlier sha from its history and records that.
@@ -152,7 +177,7 @@ Not in the factory agent format, so not here: a per-agent tool allowlist (`Start
 
 ## API (`apps/api/src/routes/studio-definitions.ts`, a `MODULES` entry)
 
-Scopes: `apps/{id}` (an App of the caller's team, from `studio_apps`), `projects/{id}` (a Kiln Project of the caller's team), `team` (the current team). Reading needs team membership; changing team or project defaults needs a team admin; changing an App's layer needs a signed-in member of its team. Another team's App or project answers 404.
+Scopes: `apps/{id}` (an App of the caller's team, from `studio_apps`), `projects/{id}` (a Kiln Project of the caller's team), `team` (the current team). Reading needs team membership; changing team or project defaults needs a team admin; changing an App's layer needs a signed-in member of its team, and a change that touches its policy (a PATCH with `policy`, or a PUT or `use` whose policies differ) needs a team owner or admin. Another team's App or project answers 404.
 
 | Method and path                                  | Body                                     | Response                                                 |
 | ------------------------------------------------ | ---------------------------------------- | -------------------------------------------------------- |
@@ -171,7 +196,7 @@ export type AppSettingsPatch = {
   description?: string | null;
   agents?: Record<string, { description?; harness?; model?; instructions?; mcpServers?; spawnableBy? } | null>; // null removes the layer's agent
   skills?: { upsert?: { name; description; body }[]; remove?: string[]; mandatory?: string[] };
-  policy?: { maxShipMode?: ShipMode | null; mergeGate?: boolean | null }; // written to policies/studio.yaml
+  policy?: { maxShipMode?; roles?: { owner?; admin?; member? }; pushDefaultBranch?; mergeGate? }; // policies/studio.yaml; owners and admins only
   budgets?: { monthlyUsd?: number | null };
 };
 export type AppSettings = {
@@ -182,8 +207,7 @@ export type AppSettings = {
     description?;
     agents: { name; description?; harness; model?; instructions; mcpServers; skills; spawnableBy; from }[];
     skills: { name; description; body; mandatory; from }[];
-    maxShipMode;
-    mergeGate;
+    policy: AppPolicySummary;
     monthlyUsd?;
   };
   own: {
@@ -192,8 +216,7 @@ export type AppSettings = {
     agents: Record<string, { description?; harness?; model?; instructions?; mcpServers?; spawnableBy? }>;
     skills: string[];
     mandatory: string[];
-    maxShipMode?;
-    mergeGate?;
+    policy: { maxShipMode?; roles; pushDefaultBranch?; mergeGate? }; // this layer's policies/studio.yaml
     monthlyUsd?;
   };
   warnings: string[];
@@ -216,11 +239,11 @@ studioExportApp(appId, opts?: { resolved?: boolean }): Promise<{ sha?: string; t
 
 ## MCP
 
-`get_app_settings { app }` and `update_app_settings { app, patch }`.
+`get_app_settings { app }` and `update_app_settings { app, patch }`. The MCP patch has no `policy`: an agent acting with a person's token can't change ship mode caps, default-branch pushes or the merge gate.
 
 ## Web (`apps/web/src/components/studio-settings/`)
 
-`<AppSettingsView scope settings />` with sections General (name, description), Agents (one card per agent: harness, model, instructions, MCP servers; add and remove), Skills (shared skills; mandatory switch; inherited ones read-only with their layer), Policy (highest ship mode, merge gate), Budget (monthly) and Versions (current sha, history with **Use**, export). Its server actions are in `actions.ts` in the same folder. The `/studio` pages mount it (for example at `/studio/[app]/settings`); this work doesn't edit `/studio` routes.
+`<AppSettingsView scope settings />` with sections General (name, description), Agents (one card per agent: harness, model, instructions, MCP servers; add and remove), Skills (shared skills; mandatory switch; inherited ones read-only with their layer), Policy (highest ship mode, per-role caps, default-branch pushes, merge gate; owners and admins), Budget (monthly) and Versions (current sha, history with **Use**, export). Its server actions are in `actions.ts` in the same folder. The `/studio` pages mount it (for example at `/studio/[app]/settings`); this work doesn't edit `/studio` routes.
 
 ## Acceptance
 
@@ -230,4 +253,5 @@ studioExportApp(appId, opts?: { resolved?: boolean }): Promise<{ sha?: string; t
 4. Invalid trees (pipelines, both harness and model, unknown mandatory skill or `spawnableBy` agent) are rejected with `file:line: message` and the ref doesn't move.
 5. `chatConfig` returns an agent's harness and model, its instructions with the mandatory skills, its other skills and its MCP servers.
 6. Export writes a tree that `validateAppTree` accepts.
-7. API routes act on the caller's team only; another team's App answers 404; only admins change team defaults.
+7. API routes act on the caller's team only; another team's App answers 404; only admins change team defaults and App policies.
+8. The merge gate and default-branch pushes are off until a person turns them on; each policy change records who and when; the MCP can't change policies.

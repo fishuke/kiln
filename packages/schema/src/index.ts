@@ -447,12 +447,14 @@ export const AppPolicy = Policy.pick({ description: true })
       .object({
         /** The highest ship mode anyone may pick for the App. */
         max: AppShipMode.optional(),
-        /** The highest ship mode per role. */
-        roles: z.record(z.string().min(1), AppShipMode).optional(),
+        /** The highest ship mode per team role. */
+        roles: z.object({ owner: AppShipMode.optional(), admin: AppShipMode.optional(), member: AppShipMode.optional() }).strict().optional(),
+        /** Imported App: `cowboy` pushes the repository's default branch instead of `studio/<app>` (ADR-012). Off by default. */
+        pushDefaultBranch: z.boolean().optional(),
       })
       .strict()
       .optional(),
-    /** Pull requests marked ready for review go through the App's merge gate (ADR-014). Off: a person always reviews. */
+    /** Pull requests marked ready for review go through the App's merge gate (ADR-014). Off by default: a person reviews every one. */
     mergeGate: z.boolean().optional(),
   })
   .strict();

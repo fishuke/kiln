@@ -16,3 +16,4 @@ export * from "./jira";
 export * from "./zip";
 export * from "./connections";
 export * from "./mail";
+export * from "./merge-gate";

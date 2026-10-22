@@ -137,7 +137,7 @@ export type Turn = {
   by: string; // user id or email
   status: TurnStatus;
   reply: string; // the agent's final message
-  title?: string; // one line, from .kiln/studio.json or the reply
+  title?: string; // one line, from .kiln/studio.json, else the reply's first line, else "Changes"
   summary?: string; // two sentences, for badges and voice
   question?: string; // the agent asked the person something
   plan?: string; // plan mode: the plan card's body
@@ -198,7 +198,7 @@ export const TEMPLATES: Record<string, Template>;
 - Studio starts the dev server with `KILN_STUDIO_PREVIEW_DOMAIN` in its environment when the server has one; the template's `next.config.ts` turns it into `allowedDevOrigins: ["*.<domain>"]` (port stripped), so hot reload works through the proxy. Dev ports stay within 4100–4199.
 - `egress`: `registry.npmjs.org`
 
-The template owner provides `/opt/kiln/templates/nextjs`, a ready app with `node_modules` and a pnpm store warmed in the runner image (`runners/images/studio`, tagged `kiln-runner-studio:local`), so the first preview takes about 10 seconds. The template data is in `templates/templates.json`; `TEMPLATES` must match it. `StudioOptions.image` comes from `KILN_STUDIO_IMAGE`, else `KILN_RUNNER_IMAGE`.
+The template owner provides `/opt/kiln/templates/nextjs`, a ready app with `node_modules` and a pnpm store warmed in the runner image (`runners/images/studio`, tagged `kiln-runner-studio:local`), so the first preview takes about 10 seconds. The template data is in `templates/templates.json`; `TEMPLATES` must match it. `StudioOptions.image` comes from `KILN_STUDIO_IMAGE`, else `KILN_RUNNER_IMAGE`, else the engine's `DEFAULT_RUNNER_IMAGE` (`node:22-bookworm`), the same fallback agent runs use.
 
 ## App source and import
 
@@ -206,12 +206,13 @@ An App starts from a template or from an existing repository (`source.kind`). Pr
 
 Import (`source.kind: "repo"`):
 
-1. **Clone.** `StudioOptions.clone(source)` returns a clone URL with a short-lived, repo-scoped token (the API builds it from the forge interface: `cloneUrl` + `sandboxToken`). Studio clones it into `<workdir>/app` and checks out `branch` (default: the repository's default branch). That branch becomes `setup.mainBranch`. Studio then removes the `origin` remote, so the token doesn't stay in the workspace.
+1. **Clone.** `StudioOptions.clone(source)` returns a clone URL with a short-lived, repo-scoped token (the API builds it from the forge interface: `cloneUrl` + `sandboxToken`). Studio passes it as the sandbox's one repository (`repos: [{ name: "app", url }]`, no branch), so the provider clones it into `<workdir>/app` and allows the clone host through the egress proxy. Studio then checks out `source.branch` (default: the repository's default branch). That branch becomes `setup.mainBranch`. Studio then removes the `origin` remote, so the token doesn't stay in the workspace.
 2. **Package manager** from the lockfile: `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, `bun.lockb`/`bun.lock` → bun, else npm. `install` is `pnpm install --prefer-offline`, `yarn install`, `bun install`, or `npm install --no-audit --no-fund` (plus `--no-package-lock` when the repository has no lockfile).
-3. **Install on first open.** It runs once when the workspace is created; snapshots keep later opens warm. Each new chat worktree installs again (with a warm store, this is fast).
-4. **Dev command.** `package.json` `scripts.dev` → `<pm> run dev`, recorded as `devDetected`. A person can set `devOverride` (`PATCH … { devCommand }`; `null` clears it). With neither, the App is `ready` but previews answer `StudioError("invalid", "no dev command")`.
-5. **Port.** The dev server gets `PORT={port}` and `HOST=0.0.0.0`. For `next dev` and `vite` without an explicit port, Studio appends `--port {port}` (and `--hostname`/`--host 0.0.0.0`). If the server prints a different `localhost:<n>` / `0.0.0.0:<n>` URL in its first output, Studio records that port for the target.
-6. **Environment.** Required keys come from `.env.example`, `.env.sample` or `.env.local.example`. `StudioOptions.env(app)` (the API resolves the team's Kiln secrets and environment templates, and later its Kiln Project's) provides values. They're passed to installs, dev servers and harness runs and never written to the repository. Missing keys are listed in `setup.envMissing`. The App is still `ready`, and the UI shows them with a link to Secrets.
+3. **Egress.** An imported App's sandbox may reach `registry.npmjs.org` (and the clone host while it's created). A registry the repository's lockfile names elsewhere is not allowed yet (open question).
+4. **Install on first open.** It runs once when the workspace is created; snapshots keep later opens warm. Each new chat worktree installs again (with a warm store, this is fast).
+5. **Dev command.** `package.json` `scripts.dev` → `<pm> run dev`, recorded as `devDetected`. A person can set `devOverride` (`PATCH … { devCommand }`; `null` clears it). With neither, the App is `ready` but previews answer `StudioError("invalid", "no dev command")`.
+6. **Port.** The dev server gets `PORT={port}` and `HOST=0.0.0.0`. For `next dev` and `vite` without an explicit port, Studio appends `--port {port}` (and `--hostname`/`--host 0.0.0.0`). If the server prints a different `localhost:<n>` / `0.0.0.0:<n>` URL in its first output, Studio records that port for the target.
+7. **Environment.** Required keys come from `.env.example`, `.env.sample` or `.env.local.example`. `StudioOptions.env(app)` (the API resolves the team's Kiln secrets and environment templates, and later its Kiln Project's) provides values. They're passed to installs, dev servers and harness runs and never written to the repository. Missing keys are listed in `setup.envMissing`. The App is still `ready`, and the UI shows them with a link to Secrets.
 
 **Ship mode on imported repositories (decided).** An imported App defaults to `review`: its forge sync opens a pull request and never pushes to the default branch. `cowboy` is allowed, but on an imported repository it pushes only to a `studio/<app id>` branch, never the default branch. Template Apps keep the `cowboy` default. Inside the sandbox the modes behave as in the ship mode table (cowboy auto-applies to the App's main line). Nothing in phases 1–4 pushes.
 
@@ -237,7 +238,7 @@ export type StudioOptions = {
   harness: (type: HarnessType) => HarnessAdapter;
   credentials?: (app: App, type: HarnessType) => Record<string, string>;
   templates?: Record<string, Template>; // default TEMPLATES
-  image?: string; // fallback runner image
+  image: string; // runner image when the template names none (see Template)
   previewUrl: (target: string, address: SandboxAddress) => string;
   /** Imported Apps: a clone URL with a short-lived repo-scoped token, and the branch to use. */
   clone?: (source: Extract<AppSource, { kind: "repo" }>) => Promise<{ url: string; branch?: string }>;
@@ -245,6 +246,8 @@ export type StudioOptions = {
   env?: (app: App) => Record<string, string>;
   maxRunningChats?: number; // default 3
   basePort?: number; // the version preview's port; chats use the next 99. Default 4100
+  previewDomain?: string; // KILN_STUDIO_PREVIEW_DOMAIN, passed to dev servers (see Template)
+  fetch?: typeof fetch; // for the preview ready check; default global fetch
 };
 
 export class Studio {
@@ -262,6 +265,7 @@ export class Studio {
 
   newChat(appId: string, input: { by: string; via: Via; title?: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string }): Promise<{ chat: Chat; turn?: Turn }>;
   getChat(id: string): { chat: Chat; turns: Turn[] } | undefined; // turns oldest first
+  getVersion(id: string): Version | undefined;
   /** Starts a turn, or steers the running one. Resolves when the turn has started, not finished. */
   send(chatId: string, input: { by: string; via: Via; text: string; mode?: ChatMode }): Promise<{ turn: Turn; steered: boolean }>;
   /** Resolves when the chat has no running turn, including a resolve turn Studio started itself. */
@@ -297,6 +301,7 @@ export class StudioError extends Error {
 - **Apply.** In `app`: `git merge --no-ff -m <title> chat/<id>`. The title is the subjects of the chat's non-merge commits not yet on the main line, joined with "; " and cut to 80 characters. On a conflict it runs `git merge --abort`, sets the chat to `conflict` and returns the files. `{ nothing: true }` when the chat has no new commits.
 - **Ship mode.** `cowboy`: after every turn with a checkpoint, apply. On a conflict, start a resolve turn (`resolve: true`) that tells the agent to run `git merge <main>`, fix the conflicts and commit, then apply again. If that conflicts too, the chat becomes `needs_you` with the conflicting files as the question. `safe` and `review`: the person applies. Nothing pushes, opens a PR or merges outside the sandbox in phases 1–4.
 - **Restore.** `git read-tree -u --reset <sha>`, then commit "Restore: <title>". This records a `restore` version; history is never rewritten.
+- **Ready check.** A dev server is `starting` until GET `ready.path` on its port answers (any status), polled every 200 ms, and `failed` after `ready.timeoutMs`; a dev server whose process ends is started again by the next preview. Imported Apps use `{ path: "/", timeoutMs: 60000 }`, the same as the Next.js template.
 - **Preview.** A dev server per chat worktree on `chat.port`, and one for `version` on `basePort`, started with `setup.dev` through `sandbox.spawn`. `url` is `previewUrl(target, await sandbox.expose(port))`. An App has at most 99 chats, so ports stay within 4100–4199.
 - **Limits.** If `maxRunningChats` turns are already running in the App, `send` throws `StudioError("busy")`.
 - **Durability.** Every step persists before and after it runs. After each turn the sandbox is snapshotted to `objects`, and an App whose sandbox isn't in memory resumes from `snapshot` (worktrees are repaired, because their paths may change). Dev servers start again lazily. Time comes only from `clock`.

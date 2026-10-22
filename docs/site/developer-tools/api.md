@@ -147,6 +147,10 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/environments/{id}` | — | One environment |
 | PATCH | `/api/v1/environments/{id}` | — | Change an environment |
 | DELETE | `/api/v1/environments/{id}` | — | Delete an environment |
+| GET | `/api/v1/variables` | — | Variable layers of a team, project, factory or App, one per environment (no secret values) |
+| GET | `/api/v1/variables/resolve` | — | The variables an environment resolves to for a project, factory or App, and where each comes from |
+| PUT | `/api/v1/variables/{scope}/{owner}/{environment}` | — | Replace a layer's variables (a secret sent without a value keeps its value) |
+| DELETE | `/api/v1/variables/{scope}/{owner}/{environment}` | — | Delete a layer |
 
 ## Usage
 

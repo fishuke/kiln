@@ -30,7 +30,7 @@ import { ImprovementService, RuleImprover, type Improver } from "./improvement";
 import { InboxService } from "./inbox";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
-import { AccountService, ChatgptSignIn, CredentialPool, EnvironmentService, HttpMcpProbe, McpRegistry, type McpProbe, NotificationService, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
+import { AccountService, ChatgptSignIn, CredentialPool, EnvironmentService, HttpMcpProbe, McpRegistry, type McpProbe, NotificationService, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService, VariableService } from "./platform";
 import { PlanningService, type Planner } from "./planning";
 import { RunQuery } from "./run-query";
 import { RunService } from "./runs";
@@ -176,6 +176,8 @@ export class Kiln {
   readonly mcp: McpRegistry;
   readonly mcpProbe: McpProbe;
   readonly environments: EnvironmentService;
+  /** Project environments: variables and secrets inherited team → project → factory or App. */
+  readonly variables: VariableService;
   readonly usage: UsageService;
   /** Routes artifacts, transcripts and attachments to each team's storage; `objects` is this router. */
   readonly storage: StorageRouter;
@@ -233,6 +235,7 @@ export class Kiln {
     this.mcp = new McpRegistry(this);
     this.mcpProbe = options.mcpProbe ?? new HttpMcpProbe();
     this.environments = new EnvironmentService(this);
+    this.variables = new VariableService(this);
     this.usage = new UsageService(this);
     this.connections = new ConnectionService(this, options.connectionProviders);
     this.identities = new IdentityService(this);

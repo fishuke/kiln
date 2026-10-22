@@ -872,12 +872,15 @@ export class RunService {
     const mcp = this.k.mcp.resolve(p.team, this.k.mcp.refsFor(p.team, p.input.overrides?.mcpServers ?? p.agent.mcpServers), resolver);
     for (const s of mcp.skipped) this.record(p.run, "mcp_skipped", s);
     const loginTokens = chosen.chatgptLogin ? (parseChatgptAuth(chosen.chatgptLogin)?.tokens ?? []) : [];
+    // The project's variables (team → project → factory), only for a factory in a project.
+    const variables = this.k.variables.forFactory(p.input.factory);
     this.redactions.set(p.run.id, [
       ...new Set(
         [
           ...Object.values(credentials),
           ...Object.values(mcp.env),
           ...this.k.vault.values(scope),
+          ...(variables?.secretValues ?? []),
           ...loginTokens,
           ...(this.forgeTokens.get(p.run.id) ?? []),
         ].filter((v) => v.length >= 6),
@@ -891,7 +894,7 @@ export class RunService {
     };
     const browser = browserServer(this.k, p.harnessType, p.agent);
     return {
-      env: { ...mcp.env, ...credentials, ...overrideEnv },
+      env: { ...variables?.env, ...mcp.env, ...credentials, ...overrideEnv },
       mcpServers: [...this.mcpServers(p.token), ...(browser ? [browser] : []), ...mcp.servers],
       chatgptLogin: chosen.chatgptLogin,
     };

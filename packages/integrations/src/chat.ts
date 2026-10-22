@@ -94,20 +94,23 @@ export class SlackChat implements Chat {
   }
 }
 
+/** What a preview deploys: the pull request's branch, with the project's preview variables when it has any. */
+export type PreviewDeploy = { repo: string; branch: string; pr: number; env?: Record<string, string> };
+
 export interface PreviewProvider {
   readonly name: string;
-  deploy(input: { repo: string; branch: string; pr: number }): Promise<{ url: string; id: string }>;
+  deploy(input: PreviewDeploy): Promise<{ url: string; id: string }>;
   destroy(id: string): Promise<void>;
 }
 
 export class FakePreview implements PreviewProvider {
   readonly name = "fake";
-  readonly deployments = new Map<string, { url: string; branch: string }>();
+  readonly deployments = new Map<string, { url: string; branch: string; env?: Record<string, string> }>();
 
-  async deploy(input: { repo: string; branch: string; pr: number }) {
+  async deploy(input: PreviewDeploy) {
     const id = `${input.repo.replace("/", "-")}-pr-${input.pr}`;
     const url = `https://pr-${input.pr}.${input.repo.split("/")[1]}.preview.test`;
-    this.deployments.set(id, { url, branch: input.branch });
+    this.deployments.set(id, { url, branch: input.branch, env: input.env });
     return { url, id };
   }
 
@@ -121,7 +124,8 @@ export class VercelPreview implements PreviewProvider {
 
   constructor(private readonly options: { token: string; project: string; teamId?: string; fetch?: typeof fetch }) {}
 
-  async deploy(input: { repo: string; branch: string; pr: number }) {
+  /** Vercel deployments use the variables set on the Vercel project; `env` is not sent. */
+  async deploy(input: PreviewDeploy) {
     const q = this.options.teamId ? `?teamId=${this.options.teamId}` : "";
     const res = await (this.options.fetch ?? fetch)(`https://api.vercel.com/v13/deployments${q}`, {
       method: "POST",
@@ -153,16 +157,20 @@ export class KubernetesPreview implements PreviewProvider {
     private readonly options: { runner: CommandRunner; domain: string; image: (repo: string, branch: string) => string; port?: number },
   ) {}
 
-  manifests(input: { repo: string; branch: string; pr: number }) {
+  manifests(input: PreviewDeploy) {
     const ns = `preview-${input.repo.split("/")[1]}-pr-${input.pr}`.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 63);
     const host = `pr-${input.pr}.${input.repo.split("/")[1]}.${this.options.domain}`;
     const labels = { app: "preview", "kiln.dev/pr": String(input.pr) };
     const port = this.options.port ?? 3000;
+    // Variables go in a Secret the container reads with envFrom, so values stay out of the Deployment.
+    const env = input.env && Object.keys(input.env).length ? input.env : undefined;
+    const container = { name: "app", image: this.options.image(input.repo, input.branch), ports: [{ containerPort: port }], ...(env ? { envFrom: [{ secretRef: { name: "app-env" } }] } : {}) };
     return {
       ns,
       host,
       docs: [
         { apiVersion: "v1", kind: "Namespace", metadata: { name: ns, labels: { "kiln.dev/preview": "true" } } },
+        ...(env ? [{ apiVersion: "v1", kind: "Secret", metadata: { name: "app-env", namespace: ns }, type: "Opaque", stringData: env }] : []),
         {
           apiVersion: "apps/v1",
           kind: "Deployment",
@@ -170,7 +178,7 @@ export class KubernetesPreview implements PreviewProvider {
           spec: {
             replicas: 1,
             selector: { matchLabels: labels },
-            template: { metadata: { labels }, spec: { containers: [{ name: "app", image: this.options.image(input.repo, input.branch), ports: [{ containerPort: port }] }] } },
+            template: { metadata: { labels }, spec: { containers: [container] } },
           },
         },
         { apiVersion: "v1", kind: "Service", metadata: { name: "app", namespace: ns }, spec: { selector: labels, ports: [{ port: 80, targetPort: port }] } },
@@ -184,7 +192,7 @@ export class KubernetesPreview implements PreviewProvider {
     };
   }
 
-  async deploy(input: { repo: string; branch: string; pr: number }) {
+  async deploy(input: PreviewDeploy) {
     const { ns, host, docs } = this.manifests(input);
     const r = await this.options.runner.run("kubectl", ["apply", "-f", "-"], { stdin: docs.map((d) => JSON.stringify(d)).join("\n") });
     if (r.code !== 0) throw new Error(`kubectl apply failed: ${r.stderr}`);

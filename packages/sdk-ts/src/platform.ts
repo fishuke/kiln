@@ -20,9 +20,13 @@ import type {
   TeamSettings,
   UsageEntry,
   UsageSummary,
+  ResolvedVariableView,
+  VariableInput,
+  VariableLayerView,
+  VariableScope,
 } from "@kiln/engine";
 
-export type { Appearance, ChatgptSignIn, CredentialStatus, PoolEntry, DigestPrefs, EnvironmentTemplate, FactoryMember, Invite, LinkedAccount, LinkProvider, McpServer, Membership, NotificationPrefs, NotificationRecord, PublicUser, SecretMeta, SecretType, TeamSettings, UsageEntry, UsageSummary };
+export type { Appearance, ChatgptSignIn, CredentialStatus, PoolEntry, DigestPrefs, EnvironmentTemplate, FactoryMember, Invite, LinkedAccount, LinkProvider, McpServer, Membership, NotificationPrefs, NotificationRecord, PublicUser, SecretMeta, SecretType, TeamSettings, UsageEntry, UsageSummary, ResolvedVariableView, VariableInput, VariableLayerView, VariableScope };
 
 export type TeamRole = "owner" | "admin" | "member";
 export type FactoryRole = "user" | "editor" | "admin";

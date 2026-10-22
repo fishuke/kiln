@@ -23,6 +23,7 @@ import { registerStudioPreview } from "./studio-preview";
 import * as tasks from "./tasks";
 import { teamRoutes } from "./teams";
 import { usageRoutes } from "./usage";
+import { variableRoutes } from "./variables";
 import { registerWebhookSourceRoutes } from "./webhook-sources";
 import { registerWebhookRoutes } from "./webhooks";
 import * as workers from "./workers";
@@ -43,6 +44,7 @@ const PLATFORM: ((ctx: RouteContext) => void)[] = [
   secretRoutes,
   mcpServerRoutes,
   environmentRoutes,
+  variableRoutes,
   usageRoutes,
   registerConnectionRoutes,
   registerGitHubAppRoutes,

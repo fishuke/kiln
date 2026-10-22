@@ -81,6 +81,10 @@ import type {
   TeamSummary,
   UsageEntry,
   UsageSummary,
+  ResolvedVariableView,
+  VariableInput,
+  VariableLayerView,
+  VariableScope,
 } from "./platform";
 
 export type * from "./platform";
@@ -1012,6 +1016,12 @@ export class KilnClient {
   updateEnvironment = (id: string, patch: Partial<EnvironmentInput>) =>
     this.request<EnvironmentTemplate>("PATCH", `/api/v1/environments/${encodeURIComponent(id)}`, patch);
   deleteEnvironment = (id: string) => this.request<{ ok: true }>("DELETE", `/api/v1/environments/${encodeURIComponent(id)}`);
+  // Project environments: variable layers per team, project, factory or App and environment name.
+  variables = (scope: VariableScope, owner: string) => this.request<VariableLayerView[]>("GET", `/api/v1/variables${this.q({ scope, owner })}`);
+  setVariables = (scope: VariableScope, owner: string, environment: string, variables: VariableInput[]) =>
+    this.request<VariableLayerView>("PUT", `/api/v1/variables/${scope}/${encodeURIComponent(owner)}/${encodeURIComponent(environment)}`, { variables });
+  deleteVariables = (scope: VariableScope, owner: string, environment: string) => this.request<{ ok: true }>("DELETE", `/api/v1/variables/${scope}/${encodeURIComponent(owner)}/${encodeURIComponent(environment)}`);
+  resolveVariables = (input: { environment: string; project?: string; factory?: string; app?: string }) => this.request<{ variables: ResolvedVariableView[] }>("GET", `/api/v1/variables/resolve${this.q(input)}`);
   usage = (filter: { since?: string; until?: string; factory?: string; user?: string; entries?: boolean } = {}) =>
     this.request<UsageSummary & { entries?: UsageEntry[] }>("GET", `/api/v1/usage${this.q({ ...filter, entries: filter.entries ? 1 : undefined })}`);
 

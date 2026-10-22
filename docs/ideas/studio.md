@@ -25,6 +25,7 @@ Team
 - **Kiln Project.** Groups Apps and factories, for example _Saba_: the frontend App and the backend factory. Its **environments** (variables and secrets, such as the API URL a preview should use) are inherited by its Apps' previews and its factories' runs. Each layer can override: team → project → App or factory.
 - **Chat.** A parallel line of work ("pricing page" while "fix login" runs). Each chat has its own preview, so chats don't overwrite each other.
 - **Subagents** belong to a chat. The lead agent spawns them through its harness; Studio shows them as nested activity.
+- **Lead chats.** Any chat can split work across parallel agents, the same way factory agents do: it starts subagent runs with a brief each, you or the lead can message them while they work or after they finish, their results come back to the lead, and the lead applies their work. Children appear under their lead with their own preview, and you can stop any of them. It's the same runs, agents and Kiln MCP tools factories use, so there is one way of working across Kiln. This works by voice too: you talk to the lead.
 - Idle chats pause using sandbox snapshots, and an App has a limit on how many chats run at once.
 
 ## Versions
@@ -39,9 +40,9 @@ Team
 | ------ | ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
 | Safe   | You click Apply                                              | Nothing is pushed until you ask                                                   |
 | Review | You click Apply                                              | The agent opens a pull request from a `studio/<app>` branch; a person merges      |
-| Cowboy | Automatic after every turn that changes files, in every chat | Template App: the agent pushes main. Imported App: only the `studio/<app>` branch |
+| Cowboy | Automatic after every turn that changes files, in every chat | Straight to main: no pull request, no UAT, no gate. Imported App: only once you opt in |
 
-- A template App defaults to **Cowboy**: it's an experiment, so who cares. An imported App defaults to **Review**. No agent ever pushes to an imported repository's main branch.
+- A template App defaults to **Cowboy**: it's an experiment, so who cares. An imported App defaults to **Review**, but if it's your own repo and you'd rather go fast, switch it to Cowboy and it pushes main too. A repo linked to a factory never gets Cowboy pushes to main.
 - Cowboy pushing main is the only place an agent merges, and only on the repository Kiln created for a template App, until that App is linked to a factory ([ADR-012](../adr/0012-studio.md)).
 
 ## From Studio to a reviewed pull request

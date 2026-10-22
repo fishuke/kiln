@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_DECISIONS, FakeProvider, guardCommand, JevProvider, runDecision, top, type DecisionProvider } from "./index";
+import { AnthropicProvider, BUILTIN_DECISIONS, FakeProvider, guardCommand, JevProvider, runDecision, top, type DecisionProvider } from "./index";
 
 const llm = new FakeProvider();
 
@@ -40,20 +40,80 @@ describe("command guardrail", () => {
 });
 
 describe("Jev adapter", () => {
-  it("sends typed questions and normalizes answers", async () => {
-    let sent: { url: string; body: unknown } | undefined;
+  /** A Jev that answers like api.typesafe.ai/v1/systemone (docs.typesafe.ai quickstart). */
+  const jevAt = (answers: Record<string, unknown>, seen: { url?: string; body?: Record<string, any>; auth?: string } = {}) =>
+    (async (url: string, init: RequestInit) => {
+      seen.url = url;
+      seen.body = JSON.parse(String(init.body));
+      seen.auth = (init.headers as Record<string, string>).authorization;
+      return new Response(JSON.stringify({ model: "jev-1.13.0", answers, usage: { input_tokens: 10, output_tokens: 2 } }));
+    }) as unknown as typeof fetch;
+
+  it("posts typed questions to /v1/systemone and normalizes answers", async () => {
+    const seen: { url?: string; body?: Record<string, any>; auth?: string } = {};
     const jev = new JevProvider({
-      baseUrl: "https://jev.example/",
       apiKey: "k",
       redact: (s) => ({ ...s, secret: "[redacted]" }),
-      fetch: (async (url: string, init: RequestInit) => {
-        sent = { url, body: JSON.parse(String(init.body)) };
-        return new Response(JSON.stringify({ answers: { kind: { probabilities: { bug: 0.9, feature: 0.1 } }, duplicate_of_recent: { probability: 0.2 } } }));
-      }) as unknown as typeof fetch,
+      fetch: jevAt({ kind: { type: "choice", choice: "bug", probabilities: { bug: 0.9, feature: 0.1 }, confidence: 0.8 }, duplicate_of_recent: { type: "noul", noul: 0.2 } }, seen),
     });
     const outcome = await runDecision("triage", BUILTIN_DECISIONS.triage!, { title: "Crash", secret: "x" }, { primary: jev });
-    expect(sent?.url).toBe("https://jev.example/v1/decide");
+    expect(seen.url).toBe("https://api.typesafe.ai/v1/systemone");
+    expect(seen.auth).toBe("Bearer k");
+    expect(seen.body).toMatchObject({ model: "jev-latest", state: { title: "Crash", secret: "[redacted]" } });
+    expect(seen.body!.questions.kind).toMatchObject({ type: "choice", criteria: { bug: expect.any(String), feature: expect.any(String) } });
+    expect(seen.body!.questions.kind.instructions).toEqual(expect.any(String));
+    expect(seen.body!.questions.duplicate_of_recent).toMatchObject({ type: "noul" });
     expect(top(outcome.answers.kind)).toEqual({ option: "bug", p: 0.9 });
-    expect(outcome.action).toBe("allow");
+    expect(outcome.answers.duplicate_of_recent).toBe(0.2);
+  });
+
+  it("accepts the base URL or the full endpoint, and maps scores onto the question's range", async () => {
+    const seen: { url?: string; body?: Record<string, any> } = {};
+    const questions = { urgency: { type: "score" as const, min: 0, max: 1 } };
+    const levels = 5;
+    for (const baseUrl of ["https://api.typesafe.ai", "https://api.typesafe.ai/v1/systemone/"]) {
+      const jev = new JevProvider({ baseUrl, apiKey: "k", fetch: jevAt({ urgency: { type: "score", score: 3, probabilities: {}, confidence: 1 } }, seen) });
+      const answers = await jev.ask({ decision: "inbox-urgency", state: { kind: "question" }, questions, timeoutMs: 1000 });
+      expect(seen.url).toBe("https://api.typesafe.ai/v1/systemone");
+      expect(seen.body!.questions.urgency.criteria).toHaveLength(levels);
+      expect(answers.urgency).toBeCloseTo(3 / (levels - 1));
+    }
+  });
+
+  it("fails with the status so the decision falls back", async () => {
+    const jev = new JevProvider({ apiKey: "bad", fetch: (async () => new Response("unauthorized", { status: 401 })) as unknown as typeof fetch });
+    await expect(jev.ask({ decision: "triage", state: {}, questions: BUILTIN_DECISIONS.triage!.questions, timeoutMs: 1000 })).rejects.toThrow("jev returned 401");
+  });
+});
+
+describe("Anthropic provider", () => {
+  it("asks Claude Haiku for typed answers with structured output", async () => {
+    let body: Record<string, any> | undefined;
+    const provider = new AnthropicProvider({
+      apiKey: "sk-test",
+      fetch: (async (_url: string, init: RequestInit) => {
+        body = JSON.parse(String(init.body));
+        const answer = { risk_level: { safe: 0.9, risky: 0.08, destructive: 0.02 }, remote_exec: 0.01, deletes_files: 0.7, touches_prod: 0 };
+        return new Response(
+          JSON.stringify({ id: "msg_1", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [{ type: "text", text: JSON.stringify(answer) }], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 5, output_tokens: 5 } }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }) as unknown as typeof fetch,
+    });
+    const { verdict } = await guardCommand("rm -rf node_modules", {}, { primary: provider });
+    expect(verdict).toBe("allow");
+    expect(body).toMatchObject({ model: "claude-haiku-5-5", output_config: { format: { type: "json_schema" } } });
+    expect(JSON.stringify(body!.messages)).toContain("rm -rf node_modules");
+  });
+
+  it("throws on a refusal so the decision fails closed", async () => {
+    const provider = new AnthropicProvider({
+      apiKey: "sk-test",
+      fetch: (async () =>
+        new Response(JSON.stringify({ id: "msg_2", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [], stop_reason: "refusal", stop_sequence: null, usage: { input_tokens: 5, output_tokens: 0 } }), {
+          headers: { "content-type": "application/json" },
+        })) as unknown as typeof fetch,
+    });
+    await expect(provider.ask({ decision: "command-guard", state: { command: "x" }, questions: BUILTIN_DECISIONS["command-guard"]!.questions, timeoutMs: 1000 })).rejects.toThrow(/refus/);
   });
 });

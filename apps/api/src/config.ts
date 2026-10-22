@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { GitHubOAuthClient, issueToken, type GitHubOAuth } from "@kiln/auth";
-import { FakeProvider, JevProvider, LlmProvider, type DecisionProvider } from "@kiln/decide";
+import { AnthropicProvider, FakeProvider, JevProvider, LlmProvider, type DecisionProvider } from "@kiln/decide";
 import { loadTree } from "@kiln/definitions";
 import { DecisionJudge, fakeAgents, FakeJudge, Kiln, sampleTree, type IntegrationAdapters, type KilnOptions } from "@kiln/engine";
 import {
@@ -76,8 +76,15 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
       : new FakeTracker("linear");
   const chat = env.SLACK_BOT_TOKEN ? new SlackChat({ botToken: env.SLACK_BOT_TOKEN }) : new FakeChat();
 
-  const llm: DecisionProvider | undefined = env.LLM_GATEWAY_URL ? new LlmProvider({ baseUrl: env.LLM_GATEWAY_URL, apiKey: env.LLM_GATEWAY_KEY ?? "", model: env.KILN_DECISION_MODEL ?? "claude-haiku-5-5" }) : undefined;
-  const primary: DecisionProvider = env.JEV_API_URL && env.JEV_API_KEY ? new JevProvider({ baseUrl: env.JEV_API_URL, apiKey: env.JEV_API_KEY }) : (llm ?? new FakeProvider());
+  // Decisions: Jev when it has a key (api.typesafe.ai unless JEV_API_URL says otherwise), then an LLM:
+  // the gateway if one is set, else Claude with the ANTHROPIC_API_KEY agents use; built-in rules only without either.
+  const model = env.KILN_DECISION_MODEL || "claude-haiku-5-5";
+  const llm: DecisionProvider | undefined = env.LLM_GATEWAY_URL
+    ? new LlmProvider({ baseUrl: env.LLM_GATEWAY_URL, apiKey: env.LLM_GATEWAY_KEY ?? "", model })
+    : env.ANTHROPIC_API_KEY
+      ? new AnthropicProvider({ apiKey: env.ANTHROPIC_API_KEY, model })
+      : undefined;
+  const primary: DecisionProvider = env.JEV_API_KEY ? new JevProvider({ baseUrl: env.JEV_API_URL || undefined, apiKey: env.JEV_API_KEY }) : (llm ?? new FakeProvider());
   const decide = { primary, fallback: llm ?? new FakeProvider() };
 
   const realAgents = env.KILN_AGENTS === "real";

@@ -20,6 +20,8 @@ services:
       KILN_AGENTS: ${KILN_AGENTS:-real}
       KILN_SANDBOX: ${KILN_SANDBOX:-docker}
       KILN_RUNNER_IMAGE: ${KILN_RUNNER_IMAGE:-kiln-runner-node:local}
+      # Studio (ADR-012) is off unless this is 1.
+      KILN_STUDIO: ${KILN_STUDIO:-0}
       # Studio Apps: the runner image plus the Next.js template with node_modules installed.
       KILN_STUDIO_IMAGE: ${KILN_STUDIO_IMAGE:-kiln-runner-studio:local}
       KILN_EGRESS_NETWORK: ${KILN_EGRESS_NETWORK:-kiln-egress}

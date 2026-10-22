@@ -396,7 +396,6 @@ Every route needs a signed-in caller (`ctx.user`). Apps belong to `ctx.team(c)`;
 | `GET /api/v1/studio/versions/{id}/diff`      |                                                              | `{ diff: string }` (against its parent version)                       |
 | `GET /api/v1/studio/versions/{id}/preview`   |                                                              | `Preview` (checks the version out in `version`)                       |
 | `GET /api/v1/studio/status`                  |                                                              | `StatusReport`                                                        |
-| `GET /api/v1/studio/reviews`                 |                                                              | `{ reviews: { pullRequest: AppPullRequest; app: { id; name }; title: string }[] }`: the team's Studio pull requests in `waiting_for_review`, for the Inbox (`title` is the head version's) |
 | `POST /api/v1/studio/tools/{name}`           | the tool's input                                             | `ToolResult`                                                          |
 
 ### Preview proxy (`apps/api/src/routes/studio-preview.ts`, a `PUBLIC_MODULES` entry)

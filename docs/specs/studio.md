@@ -450,7 +450,7 @@ export type AppPullRequest = {
 
 ### Merge gate (ADR-014)
 
-Contract: [merge-gate.md](merge-gate.md). Ship calls the gate when the author marks the App's pull request ready for review, never when it is only opened. `packages/studio` redeclares these types structurally (no `@kiln/engine` import); `apps/api/src/routes/studio.ts` passes `kiln.mergeGate` as `StudioOptions.mergeGate` (or the Shipper's option) and registers the App switch with `kiln.mergeGate.useAppPolicy((appId) => <resolved App policy>.mergeGate)`.
+Contract: [merge-gate.md](merge-gate.md). Ship calls the gate when the author marks the App's pull request ready for review, never when it is only opened. `packages/studio` redeclares these types structurally (no `@kiln/engine` import); `apps/api/src/routes/studio.ts` passes `kiln.mergeGate` as `StudioOptions.mergeGate` (or the Shipper's option). The App switch is `AppDefinitions.policy(target).mergeGate`, which `apps/api/src/routes/merge-gate.ts` registers with `kiln.mergeGate.useAppPolicy`.
 
 ```ts
 export interface StudioMergeGate {

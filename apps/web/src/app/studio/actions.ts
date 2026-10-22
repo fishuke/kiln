@@ -173,3 +173,10 @@ export async function studioInterrupt(runId: string): Promise<StudioResult<null>
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+const Review = z.object({ pullRequest: AppPullRequest, app: z.object({ id: z.string(), name: z.string() }), title: z.string() });
+
+/** Studio pull requests waiting for review, for the Inbox. */
+export async function studioReviews() {
+  return call(z.object({ reviews: z.array(Review) }), "GET", "/reviews");
+}

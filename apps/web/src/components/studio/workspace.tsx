@@ -17,7 +17,18 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { StudioClient } from "@/lib/studio/client";
-import { chatRunStatus, chatTree, chatUsage, importSteps, nextMode, routesFrom, splitDiff, unappliedTurns, versionForTurn, versionNumber } from "@/lib/studio/model";
+import {
+  chatRunStatus,
+  chatTree,
+  chatUsage,
+  importSteps,
+  nextMode,
+  routesFrom,
+  splitDiff,
+  unappliedTurns,
+  versionForTurn,
+  versionNumber,
+} from "@/lib/studio/model";
 import type { Chat, ChatMode, Version } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
 import { Composer, MODE_ICON } from "./composer";
@@ -42,36 +53,40 @@ const STATUS_DOT: Record<Chat["status"], string> = {
 
 /** The chats switcher: one tab per chat (its status as a dot) and "+" for a new one. */
 function ChatTabs({ chats, active, onPick, onNew }: { chats: Chat[]; active?: string; onPick: (id: string) => void; onNew: () => void }) {
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [active, chats.length]);
   return (
-    <div role="tablist" aria-label="Chats" className="flex scroll-fade-x scrollbar-none items-center gap-1 overflow-x-auto px-3 py-2">
+    <div ref={list} role="tablist" aria-label="Chats" className="flex scroll-fade-x scrollbar-none items-center gap-1 overflow-x-auto px-3 py-2">
       {chatTree(chats)
         .flatMap((n) => [n.chat, ...n.children])
         .map((c, i) => (
-        <Tooltip key={c.id}>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                role="tab"
-                aria-selected={c.id === active}
-                onClick={() => onPick(c.id)}
-                className={cn(
-                  "flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-full border border-transparent px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                  c.id === active && "border-border bg-background font-medium text-foreground shadow-xs",
-                )}
-              />
-            }
-          >
-            {c.parentChatId && <CornerDownRight className="-ml-1 size-3 shrink-0 opacity-60" />}
-            <span className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[c.status])} />
-            <span className="truncate">{c.title}</span>
-          </TooltipTrigger>
-          <TooltipContent>
-            {c.status === "needs_you" ? "Needs you" : c.status === "working" ? "Working" : c.status === "conflict" ? "Conflict" : c.title}
-            {i < 9 && <Kbd>⌥{i + 1}</Kbd>}
-          </TooltipContent>
-        </Tooltip>
-      ))}
+          <Tooltip key={c.id}>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={c.id === active}
+                  onClick={() => onPick(c.id)}
+                  className={cn(
+                    "flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-full border border-transparent px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                    c.id === active && "border-border bg-background font-medium text-foreground shadow-xs",
+                  )}
+                />
+              }
+            >
+              {c.parentChatId && <CornerDownRight className="-ml-1 size-3 shrink-0 opacity-60" />}
+              <span className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[c.status])} />
+              <span className="truncate">{c.title}</span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {c.status === "needs_you" ? "Needs you" : c.status === "working" ? "Working" : c.status === "conflict" ? "Conflict" : c.title}
+              {i < 9 && <Kbd>⌥{i + 1}</Kbd>}
+            </TooltipContent>
+          </Tooltip>
+        ))}
       <Tooltip>
         <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="New chat" onClick={onNew} className="shrink-0 rounded-full" />}>
           <Plus />
@@ -118,7 +133,8 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
   const [activeChat, setActiveChat] = useState<string | undefined>(params.get("chat") ?? undefined);
   const [panel, setPanel] = useState<"history" | "tasks">();
   const historyOpen = panel === "history";
-  const setHistoryOpen = (f: boolean | ((o: boolean) => boolean)) => setPanel((p) => ((typeof f === "function" ? f(p === "history") : f) ? "history" : undefined));
+  const setHistoryOpen = (f: boolean | ((o: boolean) => boolean)) =>
+    setPanel((p) => ((typeof f === "function" ? f(p === "history") : f) ? "history" : undefined));
   const [previewVersion, setPreviewVersion] = useState<string>();
   const [view, setView] = useState<PreviewView>("preview");
   const [pane, setPane] = useState<"chat" | "preview">("chat");
@@ -229,7 +245,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
       else if (e.code === "KeyK") setPanel((p) => (p === "tasks" ? undefined : "tasks"));
       else if (e.code === "KeyN") void newChat();
       else if (/^Digit[1-9]$/.test(e.code)) {
-        const c = chatList[Number(e.code.slice(5)) - 1];
+        const c = chatTree(chatList).flatMap((n) => [n.chat, ...n.children])[Number(e.code.slice(5)) - 1];
         if (c) selectChat(c.id);
       } else return;
       e.preventDefault();
@@ -420,7 +436,17 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
           </TooltipContent>
         </Tooltip>
         <Tooltip>
-          <TooltipTrigger render={<Button size="sm" variant={panel === "tasks" ? "secondary" : "ghost"} aria-pressed={panel === "tasks"} onClick={() => setPanel((p) => (p === "tasks" ? undefined : "tasks"))} className="gap-1.5" />}>
+          <TooltipTrigger
+            render={
+              <Button
+                size="sm"
+                variant={panel === "tasks" ? "secondary" : "ghost"}
+                aria-pressed={panel === "tasks"}
+                onClick={() => setPanel((p) => (p === "tasks" ? undefined : "tasks"))}
+                className="gap-1.5"
+              />
+            }
+          >
             <ListTree />
             <span className="hidden sm:inline">Tasks</span>
           </TooltipTrigger>

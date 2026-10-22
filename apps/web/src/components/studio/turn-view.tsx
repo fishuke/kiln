@@ -97,7 +97,7 @@ function ActivityLine({ a, live }: { a: Activity; live: boolean }) {
     );
   if (a.kind === "subagent")
     return (
-      <TraceCollapsible defaultOpen={live}>
+      <TraceCollapsible>
         <TraceCollapsibleTrigger>
           <TraceLine status={live ? "running" : undefined}>
             <TraceIcon>

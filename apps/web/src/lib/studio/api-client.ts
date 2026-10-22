@@ -28,8 +28,11 @@ export class ApiStudioClient implements StudioClient {
   status = () => unwrap(actions.studioStatus());
   repositories = () => unwrap(actions.studioRepositories());
   ship: StudioClient["ship"] = (appId, input) => unwrap(actions.studioShip(appId, input));
-  /** No route lists Studio reviews yet; the Inbox shows none on the API. */
-  reviews = async () => [];
+  /** An API without the reviews route shows no Studio reviews in the Inbox. */
+  reviews = async () => {
+    const r = await actions.studioReviews();
+    return r.ok ? r.data.reviews : [];
+  };
   followup = async (runId: string, text: string) => {
     await unwrap(actions.studioFollowup(runId, text));
   };

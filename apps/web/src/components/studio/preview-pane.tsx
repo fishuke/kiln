@@ -34,6 +34,16 @@ const WIDTH: Record<Device, string> = { desktop: "100%", tablet: "820px", mobile
 
 export type PreviewView = "preview" | "code";
 
+/** A preview on Kiln's own origin (the fake, local development) must not get allow-same-origin. */
+function sameOrigin(src: string | undefined): boolean {
+  if (!src || typeof window === "undefined") return true;
+  try {
+    return new URL(src, window.location.href).origin === window.location.origin;
+  } catch {
+    return true;
+  }
+}
+
 function IconButton({ label, children, ...props }: { label: string; children: React.ReactNode } & Omit<React.ComponentProps<typeof Button>, "children">) {
   return (
     <Tooltip>
@@ -285,7 +295,7 @@ export function PreviewPane({
                   title="App preview"
                   onLoad={() => setLoaded(true)}
                   className="size-full border-0"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+                  sandbox={`allow-scripts allow-forms allow-popups allow-modals allow-downloads${sameOrigin(src) ? "" : " allow-same-origin"}`}
                 />
               </div>
             </div>
@@ -306,9 +316,7 @@ export function EmptyPreview({ starting }: { starting?: boolean }) {
         {starting ? <LoaderCircle className="size-6 animate-spin text-muted-foreground" /> : <AppWindow className="size-6 text-muted-foreground" />}
       </div>
       <div className="text-sm font-medium">{starting ? "Setting up" : "No preview yet"}</div>
-      <p className="max-w-xs text-sm text-muted-foreground">
-        {starting ? "Creating the workspace" : "Send a message to start building"}
-      </p>
+      <p className="max-w-xs text-sm text-muted-foreground">{starting ? "Creating the workspace" : "Send a message to start building"}</p>
     </div>
   );
 }

@@ -53,7 +53,7 @@ interface Sandbox {
 Every type is a zod schema with an inferred type of the same name. Dates are ISO strings.
 
 ```ts
-export const ShipMode = z.enum(["safe", "review", "cowboy"]); // default "cowboy"
+export const ShipMode = z.enum(["safe", "review", "cowboy"]); // default "cowboy" for templates, "review" for imported repositories
 export const ChatMode = z.enum(["build", "chat", "plan"]); // default "build"
 export const Priority = z.enum(["needs_you", "finished", "progress"]);
 export const ProjectStatus = z.enum(["creating", "ready", "paused", "failed"]);
@@ -200,9 +200,8 @@ Import (`source.kind: "repo"`):
 5. **Port.** The dev server gets `PORT={port}` and `HOST=0.0.0.0`. For `next dev` and `vite` without an explicit port, Studio appends `--port {port}` (and `--hostname`/`--host 0.0.0.0`). If the server prints a different `localhost:<n>` / `0.0.0.0:<n>` URL in its first output, Studio records that port for the target.
 6. **Environment.** Required keys come from `.env.example`, `.env.sample` or `.env.local.example`. `StudioOptions.env(project)` (the API resolves the team's Kiln secrets and environment templates) provides values, passed to installs, dev servers and harness runs, never written to the repository. Missing keys are listed in `setup.envMissing`. The project is still `ready`, and the UI shows them with a link to Secrets. They're computed again on every open.
 
-**Forge push rules for imported repositories are pending the user's decision.** Nothing in phases 1–4 pushes. The proposal:
+**Ship mode on imported repositories (decided).** An imported project defaults to `review`: its forge sync opens a pull request and never pushes to the default branch. `cowboy` is allowed, but on an imported repository it pushes only to a `studio/<project id>` branch, never the default branch. Template projects keep the `cowboy` default. Inside the sandbox the modes behave as in the ship mode table (cowboy auto-applies to the project's main line). Nothing in phases 1–4 pushes. Still open:
 
-- On an imported repository, `cowboy` pushes only to a `studio/<project id>` branch, never the default branch.
 - A repository that belongs to a factory gets pull requests only (ADR-008), whatever the ship mode.
 - An explicit per-repository "playground" opt-in lets `cowboy` push to the default branch.
 
@@ -234,7 +233,8 @@ export type StudioOptions = {
   clone?: (source: Extract<ProjectSource, { kind: "repo" }>) => Promise<{ url: string; branch?: string }>;
   /** Environment for installs, dev servers and runs (Kiln secrets and environment templates). */
   env?: (project: Project) => Record<string, string>;
-  maxRunningChats?: number;                           // default 3
+  maxRunningChats?: number;
+  basePort?: number; // the version preview's port; chats use the next ones. Default 4100                           // default 3
 };
 
 export class Studio {
@@ -244,6 +244,10 @@ export class Studio {
   getProject(id: string): { project: Project; chats: Chat[]; versions: Version[] } | undefined;
   createProject(input: { team: string; by: string; name: string; source?: ProjectSource; shipMode?: ShipMode; harness?: HarnessType; model?: string }): Promise<Project>; // default source: the nextjs template
   updateProject(id: string, patch: { name?: string; shipMode?: ShipMode; devCommand?: string | null }): Project;
+  /** Resolves when a new project is ready or has failed (creation runs in the background). */
+  ready(projectId: string): Promise<void>;
+  /** Stops every dev server, agent and sandbox without snapshotting (process shutdown, tests). */
+  shutdown(): Promise<void>;
   pause(projectId: string): Promise<Project>;          // snapshot, destroy the sandbox
 
   newChat(projectId: string, input: { by: string; via: Via; title?: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string }): Promise<{ chat: Chat; turn?: Turn }>;

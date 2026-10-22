@@ -1247,6 +1247,36 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `tags` | list of string |  | default `[]` |
 | `author` | string |  |  |
 
+## app
+
+`app.yaml (Studio App)`
+
+| Key | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `schemaVersion` | `"kiln/v1"` | yes |  |
+| `name` | string |  |  |
+| `description` | string |  |  |
+| `skills` | object |  |  |
+| `skills.mandatory` | list of string |  |  |
+| `budgets` | object |  |  |
+| `budgets.monthlyUsd` | number |  |  |
+
+## app-policy
+
+`policies/<name>.yaml (Studio App)`
+
+| Key | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `description` | string |  |  |
+| `shipMode` | object |  |  |
+| `shipMode.max` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.roles` | object |  |  |
+| `shipMode.roles.owner` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.roles.admin` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.roles.member` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.pushDefaultBranch` | boolean |  |  |
+| `mergeGate` | boolean |  |  |
+
 ## Related pages
 
 - [Definitions as code](definitions-as-code.md)
@@ -1554,6 +1584,122 @@ How a memory gets there:
 - [Definitions as code](definitions-as-code.md)
 - [Harnesses](../infrastructure/harnesses.md)
 - [Self-improvement](../measure-and-improve/self-improvement.md)
+
+---
+
+# Studio App definitions
+
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/configuration/studio-app-definitions.md
+
+A Studio App is defined with the same `kiln/v1` files as a factory, minus the parts that only make sense for a factory, and a new App inherits everything it needs from its team and Kiln Project.
+
+## What an App definition holds
+
+```text
+app.yaml                                   # name, description, mandatory skills, budget
+agents/<name>/agent.md                     # agents, in the factory agent format
+agents/<name>/skills/<skill>/SKILL.md      # an agent's own skills
+skills/<skill>/SKILL.md                    # skills every agent gets
+policies/<name>.yaml                       # ship mode caps and the merge gate
+```
+
+Pipelines, gates, automations, runners, routers, scorers, benchmarks, webhooks, decisions and memories don't apply to Apps. A file under any of them is an error, for example `pipelines/feature.yaml:1: pipelines don't apply to Apps`.
+
+## app.yaml
+
+```yaml
+schemaVersion: kiln/v1
+name: Pricing site
+description: Marketing site for the pricing pages
+skills:
+  mandatory: [house-style]
+budgets:
+  monthlyUsd: 200
+```
+
+| Key                   | Notes                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| `schemaVersion`       | Must be `kiln/v1`.                                                                                   |
+| `name`, `description` | Optional.                                                                                            |
+| `skills.mandatory`    | Skills in `skills/` that every agent always gets in its instructions, not only in its skills folder. |
+| `budgets.monthlyUsd`  | What the App's chats may spend in a calendar month.                                                  |
+
+## Agents
+
+Agents use the [factory agent format](agents.md): `description`, `harness` or `model`, `mcpServers`, `secrets`, `spawnableBy` and the instructions in the body. An App can have any number of them, for example `implementer`, `reviewer` and `test-writer`.
+
+```markdown
+---
+description: Reviews a change before it is applied
+model: claude-opus-5-5
+mcpServers: [github]
+spawnableBy: [general]
+---
+
+Check the tests and the acceptance criteria. Report what is missing.
+```
+
+- Every App has an agent named `general` (Claude Code, no instructions), so a chat works with nothing configured. A chat that names no agent runs `general`.
+- A chat's agent can start the App's other agents as subagent runs. `spawnableBy` limits which agents may start an agent; without it, any of the App's agents may.
+- Each agent gets every shared skill plus its own skills. Mandatory skills are added to its instructions.
+- `agentType`, `runner`, `workerHost`, `environmentId`, `required_repos` and `credentialStrategy` only mean something in a factory. In an App they are ignored with a warning.
+- Set one of `harness` and `model`, not both, and name a model rather than a `router:`.
+
+`mcpServers` names servers from [MCPs and apps](../management/secrets-mcps-environments.md#mcp-servers-mcps-and-apps). Servers given to all agents are added as in factories.
+
+## Policies
+
+```yaml
+# policies/studio.yaml
+shipMode:
+  max: cowboy # the highest ship mode anyone may pick
+  roles: { member: review } # the highest per team role: owner, admin, member
+  pushDefaultBranch: false # imported App: Cowboy pushes the default branch
+mergeGate: false # Ready for review goes through the merge gate
+```
+
+The App's policies are the only place these settings live. Ship modes and the merge gate read them from here.
+
+- Ship modes go from `safe` to `review` to `cowboy`. A person picks a ship mode up to the lowest cap that applies to them.
+- `pushDefaultBranch` and `mergeGate` are off unless a policy turns them on, and any policy that turns one off wins. With the merge gate off, a person reviews every Studio pull request.
+- Only team owners and admins change an App's policies. The Kiln MCP can't change them.
+- Kiln records who changed each setting and when.
+
+## Defaults from the team and the Kiln Project
+
+An App's definition has up to four layers, applied in order: built-in, team, Kiln Project (when the App belongs to one), then the App itself. Each layer is a tree like the one above, and every layer is optional.
+
+| Part                  | How layers combine                                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Agents                | By name. A key a later layer sets wins; `null` clears it. Setting `harness` drops an earlier `model`.       |
+| Skills                | By name; a later layer's skill replaces an earlier one.                                                     |
+| Mandatory skills      | Added up across layers. An App can't drop a skill its team made mandatory.                                  |
+| Policies              | All of them apply. Caps take the lowest; a switch is on only if a policy turns it on and none turns it off. |
+| `budgets.monthlyUsd`  | The lowest of all layers.                                                                                   |
+| `name`, `description` | The last layer that sets them.                                                                              |
+
+Team owners and admins edit the team and project layers. Any member of the team can edit an App's own layer, except its policies.
+
+## Versions and export
+
+Kiln stores each layer by the content hash of its files. Every change makes a new version, and the layer points at one. **Use** on an earlier version points the layer back at it, as a new entry in its history.
+
+Export writes the resolved definition, all layers combined, in the layout above, ready to commit to a Git repository. Team and project policies are prefixed with their layer, for example `policies/team-guard.yaml`.
+
+## Editing
+
+- **App settings** in Studio edits the App's own layer: agents, skills, policy, budget and versions.
+- API: `GET|PUT|PATCH /api/v1/studio/apps/{id}/definition`, `POST …/definition/use`, `GET /api/v1/studio/apps/{id}/settings` and `GET /api/v1/studio/apps/{id}/definition/export`. The same routes exist for `projects/{id}` and `team`. A `PUT` with invalid files answers 400 with each error as `file:line: message`. See the [API reference](../developer-tools/api.md).
+- Kiln MCP: `get_app_settings` and `update_app_settings`. See [Kiln MCP](../developer-tools/mcp.md).
+
+## Related pages
+
+- [Factory agents](agents.md)
+- [Skills](skills.md)
+- [Policies and budgets](policies-and-budgets.md)
+- [Definitions as code](definitions-as-code.md)
+- [Definition file reference](definitions-reference.md)
+- [Secrets, MCPs and environments](../management/secrets-mcps-environments.md)
 
 ---
 
@@ -2014,6 +2160,22 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/studio/versions/{id}/preview` | — | Preview an earlier version |
 | GET | `/api/v1/studio/status` | — | What is working and what needs you, across your team's Apps |
 | POST | `/api/v1/studio/tools/{name}` | — | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, focus, show) |
+| GET | `/api/v1/studio/apps/{id}/definition` | — | An App's own Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/apps/{id}/definition` | — | Replace an App's own definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/apps/{id}/definition` | — | Change an App's own definition layer from settings |
+| POST | `/api/v1/studio/apps/{id}/definition/use` | — | Point an App's own definition layer at an earlier sha |
+| GET | `/api/v1/studio/projects/{id}/definition` | — | A Kiln Project's Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/projects/{id}/definition` | — | Replace a Kiln Project's definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/projects/{id}/definition` | — | Change a Kiln Project's definition layer from settings |
+| POST | `/api/v1/studio/projects/{id}/definition/use` | — | Point a Kiln Project's definition layer at an earlier sha |
+| GET | `/api/v1/studio/team/definition` | — | The team's Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/team/definition` | — | Replace the team's definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/team/definition` | — | Change the team's definition layer from settings |
+| POST | `/api/v1/studio/team/definition/use` | — | Point the team's definition layer at an earlier sha |
+| GET | `/api/v1/studio/apps/{id}/settings` | — | An App's resolved settings and its own values |
+| GET | `/api/v1/studio/team/settings` | — | The team's Studio defaults, resolved |
+| GET | `/api/v1/studio/projects/{id}/settings` | — | A Kiln Project's Studio defaults, resolved |
+| GET | `/api/v1/studio/apps/{id}/definition/export` | — | An App's definition in kiln/v1 layout (?resolved=false for its own layer) |
 
 ## Errors
 
@@ -2126,6 +2288,7 @@ List my factories, then help me send a task to the right one and follow it throu
 | `create_team` | Create a team. You become its owner. Needs a user token (session or personal API key). |
 | `decide_gate` | Approve, reject or answer a gate. Needs the decide scope for the gate's kind. |
 | `follow_up_run` | Send a follow-up to a run: steers it while it runs, continues it when it finished. |
+| `get_app_settings` | A Studio App's definition: its agents (model, MCP servers, skills), shared skills (mandatory ones marked), ship mode cap, merge gate and budget, resolved from team and project defaults, plus what the App sets itself. |
 | `get_conversation` | A task's conversation (requests, foreman messages, agent summaries, decisions), or a run's normalized conversation. |
 | `get_factory_file_schema` | The definition schema catalog, or one document (e.g. agent.schema.json, factory.schema.json). |
 | `get_gate` | A gate (decision) and its answer. |
@@ -2159,6 +2322,7 @@ List my factories, then help me send a task to the right one and follow it throu
 | `studio_send` | Studio: Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them. |
 | `studio_show` | Studio: Show the preview, the code or the history in the person's screen. (Moves the caller's screen; changes nothing on the server.) |
 | `studio_status` | Studio: What is running and what needs the person, for one app or all of them. |
+| `update_app_settings` | Change a Studio App's own definition layer (not its policy, which people change in the App's settings). null removes the App's value so it inherits from its project or team again. Every change is a new version. |
 | `validate_factory_files` | Validate a whole definition tree without saving it: diagnostics with file and line, plus what is resolved only when applied. With apply=true and a factory, applies it (definitions:write). |
 
 ## Related pages

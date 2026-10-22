@@ -232,6 +232,8 @@ describe("Kiln MCP with scoped tokens ", () => {
         "studio_show",
         "studio_status",
         "validate_factory_files",
+        "get_app_settings",
+        "update_app_settings",
       ].sort(),
     );
   });

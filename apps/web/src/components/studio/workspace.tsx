@@ -449,7 +449,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
           </span>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {app && (
+          {app?.status === "ready" && (
             <ShipControl
               pullRequest={detail?.pullRequest}
               onShip={async (state) => {

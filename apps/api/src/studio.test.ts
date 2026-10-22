@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestKiln } from "@kiln/engine";
+import { studioEngineHooks } from "@kiln/studio";
 import { createMcpHandler } from "@kiln/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -32,9 +33,14 @@ function setup() {
     if (opts.prompt.startsWith("write ")) await opts.sandbox.writeFile(`${opts.cwd}/note.txt`, `${opts.prompt}\n`);
     emit({ type: "message", text: "Done." });
   });
-  const t = createTestKiln({ preview: false, sandboxes: { local: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-api-studio-"))) } });
-  configureStudio(t.kiln, {
+  // App turns run through the engine: its hooks answer from the Studio built for this Kiln, as config.ts wires them.
+  const t: ReturnType<typeof createTestKiln> = createTestKiln({
+    preview: false,
     harness: () => agent,
+    sandboxes: { local: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-api-studio-"))) },
+    ...studioEngineHooks(() => studioFor(t.kiln)),
+  });
+  configureStudio(t.kiln, {
     templates: { test: { id: "test", name: "Test", scaffold: ["echo hi > README.md"], install: [], dev: "sleep 30", egress: [] } },
     basePort: 30_000 + Math.floor(Math.random() * 20_000),
   });

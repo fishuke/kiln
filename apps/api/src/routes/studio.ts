@@ -1,8 +1,8 @@
 import type { Scope } from "@kiln/auth";
 import { DEFAULT_RUNNER_IMAGE, type Kiln } from "@kiln/engine";
-import { adapterFor } from "@kiln/harness";
 import { HarnessType } from "@kiln/schema";
-import { AppSource, ChatMode, runTool, STUDIO_TOOLS, Studio, StudioError, type StudioErrorCode, type StudioOptions } from "@kiln/studio";
+import { AppSource, ChatMode, runTool, STUDIO_TOOLS, Studio, StudioError, studioRuns, type StudioErrorCode, type StudioOptions } from "@kiln/studio";
+import { appDefinitionsFor } from "./studio-definitions";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
@@ -141,8 +141,9 @@ export function studioFor(kiln: Kiln): Studio | undefined {
     bus: kiln.bus,
     clock: kiln.clock,
     sandboxes: sandboxes!,
-    harness: (type) => kiln.options.harness?.(type, "studio") ?? adapterFor(type),
-    credentials: (app, type) => kiln.runs.credentials(type, { secrets: [], harness: { type } }, { teamId: app.team }),
+    // Turns are runs of the App's agents (ADR-012): the engine resolves them through KilnOptions.apps (studioEngineHooks).
+    definitions: appDefinitionsFor(kiln),
+    runs: studioRuns(kiln.runs),
     // Only values people assigned to the App (team → Kiln Project → App); never the secret vault.
     env: (app) => {
       const v = kiln.variables.forApp(app);

@@ -1213,9 +1213,9 @@ export class RunService {
   async steer(runId: string, text: string, by: string) {
     const session = this.sessions.get(runId);
     const remote = this.remotes.get(runId);
+    // A live run without a session is queued, claimed or still preparing its sandbox: its agent gets the message when it starts.
     const run = this.live.get(runId);
-    if (!run || (!session && !remote && run.status !== "queued" && run.status !== "claimed"))
-      throw new KilnError("operation_not_supported", `run ${runId} is not running`);
+    if (!run) throw new KilnError("operation_not_supported", `run ${runId} is not running`);
     if (session) await session.steer(text);
     else if (remote) await remote.steer(text);
     run.steering.push(text);
@@ -1235,7 +1235,7 @@ export class RunService {
   ): Promise<{ delivered: "steered" | "continued"; run: Run }> {
     const run = this.get(runId);
     if (!run) throw new KilnError("resource_not_found", `unknown run ${runId}`);
-    if (this.isActive(runId)) {
+    if (this.isActive(runId) || this.live.has(runId)) {
       const sandbox = this.sandboxes.get(runId);
       const cwd = run.startState.repos[0]?.name;
       for (const a of input.attachments ?? []) {

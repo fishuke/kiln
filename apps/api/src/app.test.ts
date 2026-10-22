@@ -231,6 +231,7 @@ describe("Kiln MCP with scoped tokens ", () => {
         "studio_send",
         "studio_show",
         "studio_status",
+        "studio_stop",
         "validate_factory_files",
         "get_app_settings",
         "update_app_settings",

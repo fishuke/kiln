@@ -88,6 +88,12 @@ export const Chat = z.object({
   id: z.string(),
   appId: z.string(),
   title: z.string(),
+  /** The App agent the chat runs (`general` unless named). */
+  agent: z.string(),
+  /** The chat's latest run; a person's next message follows up on it. */
+  runId: z.string().optional(),
+  /** For a chat an agent started: the run that spawned it. */
+  parentRunId: z.string().optional(),
   mode: ChatMode,
   harness: HarnessType,
   model: z.string().optional(),
@@ -115,6 +121,8 @@ export const Turn = z.object({
   id: z.string(),
   appId: z.string(),
   chatId: z.string(),
+  /** The run this turn is (set once the run has its workspace). */
+  runId: z.string().optional(),
   prompt: z.string(),
   mode: ChatMode,
   via: Via,

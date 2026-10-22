@@ -53,7 +53,9 @@ export type CredentialStrategy = z.infer<typeof CredentialStrategy>;
 
 export const RequiredRepo = z.union([
   z.string().regex(/^[^/\s]+\/[^/\s]+$/, "use owner/name"),
-  z.object({ owner: z.string().min(1), name: z.string().min(1), codeForge: z.enum(["GITHUB", "GITLAB", "AZURE_DEVOPS", "github", "gitlab"]).optional() }).strict(),
+  z
+    .object({ owner: z.string().min(1), name: z.string().min(1), codeForge: z.enum(["GITHUB", "GITLAB", "AZURE_DEVOPS", "github", "gitlab"]).optional() })
+    .strict(),
 ]);
 
 /** owner and name of a required repo, whichever form it was written in. */
@@ -134,18 +136,27 @@ export const FactoryIntegration = z.union([
   z
     .object({
       type: z.string().min(1),
-      slack: z.object({ ...ChatSettings, channels: z.array(z.string()).optional() }).strict().optional(),
+      slack: z
+        .object({ ...ChatSettings, channels: z.array(z.string()).optional() })
+        .strict()
+        .optional(),
       "microsoft-teams": z
         .object({ ...ChatSettings, teams: z.array(z.object({ teamId: z.string().min(1), channelIds: z.array(TeamsChannelId).min(1) }).strict()).optional() })
         .strict()
         .optional(),
-      discord: z.object({ ...ChatSettings, guildIds: z.array(z.string()).optional(), channelIds: z.array(z.string()).optional() }).strict().optional(),
+      discord: z
+        .object({ ...ChatSettings, guildIds: z.array(z.string()).optional(), channelIds: z.array(z.string()).optional() })
+        .strict()
+        .optional(),
       linear: z
         .object({
           teams: z.array(z.string()).optional(),
           teamIds: z.array(z.string()).optional(),
           /** Workflow states, by name, to move issues to at hand-off and when the work is done (instead of the first started and completed ones). */
-          states: z.object({ handoff: z.string().min(1).optional(), done: z.string().min(1).optional() }).strict().optional(),
+          states: z
+            .object({ handoff: z.string().min(1).optional(), done: z.string().min(1).optional() })
+            .strict()
+            .optional(),
           /** Linear users (id, email or name) who may start work here; unset lets everyone. */
           allowUsers: z.array(z.string().min(1)).optional(),
           /** Linear users (id, email or name) who may not start work here. */
@@ -153,7 +164,10 @@ export const FactoryIntegration = z.union([
         })
         .strict()
         .optional(),
-      jira: z.object({ projects: z.array(z.string()).optional(), projectKeys: z.array(z.string()).optional() }).strict().optional(),
+      jira: z
+        .object({ projects: z.array(z.string()).optional(), projectKeys: z.array(z.string()).optional() })
+        .strict()
+        .optional(),
     })
     .strict()
     .superRefine((i, ctx) => {
@@ -190,7 +204,10 @@ function normalizeIntegrations(list: z.infer<typeof FactoryIntegration>[]): Inte
 /** Cloud identity federation passed to runs (AWS_ROLE_ARN, GCP workload identity). */
 export const CloudProviders = z
   .object({
-    aws: z.object({ roleArn: z.string().regex(/^arn:aws[a-z-]*:iam::\d{12}:role\/.+/, "use an IAM role ARN") }).strict().optional(),
+    aws: z
+      .object({ roleArn: z.string().regex(/^arn:aws[a-z-]*:iam::\d{12}:role\/.+/, "use an IAM role ARN") })
+      .strict()
+      .optional(),
     gcp: z
       .object({
         projectNumber: z.string().regex(/^\d+$/, "quote the project number so YAML keeps it a string"),
@@ -214,8 +231,14 @@ export const Factory = z
     repositories: z.array(Repository).min(1),
     /** Integrations this factory opts into (connected once per workspace). Bare names are the legacy form. */
     integrations: z.array(FactoryIntegration).default([]).transform(normalizeIntegrations),
-    github: z.object({ factoryConfigChecks: z.enum(["main", "all"]).default("main") }).strict().optional(),
-    automations: z.object({ githubOnboardingNotices: z.boolean().default(true) }).strict().optional(),
+    github: z
+      .object({ factoryConfigChecks: z.enum(["main", "all"]).default("main") })
+      .strict()
+      .optional(),
+    automations: z
+      .object({ githubOnboardingNotices: z.boolean().default(true) })
+      .strict()
+      .optional(),
     cloudProviders: CloudProviders.optional(),
     /** Legacy alias of cloudProviders. */
     providers: CloudProviders.optional(),
@@ -225,7 +248,10 @@ export const Factory = z
     avatar: z.string().optional(),
     agentDefaults: z.object(executionShape).strict(),
     /** Runner, secrets and MCP servers for scorer judge runs. */
-    scorerDefaults: z.object({ runner: z.string().optional(), secrets: z.array(z.string()).optional(), mcpServers: z.array(z.string()).optional() }).strict().optional(),
+    scorerDefaults: z
+      .object({ runner: z.string().optional(), secrets: z.array(z.string()).optional(), mcpServers: z.array(z.string()).optional() })
+      .strict()
+      .optional(),
     /** Default judge model for scorers and benchmarks. */
     scoring: z.object({ defaultModel: z.string().optional() }).strict().optional(),
     blueprint: Blueprint.optional(),
@@ -277,10 +303,7 @@ export const Factory = z
       .strict()
       .optional(),
     defaultPipeline: z.string().optional(),
-    budgets: z
-      .object({ perWorkItemUsd: z.number().positive().optional(), monthlyUsd: z.number().positive().optional() })
-      .strict()
-      .optional(),
+    budgets: z.object({ perWorkItemUsd: z.number().positive().optional(), monthlyUsd: z.number().positive().optional() }).strict().optional(),
   })
   .strict()
   .superRefine((f, ctx) => {
@@ -290,21 +313,12 @@ export const Factory = z
     }
     const dupes = types.filter((t, i) => types.indexOf(t) !== i);
     if (dupes.length) ctx.addIssue({ code: "custom", path: ["integrations"], message: `integration ${dupes[0]} is listed twice` });
-    if (f.cloudProviders && f.providers) ctx.addIssue({ code: "custom", path: ["providers"], message: "set cloudProviders (providers is its legacy alias), not both" });
+    if (f.cloudProviders && f.providers)
+      ctx.addIssue({ code: "custom", path: ["providers"], message: "set cloudProviders (providers is its legacy alias), not both" });
   });
 export type Factory = z.infer<typeof Factory>;
 
-export const AgentType = z.enum([
-  "FOREMAN",
-  "TRIAGE",
-  "SPEC",
-  "IMPLEMENT",
-  "REVIEW",
-  "VERIFY",
-  "PLAN",
-  "PO_ASSISTANT",
-  "CUSTOM",
-]);
+export const AgentType = z.enum(["FOREMAN", "TRIAGE", "SPEC", "IMPLEMENT", "REVIEW", "VERIFY", "PLAN", "PO_ASSISTANT", "CUSTOM"]);
 export type AgentType = z.infer<typeof AgentType>;
 
 export const AgentFrontmatter = z
@@ -333,7 +347,10 @@ export const Trigger = z
       .nullable()
       .optional()
       .transform((f) => f ?? undefined),
-    schedule: z.object({ cron: z.string().min(1), name: z.string().min(1).optional() }).strict().optional(),
+    schedule: z
+      .object({ cron: z.string().min(1), name: z.string().min(1).optional() })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((t, ctx) => {
@@ -412,6 +429,8 @@ export const Policy = z
     deniedActions: z.array(z.string()).optional(),
     allowedTriggerers: z.array(z.string()).optional(),
     maxUsdPerWorkItem: z.number().positive().optional(),
+    /** ADR-014: the merge gate may merge pull requests the merge-safety decision finds safe. Off unless a person sets it; `false` in any policy file wins. */
+    mergeGate: z.boolean().optional(),
   })
   .strict();
 export type Policy = z.infer<typeof Policy>;
@@ -428,7 +447,10 @@ export const RunnerPlatform = z
       })
       .strict()
       .optional(),
-    mac: z.object({ version: z.enum(["14", "15", "26", "27"]).default("26") }).strict().optional(),
+    mac: z
+      .object({ version: z.enum(["14", "15", "26", "27"]).default("26") })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -460,32 +482,33 @@ export const Runner = RunnerInput.transform((r): RunnerOut => {
   const shape = r.shape ?? r.instanceShape;
   // One place for the pull credential: the top-level v1alpha1 key is folded into platform.linux.
   const registry = r.platform?.linux?.registryCredentialSecretName ?? r.registryCredentialSecretName;
-  const platform = registry ? { ...(r.platform ?? { os: "linux" as const }), linux: { ...r.platform?.linux, registryCredentialSecretName: registry } } : r.platform;
+  const platform = registry
+    ? { ...(r.platform ?? { os: "linux" as const }), linux: { ...r.platform?.linux, registryCredentialSecretName: registry } }
+    : r.platform;
   const image = r.image ?? r.platform?.linux?.dockerImage;
   const { image: _image, ...rest } = r;
   return { ...rest, ...(image ? { image } : {}), ...(shape ? { shape } : {}), ...(platform ? { platform } : {}) };
 });
 export type Runner = z.infer<typeof Runner>;
 
-export const Router = z
-  .discriminatedUnion("type", [
-    z
-      .object({
-        name: z.string().optional(),
-        type: z.literal("complexity"),
-        default: z.string(),
-        routing: z.object({ easy: z.string().optional(), medium: z.string().optional(), hard: z.string().optional() }).strict(),
-      })
-      .strict(),
-    z
-      .object({
-        name: z.string().optional(),
-        type: z.literal("prompt"),
-        default: z.string(),
-        routing: z.array(z.object({ description: z.string(), model: z.string() }).strict()).min(1),
-      })
-      .strict(),
-  ]);
+export const Router = z.discriminatedUnion("type", [
+  z
+    .object({
+      name: z.string().optional(),
+      type: z.literal("complexity"),
+      default: z.string(),
+      routing: z.object({ easy: z.string().optional(), medium: z.string().optional(), hard: z.string().optional() }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      name: z.string().optional(),
+      type: z.literal("prompt"),
+      default: z.string(),
+      routing: z.array(z.object({ description: z.string(), model: z.string() }).strict()).min(1),
+    })
+    .strict(),
+]);
 export type Router = z.infer<typeof Router>;
 
 export const ScorerAgentRef = z.union([z.string(), z.object({ name: z.string(), includeDescendants: z.boolean().default(false) }).strict()]);
@@ -533,9 +556,7 @@ export const BenchmarkSuite = z
         z
           .object({
             name: z.string(),
-            agents: z
-              .array(z.object({ agent: z.string(), model: z.string().optional(), harness: Harness.optional() }).strict())
-              .optional(),
+            agents: z.array(z.object({ agent: z.string(), model: z.string().optional(), harness: Harness.optional() }).strict()).optional(),
             /** Runner every task of this configuration uses (runners/<name>.yaml). */
             runner: z.string().optional(),
           })
@@ -579,7 +600,8 @@ export const WebhookAuthMode = z.enum(["token", "url_token", "signature"]);
 export type WebhookAuthMode = z.infer<typeof WebhookAuthMode>;
 
 /** Headers that carry credentials or signatures can't serve as a delivery id. */
-const CREDENTIAL_HEADERS = /^(authorization|proxy-authorization|cookie|set-cookie|x-hub-signature(-256)?|stripe-signature|sentry-hook-signature|x-vercel-signature|x-pagerduty-signature|webhook-signature|x-api-key)$/i;
+const CREDENTIAL_HEADERS =
+  /^(authorization|proxy-authorization|cookie|set-cookie|x-hub-signature(-256)?|stripe-signature|sentry-hook-signature|x-vercel-signature|x-pagerduty-signature|webhook-signature|x-api-key)$/i;
 export const DeliveryIdHeader = z
   .string()
   .max(64)

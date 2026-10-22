@@ -211,7 +211,7 @@ Import (`source.kind: "repo"`):
 3. **Install on first open.** It runs once when the workspace is created; snapshots keep later opens warm. Each new chat worktree installs again (with a warm store, this is fast).
 4. **Dev command.** `package.json` `scripts.dev` → `<pm> run dev`, recorded as `devDetected`. A person can set `devOverride` (`PATCH … { devCommand }`; `null` clears it). With neither, the App is `ready` but previews answer `StudioError("invalid", "no dev command")`.
 5. **Port.** The dev server gets `PORT={port}` and `HOST=0.0.0.0`. For `next dev` and `vite` without an explicit port, Studio appends `--port {port}` (and `--hostname`/`--host 0.0.0.0`). If the server prints a different `localhost:<n>` / `0.0.0.0:<n>` URL in its first output, Studio records that port for the target.
-6. **Environment.** Required keys come from `.env.example`, `.env.sample` or `.env.local.example`. `StudioOptions.env(app)` (the API resolves the team's Kiln secrets and environment templates, and later its Kiln Project's) provides values. They're passed to installs, dev servers and harness runs and never written to the repository. Missing keys are listed in `setup.envMissing`. The App is still `ready`, and the UI shows them with a link to Secrets.
+6. **Environment.** Required keys come from `.env.example`, `.env.sample` or `.env.local.example`. `StudioOptions.env(app)` provides values: the API resolves the App's environment variables (team → Kiln Project → App, see [Spec change: environments](#spec-change-environments)). They're passed to installs, dev servers and harness runs and never written to the repository. Missing keys are listed in `setup.envMissing`. The App is still `ready`, and the UI shows them with a link to Secrets.
 
 **Ship mode on imported repositories (decided).** An imported App defaults to `review`: its forge sync opens a pull request and never pushes to the default branch. `cowboy` is allowed, but on an imported repository it pushes only to a `studio/<app id>` branch, never the default branch. Template Apps keep the `cowboy` default. Inside the sandbox the modes behave as in the ship mode table (cowboy auto-applies to the App's main line). Nothing in phases 1–4 pushes.
 
@@ -241,7 +241,7 @@ export type StudioOptions = {
   previewUrl: (target: string, address: SandboxAddress) => string;
   /** Imported Apps: a clone URL with a short-lived repo-scoped token, and the branch to use. */
   clone?: (source: Extract<AppSource, { kind: "repo" }>) => Promise<{ url: string; branch?: string }>;
-  /** Environment for installs, dev servers and runs (Kiln secrets and environment templates). */
+  /** Environment for installs, dev servers and runs: the App's resolved variables (team → project → App). */
   env?: (app: App) => Record<string, string>;
   maxRunningChats?: number; // default 3
   basePort?: number; // the version preview's port; chats use the next 99. Default 4100
@@ -432,7 +432,25 @@ export type AppPullRequest = {
 
 **Forge sync per ship mode.** `review` opens the pull request above. `cowboy` pushes `main` for a template App, or the `studio/<app id>` branch for an imported one. ADR-012's guards apply: a push credential scoped to the one repository, the exception ending when the repository is coupled to a factory, and every agent push in the audit log.
 
-**Coupling to a factory** (optional per App) and **Kiln Project environments** inherited by previews.
+**Coupling to a factory** (optional per App).
+
+## Spec change: environments
+
+Kiln Projects hold environments (see [project-environments.md](project-environments.md)). The resolver lives in `packages/engine` (`kiln.variables`), not in `packages/studio`; Studio only receives the result:
+
+```ts
+// packages/engine/src/platform/variables.ts
+kiln.variables.forApp(app: { id: string; team: string; projectId?: string }, environment = "preview"): {
+  env: Record<string, string>; // team → project → App, later layers override
+  secretValues: string[]; // for redaction from turn output and logs
+  sources: Record<string, { scope: "team" | "project" | "factory" | "app"; owner: string; secret: boolean }>;
+};
+```
+
+- `routes/studio.ts` builds `Studio` with `env: (app) => kiln.variables.forApp(app).env` and redacts `secretValues` from turn events and dev server logs it stores.
+- App-level overrides are a variable layer with `scope: "app"`, `owner: <app id>` (`PUT /api/v1/variables/app/{appId}/preview`). The App's settings can link to it; Studio does not store variables itself.
+- `setup.envMissing` is computed against this map, so a key set on the project clears it for every App in that project.
+- Dev servers, installs and harness runs all get `preview`. `production` is for shipping, later.
 
 ## Acceptance
 

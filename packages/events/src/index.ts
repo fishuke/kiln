@@ -35,6 +35,17 @@ export type KilnEventMap = {
   "studio.turn_finished": { appId: string; chatId: string; turnId: string; title?: string; summary?: string; changed: boolean; priority: "finished" };
   "studio.version_created": { appId: string; versionId: string; title: string; kind: "initial" | "apply" | "restore"; priority: "finished" };
   "studio.needs_you": { appId: string; chatId: string; question: string; reason: "question" | "conflict" | "failed"; priority: "needs_you" };
+  /** ADR-014: a pull request marked ready for review was merged by the gate, sent to a person, merged later or closed. */
+  "merge_gate.review_updated": {
+    reviewId: string;
+    appId?: string;
+    factory?: string;
+    pullRequestId?: string;
+    repo: string;
+    number: number;
+    state: "deciding" | "merged" | "needs_review" | "closed";
+    priority: "needs_you" | "finished";
+  };
 };
 
 /** How urgently a Studio event should reach the person (ADR-012): spoken, a badge, or silent. */

@@ -267,7 +267,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/inbox` | — | Open decisions (gates), most urgent first |
 | GET | `/api/v1/gates/{id}` | `read` | A gate with its work item |
 | POST | `/api/v1/gates/{id}/decide` | `decide:*` | Approve, reject or answer (scope depends on the gate kind) |
-| GET | `/api/v1/inbox/items` | — | Inbox items: question, answer_question, spec_review, pr_review, blocked, failed (scope mine|team, factory, kind, read, q) |
+| GET | `/api/v1/inbox/items` | — | Inbox items: question, answer_question, spec_review, pr_review, studio_pr_review, blocked, failed (scope mine|team, factory, kind, read, q) |
 | POST | `/api/v1/inbox/read` | — | Mark items read |
 | POST | `/api/v1/inbox/unread` | — | Mark items unread |
 | POST | `/api/v1/inbox/resolve` | — | Resolve (hide) items for you |
@@ -475,6 +475,13 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/studio/team/settings` | — | The team's Studio defaults, resolved |
 | GET | `/api/v1/studio/projects/{id}/settings` | — | A Kiln Project's Studio defaults, resolved |
 | GET | `/api/v1/studio/apps/{id}/definition/export` | — | An App's definition in kiln/v1 layout (?resolved=false for its own layer) |
+
+## Merge gate
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/merge-gate/reviews` | — | Pull requests the merge gate judged for the current team's Studio Apps (?state=) |
+| GET | `/api/v1/merge-gate/reviews/{id}` | — | One merge gate review: merged or sent to review, the reasons and the merge-safety answers |
 
 ## Errors
 

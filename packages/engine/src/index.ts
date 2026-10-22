@@ -47,3 +47,4 @@ export * from "./platform";
 export * from "./kiln";
 export * from "./fake-agents";
 export * from "./testing";
+export * from "./merge-gate";

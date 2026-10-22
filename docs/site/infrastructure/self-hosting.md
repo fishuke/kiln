@@ -185,6 +185,8 @@ When a factory sets `cloudProviders` in `factory.yaml`, its runs get the federat
 
 Kiln talks to GitHub as a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`), minting a short-lived installation token for each call, or with a plain `GITHUB_TOKEN`. GitLab, Azure DevOps and Bitbucket use the tokens on their pages. It needs to read repositories, push `kiln/*` branches, open and update pull requests, comment, add labels and read check runs. Do not give it a branch-protection bypass. Agents never see this token; each run gets its own short-lived run token instead.
 
+The [merge gate](../configuration/decisions.md#merge-gate) merges with its own credential, `KILN_MERGE_GATE_TOKEN`: a token of a dedicated GitHub account that may merge pull requests on the repositories where a person turned the gate on. If branch protection requires reviews, that account needs to be allowed to merge without one. Never reuse the forge token or the GitHub App for it, because sandboxes get tokens from the App. Without it, every pull request goes to a person.
+
 ## Timers
 
 Kiln runs a timer pass that:

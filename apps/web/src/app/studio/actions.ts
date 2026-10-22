@@ -5,6 +5,8 @@ import { api } from "@/lib/kiln";
 import { API_BASE, apiHeaders } from "@/lib/proxy";
 import {
   ApplyResult,
+  AppPullRequest,
+  ToolResult,
   Chat,
   ChatDetail,
   ChatMode,
@@ -22,7 +24,7 @@ import {
 /** What every Studio action returns: the parsed response, or the API's message and status. */
 export type StudioResult<T> = { ok: true; data: T } | { ok: false; error: string; status?: number };
 
-const Id = z.string().regex(/^s[pcvt]_[A-Za-z0-9_-]+$/);
+const Id = z.string().regex(/^s[apcvt]_[A-Za-z0-9_-]+$/);
 
 /** Calls one Studio route as the signed-in user and parses the response with its schema. */
 async function call<S extends z.ZodType>(schema: S, method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<StudioResult<z.infer<S>>> {
@@ -75,20 +77,20 @@ const ChatInput = z.object({
 });
 const SendInput = z.object({ text: z.string().trim().min(1), mode: ChatMode.optional() });
 
-export async function studioProjects() {
-  return call(z.object({ projects: z.array(StudioApp) }), "GET", "/projects");
+export async function studioApps() {
+  return call(z.object({ apps: z.array(StudioApp) }), "GET", "/apps");
 }
-export async function studioCreateProject(input: z.input<typeof CreateInput>) {
-  return call(StudioApp, "POST", "/projects", CreateInput.parse(input));
+export async function studioCreateApp(input: z.input<typeof CreateInput>) {
+  return call(StudioApp, "POST", "/apps", CreateInput.parse(input));
 }
-export async function studioProject(projectId: string) {
-  return call(z.object({ project: StudioApp, chats: z.array(Chat), versions: z.array(Version) }), "GET", `/projects/${id(projectId)}`);
+export async function studioApp(appId: string) {
+  return call(z.object({ app: StudioApp, chats: z.array(Chat), versions: z.array(Version), pullRequest: AppPullRequest.optional() }), "GET", `/apps/${id(appId)}`);
 }
-export async function studioUpdateProject(projectId: string, patch: z.input<typeof PatchInput>) {
-  return call(StudioApp, "PATCH", `/projects/${id(projectId)}`, PatchInput.parse(patch));
+export async function studioUpdateApp(appId: string, patch: z.input<typeof PatchInput>) {
+  return call(StudioApp, "PATCH", `/apps/${id(appId)}`, PatchInput.parse(patch));
 }
-export async function studioNewChat(projectId: string, input: z.input<typeof ChatInput>) {
-  return call(NewChatResult, "POST", `/projects/${id(projectId)}/chats`, ChatInput.parse(input));
+export async function studioNewChat(appId: string, input: z.input<typeof ChatInput>) {
+  return call(NewChatResult, "POST", `/apps/${id(appId)}/chats`, ChatInput.parse(input));
 }
 export async function studioChat(chatId: string) {
   return call(ChatDetail, "GET", `/chats/${id(chatId)}`);
@@ -135,6 +137,37 @@ export async function studioSaveSecrets(values: Record<string, string>): Promise
   try {
     const pairs = z.record(SecretName, z.string().min(1)).parse(values);
     for (const [name, value] of Object.entries(pairs)) await api.createManagedSecret({ scope: "team", name, value });
+    return { ok: true, data: null };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+const ShipInput = z.object({ title: z.string().max(200).optional(), state: z.enum(["uat", "ready_for_review", "cancelled"]).optional() });
+
+/** The `ship` tool through `POST /tools/ship`: its data is the App's pull request. */
+export async function studioShip(appId: string, input: z.input<typeof ShipInput>): Promise<StudioResult<AppPullRequest>> {
+  const r = await call(ToolResult, "POST", "/tools/ship", { app: id(appId), ...ShipInput.parse(input) });
+  if (!r.ok) return r;
+  if (!r.data.ok) return { ok: false, error: r.data.error };
+  const pr = AppPullRequest.safeParse(r.data.data);
+  return pr.success ? { ok: true, data: pr.data } : { ok: false, error: "Unexpected ship response" };
+}
+
+/** A child chat is a subagent run: Message is a followup to it. */
+export async function studioFollowup(runId: string, text: string): Promise<StudioResult<null>> {
+  try {
+    await api.followup(z.string().min(1).parse(runId), z.string().trim().min(1).parse(text));
+    return { ok: true, data: null };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Stop is the run's interrupt. */
+export async function studioInterrupt(runId: string): Promise<StudioResult<null>> {
+  try {
+    await api.interrupt(z.string().min(1).parse(runId));
     return { ok: true, data: null };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

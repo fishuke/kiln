@@ -1,6 +1,7 @@
 import type {
   AppDetail,
   ApplyResult,
+  AppPullRequest,
   ChatDetail,
   ChatMode,
   CreateAppInput,
@@ -10,6 +11,7 @@ import type {
   Preview,
   SendResult,
   StatusReport,
+  StudioReview,
   StudioApp,
   UpdateAppInput,
   Version,
@@ -42,6 +44,13 @@ export interface StudioClient {
   repositories(): Promise<ForgeRepository[]>;
   /** Saves team secrets (an imported app's missing env); Studio reads them the next time the app opens. */
   saveSecrets(values: Record<string, string>): Promise<void>;
+  /** The `ship` tool: push and open or update the App's pull request, or move it to Ready for review or Cancelled. */
+  ship(appId: string, input: { title?: string; state?: "uat" | "ready_for_review" | "cancelled" }): Promise<AppPullRequest>;
+  /** Studio pull requests the merge gate sent to review, for the Inbox. */
+  reviews(): Promise<StudioReview[]>;
+  /** A child chat's run: a followup message (it steers or resumes the run) and interrupt (Stop). */
+  followup(runId: string, text: string): Promise<void>;
+  interrupt(runId: string): Promise<void>;
   /** Push updates (the fake); the API client polls instead. */
   subscribe?(listener: () => void): () => void;
 }

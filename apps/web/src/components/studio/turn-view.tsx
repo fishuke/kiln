@@ -120,6 +120,7 @@ function ActivityLine({ a, live }: { a: Activity; live: boolean }) {
         <TraceTitle>{a.text}</TraceTitle>
       </TraceLine>
     );
+  if (a.kind === "report") return null;
   if (a.kind === "message")
     return (
       <TraceLine status={live ? "running" : undefined}>
@@ -143,7 +144,7 @@ function ActivityLine({ a, live }: { a: Activity; live: boolean }) {
 /** The agent's work as a Chain of Thought: one collapsible line, open and shimmering while it runs. */
 export function ActivityTrace({ turn }: { turn: Turn }) {
   const live = turn.status === "running";
-  const steps = turn.activity;
+  const steps = turn.activity.filter((a) => a.kind !== "report");
   if (!steps.length && !live) return null;
   const tools = steps.filter((a) => a.kind === "tool").length;
   return (
@@ -254,11 +255,14 @@ export function TurnView({
   versionCard,
   onBuildPlan,
   busy,
+  renderReport,
 }: {
   turn: Turn;
   versionCard: React.ReactNode;
   onBuildPlan: (plan: string, newChat: boolean) => void;
   busy: boolean;
+  /** A child chat's report in this lead's thread. */
+  renderReport?: (report: Extract<Activity, { kind: "report" }>) => React.ReactNode;
 }) {
   const card = turnCard(turn);
   return (
@@ -267,6 +271,8 @@ export function TurnView({
       <Message>
         <MessageContent className="gap-3">
           <ActivityTrace turn={turn} />
+          {renderReport &&
+            turn.activity.map((a, i) => (a.kind === "report" ? <div key={i}>{renderReport(a)}</div> : null))}
           {turn.reply && <Markdown className={MD}>{turn.reply}</Markdown>}
           {card === "question" && <QuestionNote question={turn.question!} />}
           {card === "plan" && (

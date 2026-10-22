@@ -1,6 +1,7 @@
 /** What the Studio page shows, computed from the API's shapes. Pure functions, tested in model.test.ts. */
 import { parsePatch, type DiffLine } from "@/lib/diff";
-import type { AppSource, Chat, ChatMode, Preview, ShipMode, StatusReport, StudioApp, Turn, Version } from "./types";
+import type { RunStatus } from "@/lib/run-tree";
+import type { AppSource, Chat, ChatMode, Preview, PullRequestState, ReportReason, ShipMode, StatusReport, StudioApp, Turn, Version } from "./types";
 
 export const MODES: { id: ChatMode; label: string; hint: string }[] = [
   { id: "build", label: "Build", hint: "Reads, edits and runs the app" },
@@ -105,7 +106,7 @@ export function groupByDay(versions: Version[], now: Date): { label: string; ver
 }
 
 export function needsYouCount(status: StatusReport | undefined): number {
-  return status?.projects.reduce((n, p) => n + p.needsYou.length, 0) ?? 0;
+  return status?.apps.reduce((n, p) => n + p.needsYou.length, 0) ?? 0;
 }
 
 /** "Worked for 34s" once a turn is done, "Working" while it runs. */
@@ -221,5 +222,44 @@ export function importSteps(app: StudioApp, preview: Preview | undefined): Setup
     step("install", app.setup ? `Install with ${app.setup.packageManager}` : "Install dependencies", installed, cloned && !installed),
     preview?.status === "failed" ? { ...dev, status: "failed" } : dev,
     step("preview", "Preview ready", preview?.status === "ready", false),
+  ];
+}
+
+/** A chat's status as a run's (the Tasks panel shows chats with the run tree's visuals). */
+export function chatRunStatus(c: Chat, lastTurn?: Turn): RunStatus {
+  if (c.status === "working") return "running";
+  if (c.status === "needs_you" || c.status === "conflict") return "blocked";
+  if (c.status === "failed") return "failed";
+  if (lastTurn?.status === "cancelled") return "cancelled";
+  return "complete";
+}
+
+export const REPORT_REASON_LABEL: Record<ReportReason, string> = { finished: "Finished", needs_input: "Needs input", failed: "Failed", stopped: "Stopped", out_of_budget: "Out of budget" };
+
+/** Lead chats in creation order, each with its children (a child whose lead is gone is a lead). */
+export function chatTree(chats: Chat[]): { chat: Chat; children: Chat[] }[] {
+  const ids = new Set(chats.map((c) => c.id));
+  const sorted = [...chats].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return sorted.filter((c) => !c.parentChatId || !ids.has(c.parentChatId)).map((chat) => ({ chat, children: sorted.filter((c) => c.parentChatId === chat.id) }));
+}
+
+export const PULL_REQUEST_LABEL: Record<PullRequestState, string> = {
+  uat: "UAT",
+  ready_for_review: "Ready for review",
+  waiting_for_review: "Waiting for review",
+  merged: "Merged",
+  cancelled: "Cancelled",
+};
+
+export type PrStep = { label: string; status: "done" | "current" | "waiting" | "cancelled" | "todo" };
+
+/** The pull request's path for its author: UAT → Ready for review → Merged, or Waiting for review, or Cancelled. */
+export function prSteps(state: PullRequestState): PrStep[] {
+  const after = state === "waiting_for_review" ? { label: "Waiting for review", status: "waiting" as const } : { label: "Merged", status: state === "merged" ? ("done" as const) : ("todo" as const) };
+  if (state === "cancelled") return [{ label: "UAT", status: "done" }, { label: "Cancelled", status: "cancelled" }];
+  return [
+    { label: "UAT", status: state === "uat" ? "current" : "done" },
+    { label: "Ready for review", status: state === "uat" ? "todo" : state === "ready_for_review" ? "current" : "done" },
+    after,
   ];
 }

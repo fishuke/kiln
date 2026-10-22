@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { GitMerge, History, LoaderCircle, MessageSquare, Plus, Eye } from "lucide-react";
+import { CornerDownRight, Eye, GitMerge, History, ListTree, LoaderCircle, MessageSquare, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { StudioClient } from "@/lib/studio/client";
-import { chatUsage, importSteps, nextMode, routesFrom, splitDiff, unappliedTurns, versionForTurn, versionNumber } from "@/lib/studio/model";
+import { chatRunStatus, chatTree, chatUsage, importSteps, nextMode, routesFrom, splitDiff, unappliedTurns, versionForTurn, versionNumber } from "@/lib/studio/model";
 import type { Chat, ChatMode, Version } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
 import { Composer, MODE_ICON } from "./composer";
@@ -26,6 +26,8 @@ import { HistoryPanel } from "./history-panel";
 import { EmptyPreview, PreviewingBanner, PreviewPane, type PreviewView } from "./preview-pane";
 import { SetupPanel } from "./setup-panel";
 import { AppSettings, AppSwitcher, NeedsYouMenu } from "./top-bar";
+import { ReportCard, TasksPanel } from "./child-chats";
+import { ShipControl } from "./ship";
 import { ConflictNote, TurnView } from "./turn-view";
 import { usePreview, useStudioApp, type PreviewTarget } from "./use-studio";
 import { VersionCard } from "./version-card";
@@ -42,7 +44,9 @@ const STATUS_DOT: Record<Chat["status"], string> = {
 function ChatTabs({ chats, active, onPick, onNew }: { chats: Chat[]; active?: string; onPick: (id: string) => void; onNew: () => void }) {
   return (
     <div role="tablist" aria-label="Chats" className="flex scroll-fade-x scrollbar-none items-center gap-1 overflow-x-auto px-3 py-2">
-      {chats.map((c, i) => (
+      {chatTree(chats)
+        .flatMap((n) => [n.chat, ...n.children])
+        .map((c, i) => (
         <Tooltip key={c.id}>
           <TooltipTrigger
             render={
@@ -58,6 +62,7 @@ function ChatTabs({ chats, active, onPick, onNew }: { chats: Chat[]; active?: st
               />
             }
           >
+            {c.parentChatId && <CornerDownRight className="-ml-1 size-3 shrink-0 opacity-60" />}
             <span className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[c.status])} />
             <span className="truncate">{c.title}</span>
           </TooltipTrigger>
@@ -111,7 +116,9 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
   const params = useSearchParams();
   const { detail, chats, status, error, finished, refresh, loadChat } = useStudioApp(client, appId);
   const [activeChat, setActiveChat] = useState<string | undefined>(params.get("chat") ?? undefined);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [panel, setPanel] = useState<"history" | "tasks">();
+  const historyOpen = panel === "history";
+  const setHistoryOpen = (f: boolean | ((o: boolean) => boolean)) => setPanel((p) => ((typeof f === "function" ? f(p === "history") : f) ? "history" : undefined));
   const [previewVersion, setPreviewVersion] = useState<string>();
   const [view, setView] = useState<PreviewView>("preview");
   const [pane, setPane] = useState<"chat" | "preview">("chat");
@@ -194,6 +201,11 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
     async (text: string, m: ChatMode = mode) => {
       if (!chatId || !turns.length) return newChat(text, m);
       try {
+        if (chat?.runId) {
+          await client.followup(chat.runId, text);
+          await loadChat(chatId);
+          return true;
+        }
         const r = await client.send(chatId, { text, mode: m });
         if (r.steered) toast("Sent to the running turn");
         await loadChat(chatId);
@@ -204,16 +216,17 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
         return false;
       }
     },
-    [client, chatId, turns.length, mode, newChat, loadChat, refresh],
+    [client, chatId, chat?.runId, turns.length, mode, newChat, loadChat, refresh],
   );
 
-  // Keyboard: ⌥P mode, ⌥H history, ⌥N new chat, ⌥1–9 chats, Esc leaves an old version.
+  // Keyboard: ⌥P mode, ⌥H history, ⌥K tasks, ⌥N new chat, ⌥1–9 chats, Esc leaves an old version.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && previewVersion) setPreviewVersion(undefined);
       if (!e.altKey || e.metaKey || e.ctrlKey) return;
       if (e.code === "KeyP") setDraftMode((m) => nextMode(m));
-      else if (e.code === "KeyH") setHistoryOpen((o) => !o);
+      else if (e.code === "KeyH") setPanel((p) => (p === "history" ? undefined : "history"));
+      else if (e.code === "KeyK") setPanel((p) => (p === "tasks" ? undefined : "tasks"));
       else if (e.code === "KeyN") void newChat();
       else if (/^Digit[1-9]$/.test(e.code)) {
         const c = chatList[Number(e.code.slice(5)) - 1];
@@ -252,9 +265,9 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
     await refresh();
     toast.success(`Restored as v${versionNumber([...versions, r], r.id)}`);
   };
-  const apply = async () => {
-    if (!chat) return;
-    const r = await client.apply(chat.id);
+  const apply = async (id = chat?.id) => {
+    if (!id) return;
+    const r = await client.apply(id);
     if (r.ok) toast.success(`Applied as v${versionNumber([...versions, r.version], r.version.id)}: ${r.version.title}`);
     else if ("conflict" in r) toast.error(`Conflicts with main in ${r.conflict.join(", ")}`);
     else toast("Nothing new to apply");
@@ -263,7 +276,19 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
 
   const rail = (
     <div className="flex h-full min-h-0 flex-col">
-      {historyOpen ? (
+      {panel === "tasks" ? (
+        <TasksPanel
+          chats={chatList}
+          statusOf={(c) => chatRunStatus(c, chats[c.id]?.turns.at(-1))}
+          active={chatId}
+          onOpen={(id) => {
+            selectChat(id);
+            setPanel(undefined);
+          }}
+          onStop={(c) => void client.interrupt(c.runId!).then(refresh, (e: unknown) => toast.error(e instanceof Error ? e.message : String(e)))}
+          onClose={() => setPanel(undefined)}
+        />
+      ) : historyOpen ? (
         <HistoryPanel
           versions={versions}
           previewing={previewVersion}
@@ -293,6 +318,18 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
                           <TurnView
                             turn={t}
                             busy={working}
+                            renderReport={(r) => {
+                              const child = chatList.find((c) => c.id === r.chatId);
+                              return (
+                                <ReportCard
+                                  report={r}
+                                  chat={child}
+                                  status={child ? chatRunStatus(child, chats[child.id]?.turns.at(-1)) : "complete"}
+                                  onOpen={() => selectChat(r.chatId)}
+                                  onApply={child ? () => apply(child.id) : undefined}
+                                />
+                              );
+                            }}
                             onBuildPlan={(plan, inNew) => {
                               setDraftMode("build");
                               void (inNew ? newChat(plan, "build") : send(plan, "build"));
@@ -336,7 +373,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
                   title="Apply to main?"
                   description={`Merges ${unapplied.map((t) => t.title).join("; ")} into the app's main line as a new version.`}
                   action="Apply"
-                  onConfirm={apply}
+                  onConfirm={() => apply()}
                 />
               </div>
             )}
@@ -382,6 +419,15 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
             Versions and bookmarks <Kbd>⌥H</Kbd>
           </TooltipContent>
         </Tooltip>
+        <Tooltip>
+          <TooltipTrigger render={<Button size="sm" variant={panel === "tasks" ? "secondary" : "ghost"} aria-pressed={panel === "tasks"} onClick={() => setPanel((p) => (p === "tasks" ? undefined : "tasks"))} className="gap-1.5" />}>
+            <ListTree />
+            <span className="hidden sm:inline">Tasks</span>
+          </TooltipTrigger>
+          <TooltipContent>
+            Every chat and subagent <Kbd>⌥K</Kbd>
+          </TooltipContent>
+        </Tooltip>
         {working && (
           <span className="ml-1 hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
             <LoaderCircle className="size-3.5 animate-spin" />
@@ -390,8 +436,16 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
           </span>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {/* Reserved for the Ship button and the pull request badge (ADR-014). */}
-          <div data-slot="ship" className="flex items-center gap-1" />
+          {app && (
+            <ShipControl
+              pullRequest={detail?.pullRequest}
+              onShip={async (state) => {
+                const pr = await client.ship(app.id, { state });
+                await refresh();
+                return pr;
+              }}
+            />
+          )}
           <NeedsYouMenu status={status} href={(a, c) => `/studio/${a}?chat=${c}`} />
           {app && <AppSettings client={client} app={app} onChanged={() => void refresh()} />}
         </div>

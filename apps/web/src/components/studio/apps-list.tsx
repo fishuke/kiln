@@ -42,7 +42,7 @@ export function AppsList({ fake, startNew }: { fake: boolean; startNew: boolean 
     };
   }, [client]);
 
-  const byId = new Map(status?.projects.map((p) => [p.id, p]));
+  const byId = new Map(status?.apps.map((p) => [p.id, p]));
   return (
     <>
       <PageHeader crumbs={[{ label: "Studio" }]} actions={<NewAppDialog client={client} defaultOpen={startNew} />} />

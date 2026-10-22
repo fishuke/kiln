@@ -16,6 +16,9 @@ import {
   versionNumber,
   workTitle,
   importSteps,
+  chatTree,
+  chatRunStatus,
+  prSteps,
 } from "./model";
 import type { Chat, Preview, StudioApp, Turn, Version } from "./types";
 
@@ -51,7 +54,7 @@ describe("importSteps", () => {
 
 const turn = (o: Partial<Turn>): Turn => ({
   id: "st_1",
-  projectId: "sp",
+  appId: "sp",
   chatId: "sc_a",
   prompt: "p",
   mode: "build",
@@ -68,7 +71,7 @@ const turn = (o: Partial<Turn>): Turn => ({
 });
 const version = (o: Partial<Version>): Version => ({
   id: "sv",
-  projectId: "sp",
+  appId: "sp",
   sha: "x",
   title: "t",
   kind: "apply",
@@ -79,7 +82,7 @@ const version = (o: Partial<Version>): Version => ({
 });
 const chat = (o: Partial<Chat>): Chat => ({
   id: "sc_a",
-  projectId: "sp",
+  appId: "sp",
   title: "c",
   mode: "build",
   harness: "claude-code",
@@ -162,10 +165,10 @@ describe("versions", () => {
     const groups = groupByDay(vs, new Date("2026-10-22T12:00:00.000Z"));
     expect(groups.map((g) => g.label)).toEqual(["Today", "Yesterday", "Oct 18"]);
   });
-  it("counts what needs you across projects", () => {
+  it("counts what needs you across apps", () => {
     expect(
       needsYouCount({
-        projects: [
+        apps: [
           { id: "p", name: "p", working: [], needsYou: [{ chatId: "c", question: "?" }] },
           { id: "q", name: "q", working: [], needsYou: [] },
         ],
@@ -226,5 +229,32 @@ describe("diffs", () => {
       },
       { type: "file", name: "b.ts", path: "b.ts" },
     ]);
+  });
+});
+
+describe("chat tree", () => {
+  it("nests children under their lead and keeps orphans as leads", () => {
+    const lead = chat({ id: "a", createdAt: "1" });
+    const kid = chat({ id: "b", parentChatId: "a", createdAt: "2" });
+    const orphan = chat({ id: "c", parentChatId: "gone", createdAt: "3" });
+    expect(chatTree([orphan, kid, lead]).map((n) => [n.chat.id, n.children.map((c) => c.id)])).toEqual([
+      ["a", ["b"]],
+      ["c", []],
+    ]);
+  });
+  it("maps a chat to a run status", () => {
+    expect([chat({ status: "working" }), chat({ status: "conflict" }), chat({ status: "idle" })].map((c) => chatRunStatus(c))).toEqual(["running", "blocked", "complete"]);
+    expect(chatRunStatus(chat({ status: "idle" }), turn({ status: "cancelled" }))).toBe("cancelled");
+  });
+});
+
+describe("pull request steps", () => {
+  const steps = (s: Parameters<typeof prSteps>[0]) => prSteps(s).map((x) => `${x.label}:${x.status}`);
+  it("shows every step for the author", () => {
+    expect(steps("uat")).toEqual(["UAT:current", "Ready for review:todo", "Merged:todo"]);
+    expect(steps("ready_for_review")).toEqual(["UAT:done", "Ready for review:current", "Merged:todo"]);
+    expect(steps("merged")).toEqual(["UAT:done", "Ready for review:done", "Merged:done"]);
+    expect(steps("waiting_for_review")).toEqual(["UAT:done", "Ready for review:done", "Waiting for review:waiting"]);
+    expect(steps("cancelled")).toEqual(["UAT:done", "Cancelled:cancelled"]);
   });
 });

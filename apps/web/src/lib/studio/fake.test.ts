@@ -98,7 +98,7 @@ describe("FakeStudioClient", () => {
     run();
     const after = await studio.chat(chat.id);
     expect(after.chat.status).toBe("needs_you");
-    expect((await studio.status()).projects[0]!.needsYou).toHaveLength(1);
+    expect((await studio.status()).apps[0]!.needsYou).toHaveLength(1);
   });
 
   it("restores as a new version and bookmarks", async () => {

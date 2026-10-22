@@ -77,7 +77,7 @@ export function AppSwitcher({ client, app, href }: { client: StudioClient; app: 
 /** The "needs you" badge: chats in any app that asked something or hit a conflict. */
 export function NeedsYouMenu({ status, href }: { status?: StatusReport; href: (appId: string, chatId: string) => string }) {
   const count = needsYouCount(status);
-  const items = status?.projects.flatMap((p) => p.needsYou.map((n) => ({ ...n, app: p.name, appId: p.id }))) ?? [];
+  const items = status?.apps.flatMap((p) => p.needsYou.map((n) => ({ ...n, app: p.name, appId: p.id }))) ?? [];
   return (
     <DropdownMenu>
       <Tooltip>

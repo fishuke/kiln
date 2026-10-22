@@ -4,6 +4,7 @@ import { AutoRefresh } from "@/components/kiln/auto-refresh";
 import { ApiDown } from "@/components/kiln/ui";
 import { buildInbox, type GateLike } from "@/lib/inbox-model";
 import { api, safe } from "@/lib/kiln";
+import { studioFakeEnabled } from "@/lib/studio/flag";
 import type { GateView } from "@/lib/run-detail";
 import { InboxView } from "./inbox-view";
 
@@ -19,7 +20,7 @@ export default async function InboxPage() {
     <>
       <AutoRefresh ms={8000} />
       <Suspense>
-        <InboxView entries={entries} gates={views} factories={factories.map((f) => ({ id: f.id, name: f.name }))} ready={ready.items} />
+        <InboxView entries={entries} gates={views} factories={factories.map((f) => ({ id: f.id, name: f.name }))} ready={ready.items} studioFake={studioFakeEnabled()} />
       </Suspense>
     </>
   );

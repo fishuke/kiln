@@ -23,6 +23,7 @@ import type { ReadyToMerge as Ready } from "@kiln/sdk-ts";
 import { decide } from "@/app/runs/actions";
 import { markItems } from "./actions";
 import { ReadyToMerge } from "./ready-to-merge";
+import { StudioReviews } from "./studio-reviews";
 
 type FactoryOpt = { id: string; name: string };
 const READ_KEY = "kiln.inbox.read";
@@ -52,7 +53,19 @@ function loadLocalRead(): Record<string, boolean> {
   }
 }
 
-export function InboxView({ entries, gates, factories, ready = [] }: { entries: InboxEntry[]; gates: Record<string, GateView>; factories: FactoryOpt[]; ready?: Ready[] }) {
+export function InboxView({
+  entries,
+  gates,
+  factories,
+  ready = [],
+  studioFake = false,
+}: {
+  entries: InboxEntry[];
+  gates: Record<string, GateView>;
+  factories: FactoryOpt[];
+  ready?: Ready[];
+  studioFake?: boolean;
+}) {
   const router = useRouter();
   const sp = useSearchParams();
   const [q, setQ] = useState("");
@@ -217,6 +230,7 @@ export function InboxView({ entries, gates, factories, ready = [] }: { entries: 
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-y-auto">
           <ReadyToMerge items={ready} />
+          <StudioReviews fake={studioFake} />
           {items.length === 0 ? (
             <EmptyInbox />
           ) : shown.length === 0 ? (

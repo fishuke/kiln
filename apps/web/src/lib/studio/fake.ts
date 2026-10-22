@@ -8,6 +8,8 @@ import type {
   ChatMode,
   CreateAppInput,
   AppDetail,
+  AppPullRequest,
+  StudioReview,
   ForgeRepository,
   NewChatInput,
   NewChatResult,
@@ -44,6 +46,7 @@ export class FakeStudioClient implements StudioClient {
   private chats = new Map<string, Chat>();
   private turns = new Map<string, Turn>();
   private versions = new Map<string, Version>();
+  private pullRequests = new Map<string, AppPullRequest>();
   /** Chat id → checkpoints not yet applied, oldest first. */
   private unapplied = new Map<string, { sha: string; title: string }[]>();
   private started = new Map<string, number>();
@@ -96,7 +99,7 @@ export class FakeStudioClient implements StudioClient {
   async createApp(input: CreateAppInput): Promise<StudioApp> {
     const source = input.source ?? { kind: "template" as const, template: "nextjs" };
     const app: StudioApp = {
-      id: this.id("sp"),
+      id: this.id("sa"),
       team: "team",
       name: input.name,
       source,
@@ -140,9 +143,9 @@ export class FakeStudioClient implements StudioClient {
 
   async app(id: string): Promise<AppDetail> {
     const app = this.must(this.appsById.get(id), "App");
-    const chats = [...this.chats.values()].filter((c) => c.projectId === id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    const versions = [...this.versions.values()].filter((v) => v.projectId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return { app, chats, versions };
+    const chats = [...this.chats.values()].filter((c) => c.appId === id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const versions = [...this.versions.values()].filter((v) => v.appId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return { app, chats, versions, pullRequest: this.pullRequests.get(id) };
   }
 
   async updateApp(id: string, patch: UpdateAppInput): Promise<StudioApp> {
@@ -164,13 +167,13 @@ export class FakeStudioClient implements StudioClient {
       if (a.setup) this.patchApp(a.id, { setup: { ...a.setup, envMissing: a.setup.envMissing.filter((k) => !this.secrets.has(k)) } });
   }
 
-  async newChat(projectId: string, input: NewChatInput): Promise<NewChatResult> {
-    this.must(this.appsById.get(projectId), "App");
-    const n = [...this.chats.values()].filter((c) => c.projectId === projectId).length;
+  async newChat(appId: string, input: NewChatInput): Promise<NewChatResult> {
+    this.must(this.appsById.get(appId), "App");
+    const n = [...this.chats.values()].filter((c) => c.appId === appId).length;
     const id = this.id("sc");
     const chat: Chat = {
       id,
-      projectId,
+      appId,
       title: input.title ?? (input.prompt ? titleFrom(input.prompt) : `Chat ${n + 1}`),
       mode: input.mode ?? "build",
       harness: input.harness ?? "claude-code",
@@ -216,7 +219,7 @@ export class FakeStudioClient implements StudioClient {
     const mode = input.mode ?? chat.mode;
     const turn: Turn = {
       id: this.id("st"),
-      projectId: chat.projectId,
+      appId: chat.appId,
       chatId,
       prompt: input.text,
       mode,
@@ -263,7 +266,7 @@ export class FakeStudioClient implements StudioClient {
     if (outcome.changes && t.mode === "build") finished.checkpoint = this.sha();
     if (outcome.changes && t.mode !== "build") finished.discarded = true;
     this.patchTurn(turnId, finished);
-    const project = this.appsById.get(t.projectId)!;
+    const project = this.appsById.get(t.appId)!;
     if (finished.checkpoint) {
       const list = this.unapplied.get(t.chatId) ?? [];
       this.unapplied.set(t.chatId, [...list, { sha: finished.checkpoint, title: outcome.title }]);
@@ -281,17 +284,17 @@ export class FakeStudioClient implements StudioClient {
       .map((c) => c.title)
       .join("; ")
       .slice(0, 80);
-    const version = this.addVersion(chat.projectId, { title, kind: "apply", chatId });
+    const version = this.addVersion(chat.appId, { title, kind: "apply", chatId });
     this.unapplied.set(chatId, []);
     this.patchChat(chatId, { appliedSha: list[list.length - 1]!.sha });
     this.emit();
     return { ok: true, version };
   }
 
-  private addVersion(projectId: string, v: Pick<Version, "title" | "kind"> & Partial<Version>): Version {
-    const version: Version = { id: this.id("sv"), projectId, sha: this.sha(), bookmarked: false, createdAt: this.iso(), ...v };
+  private addVersion(appId: string, v: Pick<Version, "title" | "kind"> & Partial<Version>): Version {
+    const version: Version = { id: this.id("sv"), appId, sha: this.sha(), bookmarked: false, createdAt: this.iso(), ...v };
     this.versions.set(version.id, version);
-    this.patchApp(projectId, {});
+    this.patchApp(appId, {});
     return version;
   }
 
@@ -318,19 +321,19 @@ export class FakeStudioClient implements StudioClient {
   async chatPreview(chatId: string): Promise<Preview> {
     const chat = this.must(this.chats.get(chatId), "Chat");
     const turns = [...this.turns.values()].filter((t) => t.chatId === chatId && t.checkpoint);
-    const latest = [...this.versions.values()].filter((v) => v.projectId === chat.projectId).length;
-    return this.preview(chatId, turns.at(-1)?.title ?? this.appsById.get(chat.projectId)?.name ?? "New app", latest);
+    const latest = [...this.versions.values()].filter((v) => v.appId === chat.appId).length;
+    return this.preview(chatId, turns.at(-1)?.title ?? this.appsById.get(chat.appId)?.name ?? "New app", latest);
   }
 
   async versionPreview(versionId: string): Promise<Preview> {
     const v = this.must(this.versions.get(versionId), "Version");
-    const n = [...this.versions.values()].filter((x) => x.projectId === v.projectId && x.createdAt <= v.createdAt).length;
+    const n = [...this.versions.values()].filter((x) => x.appId === v.appId && x.createdAt <= v.createdAt).length;
     return this.preview(versionId, v.title, n);
   }
 
   async restore(versionId: string): Promise<Version> {
     const v = this.must(this.versions.get(versionId), "Version");
-    const restored = this.addVersion(v.projectId, { title: `Restore: ${v.title}`, kind: "restore", restoredFrom: v.id });
+    const restored = this.addVersion(v.appId, { title: `Restore: ${v.title}`, kind: "restore", restoredFrom: v.id });
     this.emit();
     return restored;
   }
@@ -345,9 +348,9 @@ export class FakeStudioClient implements StudioClient {
 
   async status(): Promise<StatusReport> {
     return {
-      projects: [...this.appsById.values()].map((p) => {
-        const chats = [...this.chats.values()].filter((c) => c.projectId === p.id);
-        const latest = [...this.versions.values()].filter((v) => v.projectId === p.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      apps: [...this.appsById.values()].map((p) => {
+        const chats = [...this.chats.values()].filter((c) => c.appId === p.id);
+        const latest = [...this.versions.values()].filter((v) => v.appId === p.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
         return {
           id: p.id,
           name: p.name,
@@ -359,6 +362,73 @@ export class FakeStudioClient implements StudioClient {
         };
       }),
     };
+  }
+
+  async ship(appId: string, input: { title?: string; state?: "uat" | "ready_for_review" | "cancelled" }): Promise<AppPullRequest> {
+    const app = this.must(this.appsById.get(appId), "App");
+    const open = this.pullRequests.get(appId);
+    const live = open && open.state !== "merged" && open.state !== "cancelled" ? open : undefined;
+    const latest = [...this.versions.values()].filter((v) => v.appId === appId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    if (input.state === "ready_for_review" || input.state === "cancelled") {
+      if (!live) throw new StudioClientError("This App has no open pull request", 409);
+      const next = { ...live, state: input.state, updatedAt: this.iso() };
+      this.pullRequests.set(appId, next);
+      if (input.state === "ready_for_review")
+        this.schedule(() => {
+          // The merge gate: an imported repository goes to review, a template App merges.
+          const decided: AppPullRequest =
+            app.source.kind === "repo"
+              ? { ...next, state: "waiting_for_review", reasons: ["Changes authentication code in app/api/auth", "Adds a dependency: stripe"], updatedAt: this.iso() }
+              : { ...next, state: "merged", updatedAt: this.iso() };
+          this.pullRequests.set(appId, decided);
+          this.emit();
+        }, this.stepMs * 2);
+      this.emit();
+      return next;
+    }
+    const repo = app.source.kind === "repo" ? app.source.repo : `acme/${app.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    const number = live?.number ?? 40 + this.pullRequests.size + 2;
+    const pr: AppPullRequest = {
+      id: live?.id ?? this.id("pr"),
+      appId,
+      forge: "github",
+      repo,
+      number,
+      url: `https://github.com/${repo}/pull/${number}`,
+      branch: `studio/${appId}`,
+      base: app.setup?.mainBranch ?? "main",
+      state: "uat",
+      versionId: latest?.id ?? "",
+      builtInPreview: latest ? `${this.previewBase}/${latest.id}?title=${encodeURIComponent(latest.title)}` : undefined,
+      previewUrl: `https://studio-${appId.replace(/_/g, "-")}.vercel.app`,
+      createdBy: ME,
+      createdAt: live?.createdAt ?? this.iso(),
+      updatedAt: this.iso(),
+    };
+    this.pullRequests.set(appId, pr);
+    this.emit();
+    return pr;
+  }
+
+  async reviews(): Promise<StudioReview[]> {
+    return [...this.pullRequests.values()]
+      .filter((p) => p.state === "waiting_for_review")
+      .map((p) => ({ pullRequest: p, app: { id: p.appId, name: this.appsById.get(p.appId)?.name ?? p.appId }, title: this.versions.get(p.versionId)?.title ?? "Changes" }));
+  }
+
+  async followup(runId: string, text: string): Promise<void> {
+    const chat = [...this.chats.values()].find((c) => c.runId === runId);
+    if (!chat) throw new StudioClientError("Run not found", 404);
+    await this.send(chat.id, { text, mode: "build" });
+  }
+
+  async interrupt(runId: string): Promise<void> {
+    const chat = [...this.chats.values()].find((c) => c.runId === runId);
+    if (!chat) throw new StudioClientError("Run not found", 404);
+    const running = [...this.turns.values()].find((t) => t.chatId === chat.id && t.status === "running");
+    if (running) this.patchTurn(running.id, { status: "cancelled", finishedAt: this.iso() });
+    this.patchChat(chat.id, { status: "idle" });
+    this.emit();
   }
 
   async repositories(): Promise<ForgeRepository[]> {
@@ -375,7 +445,7 @@ export class FakeStudioClient implements StudioClient {
     const now = this.now().getTime();
     const at = (minAgo: number) => new Date(now - minAgo * 60_000).toISOString();
     const project: StudioApp = {
-      id: "sp_demo",
+      id: "sa_demo",
       team: "team",
       name: scenario === "empty" ? "Recipe box" : "Habit tracker",
       source: { kind: "template", template: "nextjs" },
@@ -389,16 +459,16 @@ export class FakeStudioClient implements StudioClient {
     this.appsById.set(project.id, project);
     this.versions.set("sv_initial", {
       id: "sv_initial",
-      projectId: project.id,
+      appId: project.id,
       sha: this.sha(),
       title: "Started from the Next.js template",
       kind: "initial",
       bookmarked: false,
       createdAt: at(180),
     });
-    this.appsById.set("sp_portfolio", {
+    this.appsById.set("sa_portfolio", {
       ...project,
-      id: "sp_portfolio",
+      id: "sa_portfolio",
       name: "Portfolio site",
       shipMode: "safe",
       createdAt: at(4000),
@@ -408,7 +478,7 @@ export class FakeStudioClient implements StudioClient {
 
     const chat = (id: string, title: string, minAgo: number, port: number): Chat => ({
       id,
-      projectId: project.id,
+      appId: project.id,
       title,
       mode: "build",
       harness: "claude-code",
@@ -421,11 +491,13 @@ export class FakeStudioClient implements StudioClient {
     });
     this.chats.set("sc_main", chat("sc_main", "Habit tracker", 170, 4101));
     this.chats.set("sc_pricing", chat("sc_pricing", "Pricing page", 40, 4102));
+    this.chats.set("sc_tests", { ...chat("sc_tests", "Toggle tests", 19, 4103), parentChatId: "sc_main", runId: "run_tests", agentType: "IMPLEMENT" });
+    this.chats.set("sc_a11y", { ...chat("sc_a11y", "Contrast check", 18, 4104), parentChatId: "sc_main", runId: "run_a11y", agentType: "REVIEW", status: "needs_you", question: "The flame badge is 2.8:1 on the dark card. Darken the badge, or lighten the text?" });
     const turn = (id: string, chatId: string, minAgo: number, prompt: string, mode: ChatMode = "build"): Turn => {
       const o = outcomeFor(prompt, mode);
       return {
         id,
-        projectId: project.id,
+        appId: project.id,
         chatId,
         prompt,
         mode,
@@ -455,7 +527,7 @@ export class FakeStudioClient implements StudioClient {
     for (const t of turns) this.turns.set(t.id, t);
     const v = (id: string, t: Turn, bookmarked = false): Version => ({
       id,
-      projectId: project.id,
+      appId: project.id,
       sha: this.sha(),
       title: t.title!,
       kind: "apply",
@@ -465,6 +537,18 @@ export class FakeStudioClient implements StudioClient {
     });
     for (const x of [v("sv_1", turns[0]!), v("sv_2", turns[1]!, true), v("sv_4", turns[3]!)]) this.versions.set(x.id, x);
     this.patchChat("sc_main", { appliedSha: turns[3]!.checkpoint });
+    const lead = this.turns.get("st_4")!;
+    this.turns.set("st_4", {
+      ...lead,
+      activity: [
+        ...lead.activity,
+        { kind: "report", chatId: "sc_tests", reason: "finished", title: "Tests for the dark mode toggle", summary: "Three tests cover the default, the toggle and the saved preference. All pass.", at: at(15) },
+        { kind: "report", chatId: "sc_a11y", reason: "needs_input", title: "Contrast check", summary: "The flame badge fails contrast on the dark card.", at: at(14) },
+      ],
+    });
+    const kid = (id: string, chatId: string, minAgo: number, prompt: string, reply: string): Turn => ({ ...turn(id, chatId, minAgo, prompt), reply, checkpoint: undefined, title: undefined });
+    this.turns.set("st_6", { ...kid("st_6", "sc_tests", 19, "Write tests for the dark mode toggle", "Added three tests in components/theme-toggle.test.tsx. All pass."), checkpoint: this.sha(), title: "Tests for the dark mode toggle" });
+    this.turns.set("st_7", { ...kid("st_7", "sc_a11y", 18, "Check colour contrast in dark mode", "The flame badge is 2.8:1 on the dark card."), question: "The flame badge is 2.8:1 on the dark card. Darken the badge, or lighten the text?" });
     return project.id;
   }
 }

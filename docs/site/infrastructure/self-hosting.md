@@ -71,7 +71,18 @@ docker compose -f docker-compose.prod.yml --profile proxy up -d --build
 
 Caddy gets certificates for both domains. Open the web URL and sign up with `KILN_OWNER_EMAIL`, then invite everyone else.
 
-Sandboxes join the internal network `kiln-egress` and reach the internet only through the proxy. If your platform renames networks, set `KILN_EGRESS_NETWORK` to the name it uses. `KILN_RUNNER_IMAGE` picks another sandbox image; it needs git and the harness CLIs, like `runners/images/node`.
+Sandboxes join the internal network `kiln-egress` and reach the internet only through the proxy. The API joins it too, so it can proxy Studio previews. If your platform renames networks, set `KILN_EGRESS_NETWORK` to the name it uses. `KILN_RUNNER_IMAGE` picks another sandbox image; it needs git and the harness CLIs, like `runners/images/node`.
+
+### Studio previews
+
+Studio serves each preview on its own host under a preview domain, such as `sc-3f9a….preview.kiln.example.com`. To turn it on:
+
+1. Set `KILN_STUDIO_PREVIEW_DOMAIN=preview.kiln.example.com`.
+2. Add a wildcard DNS record, `*.preview.kiln.example.com`, pointing at the server.
+3. Get a wildcard certificate for `*.preview.kiln.example.com`. Wildcard certificates need a DNS challenge, so your proxy needs your DNS provider's API.
+4. Send every host under the domain to the API on port 4000, with WebSocket upgrades. On Coolify, give the `api` service a second domain, `https://*.preview.kiln.example.com`, and set up Traefik's DNS challenge. With your own Caddy, add a site block `*.preview.kiln.example.com { tls { dns <provider> … } reverse_proxy api:4000 }` (the `caddy:alpine` image in `docker-compose.prod.yml` has no DNS plugins).
+
+Use a domain other than the web app's when you can, such as `kiln-preview.example.net`. Code in a preview runs on a subdomain of the preview domain, and a subdomain of the web app's domain can set cookies the web app receives. See [Previews](../integrations/previews.md#studio-live-previews).
 
 ### Kubernetes with Helm
 
@@ -83,6 +94,8 @@ helm install kiln deploy/helm/kiln \
 ```
 
 The chart creates the `kiln-sandboxes` namespace with the restricted pod security level, a `gvisor` RuntimeClass (handler `runsc`, which your nodes must provide), the egress proxy, a default-deny NetworkPolicy, and a Role that lets the API create sandbox pods there.
+
+For Studio previews, add `--set studio.previewDomain=preview.kiln.example.com` and create the TLS Secret `kiln-preview-tls` with a wildcard certificate (or name another with `studio.previewTlsSecret`). The chart adds an Ingress for `*.preview.kiln.example.com` to the API and a NetworkPolicy that lets the API reach the dev-server ports of Studio sandboxes.
 
 ### First factory
 
@@ -198,6 +211,7 @@ Kiln runs a timer pass that:
 | A run fails at install                                  | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed.                   |
 | Verify waits forever                                    | CI checks on the branch are still pending. Kiln checks again on each timer pass.                                                               |
 | Every command is blocked                                | The Claude Code hook cannot reach the public URL, so it blocks by design.                                                                      |
+| A Studio preview answers 502                            | The API can't reach the sandbox: on Docker it isn't on `kiln-egress`; on Kubernetes `studio.previewDomain` is unset. Or the dev server stopped. |
 | Webhooks return 401                                     | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set.                          |
 | An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory).      |
 

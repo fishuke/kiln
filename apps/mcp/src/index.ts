@@ -13,6 +13,9 @@ const SpawnSpec = z.object({
   prompt: z.string().describe("A complete brief"),
   title: z.string().optional(),
   mode: MODE.optional(),
+  name: z.string().optional().describe("A short name, unique in your run tree (lowercase, digits, dashes); use it in place of the run id for follow_up_run"),
+  fork: z.boolean().optional().describe("Give the subagent your conversation so far, not only the brief"),
+  report: z.boolean().optional().describe("Get a report as a follow-up message when the subagent finishes or asks a question, instead of polling"),
 });
 
 /**
@@ -336,7 +339,7 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
     "follow_up_run",
     {
       description: "Send a follow-up to a run: steers it while it runs, continues it when it finished.",
-      inputSchema: { run_id: z.string(), message: z.string() },
+      inputSchema: { run_id: z.string().describe("A run id, or the name of a subagent in your run tree"), message: z.string() },
     },
     async ({ run_id, message }) => json(await client.followup(run_id, message)),
   );

@@ -216,6 +216,12 @@ export type SpawnInput = {
   mode?: RunMode;
   attachments?: (string | Attachment)[];
   metadata?: Record<string, string>;
+  /** Unique in the run tree; run tokens can use it in place of the run id. */
+  name?: string;
+  /** Start with the parent's conversation so far. */
+  fork?: boolean;
+  /** Report to the parent when the child finishes or asks a question. */
+  report?: boolean;
   wait?: boolean;
 };
 

@@ -196,6 +196,10 @@ export type Run = {
   replayOf?: string;
   /** Set when another agent spawned this run as a subagent. */
   parentRunId?: string;
+  /** A name unique among the runs of its tree (a continuation keeps it); followups accept it in place of the id. */
+  name?: string;
+  /** When it finishes or asks a question, Kiln sends its parent a report as a follow-up. */
+  reportToParent?: boolean;
   artifacts: Artifact[];
   traceId: string;
   /**

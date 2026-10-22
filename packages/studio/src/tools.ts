@@ -1,24 +1,24 @@
 import { HarnessType } from "@kiln/schema";
 import { z } from "zod";
 import type { Studio } from "./studio";
-import { ChatMode, ProjectSource, ShipMode, StudioError, type Via } from "./types";
+import { ChatMode, AppSource, ShipMode, StudioError, type Via } from "./types";
 
 export type ToolKind = "server" | "client";
 export type StudioTool<I extends z.ZodType = z.ZodType, N extends string = string> = { name: N; kind: ToolKind; description: string; input: I };
-export type ClientAction = { focus: { project: string; chat?: string } } | { show: "preview" | "code" | "history" };
+export type ClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" };
 export type ToolResult = { ok: true; data: unknown; client?: ClientAction } | { ok: false; error: string };
 export type ToolCaller = { team: string; by: string; via: Via };
 
 const tool = <N extends string, I extends z.ZodType>(name: N, kind: ToolKind, description: string, input: I): StudioTool<I, N> => ({ name, kind, description, input });
 
-const Status = z.object({ project: z.string().optional() }).strict();
-const OpenProject = z.union([
-  z.object({ project: z.string() }).strict(),
-  z.object({ name: z.string().min(1).max(100), source: ProjectSource.optional(), shipMode: ShipMode.optional() }).strict(),
+const Status = z.object({ app: z.string().optional() }).strict();
+const OpenApp = z.union([
+  z.object({ app: z.string() }).strict(),
+  z.object({ name: z.string().min(1).max(100), source: AppSource.optional(), shipMode: ShipMode.optional(), projectId: z.string().optional() }).strict(),
 ]);
 const NewChat = z
   .object({
-    project: z.string(),
+    app: z.string(),
     prompt: z.string().min(1).optional(),
     mode: ChatMode.optional(),
     harness: HarnessType.optional(),
@@ -30,20 +30,20 @@ const Send = z.object({ chat: z.string(), text: z.string().min(1), mode: ChatMod
 const ChatRef = z.object({ chat: z.string() }).strict();
 const VersionRef = z.object({ version: z.string() }).strict();
 const Bookmark = z.object({ version: z.string(), on: z.boolean() }).strict();
-const Focus = z.object({ project: z.string(), chat: z.string().optional() }).strict();
+const Focus = z.object({ app: z.string(), chat: z.string().optional() }).strict();
 const Show = z.object({ view: z.enum(["preview", "code", "history"]) }).strict();
 
 /** Every Studio action, for any client: the web page, MCP and voice (ADR-012). */
 export const STUDIO_TOOLS = [
-  tool("status", "server", "What is running and what needs the person, for one project or all of them.", Status),
-  tool("open_project", "server", "Open a project by id, or create one from a name and a source (a template or a repository).", OpenProject),
-  tool("new_chat", "server", "Start a new chat (a parallel line of work) in a project, optionally with a first message.", NewChat),
+  tool("status", "server", "What is running and what needs the person, for one app or all of them.", Status),
+  tool("open_app", "server", "Open an app by id, or create one from a name and a source (a template or a repository).", OpenApp),
+  tool("new_chat", "server", "Start a new chat (a parallel line of work) in an app, optionally with a first message.", NewChat),
   tool("send", "server", "Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them.", Send),
-  tool("apply", "server", "Apply a chat's changes to the project's main line as a new version.", ChatRef),
+  tool("apply", "server", "Apply a chat's changes to the app's main line as a new version.", ChatRef),
   tool("restore", "server", "Restore an earlier version as a new version; nothing is lost.", VersionRef),
   tool("bookmark", "server", "Pin or unpin a version.", Bookmark),
   tool("look", "server", "The live preview of a chat (its URL).", ChatRef),
-  tool("focus", "client", "Move the person's screen to a project and, optionally, a chat.", Focus),
+  tool("focus", "client", "Move the person's screen to an app and, optionally, a chat.", Focus),
   tool("show", "client", "Show the preview, the code or the history in the person's screen.", Show),
 ] as const satisfies readonly StudioTool[];
 
@@ -64,35 +64,35 @@ export async function runTool(studio: Studio, name: string, input: unknown, call
 }
 
 async function dispatch(studio: Studio, name: StudioToolName, a: any, caller: ToolCaller): Promise<ToolResult> {
-  const project = (id: string) => {
-    const p = studio.getProject(id);
-    if (!p || p.project.team !== caller.team) throw new StudioError("not_found", `unknown project ${id}`);
+  const app = (id: string) => {
+    const p = studio.getApp(id);
+    if (!p || p.app.team !== caller.team) throw new StudioError("not_found", `unknown app ${id}`);
     return p;
   };
   const chat = (id: string) => {
     const c = studio.getChat(id);
     if (!c) throw new StudioError("not_found", `unknown chat ${id}`);
-    project(c.chat.projectId);
+    app(c.chat.appId);
     return c;
   };
   const version = (id: string) => {
-    const p = studio.listProjects(caller.team).find((x) => studio.getProject(x.id)!.versions.some((v) => v.id === id));
+    const p = studio.listApps(caller.team).find((x) => studio.getApp(x.id)!.versions.some((v) => v.id === id));
     if (!p) throw new StudioError("not_found", `unknown version ${id}`);
     return id;
   };
   switch (name) {
     case "status":
-      if (a.project) project(a.project);
-      return { ok: true, data: studio.status({ team: caller.team, ...(a.project ? { project: a.project } : {}) }) };
-    case "open_project": {
-      const p = "project" in a ? project(a.project).project : await studio.createProject({ team: caller.team, by: caller.by, ...a });
-      return { ok: true, data: p, client: { focus: { project: p.id } } };
+      if (a.app) app(a.app);
+      return { ok: true, data: studio.status({ team: caller.team, ...(a.app ? { app: a.app } : {}) }) };
+    case "open_app": {
+      const p = "app" in a ? app(a.app).app : await studio.createApp({ team: caller.team, by: caller.by, ...a });
+      return { ok: true, data: p, client: { focus: { app: p.id } } };
     }
     case "new_chat": {
-      const { project: projectId, ...rest } = a;
-      project(projectId);
-      const r = await studio.newChat(projectId, { by: caller.by, via: caller.via, ...rest });
-      return { ok: true, data: r, client: { focus: { project: projectId, chat: r.chat.id } } };
+      const { app: appId, ...rest } = a;
+      app(appId);
+      const r = await studio.newChat(appId, { by: caller.by, via: caller.via, ...rest });
+      return { ok: true, data: r, client: { focus: { app: appId, chat: r.chat.id } } };
     }
     case "send":
       chat(a.chat);
@@ -108,7 +108,7 @@ async function dispatch(studio: Studio, name: StudioToolName, a: any, caller: To
       chat(a.chat);
       return { ok: true, data: await studio.preview({ chatId: a.chat }) };
     case "focus":
-      return { ok: true, data: null, client: { focus: a.chat ? { project: a.project, chat: a.chat } : { project: a.project } } };
+      return { ok: true, data: null, client: { focus: a.chat ? { app: a.app, chat: a.chat } : { app: a.app } } };
     case "show":
       return { ok: true, data: null, client: { show: a.view } };
     default:

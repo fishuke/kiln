@@ -15,6 +15,7 @@ import {
   LocalSandboxProvider,
   SandboxNotReachable,
   type SandboxSpec,
+  type SnapshotRef,
 } from "./index";
 
 function gitRepo(): string {
@@ -126,6 +127,52 @@ describe("docker sandbox", () => {
     expect(custom).toEqual(expect.arrayContaining(["--network", "coolify-egress", "HTTPS_PROXY=http://egress:3128"]));
   });
 
+  it("puts only Studio sandboxes on the preview network", () => {
+    const studio: SandboxSpec = { ...spec, preview: true };
+    expect(dockerRunArgs("kiln-p", studio, undefined, "kiln", "kiln-preview")).toEqual(expect.arrayContaining(["--network", "kiln-egress"]));
+    // with no egress the preview network is the only one, instead of none
+    const offline = dockerRunArgs("kiln-o", { ...studio, repos: [], runner: { ...spec.runner, egress: [] } }, undefined, "kiln", "kiln-preview");
+    expect(offline).toEqual(expect.arrayContaining(["--network", "kiln-preview"]));
+    expect(offline).not.toContain("none");
+    // other sandboxes never join it
+    expect(dockerRunArgs("kiln-x", spec, undefined, "kiln", "kiln-preview")).not.toContain("kiln-preview");
+  });
+
+  it("connects a Studio sandbox to the preview network and exposes its address there", async () => {
+    const fake = new FakeCommandRunner((_cmd, args) =>
+      args[0] === "inspect" ? { code: 0, stdout: "kiln-egress=172.18.0.7 kiln-preview=172.30.250.9 \n", stderr: "" } : { code: 0, stdout: "", stderr: "" },
+    );
+    const sbx = await new DockerSandboxProvider(fake, { previewNetwork: "kiln-preview" }).create({ ...spec, preview: true });
+    const run = fake.calls.findIndex((c) => c.args[0] === "run");
+    const connect = fake.calls.findIndex((c) => c.args[0] === "network");
+    const name = fake.calls[run]!.args[fake.calls[run]!.args.indexOf("--name") + 1]!;
+    expect(fake.calls[connect]?.args).toEqual(["network", "connect", "kiln-preview", name]);
+    expect(connect).toBeGreaterThan(run);
+    expect(await sbx.expose!(4101)).toEqual({ host: "172.30.250.9", port: 4101 });
+  });
+
+  it("reconnects a resumed Studio sandbox to the preview network", async () => {
+    const fake = new FakeCommandRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    const store = new MemoryObjectStore();
+    await store.put("snap", new Uint8Array([1]));
+    await new DockerSandboxProvider(fake, { previewNetwork: "kiln-preview" }).resume({ key: "snap" } as SnapshotRef, { ...spec, preview: true }, store);
+    expect(fake.calls.some((c) => c.args.join(" ").startsWith("network connect kiln-preview kiln-"))).toBe(true);
+  });
+
+  it("never connects other sandboxes to the preview network", async () => {
+    const fake = new FakeCommandRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    await new DockerSandboxProvider(fake, { previewNetwork: "kiln-preview" }).create(spec);
+    expect(fake.calls.some((c) => c.args[0] === "network")).toBe(false);
+  });
+
+  it("refuses to expose a Studio sandbox that is not on the preview network", async () => {
+    const fake = new FakeCommandRunner((_cmd, args) =>
+      args[0] === "inspect" ? { code: 0, stdout: "kiln-egress=172.18.0.7 \n", stderr: "" } : { code: 0, stdout: "", stderr: "" },
+    );
+    const sbx = await new DockerSandboxProvider(fake, { previewNetwork: "kiln-preview" }).create({ ...spec, preview: true });
+    await expect(sbx.expose!(4101)).rejects.toBeInstanceOf(SandboxNotReachable);
+  });
+
   it("makes Node's fetch use the egress proxy (corepack downloads pnpm with it)", () => {
     expect(dockerRunArgs("kiln-x", spec)).toContain("NODE_USE_ENV_PROXY=1");
     expect(dockerRunArgs("kiln-y", { ...spec, repos: [], runner: { ...spec.runner, egress: [] } })).not.toContain("NODE_USE_ENV_PROXY=1");
@@ -225,5 +272,15 @@ describe("kubernetes sandbox", () => {
     expect(pod.spec.automountServiceAccountToken).toBe(false);
     expect(policy.spec.egress).toEqual([]);
     expect(policy.spec.policyTypes).toEqual(["Ingress", "Egress"]);
+    expect(pod.metadata.labels["kiln.dev/preview"]).toBeUndefined();
+  });
+
+  it("labels a Studio sandbox pod for the preview ingress policy", () => {
+    const [pod] = kubernetesManifests("kiln-p", "kiln-sandboxes", {
+      runner: { image: "node:22", backend: "kubernetes", setupCommands: [], egress: [] },
+      repos: [],
+      preview: true,
+    }) as [Record<string, any>];
+    expect(pod.metadata.labels["kiln.dev/preview"]).toBe("true");
   });
 });

@@ -103,7 +103,7 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     harness: realAgents ? undefined : fakeAgents(),
     sandboxes: {
       local: new LocalSandboxProvider(join(dataDir, "sandboxes")),
-      ...(backend === "docker" ? { docker: new DockerSandboxProvider(undefined, { egress: { network: env.KILN_EGRESS_NETWORK || DEFAULT_EGRESS.network, proxy: env.KILN_EGRESS_PROXY || DEFAULT_EGRESS.proxy } }) } : {}),
+      ...(backend === "docker" ? { docker: new DockerSandboxProvider(undefined, { egress: { network: env.KILN_EGRESS_NETWORK || DEFAULT_EGRESS.network, proxy: env.KILN_EGRESS_PROXY || DEFAULT_EGRESS.proxy }, previewNetwork: env.KILN_PREVIEW_NETWORK || undefined }) } : {}),
       ...(backend === "kubernetes" ? { kubernetes: new KubernetesSandboxProvider(undefined, env.KILN_SANDBOX_NAMESPACE) } : {}),
     },
     defaultBackend: backend,

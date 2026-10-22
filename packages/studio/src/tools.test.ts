@@ -40,7 +40,7 @@ describe("studio tools", () => {
   it("names every tool once, with its kind", () => {
     expect(STUDIO_TOOLS.map((t) => `${t.name}:${t.kind}`)).toEqual([
       "status:server",
-      "open_project:server",
+      "open_app:server",
       "new_chat:server",
       "send:server",
       "apply:server",
@@ -58,34 +58,34 @@ describe("studio tools", () => {
     expect(await runTool(studio, "teleport", {}, caller)).toEqual({ ok: false, error: "unknown tool teleport" });
   });
 
-  it("opens a project, starts a chat that the screen follows, and reports status", async () => {
+  it("opens an app, starts a chat that the screen follows, and reports status", async () => {
     const studio = make();
-    const opened = await runTool(studio, "open_project", { name: "Daily Done", source: { kind: "template", template: "test" }, shipMode: "safe" }, caller);
-    expect(opened).toMatchObject({ ok: true, client: { focus: { project: expect.stringMatching(/^sp_/) } } });
-    const projectId = (opened as { client: { focus: { project: string } } }).client.focus.project;
-    await studio.ready(projectId);
-    const chat = await runTool(studio, "new_chat", { project: projectId, prompt: "write hello" }, caller);
-    expect(chat).toMatchObject({ ok: true, client: { focus: { project: projectId, chat: expect.stringMatching(/^sc_/) } } });
+    const opened = await runTool(studio, "open_app", { name: "Daily Done", source: { kind: "template", template: "test" }, shipMode: "safe" }, caller);
+    expect(opened).toMatchObject({ ok: true, client: { focus: { app: expect.stringMatching(/^sa_/) } } });
+    const appId = (opened as { client: { focus: { app: string } } }).client.focus.app;
+    await studio.ready(appId);
+    const chat = await runTool(studio, "new_chat", { app: appId, prompt: "write hello" }, caller);
+    expect(chat).toMatchObject({ ok: true, client: { focus: { app: appId, chat: expect.stringMatching(/^sc_/) } } });
     const chatId = (chat as { client: { focus: { chat: string } } }).client.focus.chat;
     await studio.idle(chatId);
     expect(await runTool(studio, "apply", { chat: chatId }, caller)).toMatchObject({ ok: true, data: { ok: true, version: { kind: "apply" } } });
     const status = await runTool(studio, "status", {}, caller);
-    expect(status).toMatchObject({ ok: true, data: { projects: [{ id: projectId, name: "Daily Done", latest: { title: "ok" } }] } });
+    expect(status).toMatchObject({ ok: true, data: { apps: [{ id: appId, name: "Daily Done", latest: { title: "ok" } }] } });
     expect(await runTool(studio, "look", { chat: chatId }, caller)).toMatchObject({ ok: true, data: { url: `https://${chatId}.preview.test` } });
   });
 
-  it("hides another team's project", async () => {
+  it("hides another team's app", async () => {
     const studio = make();
-    const p = await studio.createProject({ team: "t2", by: "x", name: "Theirs", source: { kind: "template", template: "test" } });
-    expect(await runTool(studio, "open_project", { project: p.id }, caller)).toEqual({ ok: false, error: `unknown project ${p.id}` });
+    const p = await studio.createApp({ team: "t2", by: "x", name: "Theirs", source: { kind: "template", template: "test" } });
+    expect(await runTool(studio, "open_app", { app: p.id }, caller)).toEqual({ ok: false, error: `unknown app ${p.id}` });
   });
 
   it("answers client tools without touching the server", async () => {
     const studio = make();
-    expect(await runTool(studio, "focus", { project: "sp_1", chat: "sc_1" }, caller)).toEqual({
+    expect(await runTool(studio, "focus", { app: "sa_1", chat: "sc_1" }, caller)).toEqual({
       ok: true,
       data: null,
-      client: { focus: { project: "sp_1", chat: "sc_1" } },
+      client: { focus: { app: "sa_1", chat: "sc_1" } },
     });
     expect(await runTool(studio, "show", { view: "history" }, caller)).toEqual({ ok: true, data: null, client: { show: "history" } });
   });

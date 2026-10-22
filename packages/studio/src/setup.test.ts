@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { detectSetup, devCommand, envKeys, listenPort } from "./setup";
 
-describe("detecting an imported project's setup", () => {
+describe("detecting an imported app's setup", () => {
   it("picks the package manager from the lockfile", () => {
     expect(detectSetup({ files: ["pnpm-lock.yaml"] }).packageManager).toBe("pnpm");
     expect(detectSetup({ files: ["yarn.lock"] }).install).toEqual(["yarn install"]);

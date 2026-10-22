@@ -27,6 +27,8 @@ export type SandboxSpec = {
   deniedHosts?: string[];
   /** Credentials for pulling a private runner image. */
   registryAuth?: RegistryAuth;
+  /** A Studio sandbox: the API's preview proxy reaches its dev servers (the Docker preview network; `kiln.dev/preview` on Kubernetes). */
+  preview?: boolean;
 };
 
 export type RegistryAuth = { host: string; username: string; password: string };
@@ -84,7 +86,10 @@ export interface SandboxProvider {
 }
 
 export class CommandBlocked extends Error {
-  constructor(readonly command: string, readonly verdict: GuardVerdict) {
+  constructor(
+    readonly command: string,
+    readonly verdict: GuardVerdict,
+  ) {
     super(verdict === "block" ? `blocked by guardrail: ${command}` : `a human declined: ${command}`);
   }
 }
@@ -99,7 +104,10 @@ async function guarded(spec: SandboxSpec, command: string): Promise<void> {
 
 /** The sandbox has no address the API can reach, e.g. a Docker container started with `--network none`. */
 export class SandboxNotReachable extends Error {
-  constructor(readonly sandboxId: string, reason: string) {
+  constructor(
+    readonly sandboxId: string,
+    reason: string,
+  ) {
     super(`sandbox ${sandboxId} is not reachable: ${reason}`);
   }
 }
@@ -320,14 +328,18 @@ export function egressAllowlist(spec: SandboxSpec): string[] {
 export type EgressRoute = { network: string; proxy: string };
 export const DEFAULT_EGRESS: EgressRoute = { network: "kiln-egress", proxy: "http://kiln-egress-proxy:3128" };
 
-export function dockerRunArgs(name: string, spec: SandboxSpec, egress: EgressRoute = DEFAULT_EGRESS, owner = "kiln"): string[] {
+/**
+ * `previewNetwork`: the network the API's preview proxy reaches Studio sandboxes on (ADR-012). Only
+ * sandboxes with `spec.preview` join it; with egress they join it after `docker run` (see `create`).
+ */
+export function dockerRunArgs(name: string, spec: SandboxSpec, egress: EgressRoute = DEFAULT_EGRESS, owner = "kiln", previewNetwork?: string): string[] {
   const args = ["run", "-d", "--name", name, "--label", "kiln.sandbox=1", "--label", `kiln.owner=${owner}`, "-w", "/workspace"];
   for (const [k, v] of Object.entries(spec.labels ?? {})) args.push("--label", `${k}=${v}`);
   if (spec.runner.shape) args.push("--cpus", String(spec.runner.shape.vcpus), "--memory", `${spec.runner.shape.memoryGb}g`);
   // Repos are cloned inside the sandbox, so their hosts are always allowed. Nothing to reach → no network;
   // otherwise traffic goes through the egress proxy, which enforces the allowlist.
   const allow = egressAllowlist(spec);
-  if (allow.length === 0) args.push("--network", "none");
+  if (allow.length === 0) args.push("--network", spec.preview && previewNetwork ? previewNetwork : "none");
   else {
     args.push("--network", egress.network);
     args.push("-e", `HTTPS_PROXY=${egress.proxy}`, "-e", `HTTP_PROXY=${egress.proxy}`);
@@ -350,13 +362,31 @@ export class DockerSandboxProvider implements SandboxProvider {
   constructor(
     private readonly runner: CommandRunner = new NodeCommandRunner(),
     /** `owner` labels the containers (kiln.owner) so a sweep only removes its own: the API and a worker on the same host keep apart. */
-    private readonly options: { checkpoint?: boolean; hostTmp?: string; volumes?: string[]; pullPolicy?: "Always" | "IfNotPresent" | "Never"; egress?: EgressRoute; owner?: string } = {},
+    private readonly options: {
+      checkpoint?: boolean;
+      hostTmp?: string;
+      volumes?: string[];
+      pullPolicy?: "Always" | "IfNotPresent" | "Never";
+      egress?: EgressRoute;
+      owner?: string;
+      previewNetwork?: string;
+    } = {},
   ) {}
 
   private async must(args: string[], stdin?: string, env?: Record<string, string>): Promise<ExecResult> {
     const r = await this.runner.run("docker", args, { ...(stdin === undefined ? {} : { stdin }), ...(env ? { env } : {}) });
     if (r.code !== 0) throw new Error(`docker ${args.slice(0, 2).join(" ")} failed: ${r.stderr}`);
     return r;
+  }
+
+  private previewNetwork(spec: SandboxSpec) {
+    return spec.preview ? this.options.previewNetwork : undefined;
+  }
+
+  /** `docker run` takes a second network only from Docker 25 on, so a Studio sandbox with egress joins the preview network here. */
+  private async joinPreview(name: string, spec: SandboxSpec) {
+    const network = this.previewNetwork(spec);
+    if (network && egressAllowlist(spec).length) await this.must(["network", "connect", network, name]);
   }
 
   /** Pull, with a private registry login in a temporary DOCKER_CONFIG that is removed right after. */
@@ -379,12 +409,13 @@ export class DockerSandboxProvider implements SandboxProvider {
     const cached = policy === "Always" ? { code: 1 } : await this.runner.run("docker", ["image", "inspect", spec.runner.image]);
     // A private image is always pulled with its credential, so access is checked on every run.
     if (policy !== "Never" && (cached.code !== 0 || spec.registryAuth)) await this.pull(spec);
-    const args = dockerRunArgs(name, spec, this.options.egress, this.owner);
+    const args = dockerRunArgs(name, spec, this.options.egress, this.owner, this.previewNetwork(spec));
     // Host volumes from the worker's configuration (`kiln worker --volumes HOST:CONTAINER[:ro]`).
     for (const v of this.options.volumes ?? []) args.splice(args.indexOf(spec.runner.image), 0, "-v", v);
     const sandbox = this.track(new DockerSandbox(id, name, spec, this.runner, this.options));
     try {
       await this.must(args);
+      await this.joinPreview(name, spec);
       for (const repo of spec.repos) {
         await this.must(["exec", name, "git", "clone", "--quiet", repo.url, `/workspace/${repo.name}`]);
         if (repo.branch) await this.must(["exec", "-w", `/workspace/${repo.name}`, name, "git", "checkout", "-q", "-B", repo.branch]);
@@ -432,7 +463,8 @@ export class DockerSandboxProvider implements SandboxProvider {
     writeFileSync(archive, body);
     const sandbox = this.track(new DockerSandbox(id, name, spec, this.runner, this.options));
     try {
-      await this.must(dockerRunArgs(name, spec, this.options.egress, this.owner));
+      await this.must(dockerRunArgs(name, spec, this.options.egress, this.owner, this.previewNetwork(spec)));
+      await this.joinPreview(name, spec);
       await this.must(["cp", archive, `${name}:/tmp/snap.tgz`]);
       await this.must(["exec", name, "tar", "-xzf", "/tmp/snap.tgz", "-C", "/workspace"]);
     } catch (err) {
@@ -457,7 +489,7 @@ class DockerSandbox implements Sandbox {
     readonly container: string,
     private readonly spec: SandboxSpec,
     private readonly runner: CommandRunner,
-    private readonly options: { checkpoint?: boolean; hostTmp?: string },
+    private readonly options: { checkpoint?: boolean; hostTmp?: string; previewNetwork?: string },
   ) {}
 
   private envArgs(env?: Record<string, string>) {
@@ -543,9 +575,22 @@ class DockerSandbox implements Sandbox {
   /** The container's address on its network; the API must share that network to reach it. */
   async expose(port: number): Promise<SandboxAddress> {
     checkPort(port);
-    const r = await this.runner.run("docker", ["inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", this.container]);
+    const r = await this.runner.run("docker", [
+      "inspect",
+      "-f",
+      "{{range $name, $net := .NetworkSettings.Networks}}{{$name}}={{$net.IPAddress}} {{end}}",
+      this.container,
+    ]);
     if (r.code !== 0) throw new SandboxNotReachable(this.id, r.stderr.trim() || "docker inspect failed");
-    const host = r.stdout.trim().split(/\s+/).find(Boolean);
+    // "<network>=<ip>" pairs; with a preview network, only the address on it counts.
+    const pairs = r.stdout
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((p) => (p.includes("=") ? (p.split("=") as [string, string]) : ["", p]));
+    const want = this.spec.preview ? this.options.previewNetwork : undefined;
+    const host = pairs.find(([net, ip]) => ip && (!want || net === want))?.[1];
+    if (!host && want) throw new SandboxNotReachable(this.id, `the container is not on the preview network ${want}`);
     if (!host) throw new SandboxNotReachable(this.id, "the container has no network (a runner without egress runs with --network none)");
     return { host, port };
   }
@@ -553,7 +598,13 @@ class DockerSandbox implements Sandbox {
 
 /** Pod and NetworkPolicy manifests for a sandbox under gVisor. */
 export function kubernetesManifests(name: string, namespace: string, spec: SandboxSpec): Record<string, unknown>[] {
-  const labels = { "app.kubernetes.io/name": "kiln-sandbox", "kiln.dev/sandbox": name, ...spec.labels };
+  // kiln.dev/preview admits the API to a Studio sandbox's dev servers (the Helm chart's kiln-preview-ingress policy).
+  const labels = {
+    "app.kubernetes.io/name": "kiln-sandbox",
+    "kiln.dev/sandbox": name,
+    ...spec.labels,
+    ...(spec.preview ? { "kiln.dev/preview": "true" } : {}),
+  };
   const resources = spec.runner.shape
     ? {
         requests: { cpu: String(spec.runner.shape.vcpus), memory: `${spec.runner.shape.memoryGb}Gi` },
@@ -689,7 +740,9 @@ class KubernetesSandbox implements Sandbox {
   async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
     if (!opts.trusted) await guarded(this.spec, command);
     const cwd = opts.cwd ? (opts.cwd.startsWith("/") ? opts.cwd : `/workspace/${opts.cwd}`) : "/workspace";
-    const env = Object.entries(opts.env ?? {}).map(([k, v]) => `${k}=${shellQuote(v)}`).join(" ");
+    const env = Object.entries(opts.env ?? {})
+      .map(([k, v]) => `${k}=${shellQuote(v)}`)
+      .join(" ");
     return this.runner.run("kubectl", [...this.base(), "sh", "-lc", `cd ${shellQuote(cwd)} && ${env} ${command}`]);
   }
 
@@ -763,4 +816,3 @@ class KubernetesSandbox implements Sandbox {
     return { host, port };
   }
 }
-

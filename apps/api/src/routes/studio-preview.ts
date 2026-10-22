@@ -1,7 +1,7 @@
 import type { SandboxAddress } from "@kiln/sandbox";
 import type { MiddlewareHandler } from "hono";
 import { request, type IncomingMessage, type OutgoingHttpHeaders } from "node:http";
-import { connect } from "node:net";
+import { BlockList, connect, isIP, type Socket } from "node:net";
 import { Readable, type Duplex } from "node:stream";
 import type { RouteContext } from "../app";
 
@@ -181,6 +181,34 @@ export function previewUpgrade(config: PreviewConfig, resolver: () => PreviewRes
     });
     return true;
   };
+}
+
+/**
+ * `KILN_PREVIEW_SUBNET` (the Docker preview network's subnet, e.g. `172.30.250.0/24`): true for a peer
+ * on it. The API only opens connections into that network; the sandboxes on it must not call the API.
+ */
+export function previewPeerGuard(subnet: string | undefined): ((address: string | undefined) => boolean) | undefined {
+  if (!subnet?.trim()) return undefined;
+  const [ip, bits] = subnet.trim().split("/");
+  const prefix = Number(bits);
+  if (!ip || isIP(ip) !== 4 || !Number.isInteger(prefix) || prefix < 0 || prefix > 32)
+    throw new Error(`KILN_PREVIEW_SUBNET must be an IPv4 CIDR such as 172.30.250.0/24, got "${subnet}"`);
+  const list = new BlockList();
+  list.addSubnet(ip, prefix, "ipv4");
+  return (address) => {
+    const v4 = address?.replace(/^::ffff:/i, "");
+    return Boolean(v4 && isIP(v4) === 4 && list.check(v4, "ipv4"));
+  };
+}
+
+/** Closes every connection a server accepts from the preview network. */
+export function refusePreviewPeers(
+  server: { on(event: "connection", listener: (socket: Socket) => void): unknown },
+  fromPreview: (address: string | undefined) => boolean,
+) {
+  server.on("connection", (socket) => {
+    if (fromPreview(socket.remoteAddress)) socket.destroy();
+  });
 }
 
 /** A `PUBLIC_MODULES` entry: preview hosts never reach Kiln's auth or routes. Off without a preview domain. */

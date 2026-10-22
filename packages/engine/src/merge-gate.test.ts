@@ -40,16 +40,18 @@ async function setup(
   push(forge, "studio/sa_1", opts.files ?? { "page.tsx": "export const h = 'Welcome back';\n" });
   const pr = await forge.openPullRequest({ repo, head: "studio/sa_1", title: "Change the heading", body: "", author: "ana", draft: opts.draft });
   const scope = { kind: "app" as const, appId: "sa_1", team: team.id };
-  const ready = (extra: Record<string, unknown> = {}) =>
-    kiln.mergeGate.readyForReview({
-      scope,
-      repo: "acme/web",
-      number: pr.number,
-      by: "ana@acme.test",
-      pullRequestId: "sp_1",
-      link: "https://kiln.test/studio/sa_1",
-      ...extra,
-    });
+  const ready = async (extra: Record<string, unknown> = {}) =>
+    (
+      await kiln.mergeGate.readyForReview({
+        scope,
+        repo: "acme/web",
+        number: pr.number,
+        by: "ana@acme.test",
+        pullRequestId: "sp_1",
+        link: "https://kiln.test/studio/sa_1",
+        ...extra,
+      })
+    ).review;
   return { kiln, forge, pr, team, scope, ready };
 }
 
@@ -73,7 +75,7 @@ describe("merge gate", () => {
 
   it("merges a safe pull request as the gate and audits the decision's inputs and answer", async () => {
     const { kiln, forge, pr, scope, team, ready } = await setup();
-    kiln.mergeGate.setAppEnabled({ ...scope, enabled: true, by: "owner@acme.test" });
+    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
     const seen = events(kiln);
     const review = await ready();
     expect(review).toMatchObject({ state: "merged", mergedBy: "kiln-merge-gate", decision: { action: "merge" } });
@@ -99,7 +101,7 @@ describe("merge gate", () => {
 
   it("sends a pull request with failing checks to the team's owners and admins with the reasons", async () => {
     const { kiln, forge, pr, scope, team, ready } = await setup();
-    kiln.mergeGate.setAppEnabled({ ...scope, enabled: true, by: "owner@acme.test" });
+    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
     forge.setChecks(repo, pr.headSha!, { status: "failure", runs: [{ name: "ci", conclusion: "failure" }] });
     const review = await ready();
     expect(review.state).toBe("needs_review");
@@ -124,7 +126,7 @@ describe("merge gate", () => {
 
   it("sends a change to a sensitive file to review", async () => {
     const { kiln, scope, ready } = await setup({ files: { "auth.ts": "export const session = 1;\n" } });
-    kiln.mergeGate.setAppEnabled({ ...scope, enabled: true, by: "owner@acme.test" });
+    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
     const review = await ready();
     expect(review.state).toBe("needs_review");
     expect(review.reasons.some((r) => r === "Touches sensitive area: 0.80.")).toBe(true);
@@ -145,7 +147,7 @@ describe("merge gate", () => {
         };
       },
     });
-    kiln.mergeGate.setAppEnabled({ ...scope, enabled: true, by: "owner@acme.test" });
+    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
     const review = await ready();
     expect(review.state).toBe("needs_review");
     expect(review.reasons.at(-1)).toMatch(/changed after the merge-safety decision/);
@@ -154,7 +156,7 @@ describe("merge gate", () => {
 
   it("sends the pull request to review when the server has no merge credential", async () => {
     const { kiln, scope, ready } = await setup({ merger: () => undefined });
-    kiln.mergeGate.setAppEnabled({ ...scope, enabled: true, by: "owner@acme.test" });
+    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
     const review = await ready();
     expect(review).toMatchObject({ state: "needs_review", decision: { action: "merge" } });
     expect(review.reasons).toEqual(["This server has no merge credential for the gate (KILN_MERGE_GATE_TOKEN)."]);
@@ -197,19 +199,20 @@ describe("merge gate", () => {
     expect((updated as MergeReview).state).toBe("closed");
   });
 
-  it("audits who turns the gate on and off for an App", async () => {
+  it("reads an App's switch from its definition's policy, and is off without one", async () => {
     const { kiln, scope } = await setup();
     expect(kiln.mergeGate.enabled(scope)).toBe(false);
-    kiln.mergeGate.setAppEnabled({ ...scope, enabled: true, by: "owner@acme.test" });
-    kiln.mergeGate.setAppEnabled({ ...scope, enabled: false, by: "owner@acme.test" });
-    expect(kiln.mergeGate.enabled(scope)).toBe(false);
-    expect(
-      kiln
-        .auditLog()
-        .filter((a) => a.action.startsWith("merge_gate."))
-        .map((a) => a.action)
-        .sort(),
-    ).toEqual(["merge_gate.disabled", "merge_gate.enabled"]);
+    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
+    expect(kiln.mergeGate.enabled(scope)).toBe(true);
+    expect(kiln.mergeGate.enabled({ ...scope, appId: "sa_2" })).toBe(false);
+  });
+
+  it("answers Studio's shipping with the outcome only", async () => {
+    const { kiln, pr, scope, forge } = await setup();
+    kiln.mergeGate.useAppPolicy(() => true);
+    forge.setChecks(repo, pr.headSha!, { status: "failure", runs: [{ name: "ci", conclusion: "failure" }] });
+    const result = await kiln.mergeGate.readyForReview({ scope, repo: "acme/web", number: pr.number, by: "ana@acme.test", pullRequestId: "sp_1" });
+    expect(result).toMatchObject({ outcome: "review", reasons: expect.arrayContaining(["CI failed."]) });
   });
 
   it("reads a factory's setting from its policies, where false wins", async () => {
@@ -229,7 +232,7 @@ describe("merge gate", () => {
       number: pr.number,
       by: "lead@acme.test",
     });
-    expect(kiln.inbox.all().find((i) => i.mergeReviewId === review.id)).toMatchObject({
+    expect(kiln.inbox.all().find((i) => i.mergeReviewId === review.review.id)).toMatchObject({
       kind: "pr_review",
       factory: "webapp",
       recipients: ["admin@acme.test"],
@@ -238,6 +241,13 @@ describe("merge gate", () => {
 });
 
 describe("merge capability boundary", () => {
+  it("is not kept on kiln.options, which every service and run reads", () => {
+    const forge = new FakeForge();
+    const { kiln } = createTestKiln({ forge, gateMerger: new FakeGateMerger(forge) });
+    expect(Object.values(kiln.options).some((v) => v instanceof FakeGateMerger)).toBe(false);
+    expect("gateMerger" in kiln.options).toBe(false);
+  });
+
   it("is referenced only by the merge gate service and the server wiring", () => {
     const root = join(__dirname, "../../..");
     const sources = (dir: string): string[] =>
@@ -255,6 +265,7 @@ describe("merge capability boundary", () => {
       .filter((f) => !f.startsWith(join("apps", "web")) && /\b(GateMerger|gateMerger)\b/.test(readFileSync(join(root, f), "utf8")));
     expect(users.sort()).toEqual(
       [
+        join("apps", "api", "src", "config.ts"),
         join("packages", "engine", "src", "kiln.ts"),
         join("packages", "engine", "src", "merge-gate.ts"),
         join("packages", "integrations", "src", "merge-gate.ts"),

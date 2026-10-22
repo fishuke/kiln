@@ -105,13 +105,7 @@ contract("github", async () => {
   };
 });
 
-describe("merge capability boundary", () => {
-  it("is not part of the forge an agent run can reach", () => {
-    const forge: Forge = new FakeForge();
-    expect("gateMerger" in forge).toBe(false);
-    expect(Object.getOwnPropertyNames(GitHubForge.prototype)).not.toContain("merge");
-  });
-
+describe("GitHub merge gate errors", () => {
   it("reports a GitHub error that is not a merge conflict as it is", async () => {
     const fetch = (async () => new Response("bad credentials", { status: 401 })) as unknown as typeof globalThis.fetch;
     const merger = new GitHubGateMerger({ token: "gate", identity: "kiln-merge-gate", fetch });

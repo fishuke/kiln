@@ -212,7 +212,12 @@ export class Kiln {
   readonly storage: StorageRouter;
   readonly notifications: NotificationService;
 
-  constructor(readonly options: KilnOptions) {
+  readonly options: KilnOptions;
+
+  constructor(input: KilnOptions) {
+    // The merge capability goes to the merge gate alone; it is not kept on `kiln.options`, which every service reads.
+    const { gateMerger, ...options } = input;
+    this.options = options;
     this.store = options.store ?? new MemoryStore();
     this.storage = new StorageRouter(this, options.objects ?? new MemoryObjectStore());
     this.objects = this.storage;
@@ -246,7 +251,7 @@ export class Kiln {
     this.runQuery = new RunQuery(this);
     this.workers = new WorkerRegistry(this);
     this.inbox = new InboxService(this);
-    this.mergeGate = new MergeGateService(this, options.gateMerger);
+    this.mergeGate = new MergeGateService(this, gateMerger);
     this.editor = new DefinitionEditor(this);
     this.definitionChanges = new DefinitionChangeService(this);
     this.factoryMetrics = new FactoryMetricsService(this);

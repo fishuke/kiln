@@ -1,4 +1,4 @@
-import { BUILTIN_DECISIONS, runDecision, type Answers, type DecisionOutcome } from "@kiln/decide";
+import { BUILTIN_DECISIONS, mergeSafetyFacts, runDecision, sensitivePaths, type Answers, type DecisionOutcome } from "@kiln/decide";
 import { GateMergeConflict, type GateMerger, type RepoRef } from "@kiln/integrations";
 import type { Decision } from "@kiln/schema";
 import { z } from "zod";
@@ -54,7 +54,11 @@ export type MergeReview = {
   decidedAt?: string;
 };
 
-export type MergeGateSetting = { id: string; appId: string; team: string; enabled: boolean; updatedBy: string; updatedAt: string };
+/** What Studio's shipping gets back: merged, or a person reviews it for these reasons. */
+export type MergeGateOutcome = { outcome: "merged"; review: MergeReview } | { outcome: "review"; reasons: string[]; review: MergeReview };
+
+/** Whether a person turned the gate on for an App, from the App definition's policies (ADR-014). */
+export type AppMergeGatePolicy = (appId: string) => boolean;
 
 export class MergeGateError extends Error {
   constructor(
@@ -67,7 +71,6 @@ export class MergeGateError extends Error {
 }
 
 const REVIEWS = "merge_reviews";
-const SETTINGS = "merge_gate_settings";
 const DIFF_LIMIT = 20_000;
 const GATE_OFF = "The merge gate is off, so a person reviews every pull request.";
 const NO_CREDENTIAL = "This server has no merge credential for the gate (KILN_MERGE_GATE_TOKEN).";
@@ -86,6 +89,10 @@ function reasonsFor(state: Record<string, unknown>, outcome: DecisionOutcome): s
   if (state.checks === "none") reasons.push("No CI checks ran.");
   if (state.tests === "failed") reasons.push("Tests failed.");
   if (state.preview === "failed") reasons.push("The preview failed.");
+  const sensitive = sensitivePaths(Array.isArray(state.files) ? state.files.map(String) : []);
+  if (sensitive.length) reasons.push(`It changes sensitive files: ${sensitive.join(", ")}.`);
+  if (Number(state.high_findings) > 0) reasons.push("A review found a high-severity problem.");
+  if (Number(state.lines) > 300) reasons.push(`It changes ${String(state.lines)} lines.`);
   for (const [name, answer] of Object.entries(outcome.answers)) {
     if (typeof answer === "number") reasons.push(`${label(name)}: ${answer.toFixed(2)}.`);
     else {
@@ -104,6 +111,7 @@ function reasonsFor(state: Record<string, unknown>, outcome: DecisionOutcome): s
 export class MergeGateService {
   readonly #merger: GateMerger | undefined;
   readonly #inflight = new Map<string, Promise<MergeReview>>();
+  #appPolicy: AppMergeGatePolicy | undefined;
 
   constructor(
     private readonly k: Kiln,
@@ -112,27 +120,22 @@ export class MergeGateService {
     this.#merger = merger;
   }
 
+  /**
+   * Where an App's switch comes from: the App definition's resolved policies, which only people
+   * edit. The server registers it when it builds App definitions; until then every App's gate is off.
+   */
+  useAppPolicy(policy: AppMergeGatePolicy) {
+    this.#appPolicy = policy;
+  }
+
+  /** On only when a person-edited policy turns it on: an App's definition, or a factory's policies/ (where `false` wins). */
   enabled(scope: MergeGateScope): boolean {
-    if (scope.kind === "app") return this.k.store.get<MergeGateSetting>(SETTINGS, `app:${scope.appId}`)?.enabled ?? false;
+    if (scope.kind === "app") return this.#appPolicy?.(scope.appId) ?? false;
     const binding = this.k.defs.get(scope.factory);
     if (!binding) throw new MergeGateError("not_found", `unknown factory ${scope.factory}`);
     if (!binding.appliedSha) return false;
     const values = Object.values(this.k.defs.current(scope.factory).parsed.policies).map((p) => p.mergeGate);
     return values.includes(true) && !values.includes(false);
-  }
-
-  setAppEnabled(input: { appId: string; team: string; enabled: boolean; by: string }): MergeGateSetting {
-    const setting: MergeGateSetting = {
-      id: `app:${input.appId}`,
-      appId: input.appId,
-      team: input.team,
-      enabled: input.enabled,
-      updatedBy: input.by,
-      updatedAt: this.k.clock.now().toISOString(),
-    };
-    this.k.store.put(SETTINGS, setting);
-    this.k.audit(input.by, input.enabled ? "merge_gate.enabled" : "merge_gate.disabled", setting.id, { team: input.team, appId: input.appId });
-    return setting;
   }
 
   get(id: string): MergeReview | undefined {
@@ -151,15 +154,21 @@ export class MergeGateService {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  /** Judge a pull request a person marked ready for review: merge it, or send it to a person. */
-  async readyForReview(raw: ReadyForReview): Promise<MergeReview> {
+  /**
+   * Judge a pull request a person marked ready for review: the gate merges it, or it goes to the
+   * reviewers' Inbox with the reasons. The caller only records the outcome; the Inbox item and
+   * the one needs-you event (`merge_gate.review_updated`) come from here.
+   */
+  async readyForReview(raw: ReadyForReview): Promise<MergeGateOutcome> {
     const input = ReadyForReview.parse(raw);
-    const key = `${input.repo}#${input.number}`;
-    const running = this.#inflight.get(key);
-    if (running) return running;
-    const work = this.decide(input).finally(() => this.#inflight.delete(key));
-    this.#inflight.set(key, work);
-    return work;
+    const key = `${JSON.stringify(input.scope)} ${input.repo}#${input.number}`;
+    let work = this.#inflight.get(key);
+    if (!work) {
+      work = this.decide(input).finally(() => this.#inflight.delete(key));
+      this.#inflight.set(key, work);
+    }
+    const review = await work;
+    return review.state === "merged" ? { outcome: "merged", review } : { outcome: "review", reasons: review.reasons, review };
   }
 
   private async decide(input: ReadyForReview): Promise<MergeReview> {
@@ -172,7 +181,12 @@ export class MergeGateService {
     const headSha = pr.headSha ?? "";
     const existing = this.k.store.list<MergeReview>(
       REVIEWS,
-      (r) => r.repo === input.repo && r.number === input.number && r.headSha === headSha && r.state !== "closed",
+      (r) =>
+        r.repo === input.repo &&
+        r.number === input.number &&
+        r.headSha === headSha &&
+        r.state !== "closed" &&
+        JSON.stringify(r.scope) === JSON.stringify(input.scope),
     )[0];
     if (existing) return existing;
 
@@ -239,7 +253,7 @@ export class MergeGateService {
     try {
       const merged = await this.#merger.merge({ repo: ref, number: input.number, expectedHeadSha: headSha, title: pr.title });
       review = this.finish(review, { state: "merged", decision, mergedBy: merged.mergedBy ?? this.#merger.identity });
-      this.audit(this.#merger.identity, "merge_gate.merged", review, details);
+      this.audit(review.mergedBy ?? this.#merger.identity, "merge_gate.merged", review, details);
       return review;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -297,13 +311,17 @@ export class MergeGateService {
     const files = await this.k.forge.pullRequestFiles(ref, input.number);
     const checks = await this.k.forge.checks(ref, headSha);
     const paths = files.map((f) => f.path);
+    const additions = files.reduce((n, f) => n + f.additions, 0);
+    const deletions = files.reduce((n, f) => n + f.deletions, 0);
     return {
       title,
       author,
       files: paths,
       areas: input.areas ?? [...new Set(paths.map((p) => p.split("/").slice(0, 2).join("/")))],
-      additions: files.reduce((n, f) => n + f.additions, 0),
-      deletions: files.reduce((n, f) => n + f.deletions, 0),
+      additions,
+      deletions,
+      // Computed here, never by a model (prompt injection in the diff cannot change them).
+      ...mergeSafetyFacts({ files: paths, additions, deletions, findings: input.findings ?? [] }),
       diff: files
         .map((f) => `--- ${f.path}\n${f.patch ?? ""}`)
         .join("\n")

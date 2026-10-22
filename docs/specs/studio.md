@@ -361,8 +361,8 @@ ADR-012: every agent execution in a chat is a **run**, and parallel work is **su
 export type ToolKind = "server" | "client";
 export type StudioTool<I extends z.ZodType, N extends string> = { name: N; kind: ToolKind; description: string; input: I };
 export const STUDIO_TOOLS: readonly StudioTool[];
-export function runTool(studio: Studio, name: string, input: unknown, caller: ToolCaller): Promise<ToolResult>;
-export type ToolCaller = { team: string; by: string; via: Via };
+export function runTool(studio: Studio, name: string, input: unknown, caller: ToolCaller, shipper?: Shipper): Promise<ToolResult>;
+export type ToolCaller = { team: string; by: string; via: Via; role?: TeamRole }; // role: the caller's team role, for shipping
 export type ToolResult = { ok: true; data: unknown; client?: ClientAction } | { ok: false; error: string };
 export type ClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" };
 ```

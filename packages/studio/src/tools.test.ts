@@ -48,6 +48,7 @@ describe("studio tools", () => {
       "restore:server",
       "bookmark:server",
       "look:server",
+      "ship:server",
       "focus:client",
       "show:client",
     ]);
@@ -61,10 +62,11 @@ describe("studio tools", () => {
 
   it("opens an app, starts a chat that the screen follows, and reports status", async () => {
     const studio = make();
-    const opened = await runTool(studio, "open_app", { name: "Daily Done", source: { kind: "template", template: "test" }, shipMode: "safe" }, caller);
+    const opened = await runTool(studio, "open_app", { name: "Daily Done", source: { kind: "template", template: "test" } }, caller);
     expect(opened).toMatchObject({ ok: true, client: { focus: { app: expect.stringMatching(/^sa_/) } } });
     const appId = (opened as { client: { focus: { app: string } } }).client.focus.app;
     await studio.ready(appId);
+    studio.updateApp(appId, { shipMode: "safe" }); // so the person applies
     const chat = await runTool(studio, "new_chat", { app: appId, prompt: "write hello" }, caller);
     expect(chat).toMatchObject({ ok: true, client: { focus: { app: appId, chat: expect.stringMatching(/^sc_/) } } });
     const chatId = (chat as { client: { focus: { chat: string } } }).client.focus.chat;

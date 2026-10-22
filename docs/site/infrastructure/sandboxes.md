@@ -22,15 +22,15 @@ egress:
   - registry.npmjs.org
 ```
 
-| Key | Default | Notes |
-| --- | --- | --- |
-| `image` | Kiln's runner image | The container image. Docker pulls it if it is not cached. Without one, runs use the server's runner image (`KILN_RUNNER_IMAGE`), which has the agent CLIs. An image you name must have the harness CLI (`claude`, `codex` or `opencode`) on its `PATH`. |
-| `backend` | `docker` | `docker`, `kubernetes` or `local`. |
-| `shape` | none | `vcpus` and `memoryGb`. Sets CPU and memory limits. |
-| `setupCommands` | `[]` | Run in order after the repositories are cloned, inside each repository (so `pnpm install` finds its `package.json` and the `packageManager` pin). A failing command fails the run. Kiln's runner image has a corepack that runs pnpm 11 and later. |
-| `egress` | `[]` | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed. |
-| `platform.linux.registryCredentialSecretName` | none | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images). |
-| `description` | none | |
+| Key                                           | Default             | Notes                                                                                                                                                                                                                                                   |
+| --------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image`                                       | Kiln's runner image | The container image. Docker pulls it if it is not cached. Without one, runs use the server's runner image (`KILN_RUNNER_IMAGE`), which has the agent CLIs. An image you name must have the harness CLI (`claude`, `codex` or `opencode`) on its `PATH`. |
+| `backend`                                     | `docker`            | `docker`, `kubernetes` or `local`.                                                                                                                                                                                                                      |
+| `shape`                                       | none                | `vcpus` and `memoryGb`. Sets CPU and memory limits.                                                                                                                                                                                                     |
+| `setupCommands`                               | `[]`                | Run in order after the repositories are cloned, inside each repository (so `pnpm install` finds its `package.json` and the `packageManager` pin). A failing command fails the run. Kiln's runner image has a corepack that runs pnpm 11 and later.      |
+| `egress`                                      | `[]`                | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed.                                                                                                  |
+| `platform.linux.registryCredentialSecretName` | none                | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images).                                                                                                      |
+| `description`                                 | none                |                                                                                                                                                                                                                                                         |
 
 An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses the server's runner image on the server's default backend, which is `local` unless the server sets another. A run's image is the runner's own, else its [environment](../management/secrets-mcps-environments.md)'s, else `KILN_RUNNER_IMAGE`, else `node:22-bookworm`.
 
@@ -48,6 +48,7 @@ Each run is a container started with `sleep infinity` and `/workspace` as its wo
 - `--cpus` and `--memory` from `shape`,
 - `--security-opt no-new-privileges` and `--cap-drop ALL`,
 - the `kiln-egress` network with `HTTPS_PROXY` and `HTTP_PROXY` set to `http://kiln-egress-proxy:3128` (and `NODE_USE_ENV_PROXY=1`, so Node's `fetch`, which corepack uses to download pnpm, goes through the proxy too) and `KILN_EGRESS_ALLOW` set to the allowed hosts: the runner's `egress` list plus the hosts of the cloned repositories. With no hosts at all, the container gets `--network none`.
+- Studio sandboxes only: the `kiln-preview` network (`KILN_PREVIEW_NETWORK`) as well, where the API reaches their dev servers for [live previews](../integrations/previews.md#studio-live-previews). On Kubernetes they get the label `kiln.dev/preview: "true"` instead.
 
 ### Kubernetes with gVisor
 

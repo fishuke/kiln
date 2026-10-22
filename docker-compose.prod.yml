@@ -24,6 +24,10 @@ services:
       KILN_EGRESS_PROXY: http://kiln-egress-proxy:3128
       # Studio previews on <id>.<domain>: needs wildcard DNS and a wildcard certificate (see self-hosting.md).
       KILN_STUDIO_PREVIEW_DOMAIN: ${KILN_STUDIO_PREVIEW_DOMAIN:-}
+      # Studio sandboxes also join the preview network, where the API reaches their dev servers. The API
+      # drops every connection and egress-log datagram that comes from its subnet.
+      KILN_PREVIEW_NETWORK: ${KILN_PREVIEW_NETWORK:-kiln-preview}
+      KILN_PREVIEW_SUBNET: ${KILN_PREVIEW_SUBNET:-172.30.250.0/24}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -53,8 +57,8 @@ services:
       # Sandboxes are sibling containers. Access to this socket is root on the host: run Kiln on a host you trust it with.
       - /var/run/docker.sock:/var/run/docker.sock
     expose: ["4000"]
-    # On the sandbox network too, so the Studio preview proxy reaches the sandboxes' dev servers.
-    networks: [default, egress]
+    # On the preview network too, so the Studio preview proxy reaches the sandboxes' dev servers.
+    networks: [default, preview]
     depends_on:
       runner-image: { condition: service_started }
     # Checked every 2s so a deploy's restart gap is seconds, not the default 10s+ before the first check.
@@ -131,6 +135,11 @@ networks:
   egress:
     name: ${KILN_EGRESS_NETWORK:-kiln-egress}
     internal: true
+  # Only the API and Studio sandboxes; no internet, no egress proxy.
+  preview:
+    name: ${KILN_PREVIEW_NETWORK:-kiln-preview}
+    internal: true
+    ipam: { config: [{ subnet: "${KILN_PREVIEW_SUBNET:-172.30.250.0/24}" }] }
 volumes:
   kiln-data:
   caddy-data:

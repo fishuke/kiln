@@ -43,6 +43,7 @@ type VariableLayer = {
 export type VariableView = { key: string; secret: true } | { key: string; secret: false; value: string };
 export type VariableLayerView = Omit<VariableLayer, "variables"> & { variables: VariableView[] };
 export type VariableSource = { scope: VariableScope; owner: string; secret: boolean };
+export type ResolvedVariableView = VariableView & { scope: VariableScope; owner: string };
 export type ResolvedVariables = {
   env: Record<string, string>;
   /** Secret values in `env`, for redaction. */
@@ -158,6 +159,17 @@ export class VariableService {
       .filter(([, s]) => s.secret)
       .map(([key]) => out.env[key]!);
     return out;
+  }
+
+  /** The resolved variables as people see them: where each comes from, and no secret values. */
+  explain(input: Parameters<VariableService["resolve"]>[0]): ResolvedVariableView[] {
+    const r = this.resolve(input);
+    return Object.keys(r.env)
+      .sort()
+      .map((key) => {
+        const { scope, owner, secret } = r.sources[key]!;
+        return secret ? { key, secret: true as const, scope, owner } : { key, secret: false as const, value: r.env[key]!, scope, owner };
+      });
   }
 
   /** A factory's variables; undefined when it is in no project, so its runs are unchanged. */

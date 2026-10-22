@@ -19,7 +19,7 @@ import {
   type StudioVersion,
 } from "@kiln/sdk-ts";
 import type { App, ApplyResult, Chat, Preview, StatusReport, ToolResult, Turn, Version } from "@kiln/studio";
-import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { createApp } from "./app";
 import { ROUTES } from "./openapi";
 import { configureStudio, studioFor } from "./routes/studio";
@@ -45,15 +45,26 @@ function setup() {
   return { ...t, app, client };
 }
 
+beforeEach(() => {
+  vi.stubEnv("KILN_STUDIO", "1");
+});
+
 afterEach(async () => {
   for (const k of kilns.splice(0)) await studioFor(k as never)?.shutdown();
+  vi.unstubAllEnvs();
+});
+
+const json = (method: string, body: unknown, token?: string) => ({
+  method,
+  headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+  body: JSON.stringify(body),
 });
 
 describe("Studio API", () => {
   it("creates an App, chats with it, applies and restores through the SDK", async () => {
     const { client, kiln } = setup();
-    const created = await client.studioCreateApp({ name: "Daily Done", source: { kind: "template", template: "test" }, shipMode: "safe" });
-    expect(created).toMatchObject({ name: "Daily Done", status: "creating", shipMode: "safe" });
+    const created = await client.studioCreateApp({ name: "Daily Done", source: { kind: "template", template: "test" } });
+    expect(created).toMatchObject({ name: "Daily Done", status: "creating", shipMode: "cowboy" });
     await studioFor(kiln)!.ready(created.id);
     expect((await client.studioApps()).apps.map((a) => a.id)).toEqual([created.id]);
 
@@ -63,17 +74,79 @@ describe("Studio API", () => {
     await studioFor(kiln)!.idle(chat.id);
     const { turns } = await client.studioChat(chat.id);
     expect(turns[0]).toMatchObject({ status: "succeeded", checkpoint: expect.any(String) });
-    expect((await client.studioChatDiff(chat.id)).diff).toContain("+write hello");
-
-    const applied = await client.studioApply(chat.id);
-    expect(applied).toMatchObject({ ok: true, version: { kind: "apply" } });
+    // A template App is cowboy: the turn is on the main line already.
+    expect(await client.studioApply(chat.id)).toEqual({ ok: false, nothing: true });
     const { versions } = await client.studioApp(created.id);
+    expect(versions[0]).toMatchObject({ kind: "apply", chatId: chat.id });
+    expect((await client.studioVersionDiff(versions[0]!.id)).diff).toContain("+write hello");
     const initial = versions.find((v) => v.kind === "initial")!;
     expect((await client.studioBookmark(initial.id, true)).bookmarked).toBe(true);
     expect(await client.studioRestore(initial.id)).toMatchObject({ kind: "restore", restoredFrom: initial.id });
     expect((await client.studioVersionDiff(initial.id)).diff).toContain("README.md");
     expect((await client.studioStatus()).apps[0]).toMatchObject({ id: created.id, name: "Daily Done" });
-    expect(await client.studioUpdateApp(created.id, { shipMode: "cowboy", projectId: "prj_1" })).toMatchObject({ shipMode: "cowboy", projectId: "prj_1" });
+    expect(await client.studioUpdateApp(created.id, { projectId: "prj_1" })).toMatchObject({ projectId: "prj_1" });
+  });
+
+  it("is off unless the server sets KILN_STUDIO=1", async () => {
+    vi.stubEnv("KILN_STUDIO", "");
+    const { app, kiln } = setup();
+    expect(studioFor(kiln)).toBeUndefined();
+    expect(getPreviewResolver(kiln)).toBeUndefined();
+    const res = await app.request("/api/v1/studio/apps");
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: "Studio is not enabled on this server (KILN_STUDIO=1)" });
+  });
+
+  it("takes no ship mode from a create or an edit", async () => {
+    const { app } = setup();
+    expect((await app.request("/api/v1/studio/apps", json("POST", { name: "x", shipMode: "cowboy" }))).status).toBe(400);
+  });
+
+  it("imports only repositories in the team's enabled GitHub orgs, through the server's forge", async () => {
+    const { app, kiln, forge } = setup();
+    forge.createRepo({ owner: "other-org", name: "secret" });
+    kiln.teams.updateSettings(kiln.teams.ensureDefaultTeam().id, { githubOrgs: ["acme"] }, "test");
+    const outside = { name: "Theirs", source: { kind: "repo", repo: "other-org/secret" } };
+    expect((await app.request("/api/v1/studio/apps", json("POST", outside))).status).toBe(403);
+    const tool = await app.request("/api/v1/studio/tools/open_app", json("POST", outside));
+    expect(tool.status).toBe(403);
+    expect(kiln.store.list("studio_apps")).toEqual([]);
+    const elsewhere = await app.request("/api/v1/studio/apps", json("POST", { name: "Lab", source: { kind: "repo", repo: "acme/web", connection: "gitlab" } }));
+    expect(elsewhere.status).toBe(400);
+    expect((await app.request("/api/v1/studio/apps", json("POST", { name: "Ours", source: { kind: "repo", repo: "acme/web" } }))).status).toBe(201);
+  });
+
+  it("declares a scope on every route: read to look, send to change", () => {
+    const studio = ROUTES.filter((r) => r.path.startsWith("/api/v1/studio/"));
+    expect(studio.every((r) => r.scope === (r.method === "get" ? "read" : "send"))).toBe(true);
+  });
+
+  it("never fills an App's environment from server or team secrets", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-server-key-123");
+    const { client, kiln, forge } = setup();
+    forge.createRepo({ owner: "acme", name: "envy" }, { "package.json": "{}", ".env.example": "ANTHROPIC_API_KEY=\nAPP_NAME=\n" });
+    const created = await client.studioCreateApp({ name: "Envy", source: { kind: "repo", repo: "acme/envy" } });
+    await studioFor(kiln)!.ready(created.id);
+    const { app } = await client.studioApp(created.id);
+    expect(app.setup).toMatchObject({ envRequired: ["ANTHROPIC_API_KEY", "APP_NAME"], envMissing: ["ANTHROPIC_API_KEY", "APP_NAME"] });
+  });
+
+  it("streams a chat's events from the bus", async () => {
+    const { app, client, kiln } = setup();
+    const created = await client.studioCreateApp({ name: "Live", source: { kind: "template", template: "test" } });
+    await studioFor(kiln)!.ready(created.id);
+    const { chat } = await client.studioNewChat(created.id, {});
+    const res = await app.request(`/api/v1/studio/chats/${chat.id}/events`);
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    const read = async (until: (t: string) => boolean) => {
+      while (!until(text)) text += decoder.decode((await reader.read()).value);
+    };
+    await read((t) => t.includes("event: chat"));
+    await client.studioSend(chat.id, { text: "write hello" });
+    await read((t) => t.includes("event: turn") && t.includes('"status":"succeeded"'));
+    await reader.cancel();
   });
 
   it("runs tools by name and answers bad input with 400", async () => {

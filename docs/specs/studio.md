@@ -252,7 +252,7 @@ export type StudioOptions = {
   /** Imported Apps: a clone URL with a short-lived repo-scoped token, and the branch to use. */
   clone?: (source: Extract<AppSource, { kind: "repo" }>) => Promise<{ url: string; branch?: string }>;
   /** Environment for installs, dev servers and runs: the App's resolved variables (team → project → App). */
-  env?: (app: App) => Record<string, string>;
+  env?: (app: App) => AppEnv; // { env, secretValues }: only values people assigned; secretValues are redacted from stored turn output
   maxRunningChats?: number; // default 3
   basePort?: number; // the version preview's port; chats use the next 99. Default 4100
   previewDomain?: string; // KILN_STUDIO_PREVIEW_DOMAIN, passed to dev servers (see Template)
@@ -265,7 +265,7 @@ export class Studio {
   listApps(team: string): App[];
   getApp(id: string): { app: App; chats: Chat[]; versions: Version[] } | undefined; // versions newest first
   createApp(input: { team: string; by: string; name: string; projectId?: string; source?: AppSource; harness?: HarnessType; model?: string }): Promise<App>; // ship mode: the default for the source // default source: the nextjs template
-  updateApp(id: string, patch: { name?: string; projectId?: string | null; devCommand?: string | null }): App; // ship mode: ship's setShipMode
+  updateApp(id: string, patch: { name?: string; projectId?: string | null; shipMode?: ShipMode; devCommand?: string | null }): App; // shipMode only from ship's setShipMode, after its cap check; the API and tools don't take it
   /** Resolves when a new App is ready or has failed (creation runs in the background). */
   ready(appId: string): Promise<void>;
   /** Stops every dev server, agent and sandbox without snapshotting (process shutdown, tests). */

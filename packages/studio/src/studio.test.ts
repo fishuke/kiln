@@ -79,7 +79,9 @@ afterEach(async () => {
 });
 
 async function app(studio: Studio, shipMode: "safe" | "review" | "cowboy" = "cowboy") {
-  const p = await studio.createApp({ team: "t1", by: "me@x.test", name: "Daily Done", source: { kind: "template", template: "test" }, shipMode });
+  // Ship mode is the source's default at creation; ship's setShipMode changes it through updateApp after its cap check.
+  const p = await studio.createApp({ team: "t1", by: "me@x.test", name: "Daily Done", source: { kind: "template", template: "test" } });
+  if (shipMode !== "cowboy") studio.updateApp(p.id, { shipMode });
   await studio.ready(p.id);
   return studio.getApp(p.id)!.app;
 }
@@ -109,7 +111,7 @@ describe("apps", () => {
     git("-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "base");
     git("add", "-A");
     git("-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-q", "-m", "app");
-    const { studio } = make({ clone: async () => ({ url: origin }), env: () => ({ API_URL: "https://api.test" }) });
+    const { studio } = make({ clone: async () => ({ url: origin }), env: () => ({ env: { API_URL: "https://api.test" }, secretValues: [] }) });
     const created = await studio.createApp({ team: "t1", by: "me", name: "Imported", source: { kind: "repo", repo: "acme/app" } });
     await studio.ready(created.id);
     const p = studio.getApp(created.id)!.app;
@@ -282,6 +284,100 @@ describe("previews and pausing", () => {
     expect(again.checkpoint).toBeDefined();
     expect(studio.getApp(p.id)!.app.status).toBe("ready");
     expect(studio.getApp(p.id)!.versions[0]!.title).toBe("Changed b.ts");
+  });
+});
+
+describe("restarts", () => {
+  it("fails what a restart cut off: a creating App, a running turn and its working chat", () => {
+    const store = new MemoryStore();
+    const at = "2026-10-22T10:00:00.000Z";
+    store.put("studio_apps", {
+      id: "sa_1",
+      team: "t1",
+      name: "A",
+      source: { kind: "template", template: "test" },
+      shipMode: "cowboy",
+      harness: "claude-code",
+      status: "creating",
+      createdBy: "me",
+      createdAt: at,
+      updatedAt: at,
+    });
+    store.put("studio_chats", {
+      id: "sc_1",
+      appId: "sa_2",
+      title: "Chat",
+      mode: "build",
+      harness: "claude-code",
+      branch: "chat/sc_1",
+      path: "chats/sc_1",
+      port: 4101,
+      status: "working",
+      createdAt: at,
+      updatedAt: at,
+    });
+    store.put("studio_turns", {
+      id: "st_1",
+      appId: "sa_2",
+      chatId: "sc_1",
+      prompt: "go",
+      mode: "build",
+      via: "web",
+      by: "me",
+      status: "running",
+      reply: "",
+      discarded: false,
+      activity: [],
+      costUsd: 0,
+      startedAt: at,
+    });
+    const { studio } = make({ store });
+    expect(store.get("studio_apps", "sa_1")).toMatchObject({ status: "failed", error: "interrupted by a restart" });
+    expect(store.get("studio_turns", "st_1")).toMatchObject({ status: "failed", reply: "interrupted by a restart" });
+    expect(studio.getChat("sc_1")!.chat).toMatchObject({ status: "needs_you", question: "The agent failed: interrupted by a restart" });
+  });
+});
+
+describe("environment", () => {
+  it("passes the App's assigned values to the agent and redacts secret values from what it stores", async () => {
+    const seen: Record<string, string>[] = [];
+    const leaky = new FakeHarness(async ({ opts, emit }) => {
+      seen.push(opts.env ?? {});
+      emit({ type: "message", text: "the key is s3cr3t-value-123" });
+      emit({ type: "tool_call", name: "Bash", input: { command: "echo s3cr3t-value-123" } });
+      return { summary: "used s3cr3t-value-123" };
+    });
+    const { studio } = make({ harness: () => leaky, env: () => ({ env: { API_KEY: "s3cr3t-value-123", REGION: "eu" }, secretValues: ["s3cr3t-value-123"] }) });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    const t = await say(studio, chat.id, "hi");
+    expect(seen[0]).toMatchObject({ API_KEY: "s3cr3t-value-123", REGION: "eu" });
+    expect(JSON.stringify(t)).not.toContain("s3cr3t-value-123");
+    expect(t.reply).toContain("[redacted]");
+  });
+});
+
+describe("preview addresses", () => {
+  it("asks the sandbox for a dev server's address once, not on every request", async () => {
+    const local = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
+    let calls = 0;
+    const sandboxes = {
+      name: "local",
+      create: async (spec: SandboxSpec) => {
+        const s = await local.create(spec);
+        const expose = s.expose!.bind(s);
+        s.expose = async (port: number) => (calls++, expose(port));
+        return s;
+      },
+      resume: local.resume.bind(local),
+    };
+    const { studio } = make({ sandboxes });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.preview({ chatId: chat.id });
+    const before = calls;
+    for (let i = 0; i < 5; i++) await studio.resolvePreview(chat.id);
+    expect(calls).toBe(before);
   });
 });
 

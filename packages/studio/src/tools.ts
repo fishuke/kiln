@@ -1,7 +1,7 @@
 import { HarnessType } from "@kiln/schema";
 import { z } from "zod";
 import type { Studio } from "./studio";
-import { ChatMode, AppSource, ShipMode, StudioError, type Via } from "./types";
+import { ChatMode, AppSource, StudioError, type Via } from "./types";
 
 export type ToolKind = "server" | "client";
 export type StudioTool<I extends z.ZodType = z.ZodType, N extends string = string> = { name: N; kind: ToolKind; description: string; input: I };
@@ -14,7 +14,7 @@ const tool = <N extends string, I extends z.ZodType>(name: N, kind: ToolKind, de
 const Status = z.object({ app: z.string().optional() }).strict();
 const OpenApp = z.union([
   z.object({ app: z.string() }).strict(),
-  z.object({ name: z.string().min(1).max(100), source: AppSource.optional(), shipMode: ShipMode.optional(), projectId: z.string().optional() }).strict(),
+  z.object({ name: z.string().min(1).max(100), source: AppSource.optional(), projectId: z.string().optional() }).strict(),
 ]);
 const NewChat = z
   .object({

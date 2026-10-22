@@ -1,4 +1,5 @@
 import { StudioClientError, type StudioClient } from "./client";
+import { defaultShipMode } from "./model";
 import type {
   Activity,
   ApplyResult,
@@ -100,7 +101,7 @@ export class FakeStudioClient implements StudioClient {
       name: input.name,
       template: source.kind === "template" ? source.template : "imported",
       source,
-      shipMode: input.shipMode ?? "cowboy",
+      shipMode: input.shipMode ?? defaultShipMode(source),
       harness: input.harness ?? "claude-code",
       model: input.model,
       status: "creating",

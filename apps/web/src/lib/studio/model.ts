@@ -16,6 +16,11 @@ export function nextMode(mode: ChatMode): ChatMode {
 
 export const SHIP_MODES: ShipMode[] = ["safe", "review", "cowboy"];
 
+/** A template project starts in Cowboy; an imported repository is real code, so it starts in Review. */
+export function defaultShipMode(source?: ProjectSource): ShipMode {
+  return source?.kind === "repo" ? "review" : "cowboy";
+}
+
 /**
  * The ship mode labels and one-line explanations, in one place. An imported repository is someone's
  * real code, so Cowboy pushes a `studio/<project>` branch there instead of main.
@@ -26,7 +31,10 @@ export function shipModeCopy(mode: ShipMode, source?: ProjectSource, projectName
     case "safe":
       return { label: "Safe", line: "You apply each change. Nothing is pushed until you ask." };
     case "review":
-      return { label: "Review", line: "You apply each change. The agent opens a pull request and you merge it." };
+      return {
+        label: "Review",
+        line: source?.kind === "repo" ? "You apply each change. The agent opens a pull request and never pushes to main." : "You apply each change. The agent opens a pull request and you merge it.",
+      };
     case "cowboy":
       return {
         label: "Cowboy",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  defaultShipMode,
   fileTree,
   groupByDay,
   needsYouCount,
@@ -102,6 +103,11 @@ describe("unappliedTurns", () => {
 describe("modes and ship modes", () => {
   it("cycles Build → Chat → Plan → Build", () => {
     expect([nextMode("build"), nextMode("chat"), nextMode("plan")]).toEqual(["chat", "plan", "build"]);
+  });
+  it("defaults an imported repository to Review and a template to Cowboy", () => {
+    expect(defaultShipMode({ kind: "repo", repo: "acme/shop", branch: "main" })).toBe("review");
+    expect(defaultShipMode({ kind: "template", template: "nextjs" })).toBe("cowboy");
+    expect(shipModeCopy("review", { kind: "repo", repo: "acme/shop", branch: "main" }).line).toMatch(/never pushes to main/);
   });
   it("says Cowboy pushes a studio branch for an imported repository", () => {
     expect(shipModeCopy("cowboy").line).toMatch(/pushes main/);

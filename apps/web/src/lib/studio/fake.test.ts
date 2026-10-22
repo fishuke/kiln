@@ -115,6 +115,7 @@ describe("FakeStudioClient", () => {
     const { studio, run } = setup();
     const p = await studio.createProject({ name: "Store", source: { kind: "repo", repo: "acme/storefront", branch: "main" } });
     expect(p.setup?.steps[0]).toEqual({ id: "clone", status: "running" });
+    expect(p.shipMode).toBe("review");
     run();
     const { project } = await studio.project(p.id);
     expect(project.setup?.steps.every((s) => s.status === "done")).toBe(true);

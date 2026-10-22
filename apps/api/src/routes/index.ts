@@ -19,6 +19,7 @@ import * as runs from "./runs";
 import * as scorers from "./scorers";
 import * as studio from "./studio";
 import { secretRoutes } from "./secrets";
+import * as studioDefinitions from "./studio-definitions";
 import { registerStudioPreview } from "./studio-preview";
 import * as tasks from "./tasks";
 import { teamRoutes } from "./teams";
@@ -35,7 +36,22 @@ import { registerOAuthConsent, registerOAuthServer } from "./oauth";
  * `routes` (listed in ../openapi.ts); the platform and integration modules are registration
  * functions whose routes openapi.ts lists directly. Keep app.ts for auth and the core routes.
  */
-export const MODULES = [factoryFiles, files, tasks, reviews, runs, inbox, measure, scorers, benchmarks, definitions, factories, workers, studio];
+export const MODULES = [
+  factoryFiles,
+  files,
+  tasks,
+  reviews,
+  runs,
+  inbox,
+  measure,
+  scorers,
+  benchmarks,
+  definitions,
+  factories,
+  workers,
+  studio,
+  studioDefinitions,
+];
 const PLATFORM: ((ctx: RouteContext) => void)[] = [
   authRoutes,
   meRoutes,

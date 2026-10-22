@@ -5,17 +5,10 @@ import { shellQuote, type Sandbox } from "@kiln/sandbox";
 import type { Store } from "@kiln/store";
 import type { Clock, Studio } from "../studio";
 import { StudioError, type App, type ShipMode } from "../types";
+import { maxShipMode, type AppPolicySummary } from "../app-definitions";
 import type { MergeGateOutcome, StudioMergeGate } from "./merge-gate";
-import { assertPushAllowed, isTeamAdmin, mainBranchOf, maxShipMode, pushTarget, shipModeAtMost, studioBranch, type PushContext } from "./policy";
-import {
-  SHIP_COLLECTIONS as S,
-  type Actor,
-  type AppPullRequest,
-  type AppRepo,
-  type PullRequestState,
-  type ShipModeChoice,
-  type ShipPolicySummary,
-} from "./types";
+import { assertPushAllowed, isTeamAdmin, mainBranchOf, pushTarget, shipModeAtMost, studioBranch, type PushContext } from "./policy";
+import { SHIP_COLLECTIONS as S, type Actor, type AppPullRequest, type AppRepo, type PullRequestState, type ShipModeChoice } from "./types";
 
 /** Who pushes after a turn: Studio on the agent's behalf (ADR-012: every agent push is audited). */
 export const STUDIO_AGENT = "agent:studio";
@@ -31,8 +24,8 @@ export type ShipperOptions = {
   newRepo?: (app: App) => { owner: string } | undefined;
   /** Whether any factory names this repository ("owner/name"). */
   linkedToFactory: (repo: string) => boolean;
-  /** The ship-mode part of the App's resolved policy (`AppDefinitions.resolve(app).policy`). */
-  policyOf: (app: App) => ShipPolicySummary;
+  /** The App's resolved policy, the only source of ship caps and default-branch pushes: `(app) => appDefinitions.policy(targetOf(app))`. */
+  policyOf: (app: App) => AppPolicySummary;
   /** ADR-014: decides, when the author marks a pull request ready for review, whether a person reviews it. */
   mergeGate: StudioMergeGate;
   /** The pull request's deployment preview, when one is configured. */
@@ -106,10 +99,11 @@ export class Shipper {
 
   // ---- ship mode ----
 
-  /** A person picks the App's ship mode, up to their cap; Studio records who, their role and when. */
+  /** A person picks the App's ship mode, up to the cap the App policy gives their role; Studio records who, their role and when. */
   setShipMode(appId: string, mode: ShipMode, actor: Actor): App {
     const app = this.app(appId);
-    const cap = maxShipMode(app, this.opts.policyOf(app), actor);
+    if (!isPerson(actor.by)) throw new StudioError("invalid", "only a person picks an App's ship mode");
+    const cap = maxShipMode(this.opts.policyOf(app), actor.role);
     if (!shipModeAtMost(mode, cap)) throw new StudioError("invalid", `${actor.by} may use at most ${cap} on this App`);
     const updated = this.opts.studio.updateApp(appId, { shipMode: mode });
     this.opts.store.put<ShipModeChoice>(S.choices, { id: appId, mode, by: actor.by, ...(actor.role ? { role: actor.role } : {}), at: this.now() });
@@ -129,8 +123,8 @@ export class Shipper {
     const app = this.app(appId);
     const forge = this.forgeOf(app);
     const repo = this.repo(appId) ?? (await this.ensureRepo(app, forge, actor));
-    const choice = this.choice(appId);
-    return { ctx: { app, repo, linkedToFactory: this.opts.linkedToFactory(repo.repo), ...(choice ? { choice } : {}) }, forge };
+    const pushDefaultBranch = this.opts.policyOf(app).pushDefaultBranch;
+    return { ctx: { app, repo, pushDefaultBranch, linkedToFactory: this.opts.linkedToFactory(repo.repo) }, forge };
   }
 
   /** Push the main line to one branch, after the guard, under the App's Git lock. */
@@ -155,7 +149,14 @@ export class Shipper {
       });
       return head;
     });
-    this.opts.audit(actor.by, "studio.push", repo.repo, { appId: ctx.app.id, branch, sha, shipMode: ctx.app.shipMode });
+    const optIn = branch !== studioBranch(ctx.app.id) && ctx.app.source.kind === "repo" ? this.opts.policyOf(ctx.app).changedBy.pushDefaultBranch : undefined;
+    this.opts.audit(actor.by, "studio.push", repo.repo, {
+      appId: ctx.app.id,
+      branch,
+      sha,
+      shipMode: ctx.app.shipMode,
+      ...(optIn ? { optedInBy: optIn.by, optedInAt: optIn.at } : {}),
+    });
     return { repo, branch, sha };
   }
 

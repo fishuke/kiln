@@ -51,25 +51,32 @@ describe("pushes per ship mode", () => {
     expect(forge.branchSha({ owner: "acme", name }, `studio/${app.id}`)).toBeTruthy();
   });
 
-  it("keeps an imported App in cowboy on its studio branch until a person chooses cowboy", async () => {
-    const { studio, forge, app, change, mainSha } = await setup({ source: imported });
+  it("keeps an imported App in cowboy on its studio branch until its policy opts in", async () => {
+    const { shipper, forge, app, change, mainSha } = await setup({ source: imported });
     const before = forge.branchSha(web, "main");
-    studio.updateApp(app.id, { shipMode: "cowboy" });
+    shipper.setShipMode(app.id, "cowboy", admin);
     await change();
     expect(forge.branchSha(web, "main")).toBe(before);
     expect(forge.branchSha(web, `studio/${app.id}`)).toBe(await mainSha());
   });
 
-  it("pushes an imported App's main branch after an admin chose cowboy, and records who and when", async () => {
-    const { shipper, forge, app, change, mainSha } = await setup({ source: imported });
+  it("pushes an imported App's main branch once its policy opts in, and audits who opted in", async () => {
+    const { shipper, forge, app, change, mainSha, policy, audit } = await setup({ source: imported });
+    policy.pushDefaultBranch = true;
+    policy.changedBy.pushDefaultBranch = { by: "admin@x.test", at: "2026-10-22T09:00:00.000Z", layer: "app" };
     shipper.setShipMode(app.id, "cowboy", admin);
-    expect(shipper.choice(app.id)).toMatchObject({ mode: "cowboy", by: "admin@x.test", at: expect.any(String) });
+    expect(shipper.choice(app.id)).toMatchObject({ mode: "cowboy", by: "admin@x.test", role: "admin", at: expect.any(String) });
     await change();
     expect(forge.branchSha(web, "main")).toBe(await mainSha());
+    expect(audit.find((a) => a.action === "studio.push")).toMatchObject({
+      actor: "agent:studio",
+      details: { branch: "main", optedInBy: "admin@x.test", optedInAt: "2026-10-22T09:00:00.000Z" },
+    });
   });
 
-  it("never pushes main of an imported repository linked to a factory, even after a person chose cowboy", async () => {
-    const { shipper, forge, app, change } = await setup({ source: imported, linked: ["acme/web"] });
+  it("never pushes main of an imported repository linked to a factory, even when its policy opts in", async () => {
+    const { shipper, forge, app, change, policy } = await setup({ source: imported, linked: ["acme/web"] });
+    policy.pushDefaultBranch = true;
     const before = forge.branchSha(web, "main");
     shipper.setShipMode(app.id, "cowboy", admin);
     await change();
@@ -77,14 +84,15 @@ describe("pushes per ship mode", () => {
     expect(forge.branchSha(web, `studio/${app.id}`)).toBeTruthy();
   });
 
-  it("refuses a ship mode above the person's cap", async () => {
-    const { shipper, studio, app } = await setup({ source: imported });
+  it("refuses a ship mode above the cap the App policy gives the person's role", async () => {
+    const { shipper, studio, app, policy } = await setup({ source: imported });
+    policy.roles.member = "review";
     expect(() => shipper.setShipMode(app.id, "cowboy", member)).toThrow(/at most review/);
     expect(studio.getApp(app.id)!.app.shipMode).toBe("review");
     expect(shipper.choice(app.id)).toBeUndefined();
   });
 
-  it("takes the cap from the App's policy", async () => {
+  it("takes the overall cap from the App's policy", async () => {
     const { shipper, app, policy } = await setup();
     policy.maxShipMode = "review";
     expect(() => shipper.setShipMode(app.id, "cowboy", admin)).toThrow(/at most review/);
@@ -92,14 +100,9 @@ describe("pushes per ship mode", () => {
     expect(shipper.choice(app.id)).toMatchObject({ mode: "review", by: "admin@x.test", role: "admin" });
   });
 
-  it("keeps an imported App on its studio branch when a member's cowboy choice slipped through", async () => {
-    const { studio, shipper, forge, app, change, store } = await setup({ source: imported });
-    studio.updateApp(app.id, { shipMode: "cowboy" });
-    store.put(SHIP_COLLECTIONS.choices, { id: app.id, mode: "cowboy", by: "member@x.test", role: "member", at: "2026-10-22T10:00:00Z" });
-    const before = forge.branchSha(web, "main");
-    await change();
-    expect(forge.branchSha(web, "main")).toBe(before);
-    expect(shipper.repo(app.id)).toMatchObject({ createdByKiln: false });
+  it("lets only a person pick the ship mode", async () => {
+    const { shipper, app } = await setup();
+    expect(() => shipper.setShipMode(app.id, "safe", { by: "agent:builder" })).toThrow(/only a person/);
   });
 
   it("asks for a credential for this one repository on every push", async () => {

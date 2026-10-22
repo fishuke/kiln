@@ -10,7 +10,7 @@ import { Studio } from "../studio";
 import type { App } from "../types";
 import { FakeStudioMergeGate } from "./merge-gate";
 import { Shipper, type ShipperOptions } from "./shipper";
-import type { ShipPolicySummary } from "./types";
+import type { AppPolicySummary } from "../app-definitions";
 
 export type ShipFixtureOptions = {
   source?: App["source"];
@@ -57,7 +57,7 @@ export async function shipFixture(opts: ShipFixtureOptions = {}) {
   const audit: { actor: string; action: string; target: string; details?: unknown }[] = [];
   const gate = new FakeStudioMergeGate();
   /** The App policy's ship-mode part; tests may change it. */
-  const policy: ShipPolicySummary = { maxShipMode: "cowboy", roles: {} };
+  const policy: AppPolicySummary = { maxShipMode: "cowboy", roles: {}, pushDefaultBranch: false, mergeGate: false, changedBy: {} };
   const shipper = new Shipper({
     studio,
     store,

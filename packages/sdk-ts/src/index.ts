@@ -89,7 +89,29 @@ import type {
 
 export type * from "./platform";
 export type * from "./studio";
-import type { StudioApp, StudioApplyResult, StudioChat, StudioChatMode, StudioCreateApp, StudioNewChat, StudioPreview, StudioStatusReport, StudioToolResult, StudioTurn, StudioUpdateApp, StudioVersion } from "./studio";
+import type {
+  StudioApp,
+  StudioApplyResult,
+  StudioChat,
+  StudioChatMode,
+  StudioCreateApp,
+  StudioNewChat,
+  StudioPreview,
+  StudioStatusReport,
+  StudioToolResult,
+  StudioTurn,
+  StudioUpdateApp,
+  StudioVersion,
+} from "./studio";
+import {
+  studioScopePath,
+  type StudioAppSettings,
+  type StudioDefinitionLayer,
+  type StudioDefinitionSaved,
+  type StudioDefinitionScope,
+  type StudioSettingsPatch,
+} from "./studio-definitions";
+export * from "./studio-definitions";
 
 export type {
   ApplyResult,
@@ -1020,8 +1042,10 @@ export class KilnClient {
   variables = (scope: VariableScope, owner: string) => this.request<VariableLayerView[]>("GET", `/api/v1/variables${this.q({ scope, owner })}`);
   setVariables = (scope: VariableScope, owner: string, environment: string, variables: VariableInput[]) =>
     this.request<VariableLayerView>("PUT", `/api/v1/variables/${scope}/${encodeURIComponent(owner)}/${encodeURIComponent(environment)}`, { variables });
-  deleteVariables = (scope: VariableScope, owner: string, environment: string) => this.request<{ ok: true }>("DELETE", `/api/v1/variables/${scope}/${encodeURIComponent(owner)}/${encodeURIComponent(environment)}`);
-  resolveVariables = (input: { environment: string; project?: string; factory?: string; app?: string }) => this.request<{ variables: ResolvedVariableView[] }>("GET", `/api/v1/variables/resolve${this.q(input)}`);
+  deleteVariables = (scope: VariableScope, owner: string, environment: string) =>
+    this.request<{ ok: true }>("DELETE", `/api/v1/variables/${scope}/${encodeURIComponent(owner)}/${encodeURIComponent(environment)}`);
+  resolveVariables = (input: { environment: string; project?: string; factory?: string; app?: string }) =>
+    this.request<{ variables: ResolvedVariableView[] }>("GET", `/api/v1/variables/resolve${this.q(input)}`);
   usage = (filter: { since?: string; until?: string; factory?: string; user?: string; entries?: boolean } = {}) =>
     this.request<UsageSummary & { entries?: UsageEntry[] }>("GET", `/api/v1/usage${this.q({ ...filter, entries: filter.entries ? 1 : undefined })}`);
 
@@ -1149,6 +1173,21 @@ export class KilnClient {
   rotateWebhookSecret = (uid: string, secret?: string) =>
     this.request<{ webhook: WebhookSource; url: string; secret?: string }>("POST", `/api/v1/webhooks/${encodeURIComponent(uid)}/rotate`, { secret });
   finishWebhook = (uid: string, secret: string) => this.request<WebhookSource>("POST", `/api/v1/webhooks/${encodeURIComponent(uid)}/finish`, { secret });
+  // Studio App definitions (docs/specs/app-definitions.md)
+  studioDefinition = (scope: StudioDefinitionScope) => this.request<StudioDefinitionLayer>("GET", `/api/v1/studio/${studioScopePath(scope)}/definition`);
+  studioPutDefinition = (scope: StudioDefinitionScope, tree: Record<string, string>, message?: string) =>
+    this.request<StudioDefinitionSaved>("PUT", `/api/v1/studio/${studioScopePath(scope)}/definition`, { tree, ...(message ? { message } : {}) });
+  studioEditDefinition = (scope: StudioDefinitionScope, patch: StudioSettingsPatch) =>
+    this.request<StudioDefinitionSaved>("PATCH", `/api/v1/studio/${studioScopePath(scope)}/definition`, patch);
+  studioUseDefinition = (scope: StudioDefinitionScope, sha: string) =>
+    this.request<StudioDefinitionSaved>("POST", `/api/v1/studio/${studioScopePath(scope)}/definition/use`, { sha });
+  studioSettings = (scope: StudioDefinitionScope) => this.request<StudioAppSettings>("GET", `/api/v1/studio/${studioScopePath(scope)}/settings`);
+  studioExportApp = (appId: string, opts: { resolved?: boolean } = {}) =>
+    this.request<{ sha?: string; tree: Record<string, string> }>(
+      "GET",
+      `/api/v1/studio/apps/${encodeURIComponent(appId)}/definition/export${this.q({ resolved: opts.resolved === false ? false : undefined })}`,
+    );
+
   webhookDeliveries = (uid: string) =>
     this.request<(Omit<WebhookDelivery, "payload"> & { hasPayload: boolean })[]>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries`);
   webhookDelivery = (uid: string, id: string) =>

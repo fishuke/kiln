@@ -447,6 +447,23 @@ The SDK re-declares these types (it doesn't depend on `packages/studio`), and a 
 - **Preview pane.** Preview and Code tabs (Code shows the chat diff), a route field, reload, and open in a new tab. It reloads on `turn_finished`.
 - **Server actions** call `api.studio*` (the `lib/kiln.ts` proxy); the page polls `studioChat` every 2 s while a turn runs, or uses the SSE route once it exists.
 
+## App definitions
+
+Specified in [App definitions](app-definitions.md). What other Studio work builds against:
+
+- `@kiln/schema`: `AppManifest` (`app.yaml`), `AppPolicy` (`policies/<name>.yaml` in an App tree) and `AppShipMode` (the same values as `ShipMode`).
+- An App's agents are factory agents (`agents/<name>/agent.md`: model, MCP servers, skills, `spawnableBy`), resolved with the factory's `resolveAgent`. Every App has a `general` agent from the built-in layer, so nothing needs configuring.
+- `@kiln/studio`: `AppDefinitions` (content-hashed layers team → Kiln Project → App, store collections `studio_app_definitions` and `studio_app_definition_refs`) and
+
+  ```ts
+  chatConfig(targetOf(app), opts?: { agent?: string; harness?: HarnessType; model?: string }): ChatAgentConfig
+  ```
+
+  The turn runner calls it before `harness.start` for the chat's agent (`new_chat({ agent? })`, default `general`) and for each agent it spawns as a subagent run. It appends `instructions` (the agent's instructions plus every mandatory skill) to the mode instructions, passes `skills` as `StartOptions.skills`, records `definitionSha` on the turn, and resolves `mcpServers` through a `StudioOptions` hook the API provides. A chat's explicit harness or model overrides the definition's. An unknown agent throws `StudioError("invalid")`. Ship mode caps (overall and per team role), the imported-App default-branch opt-in and the merge gate switch live only in the App definition's policies: read them with `appDefinitions.policy(targetOf(app))` (`AppPolicySummary`, with who changed each and when) and `maxShipMode(policy, role)`. Both switches are off by default.
+
+- API: `apps/api/src/routes/studio-definitions.ts` (`/api/v1/studio/{apps/{id},projects/{id},team}/definition` and `/settings`, `/api/v1/studio/apps/{id}/definition/export`); `appDefinitionsFor(kiln)` returns the instance `routes/studio.ts` should pass to `Studio`.
+- Web: `apps/web/src/components/studio-settings/` exports `AppSettingsView({ scope, settings, canEditPolicy })` and `APP_SETTINGS_NAV`, which the `/studio` pages mount inside a `SettingsColumn` (for example at `/studio/[app]/settings`, with `settings = await api.studioSettings({ app })`).
+
 ## Shipping
 
 What reaches the App's forge repository, per ship mode (ADR-012), and the App's pull request. Code in `packages/studio/src/ship/`; the API wires it.
@@ -457,10 +474,10 @@ An App pushes its main line (`setup.mainBranch` in the sandbox) to exactly one o
 
 - `studio/<app id>`: always allowed.
 - **The main branch** (`main` for a template App, `setup.mainBranch` for an imported one), only when both hold:
-  - (a template App **and** the repository is one Kiln created for it through `Forge.createRepository`) **or** (an imported App whose ship mode a team owner or admin, the people who may change the App's policy, set to `cowboy` through `Shipper.setShipMode`, which records who, their role and when), **and**
+  - (a template App **and** the repository is one Kiln created for it through `Forge.createRepository`) **or** (an imported App in `cowboy` whose App policy turns on `shipMode.pushDefaultBranch`, which only team owners and admins change and whose `changedBy` records who and when), **and**
   - the repository is not linked to a factory (`ShipperOptions.linkedToFactory(repo)`: any factory that names the repository).
 
-`assertPushAllowed` checks this right before every push and refuses any other branch. An imported App whose ship mode became `cowboy` some other way (no recorded choice, or a member's) pushes only `studio/<app id>`.
+`assertPushAllowed` checks this right before every push and refuses any other branch. An imported App in `cowboy` without the opt-in pushes only `studio/<app id>`. A push to an imported repository's main branch is audited with `optedInBy` and `optedInAt` from the policy's `changedBy.pushDefaultBranch`.
 
 | Ship mode | When it pushes                                            | Where                                                      | Pull request                           |
 | --------- | --------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------- |
@@ -476,12 +493,10 @@ The initial version pushes nothing. A template App's repository is created on it
 
 ```ts
 export const TeamRole = z.enum(["owner", "admin", "member"]); // the team roles in packages/auth
-/** The ship-mode part of the App's resolved policy: AppDefinitions.resolve(app).policy (docs/specs/app-definitions.md), the only place caps are defined. */
-export type ShipPolicySummary = { maxShipMode: ShipMode; roles: Record<string, ShipMode> };
 export type ShipModeChoice = { id: string /* app id */; mode: ShipMode; by: string; role?: TeamRole; at: string }; // runtime: who picked what
 ```
 
-`maxShipMode(app, policy, actor)` is the highest mode `actor` (`{ by, role }`) may pick: the lower of the App policy's cap (`maxShipMode`, lowered by `roles[role]`) and ADR-012's default for the actor: owners and admins `cowboy`; the App's creator `cowboy` on a template App; other members `review`; a caller without a team role `safe`. `Shipper.setShipMode(appId, mode, actor)` refuses a mode above the cap (`StudioError("invalid")`), then updates the App and records the choice in `studio_ship_choices`. Every ship-mode change goes through it: the `open_app` tool and the API's PATCH (`shipMode`) included. This is a small check, replaced by the roles plan later.
+Caps come only from the App policy: `ShipperOptions.policyOf(app)` is `appDefinitions.policy(targetOf(app))` (`AppPolicySummary`, see [App definitions](app-definitions.md)), and the highest mode a person may pick is `maxShipMode(policy, role)`. `Shipper.setShipMode(appId, mode, actor)` refuses agents and a mode above the cap (`StudioError("invalid")`), then updates the App and records the choice in `studio_ship_choices`. Every ship-mode change goes through it.
 
 **Policies are the only truth for caps and the gate.** Ship-mode caps and the merge-gate switch come from the App definition's policies through the `app-definitions` resolver (ADR-012, ADR-014). There are no Store copies (`studio_ship_policies` and `merge_gate_settings` are not built). Neither `PATCH /apps/{id}` nor `open_app` accepts `shipMode`; a ship-mode change goes through `Shipper.setShipMode`.
 
@@ -574,7 +589,7 @@ export type ShipperOptions = {
   forge: (app: App) => Forge | undefined; // the App's forge connection
   newRepo?: (app: App) => { owner: string } | undefined; // where template Apps' repositories are created
   linkedToFactory: (repo: string) => boolean;
-  policyOf: (app: App) => ShipPolicySummary; // appDefinitions.resolve(app).policy
+  policyOf: (app: App) => AppPolicySummary; // appDefinitions.policy(targetOf(app))
   mergeGate: StudioMergeGate; // kiln.mergeGate
   previews?: PreviewProvider; // the deployment preview
   versionPreviewUrl?: (app: App, versionId: string) => string; // Studio's own preview of a version

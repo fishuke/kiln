@@ -8,12 +8,6 @@ export type TeamRole = z.infer<typeof TeamRole>;
 /** Who asks: a person (with their team role) or `agent:studio` for pushes after a turn. */
 export type Actor = { by: string; role?: TeamRole };
 
-/**
- * The ship-mode part of the App's resolved policy (`AppDefinitions.resolve(app).policy`, the only
- * place caps are defined), redeclared structurally.
- */
-export type ShipPolicySummary = { maxShipMode: ShipMode; roles: Record<string, ShipMode> };
-
 /** The latest ship mode a person picked for an App through `Shipper.setShipMode`: runtime "who picked what". */
 export const ShipModeChoice = z.object({ id: z.string(), mode: ShipMode, by: z.string(), role: TeamRole.optional(), at: z.string() });
 export type ShipModeChoice = z.infer<typeof ShipModeChoice>;

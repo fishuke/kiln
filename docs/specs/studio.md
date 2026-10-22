@@ -216,6 +216,10 @@ Import (`source.kind: "repo"`):
 
 **Ship mode on imported repositories (decided).** An imported App defaults to `review`: its forge sync opens a pull request and never pushes to the default branch. `cowboy` is allowed, but on an imported repository it pushes only to a `studio/<app id>` branch, never the default branch. Template Apps keep the `cowboy` default. Inside the sandbox the modes behave as in the ship mode table (cowboy auto-applies to the App's main line). Nothing in phases 1–4 pushes.
 
+**Import authorization.** An import is allowed only for a repository the caller's team may use: `ctx.checkOrgs` (the team's enabled GitHub orgs) runs in `POST /apps` and in the `open_app` tool before Studio is called. `source.connection` must be one of the team's forge connections; without it, the server's forge is used, under the same org check.
+
+**App environment.** An App's environment comes only from values a person assigned to it (the `project-env` resolver: team → Kiln Project → App). Studio never resolves the keys of an example env file through the secret vault, which would fall back to server secrets. Until `project-env` is merged, an App's environment is empty and every required key is listed as missing.
+
 ## Workspace layout (inside the App's sandbox)
 
 ```
@@ -225,6 +229,11 @@ Import (`source.kind: "repo"`):
 ```
 
 `.kiln/` is listed in `.git/info/exclude`, so `.kiln/studio.json` (`{ title, summary, question? }`, written by the agent at the end of a turn) is never committed.
+
+## Enabling Studio and restarts
+
+- Studio is on only when the server sets `KILN_STUDIO=1`. Otherwise every Studio route answers 503 `Studio is not enabled on this server (KILN_STUDIO=1)`, and no preview resolver is registered.
+- On startup, Studio reconciles what a restart cut off: an App still `creating` becomes `failed` ("interrupted by a restart"); a `running` turn becomes `failed` with the same reason; a `working` chat becomes `needs_you` with that turn's failure as the question. Paused and ready Apps resume lazily from their snapshot.
 
 ## Service (`packages/studio/src/studio.ts`)
 
@@ -255,8 +264,8 @@ export class Studio {
 
   listApps(team: string): App[];
   getApp(id: string): { app: App; chats: Chat[]; versions: Version[] } | undefined; // versions newest first
-  createApp(input: { team: string; by: string; name: string; projectId?: string; source?: AppSource; shipMode?: ShipMode; harness?: HarnessType; model?: string }): Promise<App>; // default source: the nextjs template
-  updateApp(id: string, patch: { name?: string; projectId?: string | null; shipMode?: ShipMode; devCommand?: string | null }): App;
+  createApp(input: { team: string; by: string; name: string; projectId?: string; source?: AppSource; harness?: HarnessType; model?: string }): Promise<App>; // ship mode: the default for the source // default source: the nextjs template
+  updateApp(id: string, patch: { name?: string; projectId?: string | null; devCommand?: string | null }): App; // ship mode: ship's setShipMode
   /** Resolves when a new App is ready or has failed (creation runs in the background). */
   ready(appId: string): Promise<void>;
   /** Stops every dev server, agent and sandbox without snapshotting (process shutdown, tests). */
@@ -358,45 +367,45 @@ export type ToolResult = { ok: true; data: unknown; client?: ClientAction } | { 
 export type ClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" };
 ```
 
-| Name       | Kind   | Input (zod)                                                                                                                                  |
-| ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`   | server | `{ app?: string }`                                                                                                                           |
-| `open_app` | server | `{ app: string } \| { name: string; source?: AppSource; shipMode?: ShipMode; projectId?: string }`; returns the App plus `client: { focus }` |
-| `new_chat` | server | `{ app: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string; title?: string }`; returns `client: { focus }`      |
-| `send`     | server | `{ chat: string; text: string; mode?: ChatMode }`                                                                                            |
-| `apply`    | server | `{ chat: string }`                                                                                                                           |
-| `restore`  | server | `{ version: string }`                                                                                                                        |
-| `bookmark` | server | `{ version: string; on: boolean }`                                                                                                           |
-| `look`     | server | `{ chat: string }`; returns the `Preview` (a screenshot is a follow-up)                                                                      |
-| `focus`    | client | `{ app: string; chat?: string }`                                                                                                             |
-| `show`     | client | `{ view: "preview" \| "code" \| "history" }`                                                                                                 |
+| Name       | Kind   | Input (zod)                                                                                                                             |
+| ---------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`   | server | `{ app?: string }`                                                                                                                      |
+| `open_app` | server | `{ app: string } \| { name: string; source?: AppSource; projectId?: string }`; returns the App plus `client: { focus }`                 |
+| `new_chat` | server | `{ app: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string; title?: string }`; returns `client: { focus }` |
+| `send`     | server | `{ chat: string; text: string; mode?: ChatMode }`                                                                                       |
+| `apply`    | server | `{ chat: string }`                                                                                                                      |
+| `restore`  | server | `{ version: string }`                                                                                                                   |
+| `bookmark` | server | `{ version: string; on: boolean }`                                                                                                      |
+| `look`     | server | `{ chat: string }`; returns the `Preview` (a screenshot is a follow-up)                                                                 |
+| `focus`    | client | `{ app: string; chat?: string }`                                                                                                        |
+| `show`     | client | `{ view: "preview" \| "code" \| "history" }`                                                                                            |
 
 Client tools return `{ ok: true, data: null, client }` and change nothing on the server. Every server tool acts only on the caller's team's Apps; another team's App answers "unknown app".
 
 ## API (`apps/api/src/routes/studio.ts`)
 
-Every route needs a signed-in caller (`ctx.user`). Apps belong to `ctx.team(c)`; an App of another team answers 404. Bodies are validated with the zod schemas above. A `StudioError` maps `not_found` → 404, `invalid` → 400, `busy` and `conflict` → 409, `unavailable` → 503.
+Every route needs a signed-in caller (`ctx.user`) and a token scope: reads need `read` and changes need `send`, both team-wide (`ctx.need(c, scope, "*")`). Apps belong to `ctx.team(c)`; an App of another team answers 404. Bodies are validated with the zod schemas above. A `StudioError` maps `not_found` → 404, `invalid` → 400, `busy` and `conflict` → 409, `unavailable` → 503.
 
-| Method and path                              | Body                                                         | Response                                                              |
-| -------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------- |
-| `GET /api/v1/studio/apps`                    |                                                              | `{ apps: App[] }`                                                     |
-| `POST /api/v1/studio/apps`                   | `{ name, projectId?, source?, shipMode?, harness?, model? }` | `App` (status `creating`; poll until `ready`)                         |
-| `GET /api/v1/studio/apps/{id}`               |                                                              | `{ app, chats: Chat[], versions: Version[] }` (versions newest first) |
-| `PATCH /api/v1/studio/apps/{id}`             | `{ name?, projectId?, shipMode?, devCommand? }`              | `App`                                                                 |
-| `POST /api/v1/studio/apps/{id}/pause`        |                                                              | `App`                                                                 |
-| `POST /api/v1/studio/apps/{id}/chats`        | `{ prompt?, mode?, harness?, model?, title? }`               | `{ chat: Chat, turn?: Turn }`                                         |
-| `GET /api/v1/studio/chats/{id}`              |                                                              | `{ chat, turns: Turn[] }` (oldest first)                              |
-| `POST /api/v1/studio/chats/{id}/messages`    | `{ text, mode? }`                                            | `{ turn: Turn, steered: boolean }`                                    |
-| `POST /api/v1/studio/chats/{id}/apply`       |                                                              | `ApplyResult`                                                         |
-| `GET /api/v1/studio/chats/{id}/diff`         |                                                              | `{ diff: string }` (since the chat branched or was last applied)      |
-| `GET /api/v1/studio/chats/{id}/preview`      |                                                              | `Preview` (starts the dev server if needed)                           |
-| `GET /api/v1/studio/chats/{id}/events`       |                                                              | SSE: `turn` (a `Turn`, on every change) and `chat` (a `Chat`)         |
-| `POST /api/v1/studio/versions/{id}/restore`  |                                                              | `Version`                                                             |
-| `POST /api/v1/studio/versions/{id}/bookmark` | `{ on: boolean }`                                            | `Version`                                                             |
-| `GET /api/v1/studio/versions/{id}/diff`      |                                                              | `{ diff: string }` (against its parent version)                       |
-| `GET /api/v1/studio/versions/{id}/preview`   |                                                              | `Preview` (checks the version out in `version`)                       |
-| `GET /api/v1/studio/status`                  |                                                              | `StatusReport`                                                        |
-| `POST /api/v1/studio/tools/{name}`           | the tool's input                                             | `ToolResult`                                                          |
+| Method and path                              | Body                                              | Response                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/studio/apps`                    |                                                   | `{ apps: App[] }`                                                                                          |
+| `POST /api/v1/studio/apps`                   | `{ name, projectId?, source?, harness?, model? }` | `App` (status `creating`; poll until `ready`)                                                              |
+| `GET /api/v1/studio/apps/{id}`               |                                                   | `{ app, chats: Chat[], versions: Version[] }` (versions newest first)                                      |
+| `PATCH /api/v1/studio/apps/{id}`             | `{ name?, projectId?, devCommand? }`              | `App`                                                                                                      |
+| `POST /api/v1/studio/apps/{id}/pause`        |                                                   | `App`                                                                                                      |
+| `POST /api/v1/studio/apps/{id}/chats`        | `{ prompt?, mode?, harness?, model?, title? }`    | `{ chat: Chat, turn?: Turn }`                                                                              |
+| `GET /api/v1/studio/chats/{id}`              |                                                   | `{ chat, turns: Turn[] }` (oldest first)                                                                   |
+| `POST /api/v1/studio/chats/{id}/messages`    | `{ text, mode? }`                                 | `{ turn: Turn, steered: boolean }`                                                                         |
+| `POST /api/v1/studio/chats/{id}/apply`       |                                                   | `ApplyResult`                                                                                              |
+| `GET /api/v1/studio/chats/{id}/diff`         |                                                   | `{ diff: string }` (since the chat branched or was last applied)                                           |
+| `GET /api/v1/studio/chats/{id}/preview`      |                                                   | `Preview` (starts the dev server if needed)                                                                |
+| `GET /api/v1/studio/chats/{id}/events`       |                                                   | SSE, driven by the chat's `studio.*` bus events: `chat` (a `Chat`) and `turn` (the `Turn` the event names) |
+| `POST /api/v1/studio/versions/{id}/restore`  |                                                   | `Version`                                                                                                  |
+| `POST /api/v1/studio/versions/{id}/bookmark` | `{ on: boolean }`                                 | `Version`                                                                                                  |
+| `GET /api/v1/studio/versions/{id}/diff`      |                                                   | `{ diff: string }` (against its parent version)                                                            |
+| `GET /api/v1/studio/versions/{id}/preview`   |                                                   | `Preview` (checks the version out in `version`)                                                            |
+| `GET /api/v1/studio/status`                  |                                                   | `StatusReport`                                                                                             |
+| `POST /api/v1/studio/tools/{name}`           | the tool's input                                  | `ToolResult`                                                                                               |
 
 ### Preview proxy (`apps/api/src/routes/studio-preview.ts`, a `PUBLIC_MODULES` entry)
 
@@ -442,12 +451,24 @@ The SDK re-declares these types (it doesn't depend on `packages/studio`), and a 
 
 These types are recorded so later work and the UI agree on them. None of this is built yet, and no forge pushing exists.
 
-**Ship flow.** A `ship` tool (server) opens or updates the App's pull request from its main line, and its state moves through **UAT** → **ready for review** → **merged** or **cancelled** (ADR-012). Ready for review adds an Inbox item for the App's reviewers.
+**Ship flow (one contract for ship, the merge gate and the web).** A `ship` tool (server) opens or updates the App's pull request from its main line. Its state:
+
+```
+uat ──ready──▶ ready_for_review ──gate──▶ merged
+ │                    │               └──▶ waiting_for_review ──person merges──▶ merged
+ └──cancel──▶ cancelled ◀──cancel─────────────┘
+```
+
+- **UAT**: the author tests it; new turns update the same pull request.
+- **ready_for_review**: the author is done. Ship calls the merge gate (ADR-014) once: `readyForReview(pr: AppPullRequest): Promise<{ outcome: "merged" } | { outcome: "review"; reasons: string[] }>`. `merged` sets the state to `merged`; `review` sets it to `waiting_for_review` with the reasons.
+- **waiting_for_review**: a person reviews and merges on the forge. The merge gate, not ship, creates the reviewers' Inbox item and raises the single `needs_you` event (`merge_gate.review_updated`). Ship maps that event onto its pull request record and emits nothing for the same transition.
+- **merged** (by the gate, or a person on the forge, seen through the forge webhook) and **cancelled** (the pull request is closed) are final. The gate's `pullRequestClosed(pr)` removes its Inbox item.
+- The merge gate is **off by default** (ADR-014): with it off, `readyForReview` always answers `review`.
 
 ```ts
-export const PullRequestState = z.enum(["uat", "ready_for_review", "merged", "cancelled"]);
+export const PullRequestState = z.enum(["uat", "ready_for_review", "waiting_for_review", "merged", "cancelled"]);
 export type AppPullRequest = {
-  id: string; // "sp_…"
+  id: string; // "spr_…"
   appId: string;
   forge: string;
   repo: string; // "owner/name"
@@ -455,15 +476,19 @@ export type AppPullRequest = {
   url: string;
   branch: string; // "studio/<app id>" on imported repositories
   state: PullRequestState;
+  reviewReasons?: string[]; // set with waiting_for_review
   previewUrl?: string; // the deployment preview, when a preview provider is configured
   createdBy: string;
   createdAt: string;
   updatedAt: string;
 };
 // tool:  ship  { app: string; title?: string; state?: "uat" | "ready_for_review" | "cancelled" }
-// event: "studio.pull_request_state_changed": { appId; pullRequestId; state: PullRequestState; priority: "needs_you" (ready_for_review, for reviewers) | "finished" }
+// event: "studio.pull_request_state_changed": { appId; pullRequestId; state: PullRequestState; priority: "finished" }
+//        (never needs_you: the merge gate's merge_gate.review_updated is the one needs-you event for a review)
 // store: studio_pull_requests
 ```
+
+**Policies are the only truth for caps and the gate.** Ship-mode caps and the merge-gate switch come from the App definition's policies through the `app-definitions` resolver (ADR-012, ADR-014). There are no Store copies (`studio_ship_policies` and `merge_gate_settings` are not built). A ship-mode change goes through ship's `setShipMode`, which checks the cap. Until ship lands, an App's ship mode is its default (cowboy for templates, review for imports), and neither `PATCH /apps/{id}` nor `open_app` accepts `shipMode`.
 
 **Forge sync per ship mode.** `review` opens the pull request above. `cowboy` pushes `main` for a template App, or the `studio/<app id>` branch for an imported one. ADR-012's guards apply: a push credential scoped to the one repository, the exception ending when the repository is coupled to a factory, and every agent push in the audit log.
 

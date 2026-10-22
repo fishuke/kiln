@@ -26,6 +26,7 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 - [Pipelines and gates](configuration/pipelines-and-gates.md): Fix a factory's stages with pipelines/<name>.yaml, and define where people approve, answer and accept with gates/<name>.yaml.
 - [Policies and budgets](configuration/policies-and-budgets.md): Protect paths from self-improvement, require two approvals on sensitive files, and cap what a work item may spend.
 - [Skills](configuration/skills.md): Give agents reusable know-how with SKILL.md files, shared across a factory or scoped to one agent, and share them between factories.
+- [Studio App definitions](configuration/studio-app-definitions.md): Set a Studio App's agents, skills, MCP servers, ship mode caps, merge gate and budget with the factory building blocks, inherited from the team and the Kiln Project.
 
 ## Infrastructure
 

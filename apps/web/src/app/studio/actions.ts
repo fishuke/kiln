@@ -4,6 +4,7 @@ import { KilnApiError } from "@kiln/sdk-ts";
 import { z } from "zod";
 import { api, errorMessage } from "@/lib/kiln";
 import {
+  MergeReview,
   AppPullRequest,
   ApplyResult,
   AppSource,
@@ -123,4 +124,10 @@ export async function studioInterrupt(runId: string): Promise<StudioResult<null>
     z.unknown().transform(() => null),
     () => api.interrupt(z.string().min(1).parse(runId)),
   );
+}
+
+/** The merge gate's reviews of the team's App pull requests (docs/specs/merge-gate.md). */
+export async function studioMergeReviews(state?: string) {
+  const q = state ? `?state=${encodeURIComponent(z.enum(["deciding", "merged", "needs_review", "closed"]).parse(state))}` : "";
+  return call(z.object({ reviews: z.array(MergeReview) }), () => api.request("GET", `/api/v1/merge-gate/reviews${q}`));
 }

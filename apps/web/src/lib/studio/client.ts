@@ -6,6 +6,7 @@ import type {
   ChatMode,
   CreateAppInput,
   ForgeRepository,
+  MergeReview,
   NewChatInput,
   NewChatResult,
   Preview,
@@ -42,6 +43,8 @@ export interface StudioClient {
   repositories(): Promise<ForgeRepository[]>;
   /** The `ship` tool: push and open or update the App's pull request, or move it to Ready for review or Cancelled. */
   ship(appId: string, input: { title?: string; state?: "uat" | "ready_for_review" | "cancelled" }): Promise<AppPullRequest>;
+  /** The merge gate's reviews of the team's App pull requests (`GET /merge-gate/reviews`). */
+  mergeReviews(state?: MergeReview["state"]): Promise<MergeReview[]>;
   /** Stop: interrupts a chat's run. */
   interrupt(runId: string): Promise<void>;
   /** Calls `onChange` when the chat changes (the SSE route); returns a function that stops watching. */

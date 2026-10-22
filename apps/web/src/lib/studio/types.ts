@@ -189,3 +189,25 @@ export type CreateAppInput = { name: string; source?: AppSource; shipMode?: Ship
 export type UpdateAppInput = { name?: string; shipMode?: ShipMode; devCommand?: string | null };
 export type NewChatInput = { prompt?: string; mode?: ChatMode; harness?: string; model?: string; title?: string };
 export type ForgeRepository = { owner: string; name: string; forge: string };
+
+/** The merge gate's record of a pull request (docs/specs/merge-gate.md). */
+export const MergeReview = z.object({
+  id: z.string(),
+  scope: z.union([z.object({ kind: z.literal("app"), appId: z.string(), team: z.string() }), z.object({ kind: z.literal("factory"), factory: z.string() })]),
+  repo: z.string(),
+  number: z.number(),
+  url: z.string(),
+  title: z.string(),
+  author: z.string(),
+  by: z.string(),
+  state: z.enum(["deciding", "merged", "needs_review", "closed"]),
+  reasons: z.array(z.string()),
+  decision: z.object({ action: z.string() }).passthrough().optional(),
+  mergedBy: z.string().optional(),
+  previewUrl: z.string().optional(),
+  link: z.string().optional(),
+  pullRequestId: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type MergeReview = z.infer<typeof MergeReview>;

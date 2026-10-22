@@ -27,8 +27,9 @@ import {
   unappliedTurns,
   versionForTurn,
   versionNumber,
+  reviewFor,
 } from "@/lib/studio/model";
-import type { Chat, ChatMode, Version } from "@/lib/studio/types";
+import type { Chat, ChatMode, MergeReview, Version } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
 import { Composer, MODE_ICON } from "./composer";
 import { Confirm } from "./confirm";
@@ -188,6 +189,21 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
         ? { versionId: latest.id }
         : undefined;
   const { preview, error: previewError } = usePreview(client, target, finished);
+
+  // The merge gate's record of the App's pull request: polled while the gate decides or a reviewer is on it.
+  const pr = detail?.pullRequest;
+  const [review, setReview] = useState<MergeReview>();
+  useEffect(() => {
+    if (!pr || pr.state === "uat" || pr.state === "cancelled") return setReview(undefined);
+    let stop = false;
+    const load = () => client.mergeReviews().then((rs) => !stop && setReview(reviewFor(rs, pr)), () => undefined);
+    void load();
+    const t = pr.state === "merged" ? undefined : setInterval(load, 3000);
+    return () => {
+      stop = true;
+      if (t) clearInterval(t);
+    };
+  }, [client, pr]);
 
   const loadDiff = useMemo(() => {
     if (previewVersion) return () => client.versionDiff(previewVersion);
@@ -453,6 +469,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
           {app?.status === "ready" && (
             <ShipControl
               pullRequest={detail?.pullRequest}
+              review={review}
               onShip={async (state) => {
                 const pr = await client.ship(app.id, { state });
                 await refresh();

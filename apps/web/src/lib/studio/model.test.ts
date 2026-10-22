@@ -18,6 +18,8 @@ import {
   importSteps,
   chatRunStatus,
   prSteps,
+  mergedLabel,
+  reviewFor,
 } from "./model";
 import type { Chat, Preview, StudioApp, Turn, Version } from "./types";
 
@@ -246,5 +248,20 @@ describe("pull request steps", () => {
     expect(steps("merged")).toEqual(["UAT:done", "Ready for review:done", "Merged:done"]);
     expect(steps("waiting_for_review")).toEqual(["UAT:done", "Ready for review:done", "Waiting for review:waiting"]);
     expect(steps("cancelled")).toEqual(["UAT:done", "Cancelled:cancelled"]);
+  });
+});
+
+describe("merge gate", () => {
+  const review = { state: "merged" as const, decision: { action: "merge" }, mergedBy: "kiln-merge-gate" };
+  it("says who merged", () => {
+    expect(mergedLabel(review)).toBe("Merged by the merge gate");
+    expect(mergedLabel({ ...review, decision: { action: "review" }, mergedBy: "ana" })).toBe("Merged by ana");
+    expect(mergedLabel(undefined)).toBe("Merged");
+    expect(prSteps("merged", "Merged by the merge gate").at(-1)).toEqual({ label: "Merged by the merge gate", status: "done" });
+  });
+  it("finds the review of a pull request", () => {
+    const r = (o: object) => ({ id: "mrv", repo: "acme/a", number: 1, ...o }) as never;
+    expect(reviewFor([r({ id: "x", pullRequestId: "pr_1" })], { id: "pr_1", repo: "acme/b", number: 9 })).toMatchObject({ id: "x" });
+    expect(reviewFor([r({ id: "y" })], { id: "pr_2", repo: "acme/a", number: 1 })).toMatchObject({ id: "y" });
   });
 });

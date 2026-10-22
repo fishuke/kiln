@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Trace, TraceIcon, TraceLine, TraceTitle } from "@/components/ui/trace";
-import { prSteps, PULL_REQUEST_LABEL } from "@/lib/studio/model";
-import type { AppPullRequest, PullRequestState } from "@/lib/studio/types";
+import { mergedLabel, prSteps, PULL_REQUEST_LABEL } from "@/lib/studio/model";
+import type { AppPullRequest, MergeReview, PullRequestState } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
 import { Confirm } from "./confirm";
 
@@ -44,13 +44,17 @@ function LinkRow({ href, label }: { href?: string; label: string }) {
  */
 export function ShipControl({
   pullRequest,
+  review,
   onShip,
 }: {
   pullRequest?: AppPullRequest;
+  /** The merge gate's record of it: who merged, or its reasons. */
+  review?: MergeReview;
   onShip: (state?: "uat" | "ready_for_review" | "cancelled") => Promise<AppPullRequest>;
 }) {
   const primary = useRef<HTMLButtonElement>(null);
   const live = pullRequest && pullRequest.state !== "merged" && pullRequest.state !== "cancelled" ? pullRequest : undefined;
+  const reasons = pullRequest?.reasons?.length ? pullRequest.reasons : (review?.reasons ?? []);
   const run = async (state?: "uat" | "ready_for_review" | "cancelled") => {
     try {
       const pr = await onShip(state);
@@ -86,7 +90,7 @@ export function ShipControl({
               </span>
             </div>
             <Trace className="gap-1">
-              {prSteps(pullRequest.state).map((s) => (
+              {prSteps(pullRequest.state, mergedLabel(review)).map((s) => (
                 <TraceLine
                   key={s.label}
                   status={s.status === "todo" ? "pending" : undefined}
@@ -97,11 +101,11 @@ export function ShipControl({
                 </TraceLine>
               ))}
             </Trace>
-            {pullRequest.state === "waiting_for_review" && pullRequest.reasons?.length ? (
+            {pullRequest.state === "waiting_for_review" && reasons.length ? (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5">
                 <div className="mb-1 text-xs font-medium text-amber-700 dark:text-amber-300">Merge gate</div>
                 <ul className="list-disc space-y-0.5 pl-4 text-sm">
-                  {pullRequest.reasons.map((r) => (
+                  {reasons.map((r) => (
                     <li key={r}>{r}</li>
                   ))}
                 </ul>

@@ -1,7 +1,7 @@
 /** What the Studio page shows, computed from the API's shapes. Pure functions, tested in model.test.ts. */
 import { parsePatch, type DiffLine } from "@/lib/diff";
 import type { RunStatus } from "@/lib/run-tree";
-import type { AppSource, Chat, ChatMode, Preview, PullRequestState, ShipMode, StatusReport, StudioApp, Turn, Version } from "./types";
+import type { AppPullRequest, AppSource, Chat, ChatMode, MergeReview, Preview, PullRequestState, ShipMode, StatusReport, StudioApp, Turn, Version } from "./types";
 
 export const MODES: { id: ChatMode; label: string; hint: string }[] = [
   { id: "build", label: "Build", hint: "Reads, edits and runs the app" },
@@ -246,12 +246,24 @@ export const PULL_REQUEST_LABEL: Record<PullRequestState, string> = {
 export type PrStep = { label: string; status: "done" | "current" | "waiting" | "cancelled" | "todo" };
 
 /** The pull request's path for its author: UAT → Ready for review → Merged, or Waiting for review, or Cancelled. */
-export function prSteps(state: PullRequestState): PrStep[] {
-  const after = state === "waiting_for_review" ? { label: "Waiting for review", status: "waiting" as const } : { label: "Merged", status: state === "merged" ? ("done" as const) : ("todo" as const) };
+export function prSteps(state: PullRequestState, mergedLabel = "Merged"): PrStep[] {
+  const after = state === "waiting_for_review" ? { label: "Waiting for review", status: "waiting" as const } : { label: state === "merged" ? mergedLabel : "Merged", status: state === "merged" ? ("done" as const) : ("todo" as const) };
   if (state === "cancelled") return [{ label: "UAT", status: "done" }, { label: "Cancelled", status: "cancelled" }];
   return [
     { label: "UAT", status: state === "uat" ? "current" : "done" },
     { label: "Ready for review", status: state === "uat" ? "todo" : state === "ready_for_review" ? "current" : "done" },
     after,
   ];
+}
+
+/** "Merged by the merge gate" when the gate merged it, "Merged by <person>" when the record says who, else "Merged". */
+export function mergedLabel(review: Pick<MergeReview, "state" | "decision" | "mergedBy"> | undefined): string {
+  if (review?.state !== "merged") return "Merged";
+  if (review.decision?.action === "merge") return "Merged by the merge gate";
+  return review.mergedBy ? `Merged by ${review.mergedBy}` : "Merged";
+}
+
+/** The gate's review of an App's pull request: by its Studio id, else by repository and number. */
+export function reviewFor(reviews: MergeReview[], pr: Pick<AppPullRequest, "id" | "repo" | "number">): MergeReview | undefined {
+  return reviews.find((r) => r.pullRequestId === pr.id) ?? reviews.find((r) => r.repo === pr.repo && r.number === pr.number);
 }

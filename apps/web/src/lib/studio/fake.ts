@@ -9,6 +9,7 @@ import type {
   CreateAppInput,
   AppDetail,
   AppPullRequest,
+  MergeReview,
   ForgeRepository,
   NewChatInput,
   NewChatResult,
@@ -407,6 +408,33 @@ export class FakeStudioClient implements StudioClient {
     this.pullRequests.set(appId, pr);
     this.emit();
     return pr;
+  }
+
+  async mergeReviews(state?: MergeReview["state"]): Promise<MergeReview[]> {
+    const reviews = [...this.pullRequests.values()]
+      .filter((p) => p.state === "waiting_for_review" || p.state === "merged")
+      .map(
+        (p): MergeReview => ({
+          id: `mrv_${p.id}`,
+          scope: { kind: "app", appId: p.appId, team: "team" },
+          repo: p.repo,
+          number: p.number,
+          url: p.url,
+          title: this.versions.get(p.versionId)?.title ?? "Changes",
+          author: p.createdBy,
+          by: p.createdBy,
+          state: p.state === "merged" ? "merged" : "needs_review",
+          reasons: p.reasons ?? [],
+          decision: { action: p.state === "merged" ? "merge" : "review" },
+          mergedBy: p.state === "merged" ? "kiln-merge-gate" : undefined,
+          previewUrl: p.previewUrl,
+          link: `/studio/${p.appId}`,
+          pullRequestId: p.id,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        }),
+      );
+    return state ? reviews.filter((r) => r.state === state) : reviews;
   }
 
   async interrupt(runId: string): Promise<void> {

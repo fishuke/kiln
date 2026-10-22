@@ -434,33 +434,30 @@ export type AppPullRequest = {
 
 ### Merge gate (ADR-014)
 
-Contract: [merge-gate.md](merge-gate.md). Ship calls the gate when the author moves a pull request to `ready_for_review`, never when it is only opened. `packages/studio` redeclares these types structurally (no `@kiln/engine` import); `apps/api/src/routes/studio.ts` passes `kiln.mergeGate` as `StudioOptions.mergeGate`.
+Contract: [merge-gate.md](merge-gate.md). Ship calls the gate when the author marks the App's pull request ready for review, never when it is only opened. `packages/studio` redeclares these types structurally (no `@kiln/engine` import); `apps/api/src/routes/studio.ts` passes `kiln.mergeGate` as `StudioOptions.mergeGate` (or the Shipper's option) and registers the App switch with `kiln.mergeGate.useAppPolicy((appId) => <resolved App policy>.mergeGate)`.
 
 ```ts
-export type StudioMergeOutcome = { reviewId: string; state: "merged" | "needs_review"; reasons: string[] };
 export interface StudioMergeGate {
   readyForReview(input: {
     scope: { kind: "app"; appId: string; team: string };
-    repo: string; // "owner/name"
-    number: number;
-    by: string; // the person who marked it ready
-    areas?: string[]; // the parts of the app it touches, if Studio knows them
-    tests?: "passed" | "failed" | "none";
-    preview?: { url?: string; status: "ready" | "failed" | "none" };
-    link?: string; // the App in Studio, where a reviewer opens it
+    repo: string; // AppPullRequest.repo, "owner/name"
+    number: number; // AppPullRequest.number
+    by: string; // the author who marked it ready
     pullRequestId: string; // AppPullRequest.id
-  }): Promise<{ id: string; state: "deciding" | "merged" | "needs_review" | "closed"; reasons: string[] }>;
+    preview?: { url?: string; status: "ready" | "failed" | "none" }; // AppPullRequest.previewUrl, when there is one
+    tests?: "passed" | "failed" | "none";
+    areas?: string[]; // the parts of the app it touches, if Studio knows them
+    link?: string; // the App in Studio, where a reviewer opens it
+  }): Promise<{ outcome: "merged" } | { outcome: "review"; reasons: string[] }>;
   pullRequestClosed(input: { repo: string; number: number; merged: boolean; by?: string }): unknown;
 }
-// StudioOptions
-mergeGate?: StudioMergeGate; // without it, ready_for_review only adds the Inbox item as before
 ```
 
-- Result `merged`: set the `AppPullRequest` to `merged`. Result `needs_review`: keep `ready_for_review` and show `reasons` to the author ("Waiting for review").
-- Event `"merge_gate.review_updated"` (`{ reviewId; appId?; pullRequestId?; repo; number; state; priority }`): when a person merges later, `state` is `merged`; set the `AppPullRequest` to `merged`.
-- Cancelling a pull request that is `ready_for_review`: call `pullRequestClosed({ repo, number, merged: false })` so the Inbox item clears.
-- The Inbox item for an App is kind `studio_pr_review` and goes to the team's owners and admins; ship doesn't add one itself.
-- The gate is off per App until a team owner or admin turns it on (`PUT /api/v1/merge-gate/apps/{appId}` `{ enabled }`). Studio never turns it on.
+- `merged`: set the `AppPullRequest` to `merged`. `review`: set it to `waiting_for_review` with `reasons`.
+- The gate creates the Inbox item (`studio_pr_review`, for the team's owners and admins) and the one needs-you event, `merge_gate.review_updated` (`{ reviewId; appId; pullRequestId; repo; number; state; priority }`). Ship adds no Inbox item and emits no `needs_you` event for `waiting_for_review`.
+- A person's later merge reaches the gate through the forge webhook; ship follows `merge_gate.review_updated` with `state: "merged"` (or its own `forgeMerged`) to set `merged`.
+- Cancelling a pull request that is `waiting_for_review`: call `pullRequestClosed({ repo, number, merged: false })` so the Inbox item clears.
+- The switch is the App definition's `mergeGate` policy, off by default. Studio never turns it on.
 
 **Coupling to a factory** (optional per App) and **Kiln Project environments** inherited by previews.
 

@@ -25,6 +25,7 @@ Team
 - **Kiln Project.** Groups Apps and factories, for example _Saba_: the frontend App and the backend factory. Its **environments** (variables and secrets, such as the API URL a preview should use) are inherited by its Apps' previews and its factories' runs. Each layer can override: team → project → App or factory.
 - **Chat.** A parallel line of work ("pricing page" while "fix login" runs). Each chat has its own preview, so chats don't overwrite each other.
 - **Subagents** belong to a chat. The lead agent spawns them through its harness; Studio shows them as nested activity.
+- **Lead chats.** Any chat can split work across parallel agents, the same way factory agents do: it starts subagent runs with a brief each, you or the lead can message them while they work or after they finish, their results come back to the lead, and the lead applies their work. Children appear under their lead with their own preview, and you can stop any of them. It's the same runs, agents and Kiln MCP tools factories use, so there is one way of working across Kiln. This works by voice too: you talk to the lead.
 - Idle chats pause using sandbox snapshots, and an App has a limit on how many chats run at once.
 
 ## Versions

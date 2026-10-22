@@ -69,7 +69,11 @@ export interface Sandbox {
   writeBytes(path: string, bytes: Uint8Array): Promise<void>;
   snapshot(store: ObjectStore): Promise<SnapshotRef>;
   destroy(): Promise<void>;
+  /** Where the API can reach a server listening on `port` inside the sandbox (Studio previews). */
+  expose?(port: number): Promise<SandboxAddress>;
 }
+
+export type SandboxAddress = { host: string; port: number };
 
 export interface SandboxProvider {
   readonly name: string;
@@ -91,6 +95,17 @@ async function guarded(spec: SandboxSpec, command: string): Promise<void> {
   if (verdict === "allow") return;
   if (verdict === "ask_human" && spec.askHuman && (await spec.askHuman(command))) return;
   throw new CommandBlocked(command, verdict);
+}
+
+/** The sandbox has no address the API can reach, e.g. a Docker container started with `--network none`. */
+export class SandboxNotReachable extends Error {
+  constructor(readonly sandboxId: string, reason: string) {
+    super(`sandbox ${sandboxId} is not reachable: ${reason}`);
+  }
+}
+
+function checkPort(port: number) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new RangeError(`port must be an integer from 1 to 65535, got ${port}`);
 }
 
 export function shellQuote(s: string): string {
@@ -276,6 +291,12 @@ class LocalSandbox implements Sandbox {
   async destroy() {
     this.onDestroy?.();
     rmSync(this.workdir, { recursive: true, force: true });
+  }
+
+  /** Local processes run on the host, so their ports are the host's. */
+  async expose(port: number): Promise<SandboxAddress> {
+    checkPort(port);
+    return { host: "127.0.0.1", port };
   }
 }
 
@@ -518,6 +539,16 @@ class DockerSandbox implements Sandbox {
     this.onDestroy?.();
     await this.runner.run("docker", ["rm", "-f", this.container]);
   }
+
+  /** The container's address on its network; the API must share that network to reach it. */
+  async expose(port: number): Promise<SandboxAddress> {
+    checkPort(port);
+    const r = await this.runner.run("docker", ["inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", this.container]);
+    if (r.code !== 0) throw new SandboxNotReachable(this.id, r.stderr.trim() || "docker inspect failed");
+    const host = r.stdout.trim().split(/\s+/).find(Boolean);
+    if (!host) throw new SandboxNotReachable(this.id, "the container has no network (a runner without egress runs with --network none)");
+    return { host, port };
+  }
 }
 
 /** Pod and NetworkPolicy manifests for a sandbox under gVisor. */
@@ -721,6 +752,15 @@ class KubernetesSandbox implements Sandbox {
     await this.runner.run("kubectl", ["-n", this.namespace, "delete", "pod", this.pod, "--ignore-not-found"]);
     await this.runner.run("kubectl", ["-n", this.namespace, "delete", "networkpolicy", `${this.pod}-egress`, "--ignore-not-found"]);
     if (this.spec.registryAuth) await this.runner.run("kubectl", ["-n", this.namespace, "delete", "secret", `${this.pod}-pull`, "--ignore-not-found"]);
+  }
+
+  /** The pod's IP. The sandbox NetworkPolicy must admit the API for this to be reachable. */
+  async expose(port: number): Promise<SandboxAddress> {
+    checkPort(port);
+    const r = await this.runner.run("kubectl", ["-n", this.namespace, "get", "pod", this.pod, "-o", "jsonpath={.status.podIP}"]);
+    const host = r.stdout.trim();
+    if (r.code !== 0 || !host) throw new SandboxNotReachable(this.id, r.stderr.trim() || "the pod has no IP");
+    return { host, port };
   }
 }
 

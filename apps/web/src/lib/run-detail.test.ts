@@ -78,6 +78,21 @@ describe("workItemTranscript", () => {
   });
 });
 
+describe("platform errors", () => {
+  it("hide a run that ended on a platform error once the step ran again", () => {
+    const items = workItemTranscript({
+      title: "Add todo",
+      requester: "me",
+      createdAt: "2026-10-20T10:00:00Z",
+      conversation: [],
+      runs: [run("e1", { stage: "build", status: "error", startedAt: "2026-10-20T10:00:10Z" }), run("b2", { stage: "build", startedAt: "2026-10-20T10:01:10Z" })],
+      gates: [],
+    });
+    const subs = items.filter((i) => i.type === "subagents").flatMap((i) => (i.type === "subagents" ? i.runs.map((r) => r.id) : []));
+    expect(subs).toEqual(["b2"]);
+  });
+});
+
 describe("agent foreman turns", () => {
   it("show as the foreman's own work, not as subagents", () => {
     const events: EventLike[] = [

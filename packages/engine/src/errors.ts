@@ -47,6 +47,8 @@ export class KilnError extends Error {
 }
 
 const PATTERNS: [RegExp, ErrorCode, Record<string, unknown>?][] = [
+  // The network went away (a restart, the egress proxy coming back up): temporary, whatever the command was.
+  [/Failed to connect to|Couldn't connect to server|Could not resolve host|Connection refused|ECONNREFUSED|Connection timed out|Network is unreachable|egress-proxy|No such container|is not running/i, "resource_unavailable"],
   [/monthly budget|budget of \$/i, "budget_exceeded"],
   [/insufficient (credits|quota)|credit balance|quota exceeded|billing/i, "insufficient_credits"],
   [/secret .+ (for the .+ harness )?is not set|no credentials|api key.*(missing|not set)/i, "integration_not_configured"],

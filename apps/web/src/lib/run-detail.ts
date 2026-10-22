@@ -161,7 +161,9 @@ export function workItemTranscript(input: {
     else if (c.role === "system") items.push({ type: "system", key, at: c.at, text: c.text });
     else items.push({ type: "agent", key, at: c.at, text: c.text });
   });
-  const top = input.runs.filter((r) => !r.parentRunId || !input.runs.some((p) => p.id === r.parentRunId));
+  // A run that ended on a platform error (network, restart) and was run again leaves no trace.
+  const superseded = (r: RunLike) => r.status === "error" && input.runs.some((x) => x.stage === r.stage && x.agent === r.agent && x.startedAt > r.startedAt);
+  const top = input.runs.filter((r) => !superseded(r) && (!r.parentRunId || !input.runs.some((p) => p.id === r.parentRunId)));
   for (const r of top.filter((x) => x.stage === "foreman")) {
     // The foreman speaks through the conversation; a turn shows its thinking and the commands it ran.
     for (const it of input.turns?.[r.id] ?? []) if (it.type === "work" || it.type === "reasoning") items.push({ ...it, key: `${r.id}-${it.key}` });

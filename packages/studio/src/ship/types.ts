@@ -33,7 +33,7 @@ export const PullRequestState = z.enum(["uat", "ready_for_review", "merged", "wa
 export type PullRequestState = z.infer<typeof PullRequestState>;
 
 export const AppPullRequest = z.object({
-  id: z.string(), // "sp_…"
+  id: z.string(), // "spr_…"
   appId: z.string(),
   forge: z.string(),
   repo: z.string(),
@@ -45,8 +45,7 @@ export const AppPullRequest = z.object({
   versionId: z.string(),
   builtInPreview: z.string().optional(),
   previewUrl: z.string().optional(),
-  reviewId: z.string().optional(), // the merge gate's review
-  reasons: z.array(z.string()).optional(),
+  reviewReasons: z.array(z.string()).optional(), // set with waiting_for_review
   createdBy: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

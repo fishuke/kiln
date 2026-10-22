@@ -5,7 +5,7 @@ import { shellQuote, type Sandbox } from "@kiln/sandbox";
 import type { Store } from "@kiln/store";
 import type { Clock, Studio } from "../studio";
 import { StudioError, type App, type ShipMode } from "../types";
-import type { MergeGateResult, StudioMergeGate } from "./merge-gate";
+import type { MergeGateOutcome, StudioMergeGate } from "./merge-gate";
 import { assertPushAllowed, isTeamAdmin, mainBranchOf, maxShipMode, pushTarget, shipModeAtMost, studioBranch, type PushContext } from "./policy";
 import {
   SHIP_COLLECTIONS as S,
@@ -45,12 +45,6 @@ export type ShipperOptions = {
 export type ShipInput = { title?: string; state?: "uat" | "ready_for_review" | "cancelled" };
 
 const OPEN: readonly PullRequestState[] = ["uat", "ready_for_review", "waiting_for_review"];
-const GATE_STATE: Record<MergeGateResult["state"], PullRequestState> = {
-  deciding: "ready_for_review",
-  merged: "merged",
-  needs_review: "waiting_for_review",
-  closed: "cancelled",
-};
 
 const toRef = (repo: string, forge?: string): RepoRef => {
   const [owner, name] = repo.split("/") as [string, string];
@@ -230,20 +224,23 @@ export class Shipper {
     return input.state === "ready_for_review" ? this.readyForReview(pr, actor) : this.cancel(pr, actor);
   }
 
-  /** The merge gate decided later (`merge_gate.review_updated`): record it; the gate's event already told people. */
+  /**
+   * `merge_gate.review_updated` (a person merged later, or the review closed): record it on the
+   * pull request. The gate's event is the notification, so this publishes nothing.
+   */
   reviewUpdated(input: {
     pullRequestId?: string;
-    repo?: string;
-    number?: number;
-    state: MergeGateResult["state"];
-    reasons?: string[];
+    repo: string;
+    number: number;
+    state: "deciding" | "merged" | "needs_review" | "closed";
   }): AppPullRequest | undefined {
     const pr = this.opts.store.list<AppPullRequest>(
       S.pullRequests,
       (p) => (input.pullRequestId ? p.id === input.pullRequestId : p.repo === input.repo && p.number === input.number) && OPEN.includes(p.state),
     )[0];
-    if (!pr) return undefined;
-    return this.applyGate(pr, { state: input.state, reasons: input.reasons ?? pr.reasons ?? [] });
+    const state = ({ merged: "merged", closed: "cancelled", needs_review: "waiting_for_review", deciding: undefined } as const)[input.state];
+    if (!pr || !state || pr.state === state) return pr;
+    return this.record(pr, state, "merge-gate");
   }
 
   /** A person merged the pull request on the forge (its webhook). */
@@ -261,7 +258,11 @@ export class Shipper {
     let pr = this.pullRequest(app.id);
     if (pr) {
       if (title) await forge.updatePullRequest(ref, pr.number, { title });
-      if (pr.state !== "uat") pr = this.transition(pr, "uat", STUDIO_AGENT);
+      if (pr.state !== "uat") {
+        // New changes after the author was done: back to testing, and the reviewers' item goes away until they're ready again.
+        this.opts.mergeGate.pullRequestClosed(pr);
+        pr = this.transition(pr, "uat", STUDIO_AGENT);
+      }
     } else {
       const opened = await forge.openPullRequest({
         repo: ref,
@@ -272,7 +273,7 @@ export class Shipper {
       });
       const now = this.now();
       pr = this.opts.store.put<AppPullRequest>(S.pullRequests, {
-        id: `sp_${randomBytes(16).toString("hex")}`,
+        id: `spr_${randomBytes(16).toString("hex")}`,
         appId: app.id,
         forge: repo.forge,
         repo: repo.repo,
@@ -305,16 +306,7 @@ export class Shipper {
     if (actor.by !== pr.createdBy) throw new StudioError("invalid", `only the author (${pr.createdBy}) marks it ready for review`);
     if (pr.state !== "uat") throw new StudioError("conflict", `the pull request is already ${pr.state}`);
     const ready = this.transition(pr, "ready_for_review", actor.by);
-    const app = this.app(pr.appId);
-    const result = await this.opts.mergeGate.readyForReview({
-      scope: { kind: "app", appId: app.id, team: app.team },
-      repo: pr.repo,
-      number: pr.number,
-      by: actor.by,
-      ...(ready.previewUrl ? { preview: { url: ready.previewUrl, status: "ready" as const } } : {}),
-      pullRequestId: pr.id,
-    });
-    return this.applyGate({ ...ready, reviewId: result.id }, result);
+    return this.applyGate(ready, await this.opts.mergeGate.readyForReview(ready));
   }
 
   private async cancel(pr: AppPullRequest, actor: Actor): Promise<AppPullRequest> {
@@ -323,42 +315,36 @@ export class Shipper {
     const forge = this.forgeOf(this.app(pr.appId));
     if (!forge.closePullRequest) throw new StudioError("unavailable", `the ${forge.name} forge can't close pull requests`);
     await forge.closePullRequest(toRef(pr.repo, pr.forge), pr.number);
-    if (pr.state !== "uat") this.opts.mergeGate.pullRequestClosed({ repo: pr.repo, number: pr.number, merged: false, by: actor.by });
+    if (pr.state !== "uat") this.opts.mergeGate.pullRequestClosed(pr);
     return this.transition(pr, "cancelled", actor.by);
   }
 
-  /** The merge gate's answer; its own event (merge_gate.review_updated) is the notification, so this publishes nothing. */
-  private applyGate(pr: AppPullRequest, result: Pick<MergeGateResult, "state" | "reasons">): AppPullRequest {
-    const state = GATE_STATE[result.state];
-    this.opts.audit("merge-gate", `studio.pull_request_${state}`, `${pr.repo}#${pr.number}`, {
-      appId: pr.appId,
-      pullRequestId: pr.id,
-      reasons: result.reasons,
-    });
-    return this.opts.store.put<AppPullRequest>(S.pullRequests, {
-      ...pr,
-      state,
-      ...(result.reasons.length ? { reasons: result.reasons } : {}),
-      updatedAt: this.now(),
-    });
+  /** The merge gate's answer. The gate adds the Inbox item and raises the needs-you event, so this publishes nothing. */
+  private applyGate(pr: AppPullRequest, result: MergeGateOutcome): AppPullRequest {
+    return result.outcome === "merged" ? this.record(pr, "merged", "merge-gate") : this.record(pr, "waiting_for_review", "merge-gate", result.reasons);
   }
 
+  /** Store and audit a state change without an event. */
+  private record(pr: AppPullRequest, state: PullRequestState, by: string, reviewReasons?: string[]): AppPullRequest {
+    const { reviewReasons: _, ...rest } = pr;
+    const next = this.opts.store.put<AppPullRequest>(S.pullRequests, { ...rest, state, ...(reviewReasons ? { reviewReasons } : {}), updatedAt: this.now() });
+    this.opts.audit(by, `studio.pull_request_${state}`, `${pr.repo}#${pr.number}`, {
+      appId: pr.appId,
+      pullRequestId: pr.id,
+      ...(reviewReasons ? { reviewReasons } : {}),
+    });
+    return next;
+  }
+
+  /** A state change ship makes itself: stored, audited and published. */
   private transition(pr: AppPullRequest, state: PullRequestState, by: string): AppPullRequest {
-    const { reasons: _, ...rest } = pr;
-    const next = this.opts.store.put<AppPullRequest>(S.pullRequests, { ...rest, state, updatedAt: this.now() });
-    this.opts.audit(by, `studio.pull_request_${state}`, `${pr.repo}#${pr.number}`, { appId: pr.appId, pullRequestId: pr.id });
+    const next = this.record(pr, state, by);
     this.publish(next);
     return next;
   }
 
   private publish(pr: AppPullRequest) {
-    this.opts.bus.publish("studio.pull_request_state_changed", {
-      appId: pr.appId,
-      pullRequestId: pr.id,
-      state: pr.state,
-      url: pr.url,
-      priority: pr.state === "ready_for_review" ? "progress" : "finished",
-    });
+    this.opts.bus.publish("studio.pull_request_state_changed", { appId: pr.appId, pullRequestId: pr.id, state: pr.state, url: pr.url, priority: "finished" });
   }
 
   /** The person whose turn made the newest version, else the App's creator. */

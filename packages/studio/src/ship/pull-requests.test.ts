@@ -69,42 +69,37 @@ describe("the App's pull request", () => {
     const { shipper, app, change, gate, states } = await setup();
     await change();
     const pr = await shipper.ship(app.id, { state: "ready_for_review" }, author);
-    expect(gate.calls).toEqual([
-      expect.objectContaining({
-        scope: { kind: "app", appId: app.id, team: "t1" },
-        repo: "acme/web",
-        number: pr.number,
-        by: "creator@x.test",
-        pullRequestId: pr.id,
-      }),
-    ]);
-    expect(pr).toMatchObject({ state: "waiting_for_review", reasons: ["a person reviews every change"] });
+    expect(gate.asked).toEqual([expect.objectContaining({ id: pr.id, appId: app.id, repo: "acme/web", number: pr.number, state: "ready_for_review" })]);
+    expect(pr).toMatchObject({ state: "waiting_for_review", reviewReasons: ["a person reviews every change"] });
     // The gate's own event (merge_gate.review_updated) is the one needs-you notification.
-    expect(states.map((s) => `${s.state}:${s.priority}`)).toEqual(["uat:finished", "ready_for_review:progress"]);
+    expect(states).toEqual([
+      { state: "uat", priority: "finished" },
+      { state: "ready_for_review", priority: "finished" },
+    ]);
   });
 
   it("is merged when the merge gate merges it", async () => {
     const { shipper, app, change, gate } = await setup();
-    gate.next = { state: "merged", reasons: [] };
+    gate.next = { outcome: "merged" };
     await change();
     expect(await shipper.ship(app.id, { state: "ready_for_review" }, author)).toMatchObject({ state: "merged" });
   });
 
-  it("follows the merge gate when it decides later", async () => {
-    const { shipper, app, change, gate } = await setup();
-    gate.next = { state: "deciding", reasons: [] };
+  it("records a merge the gate reports later, without a second notification", async () => {
+    const { shipper, app, change, states } = await setup();
     await change();
     const pr = await shipper.ship(app.id, { state: "ready_for_review" }, author);
-    expect(pr.state).toBe("ready_for_review");
-    expect(shipper.reviewUpdated({ pullRequestId: pr.id, state: "merged" })).toMatchObject({ state: "merged" });
+    expect(shipper.reviewUpdated({ pullRequestId: pr.id, repo: pr.repo, number: pr.number, state: "merged" })).toMatchObject({ state: "merged" });
+    expect(states.map((s) => s.state)).toEqual(["uat", "ready_for_review"]);
   });
 
   it("goes back to UAT when a new turn changes it while it waits for review", async () => {
-    const { shipper, app, change } = await setup();
+    const { shipper, app, change, gate } = await setup();
     await change("one");
     await shipper.ship(app.id, { state: "ready_for_review" }, author);
     await change("two");
     expect(shipper.pullRequest(app.id)!.state).toBe("uat");
+    expect(gate.closed).toHaveLength(1);
   });
 
   it("closes the pull request on cancel, and the next ship opens a new one", async () => {
@@ -115,7 +110,7 @@ describe("the App's pull request", () => {
     const cancelled = await shipper.ship(app.id, { state: "cancelled" }, admin);
     expect(cancelled.state).toBe("cancelled");
     expect((await forge.getPullRequest(web, ready.number))!.state).toBe("closed");
-    expect(gate.closed).toEqual([{ repo: "acme/web", number: ready.number, merged: false, by: "admin@x.test" }]);
+    expect(gate.closed).toEqual([expect.objectContaining({ id: ready.id, number: ready.number })]);
     const again = await shipper.ship(app.id, {}, author);
     expect(again.number).not.toBe(ready.number);
     expect(again.state).toBe("uat");

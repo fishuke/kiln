@@ -35,13 +35,13 @@ export type KilnEventMap = {
   "studio.turn_finished": { appId: string; chatId: string; turnId: string; title?: string; summary?: string; changed: boolean; priority: "finished" };
   "studio.version_created": { appId: string; versionId: string; title: string; kind: "initial" | "apply" | "restore"; priority: "finished" };
   "studio.needs_you": { appId: string; chatId: string; question: string; reason: "question" | "conflict" | "failed"; priority: "needs_you" };
-  /** An App's pull request changed state through Studio; the merge gate's own outcomes come as merge_gate.review_updated. */
+  /** An App's pull request changed state; never needs_you (the merge gate's merge_gate.review_updated is the one needs-you event for a review). */
   "studio.pull_request_state_changed": {
     appId: string;
     pullRequestId: string;
-    state: "uat" | "ready_for_review" | "merged" | "waiting_for_review" | "cancelled";
+    state: "uat" | "ready_for_review" | "waiting_for_review" | "merged" | "cancelled";
     url: string;
-    priority: "finished" | "progress";
+    priority: "finished";
   };
 };
 

@@ -165,7 +165,7 @@ export type Version = {
 export type Preview = { target: string; url: string; status: "starting" | "ready" | "failed" };
 ```
 
-Store collections: `studio_apps`, `studio_chats`, `studio_turns` and `studio_versions`, each keyed by `id`; shipping adds `studio_repos` (the App's forge repository and whether Kiln created it), `studio_ship_policies`, `studio_ship_choices` and `studio_pull_requests`.
+Store collections: `studio_apps`, `studio_chats`, `studio_turns` and `studio_versions`, each keyed by `id`; shipping adds `studio_repos` (the App's forge repository and whether Kiln created it), `studio_ship_choices` and `studio_pull_requests`.
 
 ## Template (`packages/studio/src/templates.ts`)
 
@@ -418,10 +418,10 @@ An App pushes its main line (`setup.mainBranch` in the sandbox) to exactly one o
 
 - `studio/<app id>`: always allowed.
 - **The main branch** (`main` for a template App, `setup.mainBranch` for an imported one), only when both hold:
-  - (a template App **and** the repository is one Kiln created for it through `Forge.createRepository`) **or** (an imported App whose ship mode a person set to `cowboy` through `Shipper.setShipMode`, which records who and when), **and**
+  - (a template App **and** the repository is one Kiln created for it through `Forge.createRepository`) **or** (an imported App whose ship mode a team owner or admin, the people who may change the App's policy, set to `cowboy` through `Shipper.setShipMode`, which records who, their role and when), **and**
   - the repository is not linked to a factory (`ShipperOptions.linkedToFactory(repo)`: any factory that names the repository).
 
-`assertPushAllowed` checks this right before every push and refuses any other branch. An imported App whose ship mode became `cowboy` some other way (no recorded choice) pushes only `studio/<app id>`.
+`assertPushAllowed` checks this right before every push and refuses any other branch. An imported App whose ship mode became `cowboy` some other way (no recorded choice, or a member's) pushes only `studio/<app id>`.
 
 | Ship mode | When it pushes                                            | Where                                                      | Pull request                           |
 | --------- | --------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------- |
@@ -437,11 +437,12 @@ The initial version pushes nothing. A template App's repository is created on it
 
 ```ts
 export const TeamRole = z.enum(["owner", "admin", "member"]); // the team roles in packages/auth
-export type ShipPolicy = { id: string /* app id */; caps: Partial<Record<TeamRole, ShipMode>>; updatedBy: string; updatedAt: string };
-export type ShipModeChoice = { id: string /* app id */; mode: ShipMode; by: string; at: string }; // the latest person's choice
+/** The ship-mode part of the App's resolved policy: AppDefinitions.resolve(app).policy (docs/specs/app-definitions.md), the only place caps are defined. */
+export type ShipPolicySummary = { maxShipMode: ShipMode; roles: Record<string, ShipMode> };
+export type ShipModeChoice = { id: string /* app id */; mode: ShipMode; by: string; role?: TeamRole; at: string }; // runtime: who picked what
 ```
 
-`maxShipMode(app, policy, actor)` is the highest mode `actor` (`{ by, role }`) may pick: `policy.caps[role]` when set, else the default: owners and admins `cowboy`; the App's creator `cowboy` on a template App; other members `review`; a caller without a team role `safe`. `Shipper.setShipMode(appId, mode, actor)` refuses a mode above the cap (`StudioError("invalid")`), then updates the App and records the choice. Only team owners and admins may change a policy (`Shipper.setPolicy`). Policies are kept in the store collection `studio_ship_policies` behind a `ShipPolicies` interface, so App definitions (`kiln/v1` policies) can replace it; choices in `studio_ship_choices`. This is a small check, replaced by the roles plan later.
+`maxShipMode(app, policy, actor)` is the highest mode `actor` (`{ by, role }`) may pick: the lower of the App policy's cap (`maxShipMode`, lowered by `roles[role]`) and ADR-012's default for the actor: owners and admins `cowboy`; the App's creator `cowboy` on a template App; other members `review`; a caller without a team role `safe`. `Shipper.setShipMode(appId, mode, actor)` refuses a mode above the cap (`StudioError("invalid")`), then updates the App and records the choice in `studio_ship_choices`. Every ship-mode change goes through it: the `open_app` tool and the API's PATCH (`shipMode`) included. This is a small check, replaced by the roles plan later.
 
 ### The App's pull request
 
@@ -460,6 +461,7 @@ export type AppPullRequest = {
   versionId: string; // the App version its head is
   builtInPreview?: string; // Studio's preview of that version (ShipperOptions.versionPreviewUrl)
   previewUrl?: string; // the deployment preview, when a PreviewProvider is configured
+  reviewId?: string; // the merge gate's review
   reasons?: string[]; // the merge gate's, when waiting_for_review
   createdBy: string; // the author
   createdAt: string;
@@ -469,17 +471,11 @@ export type AppPullRequest = {
 ```
 
 - One open pull request per App. `ship` or a `review` push opens it in `uat`; later pushes update it (same branch) and set `versionId` and the previews again. A push to an App in `ready_for_review` or `waiting_for_review` moves it back to `uat`.
-- `ready_for_review` is set only by a person, the author (`createdBy`); actors `studio` and `agent:*` are refused. Then Studio calls the merge gate: `merged` when it merged, else `waiting_for_review` with its reasons (it appears in the reviewers' Inbox).
-- `cancelled` (the author or a team admin) closes the pull request on the forge (`Forge.closePullRequest`).
+- `ready_for_review` is set only by a person, the author (`createdBy`); actors `studio` and `agent:*` are refused. Then Studio calls the merge gate's `readyForReview` and maps its answer: `merged` → `merged`; `needs_review` → `waiting_for_review` with its reasons; `deciding` → stays `ready_for_review` until `merge_gate.review_updated` (`Shipper.reviewUpdated`); `closed` → `cancelled`. The gate, not ship, adds the Inbox item and raises the needs-you event; ship publishes nothing for the gate's outcomes.
+- `cancelled` (the author or a team admin) closes the pull request on the forge (`Forge.closePullRequest`) and, when it was past `uat`, calls the gate's `pullRequestClosed({ repo, number, merged: false, by })`.
 - `merged` and `cancelled` are final; the next `ship` opens a new pull request. `Shipper.forgeMerged(repo, number)` records a person's merge from the forge webhook.
 
-**Merge gate interface** (ADR-014; defined by the merge-gate work, built against `FakeMergeGate` until it lands):
-
-```ts
-export interface MergeGate {
-  check(input: { app: App; pullRequest: AppPullRequest; by: string }): Promise<{ merged: true } | { merged: false; reasons: string[] }>;
-}
-```
+**Merge gate.** Studio uses the merge gate's `StudioMergeGate` (`readyForReview`, `pullRequestClosed`; see "Merge gate (ADR-014)" and [merge-gate.md](merge-gate.md)), redeclared in `ship/merge-gate.ts` with `FakeStudioMergeGate` for tests. The API passes `kiln.mergeGate` as `ShipperOptions.mergeGate` and forwards `merge_gate.review_updated` to `Shipper.reviewUpdated`.
 
 ### Forge additions (`packages/integrations`)
 
@@ -502,8 +498,9 @@ Both have `FakeForge` and `GitHubForge` implementations and one contract suite. 
 No `state` (or `uat`) pushes and opens or updates the pull request; returns the `AppPullRequest`. `runTool` takes the `Shipper` as an optional fifth argument; without it `ship` answers "shipping isn't configured on this server".
 
 ```ts
-"studio.pull_request_state_changed": { appId: string; pullRequestId: string; state: PullRequestState; url: string; priority: Priority };
-// priority: waiting_for_review → "needs_you"; ready_for_review → "progress"; uat, merged, cancelled → "finished"
+"studio.pull_request_state_changed": { appId: string; pullRequestId: string; state: PullRequestState; url: string; priority: "finished" | "progress" };
+// for the transitions ship makes: uat, cancelled and a forge merge → "finished"; ready_for_review → "progress".
+// Never needs_you: the merge gate's merge_gate.review_updated is the one notification for its outcomes.
 ```
 
 ### Service (`packages/studio/src/ship/shipper.ts`)
@@ -517,6 +514,10 @@ export type ShipperOptions = {
   forge: (app: App) => Forge | undefined; // the App's forge connection
   newRepo?: (app: App) => { owner: string } | undefined; // where template Apps' repositories are created
   linkedToFactory: (repo: string) => boolean;
+  policyOf: (app: App) => ShipPolicySummary; // appDefinitions.resolve(app).policy
+  mergeGate: StudioMergeGate; // kiln.mergeGate
+  previews?: PreviewProvider; // the deployment preview
+  versionPreviewUrl?: (app: App, versionId: string) => string; // Studio's own preview of a version
   audit: (actor: string, action: string, target: string, details?: unknown) => void; // kiln.audit
 };
 export class Shipper {
@@ -524,9 +525,18 @@ export class Shipper {
   idle(appId: string): Promise<void>; // queued pushes done
   push(appId: string, actor: Actor): Promise<{ repo: AppRepo; branch: string; sha: string }>;
   setShipMode(appId: string, mode: ShipMode, actor: Actor): App; // the API's PATCH shipMode goes here
-  setPolicy(appId: string, caps: ShipPolicy["caps"], actor: Actor): ShipPolicy;
+  ship(appId: string, input: { title?: string; state?: "uat" | "ready_for_review" | "cancelled" }, actor: Actor): Promise<AppPullRequest>;
+  reviewUpdated(input: {
+    pullRequestId?: string;
+    repo?: string;
+    number?: number;
+    state: "deciding" | "merged" | "needs_review" | "closed";
+    reasons?: string[];
+  }): AppPullRequest | undefined;
+  forgeMerged(repo: string, number: number): AppPullRequest | undefined;
+  pullRequest(appId: string): AppPullRequest | undefined; // the open one
+  pullRequests(appId: string): AppPullRequest[]; // newest first
   repo(appId: string): AppRepo | undefined;
-  policy(appId: string): ShipPolicy | undefined;
   choice(appId: string): ShipModeChoice | undefined;
 }
 ```

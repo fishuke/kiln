@@ -1,15 +1,7 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { InMemoryEventBus } from "@kiln/events";
-import { FakeHarness } from "@kiln/harness";
-import { FakeForge, type Forge, type RepoRef } from "@kiln/integrations";
-import { LocalSandboxProvider } from "@kiln/sandbox";
-import { MemoryObjectStore, MemoryStore } from "@kiln/store";
+import type { FakeForge, Forge, RepoRef } from "@kiln/integrations";
 import { afterEach, describe, expect, it } from "vitest";
-import { Studio } from "../studio";
-import type { App } from "../types";
-import { Shipper, type ShipperOptions } from "./shipper";
+import type { Studio } from "../studio";
+import { shipFixture, type ShipFixtureOptions } from "./fixture";
 import { SHIP_COLLECTIONS, type AppRepo } from "./types";
 
 const studios: Studio[] = [];
@@ -20,64 +12,10 @@ afterEach(async () => {
 const admin = { by: "admin@x.test", role: "admin" as const };
 const member = { by: "member@x.test", role: "member" as const };
 
-/** Studio, a fake forge with no branch protection (so only Studio's guard stops a push), and a shipper. */
-async function setup(opts: { source?: App["source"]; linked?: string[]; forge?: (f: FakeForge) => Forge; shipMode?: App["shipMode"] } = {}) {
-  const harness = new FakeHarness(async ({ opts: o, emit }) => {
-    const m = /^write (\S+) (.*)$/.exec(o.prompt);
-    if (m) await o.sandbox.writeFile(`${o.cwd}/${m[1]}`, `${m[2]}\n`);
-    emit({ type: "message", text: o.prompt });
-  });
-  const linked = opts.linked ?? [];
-  const forge = new FakeForge(undefined, []);
-  forge.createRepo({ owner: "acme", name: "web" }, { "README.md": "# web\n", "package.json": '{ "name": "web", "private": true }\n' });
-  const store = new MemoryStore();
-  const bus = new InMemoryEventBus();
-  let t = Date.parse("2026-10-22T10:00:00Z");
-  const clock = { now: () => new Date((t += 1000)) };
-  const studio = new Studio({
-    store,
-    objects: new MemoryObjectStore(),
-    bus,
-    clock,
-    sandboxes: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-ship-"))),
-    harness: () => harness,
-    image: "node:22",
-    templates: { test: { id: "test", name: "Test", scaffold: ["echo hi > README.md"], install: [], dev: "sleep 60", egress: [] } },
-    previewUrl: (target) => `https://${target}.preview.test`,
-    clone: async (source) => ({ url: forge.cloneUrl({ owner: source.repo.split("/")[0]!, name: source.repo.split("/")[1]! }) }),
-  });
-  studios.push(studio);
-  const audit: { actor: string; action: string; target: string; details?: unknown }[] = [];
-  const options: ShipperOptions = {
-    studio,
-    store,
-    bus,
-    clock,
-    forge: () => (opts.forge ? opts.forge(forge) : forge),
-    newRepo: () => ({ owner: "acme" }),
-    linkedToFactory: (repo) => linked.includes(repo),
-    audit: (actor, action, target, details) => audit.push({ actor, action, target, details }),
-  };
-  const shipper = new Shipper(options);
-  shipper.start();
-  const app = await studio.createApp({
-    team: "t1",
-    by: "creator@x.test",
-    name: "Daily Done",
-    source: opts.source ?? { kind: "template", template: "test" },
-    ...(opts.shipMode ? { shipMode: opts.shipMode } : {}),
-  });
-  await studio.ready(app.id);
-  /** One chat turn that changes a file, applied (cowboy applies by itself). */
-  const change = async (text = "hello") => {
-    const { chat } = await studio.newChat(app.id, { by: "creator@x.test", via: "web", prompt: `write note.txt ${text}` });
-    await studio.idle(chat.id);
-    if (studio.getApp(app.id)!.app.shipMode !== "cowboy") await studio.apply(chat.id, "creator@x.test");
-    await shipper.idle(app.id);
-  };
-  const mainSha = async () =>
-    await studio.withWorkspace(app.id, async (s) => (await s.exec("git rev-parse HEAD", { cwd: "app", trusted: true })).stdout.trim());
-  return { studio, shipper, forge, app, audit, change, mainSha, linked, store };
+async function setup(opts: ShipFixtureOptions = {}) {
+  const f = await shipFixture(opts);
+  studios.push(f.studio);
+  return f;
 }
 
 const imported = { kind: "repo" as const, repo: "acme/web" };
@@ -146,12 +84,37 @@ describe("pushes per ship mode", () => {
     expect(shipper.choice(app.id)).toBeUndefined();
   });
 
-  it("lets only owners and admins change the App's policy", async () => {
-    const { shipper, app } = await setup({ source: imported });
-    expect(() => shipper.setPolicy(app.id, { member: "cowboy" }, member)).toThrow(/owners and admins/);
-    shipper.setPolicy(app.id, { member: "cowboy" }, admin);
-    shipper.setShipMode(app.id, "cowboy", member);
-    expect(shipper.choice(app.id)).toMatchObject({ mode: "cowboy", by: "member@x.test" });
+  it("takes the cap from the App's policy", async () => {
+    const { shipper, app, policy } = await setup();
+    policy.maxShipMode = "review";
+    expect(() => shipper.setShipMode(app.id, "cowboy", admin)).toThrow(/at most review/);
+    shipper.setShipMode(app.id, "review", admin);
+    expect(shipper.choice(app.id)).toMatchObject({ mode: "review", by: "admin@x.test", role: "admin" });
+  });
+
+  it("keeps an imported App on its studio branch when a member's cowboy choice slipped through", async () => {
+    const { studio, shipper, forge, app, change, store } = await setup({ source: imported });
+    studio.updateApp(app.id, { shipMode: "cowboy" });
+    store.put(SHIP_COLLECTIONS.choices, { id: app.id, mode: "cowboy", by: "member@x.test", role: "member", at: "2026-10-22T10:00:00Z" });
+    const before = forge.branchSha(web, "main");
+    await change();
+    expect(forge.branchSha(web, "main")).toBe(before);
+    expect(shipper.repo(app.id)).toMatchObject({ createdByKiln: false });
+  });
+
+  it("asks for a credential for this one repository on every push", async () => {
+    const asked: string[] = [];
+    const counting = (f: FakeForge): Forge =>
+      Object.assign(Object.create(f) as FakeForge, {
+        sandboxToken: async (r: RepoRef) => {
+          asked.push(`${r.owner}/${r.name}`);
+          return undefined;
+        },
+      });
+    const { shipper, app } = await setup({ source: imported, forge: counting });
+    await shipper.push(app.id, admin);
+    await shipper.push(app.id, admin);
+    expect(asked).toEqual(["acme/web", "acme/web"]);
   });
 
   it("asks the forge for a credential per push and keeps it out of errors and the workspace", async () => {

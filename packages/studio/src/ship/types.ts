@@ -8,17 +8,14 @@ export type TeamRole = z.infer<typeof TeamRole>;
 /** Who asks: a person (with their team role) or `agent:studio` for pushes after a turn. */
 export type Actor = { by: string; role?: TeamRole };
 
-/** The highest ship mode each team role may pick on one App (a small check; the roles plan replaces it). */
-export const ShipPolicy = z.object({
-  id: z.string(), // app id
-  caps: z.object({ owner: ShipMode.optional(), admin: ShipMode.optional(), member: ShipMode.optional() }),
-  updatedBy: z.string(),
-  updatedAt: z.string(),
-});
-export type ShipPolicy = z.infer<typeof ShipPolicy>;
+/**
+ * The ship-mode part of the App's resolved policy (`AppDefinitions.resolve(app).policy`, the only
+ * place caps are defined), redeclared structurally.
+ */
+export type ShipPolicySummary = { maxShipMode: ShipMode; roles: Record<string, ShipMode> };
 
-/** The latest ship mode a person picked for an App, through `Shipper.setShipMode`. */
-export const ShipModeChoice = z.object({ id: z.string(), mode: ShipMode, by: z.string(), at: z.string() });
+/** The latest ship mode a person picked for an App through `Shipper.setShipMode`: runtime "who picked what". */
+export const ShipModeChoice = z.object({ id: z.string(), mode: ShipMode, by: z.string(), role: TeamRole.optional(), at: z.string() });
 export type ShipModeChoice = z.infer<typeof ShipModeChoice>;
 
 /** The App's forge repository. `createdByKiln` is set only when `Forge.createRepository` made it for this App. */
@@ -48,6 +45,7 @@ export const AppPullRequest = z.object({
   versionId: z.string(),
   builtInPreview: z.string().optional(),
   previewUrl: z.string().optional(),
+  reviewId: z.string().optional(), // the merge gate's review
   reasons: z.array(z.string()).optional(),
   createdBy: z.string(),
   createdAt: z.string(),
@@ -57,7 +55,6 @@ export type AppPullRequest = z.infer<typeof AppPullRequest>;
 
 /** Store collections for shipping; runtime state only. */
 export const SHIP_COLLECTIONS = {
-  policies: "studio_ship_policies",
   choices: "studio_ship_choices",
   repos: "studio_repos",
   pullRequests: "studio_pull_requests",

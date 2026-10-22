@@ -1,11 +1,21 @@
+import { randomBytes } from "node:crypto";
 import type { EventBus } from "@kiln/events";
-import { RepositoryExistsError, type Forge, type RepoRef } from "@kiln/integrations";
+import { RepositoryExistsError, type Forge, type PreviewProvider, type RepoRef } from "@kiln/integrations";
 import { shellQuote, type Sandbox } from "@kiln/sandbox";
 import type { Store } from "@kiln/store";
 import type { Clock, Studio } from "../studio";
 import { StudioError, type App, type ShipMode } from "../types";
-import { assertPushAllowed, mainBranchOf, maxShipMode, mayEditShipPolicy, pushTarget, shipModeAtMost, type PushContext } from "./policy";
-import { SHIP_COLLECTIONS as S, type Actor, type AppRepo, type ShipModeChoice, type ShipPolicy } from "./types";
+import type { MergeGateResult, StudioMergeGate } from "./merge-gate";
+import { assertPushAllowed, isTeamAdmin, mainBranchOf, maxShipMode, pushTarget, shipModeAtMost, studioBranch, type PushContext } from "./policy";
+import {
+  SHIP_COLLECTIONS as S,
+  type Actor,
+  type AppPullRequest,
+  type AppRepo,
+  type PullRequestState,
+  type ShipModeChoice,
+  type ShipPolicySummary,
+} from "./types";
 
 /** Who pushes after a turn: Studio on the agent's behalf (ADR-012: every agent push is audited). */
 export const STUDIO_AGENT = "agent:studio";
@@ -21,7 +31,25 @@ export type ShipperOptions = {
   newRepo?: (app: App) => { owner: string } | undefined;
   /** Whether any factory names this repository ("owner/name"). */
   linkedToFactory: (repo: string) => boolean;
+  /** The ship-mode part of the App's resolved policy (`AppDefinitions.resolve(app).policy`). */
+  policyOf: (app: App) => ShipPolicySummary;
+  /** ADR-014: decides, when the author marks a pull request ready for review, whether a person reviews it. */
+  mergeGate: StudioMergeGate;
+  /** The pull request's deployment preview, when one is configured. */
+  previews?: PreviewProvider;
+  /** Studio's own preview of a version, recorded on the pull request. */
+  versionPreviewUrl?: (app: App, versionId: string) => string;
   audit: (actor: string, action: string, target: string, details?: unknown) => void;
+};
+
+export type ShipInput = { title?: string; state?: "uat" | "ready_for_review" | "cancelled" };
+
+const OPEN: readonly PullRequestState[] = ["uat", "ready_for_review", "waiting_for_review"];
+const GATE_STATE: Record<MergeGateResult["state"], PullRequestState> = {
+  deciding: "ready_for_review",
+  merged: "merged",
+  needs_review: "waiting_for_review",
+  closed: "cancelled",
 };
 
 const toRef = (repo: string, forge?: string): RepoRef => {
@@ -36,9 +64,11 @@ const slug = (s: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 60) || "app";
 
+const isPerson = (by: string) => by !== "studio" && !by.startsWith("agent:");
+
 /**
- * Shipping (ADR-012): what reaches an App's forge repository per ship mode. Pushes follow
- * `studio.version_created`; every push passes `assertPushAllowed` and is audited.
+ * Shipping (ADR-012): what reaches an App's forge repository per ship mode, and the App's pull
+ * request. Pushes follow `studio.version_created`; every push passes `assertPushAllowed` and is audited.
  */
 export class Shipper {
   private readonly queues = new Map<string, Promise<void>>();
@@ -66,54 +96,51 @@ export class Shipper {
     return this.opts.store.get<AppRepo>(S.repos, appId);
   }
 
-  policy(appId: string): ShipPolicy | undefined {
-    return this.opts.store.get<ShipPolicy>(S.policies, appId);
-  }
-
   choice(appId: string): ShipModeChoice | undefined {
     return this.opts.store.get<ShipModeChoice>(S.choices, appId);
   }
 
-  // ---- policy ----
-
-  /** A person picks the App's ship mode, up to their cap; Studio records who and when. */
-  setShipMode(appId: string, mode: ShipMode, actor: Actor): App {
-    const app = this.app(appId);
-    const cap = maxShipMode(app, this.policy(appId), actor);
-    if (!shipModeAtMost(mode, cap)) throw new StudioError("invalid", `${actor.by} may use at most ${cap} on this App`);
-    const updated = this.opts.studio.updateApp(appId, { shipMode: mode });
-    this.opts.store.put<ShipModeChoice>(S.choices, { id: appId, mode, by: actor.by, at: this.now() });
-    this.opts.audit(actor.by, "studio.ship_mode_changed", appId, { from: app.shipMode, to: mode });
-    return updated;
+  /** The App's open pull request (uat, ready for review or waiting for review). */
+  pullRequest(appId: string): AppPullRequest | undefined {
+    return this.opts.store.list<AppPullRequest>(S.pullRequests, (p) => p.appId === appId && OPEN.includes(p.state))[0];
   }
 
-  /** Team owners and admins set the highest ship mode per role on one App. */
-  setPolicy(appId: string, caps: ShipPolicy["caps"], actor: Actor): ShipPolicy {
-    this.app(appId);
-    if (!mayEditShipPolicy(actor)) throw new StudioError("invalid", "only team owners and admins change an App's ship policy");
-    const policy = this.opts.store.put<ShipPolicy>(S.policies, { id: appId, caps, updatedBy: actor.by, updatedAt: this.now() });
-    this.opts.audit(actor.by, "studio.ship_policy_changed", appId, { caps });
-    return policy;
+  /** Every pull request of the App, newest first. */
+  pullRequests(appId: string): AppPullRequest[] {
+    return this.opts.store.list<AppPullRequest>(S.pullRequests, (p) => p.appId === appId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  // ---- ship mode ----
+
+  /** A person picks the App's ship mode, up to their cap; Studio records who, their role and when. */
+  setShipMode(appId: string, mode: ShipMode, actor: Actor): App {
+    const app = this.app(appId);
+    const cap = maxShipMode(app, this.opts.policyOf(app), actor);
+    if (!shipModeAtMost(mode, cap)) throw new StudioError("invalid", `${actor.by} may use at most ${cap} on this App`);
+    const updated = this.opts.studio.updateApp(appId, { shipMode: mode });
+    this.opts.store.put<ShipModeChoice>(S.choices, { id: appId, mode, by: actor.by, ...(actor.role ? { role: actor.role } : {}), at: this.now() });
+    this.opts.audit(actor.by, "studio.ship_mode_changed", appId, { from: app.shipMode, to: mode });
+    return updated;
   }
 
   // ---- pushes ----
 
   /** Push the App's main line where its ship mode sends it (`studio/<app id>` unless the main branch is allowed). */
   async push(appId: string, actor: Actor): Promise<{ repo: AppRepo; branch: string; sha: string }> {
-    const app = this.app(appId);
-    const forge = this.forgeOf(app);
-    const repo = this.repo(appId) ?? (await this.ensureRepo(app, forge, actor));
-    const ctx: PushContext = {
-      app,
-      repo,
-      linkedToFactory: this.opts.linkedToFactory(repo.repo),
-      ...(this.choice(appId) ? { choice: this.choice(appId)! } : {}),
-    };
+    const { ctx, forge } = await this.context(appId, actor);
     return this.pushTo(ctx, forge, pushTarget(ctx), actor);
   }
 
-  /** Push the main line to one branch, after the guard. Runs under the App's Git lock. */
-  protected async pushTo(ctx: PushContext, forge: Forge, branch: string, actor: Actor): Promise<{ repo: AppRepo; branch: string; sha: string }> {
+  private async context(appId: string, actor: Actor): Promise<{ ctx: PushContext; forge: Forge }> {
+    const app = this.app(appId);
+    const forge = this.forgeOf(app);
+    const repo = this.repo(appId) ?? (await this.ensureRepo(app, forge, actor));
+    const choice = this.choice(appId);
+    return { ctx: { app, repo, linkedToFactory: this.opts.linkedToFactory(repo.repo), ...(choice ? { choice } : {}) }, forge };
+  }
+
+  /** Push the main line to one branch, after the guard, under the App's Git lock. */
+  private async pushTo(ctx: PushContext, forge: Forge, branch: string, actor: Actor): Promise<{ repo: AppRepo; branch: string; sha: string }> {
     const { repo } = ctx;
     try {
       assertPushAllowed(ctx, branch);
@@ -146,7 +173,7 @@ export class Shipper {
     const where = this.opts.newRepo?.(app);
     if (!where || !forge.createRepository) throw new StudioError("unavailable", "this server can't create repositories for template Apps");
     const name = `${slug(app.name)}-${app.id.slice(3, 9)}`;
-    let created: Awaited<ReturnType<NonNullable<Forge["createRepository"]>>>;
+    let created: { repo: RepoRef; url: string };
     try {
       created = await forge.createRepository({ owner: where.owner, name, private: true, description: `Kiln Studio App ${app.name}` });
     } catch (err) {
@@ -167,15 +194,17 @@ export class Shipper {
     return repo;
   }
 
-  /** After a new version: `review` and `cowboy` push; `safe` waits for `ship`. */
-  protected async afterVersion(appId: string): Promise<void> {
+  /** After a new version: `review` and `cowboy` push; `safe` waits for `ship`. A studio-branch push keeps the open pull request current. */
+  private async afterVersion(appId: string): Promise<void> {
     const app = this.app(appId);
     if (app.shipMode === "safe") return;
-    await this.push(appId, { by: STUDIO_AGENT });
+    const { branch } = await this.push(appId, { by: STUDIO_AGENT });
+    if (branch === studioBranch(appId) && (app.shipMode === "review" || this.pullRequest(appId)))
+      await this.syncPullRequest(this.app(appId), this.authorOfLatest(app));
   }
 
   /** Run pushes for one App in order. A failed push after a turn is in the audit log. */
-  protected enqueue(appId: string, fn: () => Promise<void>) {
+  private enqueue(appId: string, fn: () => Promise<void>) {
     const prev = this.queues.get(appId) ?? Promise.resolve();
     const next = prev.then(fn).catch((err: unknown) => {
       this.opts.audit(STUDIO_AGENT, "studio.push_failed", appId, { error: err instanceof Error ? err.message : String(err) });
@@ -183,26 +212,187 @@ export class Shipper {
     this.queues.set(appId, next);
   }
 
+  // ---- the App's pull request ----
+
+  /**
+   * The `ship` tool: no state (or `uat`) pushes `studio/<app id>` and opens or updates the pull
+   * request; `ready_for_review` (the author only) asks the merge gate; `cancelled` closes it.
+   */
+  async ship(appId: string, input: ShipInput, actor: Actor): Promise<AppPullRequest> {
+    if (!input.state || input.state === "uat") {
+      await this.idle(appId);
+      const { ctx, forge } = await this.context(appId, actor);
+      await this.pushTo(ctx, forge, studioBranch(appId), actor);
+      return this.syncPullRequest(this.app(appId), this.pullRequest(appId)?.createdBy ?? actor.by, input.title);
+    }
+    const pr = this.pullRequest(appId);
+    if (!pr) throw new StudioError("not_found", "this App has no open pull request; ship it first");
+    return input.state === "ready_for_review" ? this.readyForReview(pr, actor) : this.cancel(pr, actor);
+  }
+
+  /** The merge gate decided later (`merge_gate.review_updated`): record it; the gate's event already told people. */
+  reviewUpdated(input: {
+    pullRequestId?: string;
+    repo?: string;
+    number?: number;
+    state: MergeGateResult["state"];
+    reasons?: string[];
+  }): AppPullRequest | undefined {
+    const pr = this.opts.store.list<AppPullRequest>(
+      S.pullRequests,
+      (p) => (input.pullRequestId ? p.id === input.pullRequestId : p.repo === input.repo && p.number === input.number) && OPEN.includes(p.state),
+    )[0];
+    if (!pr) return undefined;
+    return this.applyGate(pr, { state: input.state, reasons: input.reasons ?? pr.reasons ?? [] });
+  }
+
+  /** A person merged the pull request on the forge (its webhook). */
+  forgeMerged(repo: string, number: number): AppPullRequest | undefined {
+    const pr = this.opts.store.list<AppPullRequest>(S.pullRequests, (p) => p.repo === repo && p.number === number && OPEN.includes(p.state))[0];
+    return pr ? this.transition(pr, "merged", "forge") : undefined;
+  }
+
+  private async syncPullRequest(app: App, author: string, title?: string): Promise<AppPullRequest> {
+    const forge = this.forgeOf(app);
+    const repo = this.repo(app.id)!;
+    const ref = toRef(repo.repo, repo.forge);
+    const version = this.opts.studio.getApp(app.id)!.versions[0]!;
+    const branch = studioBranch(app.id);
+    let pr = this.pullRequest(app.id);
+    if (pr) {
+      if (title) await forge.updatePullRequest(ref, pr.number, { title });
+      if (pr.state !== "uat") pr = this.transition(pr, "uat", STUDIO_AGENT);
+    } else {
+      const opened = await forge.openPullRequest({
+        repo: ref,
+        head: branch,
+        base: mainBranchOf(app),
+        title: title ?? version.title,
+        body: `Shipped from Kiln Studio App ${app.name}.`,
+      });
+      const now = this.now();
+      pr = this.opts.store.put<AppPullRequest>(S.pullRequests, {
+        id: `sp_${randomBytes(16).toString("hex")}`,
+        appId: app.id,
+        forge: repo.forge,
+        repo: repo.repo,
+        number: opened.number,
+        url: opened.url,
+        branch,
+        base: opened.base,
+        state: "uat",
+        versionId: version.id,
+        createdBy: author,
+        createdAt: now,
+        updatedAt: now,
+      });
+      this.opts.audit(author, "studio.pull_request_opened", `${repo.repo}#${opened.number}`, { appId: app.id, pullRequestId: pr.id });
+      this.publish(pr);
+    }
+    const deployment = await this.opts.previews?.deploy({ repo: repo.repo, branch, pr: pr.number });
+    const builtIn = this.opts.versionPreviewUrl?.(app, version.id);
+    return this.opts.store.put<AppPullRequest>(S.pullRequests, {
+      ...pr,
+      versionId: version.id,
+      ...(builtIn ? { builtInPreview: builtIn } : {}),
+      ...(deployment ? { previewUrl: deployment.url } : {}),
+      updatedAt: this.now(),
+    });
+  }
+
+  private async readyForReview(pr: AppPullRequest, actor: Actor): Promise<AppPullRequest> {
+    if (!isPerson(actor.by)) throw new StudioError("invalid", "only a person marks a pull request ready for review");
+    if (actor.by !== pr.createdBy) throw new StudioError("invalid", `only the author (${pr.createdBy}) marks it ready for review`);
+    if (pr.state !== "uat") throw new StudioError("conflict", `the pull request is already ${pr.state}`);
+    const ready = this.transition(pr, "ready_for_review", actor.by);
+    const app = this.app(pr.appId);
+    const result = await this.opts.mergeGate.readyForReview({
+      scope: { kind: "app", appId: app.id, team: app.team },
+      repo: pr.repo,
+      number: pr.number,
+      by: actor.by,
+      ...(ready.previewUrl ? { preview: { url: ready.previewUrl, status: "ready" as const } } : {}),
+      pullRequestId: pr.id,
+    });
+    return this.applyGate({ ...ready, reviewId: result.id }, result);
+  }
+
+  private async cancel(pr: AppPullRequest, actor: Actor): Promise<AppPullRequest> {
+    if (!isPerson(actor.by) || (actor.by !== pr.createdBy && !isTeamAdmin(actor.role)))
+      throw new StudioError("invalid", "only the author or a team admin cancels a pull request");
+    const forge = this.forgeOf(this.app(pr.appId));
+    if (!forge.closePullRequest) throw new StudioError("unavailable", `the ${forge.name} forge can't close pull requests`);
+    await forge.closePullRequest(toRef(pr.repo, pr.forge), pr.number);
+    if (pr.state !== "uat") this.opts.mergeGate.pullRequestClosed({ repo: pr.repo, number: pr.number, merged: false, by: actor.by });
+    return this.transition(pr, "cancelled", actor.by);
+  }
+
+  /** The merge gate's answer; its own event (merge_gate.review_updated) is the notification, so this publishes nothing. */
+  private applyGate(pr: AppPullRequest, result: Pick<MergeGateResult, "state" | "reasons">): AppPullRequest {
+    const state = GATE_STATE[result.state];
+    this.opts.audit("merge-gate", `studio.pull_request_${state}`, `${pr.repo}#${pr.number}`, {
+      appId: pr.appId,
+      pullRequestId: pr.id,
+      reasons: result.reasons,
+    });
+    return this.opts.store.put<AppPullRequest>(S.pullRequests, {
+      ...pr,
+      state,
+      ...(result.reasons.length ? { reasons: result.reasons } : {}),
+      updatedAt: this.now(),
+    });
+  }
+
+  private transition(pr: AppPullRequest, state: PullRequestState, by: string): AppPullRequest {
+    const { reasons: _, ...rest } = pr;
+    const next = this.opts.store.put<AppPullRequest>(S.pullRequests, { ...rest, state, updatedAt: this.now() });
+    this.opts.audit(by, `studio.pull_request_${state}`, `${pr.repo}#${pr.number}`, { appId: pr.appId, pullRequestId: pr.id });
+    this.publish(next);
+    return next;
+  }
+
+  private publish(pr: AppPullRequest) {
+    this.opts.bus.publish("studio.pull_request_state_changed", {
+      appId: pr.appId,
+      pullRequestId: pr.id,
+      state: pr.state,
+      url: pr.url,
+      priority: pr.state === "ready_for_review" ? "progress" : "finished",
+    });
+  }
+
+  /** The person whose turn made the newest version, else the App's creator. */
+  private authorOfLatest(app: App): string {
+    const chatId = this.opts.studio.getApp(app.id)!.versions[0]?.chatId;
+    const turns = chatId ? (this.opts.studio.getChat(chatId)?.turns ?? []) : [];
+    return (
+      turns
+        .map((t) => t.by)
+        .filter(isPerson)
+        .at(-1) ?? app.createdBy
+    );
+  }
+
   // ---- plumbing ----
 
-  protected forgeOf(app: App): Forge {
+  private forgeOf(app: App): Forge {
     const forge = this.opts.forge(app);
     if (!forge) throw new StudioError("unavailable", "this App has no forge connection");
     return forge;
   }
 
-  protected app(appId: string): App {
+  private app(appId: string): App {
     const found = this.opts.studio.getApp(appId);
     if (!found) throw new StudioError("not_found", `unknown app ${appId}`);
     return found.app;
   }
 
-  protected now() {
+  private now() {
     return this.opts.clock.now().toISOString();
   }
 }
 
-/** A trusted git command; its error never carries the push credential. */
+/** A trusted git command in the App's main repository; its error never carries the push credential. */
 async function gitOut(sandbox: Sandbox, command: string, secret: string | undefined, env?: Record<string, string>): Promise<string> {
   const r = await sandbox.exec(command, { cwd: "app", trusted: true, ...(env ? { env } : {}) });
   if (r.code === 0) return r.stdout.trim();

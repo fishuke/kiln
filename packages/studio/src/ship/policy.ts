@@ -1,5 +1,5 @@
 import type { App, ShipMode } from "../types";
-import { PushRefused, type Actor, type AppRepo, type ShipModeChoice, type ShipPolicy } from "./types";
+import { PushRefused, type Actor, type AppRepo, type ShipModeChoice, type ShipPolicySummary, type TeamRole } from "./types";
 
 /** Everything the push guard looks at. */
 export type PushContext = {
@@ -27,8 +27,8 @@ function mainPushRefusal(ctx: PushContext): string | undefined {
   if (app.source.kind === "template") {
     return repo.createdByKiln ? undefined : `${repo.repo} isn't a repository Kiln created for this App`;
   }
-  if (app.shipMode === "cowboy" && choice?.mode === "cowboy") return undefined;
-  return `nobody chose cowboy for this imported App, so Studio pushes only ${studioBranch(app.id)}`;
+  if (app.shipMode === "cowboy" && choice?.mode === "cowboy" && isTeamAdmin(choice.role)) return undefined;
+  return `no team owner or admin chose cowboy for this imported App, so Studio pushes only ${studioBranch(app.id)}`;
 }
 
 /** Where this App's ship mode sends its main line. */
@@ -51,18 +51,19 @@ export function assertPushAllowed(ctx: PushContext, branch: string): void {
 const RANK: Record<ShipMode, number> = { safe: 0, review: 1, cowboy: 2 };
 export const shipModeAtMost = (mode: ShipMode, cap: ShipMode) => RANK[mode] <= RANK[cap];
 
-/**
- * The highest ship mode `actor` may pick: the policy's cap for their role, else the default
- * (owners and admins cowboy; the creator of a template App cowboy; other members review).
- */
-export function maxShipMode(app: App, policy: ShipPolicy | undefined, actor: Actor): ShipMode {
-  if (!actor.role) return "safe";
-  const set = policy?.caps[actor.role];
-  if (set) return set;
-  if (actor.role === "owner" || actor.role === "admin") return "cowboy";
-  if (app.source.kind === "template" && actor.by === app.createdBy) return "cowboy";
-  return "review";
-}
+const lowest = (a: ShipMode, b: ShipMode) => (RANK[a] <= RANK[b] ? a : b);
 
-/** Only team owners and admins change an App's ship policy. */
-export const mayEditShipPolicy = (actor: Actor) => actor.role === "owner" || actor.role === "admin";
+/** Team owners and admins: the people who may change an App's policy. */
+export const isTeamAdmin = (role: TeamRole | undefined) => role === "owner" || role === "admin";
+
+/**
+ * The highest ship mode `actor` may pick: the lower of the App policy's cap (its `maxShipMode`,
+ * lowered by its cap for the actor's role) and ADR-012's default for the actor (owners and admins
+ * cowboy; the creator of a template App cowboy; other members review; no team role safe).
+ */
+export function maxShipMode(app: App, policy: ShipPolicySummary, actor: Actor): ShipMode {
+  if (!actor.role) return "safe";
+  const fallback: ShipMode = isTeamAdmin(actor.role) || (app.source.kind === "template" && actor.by === app.createdBy) ? "cowboy" : "review";
+  const byRole = policy.roles[actor.role];
+  return lowest(fallback, byRole ? lowest(policy.maxShipMode, byRole) : policy.maxShipMode);
+}

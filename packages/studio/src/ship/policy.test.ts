@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { App } from "../types";
-import { assertPushAllowed, maxShipMode, mayEditShipPolicy, pushTarget, studioBranch, type PushContext } from "./policy";
+import { assertPushAllowed, maxShipMode, pushTarget, studioBranch, type PushContext } from "./policy";
 import { PushRefused, type AppRepo, type ShipModeChoice } from "./types";
 
 const at = "2026-10-22T10:00:00.000Z";
@@ -32,7 +32,7 @@ const importedApp: App = {
 };
 const kilnRepo: AppRepo = { id: "sa_t", forge: "github", repo: "acme/daily-done-3f9a1c", createdByKiln: true, createdAt: at };
 const importedRepo: AppRepo = { id: "sa_i", forge: "github", repo: "acme/web", createdByKiln: false, createdAt: at };
-const choice: ShipModeChoice = { id: "sa_i", mode: "cowboy", by: "admin@x.test", at };
+const choice: ShipModeChoice = { id: "sa_i", mode: "cowboy", by: "admin@x.test", role: "admin", at };
 
 const ctx = (over: Partial<PushContext>): PushContext => ({ app: templateApp, repo: kilnRepo, linkedToFactory: false, ...over });
 
@@ -61,6 +61,12 @@ describe("where a push may go", () => {
     const c = ctx({ app: importedApp, repo: importedRepo });
     expect(pushTarget(c)).toBe("studio/sa_i");
     expect(() => assertPushAllowed(c, "trunk")).toThrow(/chose cowboy/);
+  });
+
+  it("needs a team owner or admin's cowboy choice for an imported App's main branch", () => {
+    const c = ctx({ app: importedApp, repo: importedRepo, choice: { ...choice, by: "m@x.test", role: "member" } });
+    expect(pushTarget(c)).toBe("studio/sa_i");
+    expect(() => assertPushAllowed(c, "trunk")).toThrow(/owner or admin/);
   });
 
   it("ignores a cowboy choice once the App's ship mode changed again", () => {
@@ -92,31 +98,29 @@ describe("where a push may go", () => {
 });
 
 describe("ship-mode caps", () => {
+  const open = { maxShipMode: "cowboy" as const, roles: {} };
+
   it("lets owners and admins use cowboy anywhere", () => {
-    expect(maxShipMode(importedApp, undefined, { by: "a@x.test", role: "admin" })).toBe("cowboy");
-    expect(maxShipMode(importedApp, undefined, { by: "o@x.test", role: "owner" })).toBe("cowboy");
+    expect(maxShipMode(importedApp, open, { by: "a@x.test", role: "admin" })).toBe("cowboy");
+    expect(maxShipMode(importedApp, open, { by: "o@x.test", role: "owner" })).toBe("cowboy");
   });
 
   it("lets the creator of a template App use cowboy", () => {
-    expect(maxShipMode(templateApp, undefined, { by: "creator@x.test", role: "member" })).toBe("cowboy");
+    expect(maxShipMode(templateApp, open, { by: "creator@x.test", role: "member" })).toBe("cowboy");
   });
 
   it("caps other members and every non-admin on an imported App at review", () => {
-    expect(maxShipMode(templateApp, undefined, { by: "other@x.test", role: "member" })).toBe("review");
-    expect(maxShipMode(importedApp, undefined, { by: "creator@x.test", role: "member" })).toBe("review");
-    expect(maxShipMode(importedApp, undefined, { by: "nobody@x.test" })).toBe("safe");
+    expect(maxShipMode(templateApp, open, { by: "other@x.test", role: "member" })).toBe("review");
+    expect(maxShipMode(importedApp, open, { by: "creator@x.test", role: "member" })).toBe("review");
+    expect(maxShipMode(importedApp, open, { by: "nobody@x.test" })).toBe("safe");
   });
 
-  it("uses the App's policy for a role when it sets one", () => {
-    const policy = { id: "sa_i", caps: { member: "cowboy" as const, admin: "review" as const }, updatedBy: "o@x.test", updatedAt: at };
-    expect(maxShipMode(importedApp, policy, { by: "m@x.test", role: "member" })).toBe("cowboy");
-    expect(maxShipMode(importedApp, policy, { by: "a@x.test", role: "admin" })).toBe("review");
+  it("lowers the cap to the App policy's highest mode and its cap for the role", () => {
+    expect(maxShipMode(templateApp, { maxShipMode: "review", roles: {} }, { by: "a@x.test", role: "admin" })).toBe("review");
+    expect(maxShipMode(templateApp, { maxShipMode: "cowboy", roles: { member: "safe" } }, { by: "creator@x.test", role: "member" })).toBe("safe");
   });
 
-  it("lets only owners and admins change the policy", () => {
-    expect(mayEditShipPolicy({ by: "a", role: "admin" })).toBe(true);
-    expect(mayEditShipPolicy({ by: "o", role: "owner" })).toBe(true);
-    expect(mayEditShipPolicy({ by: "m", role: "member" })).toBe(false);
-    expect(mayEditShipPolicy({ by: "x" })).toBe(false);
+  it("never raises a member above ADR-012's default", () => {
+    expect(maxShipMode(importedApp, { maxShipMode: "cowboy", roles: { member: "cowboy" } }, { by: "m@x.test", role: "member" })).toBe("review");
   });
 });

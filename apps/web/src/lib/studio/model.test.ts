@@ -14,8 +14,39 @@ import {
   versionForTurn,
   versionNumber,
   workTitle,
+  importSteps,
 } from "./model";
-import type { Chat, Turn, Version } from "./types";
+import type { Chat, Preview, StudioApp, Turn, Version } from "./types";
+
+describe("importSteps", () => {
+  const app = (o: Partial<StudioApp>): StudioApp => ({
+    id: "sp_1",
+    team: "t",
+    name: "Shop",
+    source: { kind: "repo", repo: "acme/shop" },
+    shipMode: "review",
+    harness: "claude-code",
+    status: "creating",
+    createdBy: "me",
+    createdAt: "",
+    updatedAt: "",
+    ...o,
+  });
+  const setup = { mainBranch: "main", packageManager: "pnpm" as const, install: ["pnpm install"], envRequired: [], envMissing: [] };
+  const statuses = (a: StudioApp, p?: Preview) => importSteps(a, p).map((s) => s.status);
+  it("walks clone → install → dev server → preview", () => {
+    expect(statuses(app({}))).toEqual(["running", "pending", "pending", "pending"]);
+    expect(statuses(app({ setup }))).toEqual(["done", "running", "pending", "pending"]);
+    expect(statuses(app({ setup, status: "ready" }), { target: "sv", url: "u", status: "starting" })).toEqual(["done", "done", "running", "pending"]);
+    expect(statuses(app({ setup, status: "ready" }), { target: "sv", url: "u", status: "ready" })).toEqual(["done", "done", "done", "done"]);
+  });
+  it("marks the running step failed", () => {
+    expect(statuses(app({ setup, status: "failed" }))).toEqual(["done", "failed", "pending", "pending"]);
+  });
+  it("names the detected package manager", () => {
+    expect(importSteps(app({ setup }), undefined)[1]!.label).toBe("Install with pnpm");
+  });
+});
 
 const turn = (o: Partial<Turn>): Turn => ({
   id: "st_1",

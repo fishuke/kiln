@@ -1,6 +1,6 @@
 /** What the Studio page shows, computed from the API's shapes. Pure functions, tested in model.test.ts. */
 import { parsePatch, type DiffLine } from "@/lib/diff";
-import type { Chat, ChatMode, AppSource, ShipMode, StatusReport, Turn, Version } from "./types";
+import type { AppSource, Chat, ChatMode, Preview, ShipMode, StatusReport, StudioApp, Turn, Version } from "./types";
 
 export const MODES: { id: ChatMode; label: string; hint: string }[] = [
   { id: "build", label: "Build", hint: "Reads, edits and runs your app." },
@@ -33,7 +33,10 @@ export function shipModeCopy(mode: ShipMode, source?: AppSource, appId = "<app i
     case "review":
       return {
         label: "Review",
-        line: source?.kind === "repo" ? "You apply each change. The agent opens a pull request and never pushes to main." : "You apply each change. The agent opens a pull request and you merge it.",
+        line:
+          source?.kind === "repo"
+            ? "You apply each change. The agent opens a pull request and never pushes to main."
+            : "You apply each change. The agent opens a pull request and you merge it.",
       };
     case "cowboy":
       return {
@@ -216,4 +219,28 @@ export function chatUsage(turns: Turn[]): { total: number; byMode: Record<ChatMo
 
 export function usd(n: number): string {
   return n < 0.01 && n > 0 ? "<$0.01" : `$${n.toFixed(2)}`;
+}
+
+export type SetupStep = { id: "clone" | "install" | "dev" | "preview"; label: string; status: "pending" | "running" | "done" | "failed" };
+
+/**
+ * Import progress, derived from the app and its first preview: clone (until setup is detected),
+ * install (until the app is ready), start the dev server, preview ready.
+ */
+export function importSteps(app: StudioApp, preview: Preview | undefined): SetupStep[] {
+  const failed = app.status === "failed";
+  const cloned = Boolean(app.setup) || app.status === "ready" || app.status === "paused";
+  const installed = app.status === "ready" || app.status === "paused";
+  const step = (id: SetupStep["id"], label: string, done: boolean, active: boolean): SetupStep => ({
+    id,
+    label,
+    status: done ? "done" : active ? (failed ? "failed" : "running") : "pending",
+  });
+  const dev = step("dev", "Start the dev server", preview?.status === "ready", installed);
+  return [
+    step("clone", "Clone the repository", cloned, !cloned),
+    step("install", app.setup ? `Install with ${app.setup.packageManager}` : "Install dependencies", installed, cloned && !installed),
+    preview?.status === "failed" ? { ...dev, status: "failed" } : dev,
+    step("preview", "Preview ready", preview?.status === "ready", false),
+  ];
 }

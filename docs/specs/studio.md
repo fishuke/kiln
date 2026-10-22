@@ -165,7 +165,7 @@ export type Version = {
 export type Preview = { target: string; url: string; status: "starting" | "ready" | "failed" };
 ```
 
-Store collections: `studio_apps`, `studio_chats`, `studio_turns` and `studio_versions`, each keyed by `id`.
+Store collections: `studio_apps`, `studio_chats`, `studio_turns` and `studio_versions`, each keyed by `id`; shipping adds `studio_repos` (the App's forge repository and whether Kiln created it), `studio_ship_policies`, `studio_ship_choices` and `studio_pull_requests`.
 
 ## Template (`packages/studio/src/templates.ts`)
 
@@ -436,7 +436,7 @@ export type ShipPolicy = { id: string /* app id */; caps: Partial<Record<TeamRol
 export type ShipModeChoice = { id: string /* app id */; mode: ShipMode; by: string; at: string }; // the latest person's choice
 ```
 
-`maxShipMode(app, policy, actor)` is the highest mode `actor` (`{ by, role }`) may pick: `policy.caps[role]` when set, else the default: owners and admins `cowboy`; the App's creator `cowboy` on a template App; everyone else `review`. `Shipper.setShipMode(appId, mode, actor)` refuses a mode above the cap (`StudioError("invalid")`), then updates the App and records the choice. Only team owners and admins may change a policy (`Shipper.setPolicy`). Policies are kept in the store collection `studio_ship_policies` behind a `ShipPolicies` interface, so App definitions (`kiln/v1` policies) can replace it; choices in `studio_ship_choices`. This is a small check, replaced by the roles plan later.
+`maxShipMode(app, policy, actor)` is the highest mode `actor` (`{ by, role }`) may pick: `policy.caps[role]` when set, else the default: owners and admins `cowboy`; the App's creator `cowboy` on a template App; other members `review`; a caller without a team role `safe`. `Shipper.setShipMode(appId, mode, actor)` refuses a mode above the cap (`StudioError("invalid")`), then updates the App and records the choice. Only team owners and admins may change a policy (`Shipper.setPolicy`). Policies are kept in the store collection `studio_ship_policies` behind a `ShipPolicies` interface, so App definitions (`kiln/v1` policies) can replace it; choices in `studio_ship_choices`. This is a small check, replaced by the roles plan later.
 
 ### The App's pull request
 

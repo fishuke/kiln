@@ -383,7 +383,8 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
             <Composer
               mode={mode}
               onModeChange={setDraftMode}
-              model={chat?.model ?? draftModel}
+              model={chat?.model ?? draftModel ?? app?.model}
+              harness={chat?.harness ?? app?.harness}
               onModelChange={setDraftModel}
               modelLocked={turns.length > 0}
               working={working}

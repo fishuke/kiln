@@ -19,7 +19,7 @@ import { InputGroupButton } from "@/components/ui/input-group";
 import { Kbd } from "@/components/ui/kbd";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { modelLabel, modelsFor } from "@/lib/agent-catalog";
+import { harnessLabel, modelLabel, modelsFor } from "@/lib/agent-catalog";
 import { MODES, usd, type chatUsage } from "@/lib/studio/model";
 import type { ChatMode } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
@@ -66,15 +66,15 @@ function ModeMenu({ mode, onChange }: { mode: ChatMode; onChange: (m: ChatMode) 
   );
 }
 
-export function modelName(id: string | undefined): string {
-  return id ? modelLabel(id) : "Default model";
+export function modelName(id: string | undefined, harness = "claude-code"): string {
+  return id ? modelLabel(id) : `${harnessLabel(harness)} default`;
 }
 
 /** Model Selector. A chat keeps its model, so it's locked once the chat has turns. */
 function ModelSelector({ model, onChange, locked, harness }: { model?: string; onChange: (m: string | undefined) => void; locked: boolean; harness: string }) {
   const trigger = (
-    <InputGroupButton size="xs" variant="ghost" disabled={locked} aria-label={`Model: ${modelName(model)}`} className="gap-1 px-2 text-muted-foreground">
-      {modelName(model)}
+    <InputGroupButton size="xs" variant="ghost" disabled={locked} aria-label={`Model: ${modelName(model, harness)}`} className="gap-1 px-2 text-muted-foreground">
+      {modelName(model, harness)}
       {!locked && <ChevronDown className="size-3 opacity-60" />}
     </InputGroupButton>
   );
@@ -93,7 +93,7 @@ function ModelSelector({ model, onChange, locked, harness }: { model?: string; o
           <DropdownMenuGroup>
             <DropdownMenuLabel>Model</DropdownMenuLabel>
             <DropdownMenuRadioItem value="" closeOnClick>
-              Default model
+              {modelName(undefined, harness)}
             </DropdownMenuRadioItem>
             {modelsFor(harness).map((m) => (
               <DropdownMenuRadioItem key={m.id} value={m.id} closeOnClick>

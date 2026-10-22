@@ -103,7 +103,7 @@ export class FakeStudioClient implements StudioClient {
       source,
       shipMode: input.shipMode ?? defaultShipMode(source),
       harness: input.harness ?? "claude-code",
-      model: input.model,
+      model: input.model ?? "claude-opus-5-5",
       status: "creating",
       createdBy: ME,
       createdAt: this.iso(),
@@ -169,7 +169,7 @@ export class FakeStudioClient implements StudioClient {
       title: input.title ?? (input.prompt ? titleFrom(input.prompt) : `Chat ${n + 1}`),
       mode: input.mode ?? "build",
       harness: input.harness ?? "claude-code",
-      model: input.model,
+      model: input.model ?? this.appsById.get(appId)?.model,
       branch: `chat/${id}`,
       path: `chats/${id}`,
       port: 4101 + n,
@@ -303,25 +303,31 @@ export class FakeStudioClient implements StudioClient {
     return { diff: fakeDiff([v.title]) };
   }
 
-  private preview(target: string, title: string, n: number): Preview {
+  /** The fake preview page for an App at version `n`; it renders content that matches the App. */
+  private previewUrl(target: string, appId: string, n: number): string {
+    const app = this.appsById.get(appId);
+    const kind = app?.source.kind === "repo" ? "&kind=store" : "";
+    return `${this.previewBase}/${target}?app=${encodeURIComponent(app?.name ?? "App")}&n=${n}${kind}`;
+  }
+
+  private preview(target: string, appId: string, n: number): Preview {
     const first = this.started.get(target);
     if (first === undefined) this.started.set(target, this.now().getTime());
     const ready = first !== undefined && this.now().getTime() - first > this.stepMs;
     if (!ready) this.schedule(() => this.emit(), this.stepMs + 50);
-    return { target, url: `${this.previewBase}/${target}?title=${encodeURIComponent(title)}&n=${n}`, status: ready ? "ready" : "starting" };
+    return { target, url: this.previewUrl(target, appId, n), status: ready ? "ready" : "starting" };
   }
 
   async chatPreview(chatId: string): Promise<Preview> {
     const chat = this.must(this.chats.get(chatId), "Chat");
-    const turns = [...this.turns.values()].filter((t) => t.chatId === chatId && t.checkpoint);
-    const latest = [...this.versions.values()].filter((v) => v.appId === chat.appId).length;
-    return this.preview(chatId, turns.at(-1)?.title ?? this.appsById.get(chat.appId)?.name ?? "New app", latest);
+    const versions = [...this.versions.values()].filter((v) => v.appId === chat.appId).length;
+    return this.preview(chatId, chat.appId, versions + (this.unapplied.get(chatId)?.length ?? 0));
   }
 
   async versionPreview(versionId: string): Promise<Preview> {
     const v = this.must(this.versions.get(versionId), "Version");
     const n = [...this.versions.values()].filter((x) => x.appId === v.appId && x.createdAt <= v.createdAt).length;
-    return this.preview(versionId, v.title, n);
+    return this.preview(versionId, v.appId, n);
   }
 
   async restore(versionId: string): Promise<Version> {
@@ -392,7 +398,7 @@ export class FakeStudioClient implements StudioClient {
       base: app.setup?.mainBranch ?? "main",
       state: "uat",
       versionId: latest?.id ?? "",
-      builtInPreview: latest ? `${this.previewBase}/${latest.id}?title=${encodeURIComponent(latest.title)}` : undefined,
+      builtInPreview: latest ? this.previewUrl(latest.id, appId, [...this.versions.values()].filter((v) => v.appId === appId).length) : undefined,
       previewUrl: `https://studio-${appId.replace(/_/g, "-")}.vercel.app`,
       createdBy: ME,
       createdAt: live?.createdAt ?? this.iso(),
@@ -432,6 +438,7 @@ export class FakeStudioClient implements StudioClient {
       source: { kind: "template", template: "nextjs" },
       shipMode: "cowboy",
       harness: "claude-code",
+      model: "claude-opus-5-5",
       status: "ready",
       createdBy: ME,
       createdAt: at(180),
@@ -470,9 +477,9 @@ export class FakeStudioClient implements StudioClient {
       createdAt: at(minAgo),
       updatedAt: at(minAgo),
     });
-    this.chats.set("sc_main", { ...chat("sc_main", "Habit tracker", 170, 4101), runId: "run_main" });
+    this.chats.set("sc_main", { ...chat("sc_main", "Daily habits with streaks", 170, 4101), runId: "run_main" });
     this.chats.set("sc_pricing", { ...chat("sc_pricing", "Pricing page", 40, 4102), runId: "run_pricing" });
-    this.chats.set("sc_a11y", { ...chat("sc_a11y", "Contrast check", 18, 4103), runId: "run_a11y", status: "needs_you", question: "The flame badge is 2.8:1 on the dark card. Darken the badge, or lighten the text?" });
+    this.chats.set("sc_a11y", { ...chat("sc_a11y", "Contrast check", 18, 4103), runId: "run_a11y", status: "needs_you", question: "Darken the badge, or lighten its text?" });
     const turn = (id: string, chatId: string, minAgo: number, prompt: string, mode: ChatMode = "build"): Turn => {
       const o = outcomeFor(prompt, mode);
       return {
@@ -517,7 +524,7 @@ export class FakeStudioClient implements StudioClient {
     });
     for (const x of [v("sv_1", turns[0]!), v("sv_2", turns[1]!, true), v("sv_4", turns[3]!)]) this.versions.set(x.id, x);
     this.patchChat("sc_main", { appliedSha: turns[3]!.checkpoint });
-    this.turns.set("st_7", { ...turn("st_7", "sc_a11y", 18, "Check colour contrast in dark mode, ask me before changing colours"), reply: "The flame badge is 2.8:1 on the dark card.", question: "The flame badge is 2.8:1 on the dark card. Darken the badge, or lighten the text?" });
+    this.turns.set("st_7", turn("st_7", "sc_a11y", 18, "Check colour contrast in dark mode, ask me before changing colours"));
     return project.id;
   }
 }
@@ -534,34 +541,43 @@ export function titleFrom(prompt: string): string {
 
 type Outcome = { title: string; reply: string; changes: boolean; question?: string; plan?: string };
 
+/** What the fake agent says it did, by what was asked. */
+const REPLIES: [RegExp, string][] = [
+  [/flame|heatmap/i, "The streak count is now a badge on each habit, and a two-week heatmap sits under the list in `components/heatmap.tsx`. Darker cells are days with more habits done."],
+  [/habit|streak/i, "Built the habit list in `app/page.tsx` with a `HabitCard` per habit. Ticking one saves to localStorage and adds a day to its streak; a missed day resets it."],
+  [/dark mode|theme/i, "Added a `ThemeToggle` to the header. It follows the system theme until you pick one, then remembers your choice."],
+  [/search|filter|tag/i, "Added a search field above the recipes that matches titles and ingredients as you type, plus tag chips (Quick, Vegetarian, Dessert, Batch cook) that combine."],
+  [/pricing/i, "Added `/pricing` with three `PriceCard`s and a monthly/yearly switch. The middle tier is highlighted and the header links to it."],
+  [/footer/i, "Added a footer with links to Today, History and Settings."],
+  [/test/i, "Added three tests in `components/theme-toggle.test.tsx` for the default, toggling and the saved choice. All pass."],
+];
+
+const QUESTIONS: [RegExp, { reply: string; question: string }][] = [
+  [/contrast|colou?r/i, { reply: "The streak badge is 2.8:1 against the dark card, below the 4.5:1 it needs.", question: "Darken the badge, or lighten its text?" }],
+];
+
 function outcomeFor(prompt: string, mode: ChatMode): Outcome {
   const title = titleFrom(prompt);
   if (mode === "plan")
     return {
       title: `Plan: ${title}`,
       changes: false,
-      reply: "Here is a plan. Say **Build it** when it looks right.",
-      plan: `## ${title}\n\n1. Add a \`/pricing\` route with a three-column layout.\n2. Make a \`PriceCard\` component: name, price, features, call to action.\n3. Highlight the middle tier and add a monthly/yearly toggle.\n4. Link it from the header and the footer.`,
+      reply: "This touches the header, a new route and one new component.",
+      plan: "1. Add a `/pricing` route with a three-column layout.\n2. Make a `PriceCard` component: name, price, features, call to action.\n3. Highlight the middle tier and add a monthly/yearly switch.\n4. Link it from the header and the footer.",
     };
-  if (/\bask me\b|\bnot sure\b/i.test(prompt))
-    return {
-      title,
-      changes: false,
-      reply: "Before I start: which one do you want?",
-      question: "Should the toggle follow the system theme by default, or start in light mode?",
-    };
+  if (/\bask me\b|\bnot sure\b/i.test(prompt)) {
+    const q = QUESTIONS.find(([re]) => re.test(prompt))?.[1] ?? { reply: "There are two reasonable defaults here.", question: "Should the toggle follow the system theme, or start in light mode?" };
+    return { title, changes: false, ...q };
+  }
   if (/\?\s*$/.test(prompt) || mode === "chat")
     return {
       title,
       changes: mode === "chat" && /\b(add|make|change|fix)\b/i.test(prompt),
-      reply:
-        "Yes. The heatmap uses a CSS grid that wraps to four columns under 640px, and each cell keeps a 32px tap target. I checked it at 390px wide in the preview.",
+      reply: /heatmap|mobile/i.test(prompt)
+        ? "Yes. The heatmap wraps to seven columns under 640px and each cell keeps a 32px tap target. It fits at 390px wide."
+        : "The page renders on the server and hydrates the habit list; nothing else needs to change for that.",
     };
-  return {
-    title,
-    changes: true,
-    reply: `Done. ${title}, and the preview has the change. I kept the existing components and added tests for the new behaviour.`,
-  };
+  return { title, changes: true, reply: REPLIES.find(([re]) => re.test(prompt))?.[1] ?? "Made the change in `app/page.tsx` and kept the existing components. The type check passes." };
 }
 
 function script(prompt: string, mode: ChatMode): Activity[] {

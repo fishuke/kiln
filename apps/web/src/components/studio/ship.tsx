@@ -1,6 +1,7 @@
 "use client";
 
 import { Circle, CircleCheck, CircleDot, CircleX, ExternalLink, GitPullRequest, Rocket, X } from "lucide-react";
+import { useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -48,6 +49,7 @@ export function ShipControl({
   pullRequest?: AppPullRequest;
   onShip: (state?: "uat" | "ready_for_review" | "cancelled") => Promise<AppPullRequest>;
 }) {
+  const primary = useRef<HTMLButtonElement>(null);
   const live = pullRequest && pullRequest.state !== "merged" && pullRequest.state !== "cancelled" ? pullRequest : undefined;
   const run = async (state?: "uat" | "ready_for_review" | "cancelled") => {
     try {
@@ -69,10 +71,10 @@ export function ShipControl({
             <GitPullRequest className="size-3.5" />
             {PULL_REQUEST_LABEL[pullRequest.state]}
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-80 gap-3 p-3">
+          <PopoverContent align="end" className="w-80 gap-3 p-3" initialFocus={live?.state === "uat" ? primary : false}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <a href={pullRequest.url} target="_blank" rel="noreferrer" className="text-sm font-medium hover:underline">
+                <a href={pullRequest.url} target="_blank" rel="noreferrer" className="rounded-sm text-sm font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50">
                   Pull request #{pullRequest.number}
                 </a>
                 <div className="truncate font-mono text-xs text-muted-foreground">
@@ -127,7 +129,11 @@ export function ShipControl({
                 />
                 {live.state === "uat" && (
                   <Confirm
-                    trigger={<Button size="sm">Ready for review</Button>}
+                    trigger={
+                      <Button ref={primary} size="sm">
+                        Ready for review
+                      </Button>
+                    }
                     icon={<GitPullRequest />}
                     title="Ready for review?"
                     description="The merge gate checks the pull request. It merges it, or sends it to a reviewer with its reasons."

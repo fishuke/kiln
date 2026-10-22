@@ -53,3 +53,19 @@ metadata: { name: default-deny, namespace: {{ .Values.sandboxes.namespace }} }
 spec:
   podSelector: { matchLabels: { app.kubernetes.io/name: kiln-sandbox } }
   policyTypes: [Ingress, Egress]
+{{- if .Values.studio.previewDomain }}
+---
+# Studio previews: the API may open TCP connections to the dev servers (ports 4100-4199) of sandboxes
+# Studio labels kiln.dev/preview=true. Nothing else may connect to a sandbox. Needs security review.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: kiln-preview-ingress, namespace: {{ .Values.sandboxes.namespace }} }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: kiln-sandbox, kiln.dev/preview: "true" } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Release.Namespace }} } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: kiln-api } }
+      ports: [{ protocol: TCP, port: 4100, endPort: 4199 }]
+{{- end }}

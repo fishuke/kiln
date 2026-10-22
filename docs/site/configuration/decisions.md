@@ -80,8 +80,54 @@ Validation checks every policy expression, that it only reads questions and stat
 | `model-router` | `complexity` (easy, medium, hard) | `easy: complexity.easy >= 0.8`, `hard: complexity.hard >= 0.6` | Picks the model of a `complexity` router. |
 | `failure-category` | `failure_category` (instructions, skills, tooling, model, app_code, flaky) | none | Groups failed runs before self-improvement. |
 | `inbox-urgency` | `urgency` (score 0–1) | `urgent: urgency >= 0.8` | Orders the inbox. |
+| `merge-safety` | `safe_to_merge`, `risk_tier` (low, medium, high), `touches_sensitive_area`; sees the diff, the areas it touches, CI, tests, preview, findings and the author | `review` (see below), `merge: safe_to_merge >= 0.9 and risk_tier.low >= 0.7` | The merge gate merges only on `merge`. See [Merge gate](#merge-gate). |
 
 All built-ins use `on_error: llm` and `timeout_ms: 800`.
+
+## Merge gate
+
+The merge gate merges a pull request without a person when the `merge-safety` decision says it is safe, and sends it to the Inbox otherwise (ADR-014). It runs only when a person marks a pull request **Ready for review**, never because it is open.
+
+It is off by default. A person turns it on in a policy, which agents and self-improvement can't change:
+
+```yaml
+# policies/merge.yaml (a factory), or the App's policies in Studio
+mergeGate: true
+```
+
+If any policy file says `mergeGate: false`, the gate is off. With the gate off, every pull request goes to a person and the decision does not run.
+
+The decision sees:
+
+| Field | Value |
+| --- | --- |
+| `title`, `author`, `files`, `areas` | The pull request, its changed paths and the parts of the app they belong to. |
+| `additions`, `deletions`, `lines` | Line counts. |
+| `diff` | The patches, up to 20,000 characters. |
+| `checks` | `success`, `failure`, `pending` or `none`, from the forge's checks on the head commit. |
+| `tests`, `preview` | What Studio reports: `passed`, `failed` or `none`, and `ready`, `failed` or `none`. |
+| `findings` | Review findings as `<severity>: <text>`. |
+| `sensitive_files` | How many changed paths are sensitive: auth, sessions, passwords, payments, billing, secrets, tokens, migrations, CI workflows, `.env` files, Dockerfiles, infrastructure, dependency manifests and lockfiles. |
+| `high_findings` | How many findings are `high`. |
+
+Kiln computes `lines`, `sensitive_files`, `high_findings` and `checks` itself, and the built-in policy tests them before any model answer:
+
+```yaml
+policy:
+  review: "checks != 'success' or tests == 'failed' or preview == 'failed' or sensitive_files > 0 or high_findings > 0 or lines > 300 or touches_sensitive_area >= 0.3 or risk_tier.high >= 0.3"
+  merge: "safe_to_merge >= 0.9 and risk_tier.low >= 0.7"
+```
+
+The diff and title are written by agents and customers, so a model can be talked into an answer. The computed fields keep a sensitive, large or flagged change with a person whatever the model says. Tune the thresholds in `decisions/merge-safety.yaml`; self-improvement never changes that file.
+
+What happens:
+
+| Result | What Kiln does |
+| --- | --- |
+| `merge` | The gate merges the commit the decision saw, with its own credential (`KILN_MERGE_GATE_TOKEN` on GitHub; see [Self-hosting](../infrastructure/self-hosting.md)). If the branch moved or the forge refuses, a person reviews it instead. |
+| Anything else, or no answer | An Inbox item for the reviewers with the reasons, such as "CI failed." or "It changes sensitive files: lib/auth/session.ts." |
+
+Every result is in the audit log: `merge_gate.merged`, `merge_gate.sent_to_review` or `merge_gate.merge_failed`, with the fields the decision saw, its answers and the action, so a bad merge can be traced and the decision tuned. Agents never get merge permission; only the gate holds the merge credential.
 
 ## Command guard
 

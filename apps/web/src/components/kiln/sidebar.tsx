@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
+  AppWindow,
   BookOpen,
   Building2,
   ChevronDown,
@@ -344,6 +345,7 @@ export function Sidebar({
           ["/runs/new", MessageCirclePlus, "New Chat"],
           ["/inbox", Inbox, "Inbox"],
           ["/runs", List, "Runs"],
+          ["/studio", AppWindow, "Studio"],
         ].map(([href, Icon, label]) => {
           const I = Icon as typeof Inbox;
           return (
@@ -408,6 +410,7 @@ export function Sidebar({
         <Item href="/environments" icon={Boxes} label="Environments" />
         <Item href="/skills" icon={Puzzle} label="Skills" />
         <Item href="/audit" icon={ScrollText} label="Audit log" />
+        <Item href="/studio" icon={AppWindow} label="Studio" />
 
         <div className="flex h-9 items-center justify-between pt-3 pl-3 pr-1 text-xs font-medium text-muted-foreground">
           Factories

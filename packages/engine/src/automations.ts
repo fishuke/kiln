@@ -20,12 +20,33 @@ export type EventDelivery = {
   duplicate: boolean;
 };
 
-export type HandleResult = { started: WorkItem[]; continued: string[]; duplicate: boolean; matched: { factory: string; automation: string; event: string }[]; deliveryRecord?: string };
+export type HandleResult = {
+  started: WorkItem[];
+  continued: string[];
+  duplicate: boolean;
+  matched: { factory: string; automation: string; event: string }[];
+  deliveryRecord?: string;
+};
 
 /** Chat providers whose plain thread replies follow `autoRespondToThreadReplies`. */
 const CHAT_SETTINGS: Record<string, "slack" | "microsoft-teams" | "discord"> = { slack: "slack", teams: "microsoft-teams", discord: "discord" };
-const INTEGRATION_OF: Record<string, IntegrationSettings["type"]> = { slack: "slack", teams: "microsoft-teams", discord: "discord", linear: "linear", jira: "jira" };
-const MENTION_EVENTS = ["app_mention", "issue_mentioned", "pull_request_mentioned", "message_dm", "slash_command", "bot_mentioned", "agent_session_created", "work_item_mentioned"];
+const INTEGRATION_OF: Record<string, IntegrationSettings["type"]> = {
+  slack: "slack",
+  teams: "microsoft-teams",
+  discord: "discord",
+  linear: "linear",
+  jira: "jira",
+};
+const MENTION_EVENTS = [
+  "app_mention",
+  "issue_mentioned",
+  "pull_request_mentioned",
+  "message_dm",
+  "slash_command",
+  "bot_mentioned",
+  "agent_session_created",
+  "work_item_mentioned",
+];
 const DELIVERY_RETENTION_MS = 7 * 86_400_000;
 const DELIVERY_KEEP_AT_LEAST = 200;
 
@@ -34,7 +55,11 @@ export function filterMatches(filter: Record<string, unknown> | undefined, data:
   if (!filter) return true;
   for (const [key, expected] of Object.entries(filter)) {
     const have = (Array.isArray(data[key]) ? (data[key] as unknown[]) : data[key] === undefined ? [] : [data[key]]).map((x) => String(x).toLowerCase());
-    const sets: { in?: unknown[]; not_in?: unknown[] } = Array.isArray(expected) ? { in: expected } : typeof expected === "object" && expected ? (expected as { in?: unknown[]; not_in?: unknown[] }) : { in: [expected] };
+    const sets: { in?: unknown[]; not_in?: unknown[] } = Array.isArray(expected)
+      ? { in: expected }
+      : typeof expected === "object" && expected
+        ? (expected as { in?: unknown[]; not_in?: unknown[] })
+        : { in: [expected] };
     if (sets.in?.length && !sets.in.some((w) => have.includes(String(w).toLowerCase()))) return false;
     if (sets.not_in?.some((w) => have.includes(String(w).toLowerCase()))) return false;
   }
@@ -173,11 +198,20 @@ export class AutomationService {
     // Opt-in applies once the provider is connected for the workspace; env-configured setups reach every factory.
     if (!settings) return !this.k.connections?.isConnected(type === "microsoft-teams" ? "microsoft-teams" : type);
     const channel = String(ev.data.channel ?? "");
-    if (type === "slack" && settings.slack?.channels?.length) return settings.slack.channels.includes(channel) || ev.event === "message_dm" || ev.event === "message_im";
-    if (type === "discord" && settings.discord?.channelIds?.length && !settings.discord.channelIds.some((c) => (ev.data.channel_ids ?? []).includes(c))) return false;
-    if (type === "discord" && settings.discord?.guildIds?.length && !settings.discord.guildIds.some((g) => ((ev.data.guild_ids as string[] | undefined) ?? []).includes(g))) return false;
+    if (type === "slack" && settings.slack?.channels?.length)
+      return settings.slack.channels.includes(channel) || ev.event === "message_dm" || ev.event === "message_im";
+    if (type === "discord" && settings.discord?.channelIds?.length && !settings.discord.channelIds.some((c) => (ev.data.channel_ids ?? []).includes(c)))
+      return false;
+    if (
+      type === "discord" &&
+      settings.discord?.guildIds?.length &&
+      !settings.discord.guildIds.some((g) => ((ev.data.guild_ids as string[] | undefined) ?? []).includes(g))
+    )
+      return false;
     if (type === "microsoft-teams" && settings["microsoft-teams"]?.teams?.length) {
-      return settings["microsoft-teams"].teams.some((t) => (ev.data.team_ids ?? []).includes(t.teamId) && t.channelIds.some((c) => (ev.data.channel_ids ?? []).includes(c)));
+      return settings["microsoft-teams"].teams.some(
+        (t) => (ev.data.team_ids ?? []).includes(t.teamId) && t.channelIds.some((c) => (ev.data.channel_ids ?? []).includes(c)),
+      );
     }
     return true;
   }
@@ -213,7 +247,13 @@ export class AutomationService {
   // ---------------------------------------------------------------------------------------------
   // Starting work
 
-  private async start(factory: string, resolved: ResolvedFactory, a: ResolvedAutomation, event: IncomingEvent, opts: { attachments?: Attachment[]; envelope?: string } = {}) {
+  private async start(
+    factory: string,
+    resolved: ResolvedFactory,
+    a: ResolvedAutomation,
+    event: IncomingEvent,
+    opts: { attachments?: Attachment[]; envelope?: string } = {},
+  ) {
     const viaForeman = resolved.agents[a.agent]?.agentType === "FOREMAN";
     const fm = resolved.parsed.automations[a.name]?.frontmatter;
     const execution: ExecutionOverrides = {
@@ -231,10 +271,31 @@ export class AutomationService {
     return this.startWith(factory, a.name, a.agent, a.prompt, event, viaForeman, hasOverrides ? execution : undefined, opts);
   }
 
-  private async startWith(factory: string, automation: string, agent: string, prompt: string, event: IncomingEvent, viaForeman: boolean, execution: ExecutionOverrides | undefined, opts: { attachments?: Attachment[]; envelope?: string } = {}) {
+  private async startWith(
+    factory: string,
+    automation: string,
+    agent: string,
+    prompt: string,
+    event: IncomingEvent,
+    viaForeman: boolean,
+    execution: ExecutionOverrides | undefined,
+    opts: { attachments?: Attachment[]; envelope?: string } = {},
+  ) {
     const d = event.data;
-    const title = String(d.title ?? d.text ?? `${event.provider} ${event.event}`).replace(/<@[^>]+>\s*/g, "").split("\n")[0]!.slice(0, 120) || `${event.event}`;
-    const body = d.body ?? (d.title ? d.text : String(d.text ?? "").split("\n").slice(1).join("\n")) ?? "";
+    const title =
+      String(d.title ?? d.text ?? `${event.provider} ${event.event}`)
+        .replace(/<@[^>]+>\s*/g, "")
+        .split("\n")[0]!
+        .slice(0, 120) || `${event.event}`;
+    const body =
+      d.body ??
+      (d.title
+        ? d.text
+        : String(d.text ?? "")
+            .split("\n")
+            .slice(1)
+            .join("\n")) ??
+      "";
     const wi = await this.k.workflow.create({
       factory,
       title,
@@ -292,11 +353,26 @@ export class AutomationService {
   private async continueExisting(event: IncomingEvent): Promise<string[]> {
     const d = event.data;
     const items = this.k.workflow.list();
+    // A pull request the merge gate sent to a person was merged or closed on the forge: its Inbox item clears.
+    if ((event.event === "pull_request_merged" || event.event === "pull_request_closed") && d.repo && d.number) {
+      const merged = event.event === "pull_request_merged";
+      this.k.mergeGate.pullRequestClosed({
+        repo: d.repo,
+        number: d.number,
+        merged,
+        ...(merged && (d.mergedBy ?? d.author) ? { by: String(d.mergedBy ?? d.author) } : {}),
+      });
+    }
     if (event.provider === "github" && event.event === "pull_request_merged" && d.repo && d.number) {
       const wi = await this.k.workflow.onPullRequestMerged(d.repo, d.number, d.mergedBy as string | undefined);
       return wi ? [wi.id] : [];
     }
-    if (["gitlab", "azure_devops", "bitbucket"].includes(event.provider) && (event.event === "pull_request_merged" || (event.event === "merge_request" && d.action === "merge")) && d.repo && d.number) {
+    if (
+      ["gitlab", "azure_devops", "bitbucket"].includes(event.provider) &&
+      (event.event === "pull_request_merged" || (event.event === "merge_request" && d.action === "merge")) &&
+      d.repo &&
+      d.number
+    ) {
       const wi = await this.k.workflow.onPullRequestMerged(d.repo, d.number, String(d.author ?? ""));
       return wi ? [wi.id] : [];
     }
@@ -308,7 +384,22 @@ export class AutomationService {
       }
     }
     // Only comments, replies and session prompts continue work; labels, pushes and state changes start new work or nothing.
-    const continuing = ["app_mention", "message_posted", "message_dm", "message_im", "message_mpim", "issue_commented", "pull_request_commented", "issue_mentioned", "pull_request_mentioned", "comment_created", "agent_session_prompted", "bot_mentioned", "work_item_mentioned", "slash_command"];
+    const continuing = [
+      "app_mention",
+      "message_posted",
+      "message_dm",
+      "message_im",
+      "message_mpim",
+      "issue_commented",
+      "pull_request_commented",
+      "issue_mentioned",
+      "pull_request_mentioned",
+      "comment_created",
+      "agent_session_prompted",
+      "bot_mentioned",
+      "work_item_mentioned",
+      "slash_command",
+    ];
     if (!continuing.includes(event.event)) return [];
     if (d.authorIsSelf) return [];
     const match = items.find(
@@ -317,7 +408,9 @@ export class AutomationService {
         (d.thread && w.source.channel === d.thread) ||
         (d.sessionId && w.source.sessionId === d.sessionId) ||
         (d.issueId && (w.source.issueId === d.issueId || w.trackerKey === d.issueId)) ||
-        (d.repo && d.number && ((w.source.repo === d.repo && w.source.number === d.number) || (w.pr !== undefined && w.pr.repo === d.repo && w.pr.number === d.number))),
+        (d.repo &&
+          d.number &&
+          ((w.source.repo === d.repo && w.source.number === d.number) || (w.pr !== undefined && w.pr.repo === d.repo && w.pr.number === d.number))),
     );
     if (!match) return [];
     if (["complete", "cancelled", "failed"].includes(match.state)) return [];
@@ -330,7 +423,9 @@ export class AutomationService {
     }
     // The app_mention event carries the same message; the plain message event is redundant.
     if (event.event === "message_posted" && d.mentionsBot) return [match.id];
-    const text = String(d.text ?? "").replace(/<@[^>]+>\s*/g, "").trim();
+    const text = String(d.text ?? "")
+      .replace(/<@[^>]+>\s*/g, "")
+      .trim();
     if (!text) return [match.id];
     const author = this.person(event.provider, String(d.author ?? event.provider));
     const open = this.k.gates.list({ workItemId: match.id, state: "open" });
@@ -341,7 +436,12 @@ export class AutomationService {
     if (approval && /^(approve|approved|lgtm|ship it|accept)\b/i.test(text)) {
       await this.k.gates.decide(approval.id, { decision: "approve", by: author, via: event.provider });
     } else if (approval && /^(reject|changes?:|request changes)/i.test(text)) {
-      await this.k.gates.decide(approval.id, { decision: "reject", answer: text.replace(/^(reject|changes?:|request changes)\s*/i, ""), by: author, via: event.provider });
+      await this.k.gates.decide(approval.id, {
+        decision: "reject",
+        answer: text.replace(/^(reject|changes?:|request changes)\s*/i, ""),
+        by: author,
+        via: event.provider,
+      });
     } else if (question) {
       await this.k.gates.decide(question.id, { decision: "answer", answer: text, by: author, via: event.provider });
     } else {
@@ -374,10 +474,12 @@ export class AutomationService {
           for (const raw of value) {
             const ids = this.k.connections?.resolveName(t.provider, key, String(raw));
             if (!ids?.length) {
-              errors.push(`automations/${name}: triggers.${i}.filter.${key}: ${raw} is not a known ${t.provider} ${key.replace(/s$/, "")}${this.k.connections?.isConnected(t.provider === "teams" ? "microsoft-teams" : (t.provider as never)) ? "" : `; connect ${t.provider} first`}`);
+              errors.push(
+                `automations/${name}: triggers.${i}.filter.${key}: ${raw} is not a known ${t.provider} ${key.replace(/s$/, "")}${this.k.connections?.isConnected(t.provider === "teams" ? "microsoft-teams" : (t.provider as never)) ? "" : `; connect ${t.provider} first`}`,
+              );
               continue;
             }
-            ((map[name] ??= {})[`${key}:${raw}`] = ids);
+            (map[name] ??= {})[`${key}:${raw}`] = ids;
           }
         }
       }
@@ -394,7 +496,8 @@ export class AutomationService {
       for (const t of a.frontmatter.triggers) {
         if (t.provider !== "webhook") continue;
         const id = webhookIdOf(t.filter);
-        if (id && !resolved.parsed.webhooks[id] && !managed.some((w) => w.id === id || w.name === id)) out.push(`automations/${name}: webhook ${id} does not exist yet; the trigger fires once it does`);
+        if (id && !resolved.parsed.webhooks[id] && !managed.some((w) => w.id === id || w.name === id))
+          out.push(`automations/${name}: webhook ${id} does not exist yet; the trigger fires once it does`);
       }
     }
     return out;
@@ -404,7 +507,15 @@ export class AutomationService {
   // Test filter
 
   /** Evaluate an automation's triggers against a stored delivery, with every check's outcome. */
-  testFilter(factory: string, automation: string, deliveryId: string): { wouldTrigger: boolean; delivery: string; triggers: { index: number; provider: string; event: string; wouldTrigger: boolean; checks: CheckOutcome[] }[] } {
+  testFilter(
+    factory: string,
+    automation: string,
+    deliveryId: string,
+  ): {
+    wouldTrigger: boolean;
+    delivery: string;
+    triggers: { index: number; provider: string; event: string; wouldTrigger: boolean; checks: CheckOutcome[] }[];
+  } {
     const resolved = this.k.defs.current(factory);
     const a = resolved.automations[automation];
     if (!a) throw new Error(`unknown automation ${automation}`);
@@ -433,7 +544,12 @@ export class AutomationService {
     if (!a) throw new KilnError("resource_not_found", `unknown automation ${name} in ${factory}`);
     if (!a.enabled) throw new KilnError("conflict", `automation ${name} is disabled; enable it before running it`);
     const at = this.k.clock.now().toISOString();
-    const ev: IncomingEvent = { provider: "factory", event: "manual_run", deliveryId: `manual:${factory}/${name}@${at}`, data: { title: `${name} (run now)`, author: by, authorIsSelf: false } };
+    const ev: IncomingEvent = {
+      provider: "factory",
+      event: "manual_run",
+      deliveryId: `manual:${factory}/${name}@${at}`,
+      data: { title: `${name} (run now)`, author: by, authorIsSelf: false },
+    };
     this.k.audit(by, "automation.run", `${factory}/${name}`);
     return this.start(factory, resolved, a, ev);
   }
@@ -456,7 +572,12 @@ export class AutomationService {
           const due = cron.next(new Date(state.lastFired ?? state.createdAt));
           if (due > now) continue;
           this.k.store.put(C.schedules, { ...state, cron: t.schedule.cron, lastFired: now.toISOString() });
-          const ev: IncomingEvent = { provider: "schedule", event: "cron_fired", deliveryId: `${id}@${now.toISOString()}`, data: { title: `${a.name} (${t.schedule.name ?? t.schedule.cron})`, author: "schedule", schedule_id: id, authorIsSelf: false } };
+          const ev: IncomingEvent = {
+            provider: "schedule",
+            event: "cron_fired",
+            deliveryId: `${id}@${now.toISOString()}`,
+            data: { title: `${a.name} (${t.schedule.name ?? t.schedule.cron})`, author: "schedule", schedule_id: id, authorIsSelf: false },
+          };
           if (!evaluateTrigger(t, ev).ok) continue;
           await this.start(f.id, resolved, a, ev);
         }

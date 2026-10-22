@@ -4,8 +4,12 @@ import { describe, expect, it } from "vitest";
 
 describe("work item lifecycle, end to end", () => {
   it("takes a labeled GitHub issue to a merged PR with spec and preview approvals", async () => {
-    const { kiln, forge, chat } = createTestKiln();
+    const { kiln, forge, chat, preview: previews } = createTestKiln();
     const repo = { owner: "acme", name: "web" };
+    // The project's preview variables go to the PR preview.
+    kiln.teams.ensureDefaultTeam();
+    const project = kiln.planning.createProject({ name: "Web", owner: "po@acme.test", factories: ["webapp"] });
+    kiln.variables.set({ scope: "project", owner: project.id, environment: "preview", variables: [{ key: "API_URL", value: "https://api.preview.test" }] }, "po@acme.test");
     const issue = await forge.createIssue(repo, { title: "Add a dark mode toggle to settings", body: "Users want dark mode.\n- The settings page has a dark mode switch\n- The choice is remembered after reload", labels: ["kiln-ready"] });
     const stages: string[] = [];
     kiln.bus.subscribe("work_item.stage_changed", (e) => void stages.push(e.payload.to));
@@ -29,6 +33,7 @@ describe("work item lifecycle, end to end", () => {
     wi = await waitFor(kiln, id, ["awaiting_preview", "blocked", "handed_off"]);
     expect(wi.state).toBe("awaiting_preview");
     expect(wi.previewUrl).toMatch(/^https:\/\/pr-\d+\.web\.preview\.test$/);
+    expect([...previews.deployments.values()][0]!.env).toEqual({ API_URL: "https://api.preview.test" });
     const preview = kiln.gates.inbox("po@acme.test").find((g) => g.kind === "preview")!;
     expect(preview.question).toContain("| AC1 | passed |");
     await kiln.gates.decide(preview.id, { decision: "approve", by: "po@acme.test", via: "web" });

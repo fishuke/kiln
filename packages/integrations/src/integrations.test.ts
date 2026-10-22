@@ -144,6 +144,15 @@ describe("trackers and chat", () => {
     const out = await preview.deploy({ repo: "acme/web", branch: "kiln/a", pr: 4 });
     expect(out).toEqual({ id: "preview-web-pr-4", url: "https://pr-4.web.preview.acme.dev" });
     expect(runner.calls[0]!.opts?.stdin).toContain('"kind":"Ingress"');
+    expect(runner.calls[0]!.opts?.stdin).not.toContain('"kind":"Secret"');
+  });
+
+  it("gives a Kubernetes preview its variables through a Secret", () => {
+    const preview = new KubernetesPreview({ runner: new FakeCommandRunner(), domain: "preview.acme.dev", image: () => "img" });
+    const { docs } = preview.manifests({ repo: "acme/web", branch: "kiln/a", pr: 4, env: { API_URL: "https://api", TOKEN: "t" } });
+    expect(docs).toContainEqual({ apiVersion: "v1", kind: "Secret", metadata: { name: "app-env", namespace: "preview-web-pr-4" }, type: "Opaque", stringData: { API_URL: "https://api", TOKEN: "t" } });
+    const deployment = docs.find((d) => d.kind === "Deployment") as { spec: { template: { spec: { containers: { envFrom?: unknown }[] } } } };
+    expect(deployment.spec.template.spec.containers[0]!.envFrom).toEqual([{ secretRef: { name: "app-env" } }]);
   });
 });
 

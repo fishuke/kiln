@@ -1,5 +1,5 @@
 import { KEY_EXPIRY, MIN_PASSWORD_LENGTH, TEAM_ROLES, FACTORY_ROLES } from "@kiln/auth";
-import { Appearance, DigestPrefs, NOTIFY_KINDS, LINK_PROVIDERS, NOTIFY_CHANNELS, SECRET_TYPES, TeamSettings } from "@kiln/engine";
+import { Appearance, DigestPrefs, NOTIFY_KINDS, LINK_PROVIDERS, NOTIFY_CHANNELS, SECRET_TYPES, TeamSettings, VARIABLE_SCOPES } from "@kiln/engine";
 import { z } from "zod";
 
 const email = z.string().trim().email();
@@ -80,5 +80,9 @@ const envShape = {
   secrets: z.array(z.string().min(1)).optional(),
   registryCredentialSecretName: z.string().min(1).optional(),
 };
+export const SetVariables = z.object({ variables: z.array(z.object({ key: z.string(), value: z.string().optional(), secret: z.boolean().optional() }).strict()) }).strict();
+export const VariableQuery = z.object({ scope: z.enum(VARIABLE_SCOPES), owner: z.string().min(1) });
+export const VariableLayerParams = VariableQuery.extend({ environment: z.string().min(1) });
+export const ResolveVariablesQuery = z.object({ environment: z.string().min(1), project: z.string().optional(), factory: z.string().optional(), app: z.string().optional() });
 export const CreateEnvironment = z.object({ name: z.string().trim().min(1).max(100), ...envShape }).strict();
 export const UpdateEnvironment = z.object({ name: z.string().trim().min(1).max(100).optional(), ...envShape }).strict();

@@ -26,7 +26,7 @@ export const RetrySpec = z.object({
 export const Comment = z.object({ text: z.string().min(1), path: z.string().optional(), line: z.number().int().positive().optional() });
 
 export const routes: Route[] = [
-  { method: "get", path: "/api/v1/inbox/items", summary: "Inbox items: question, answer_question, spec_review, pr_review, blocked, failed (scope mine|team, factory, kind, read, q)", tag: "Inbox" },
+  { method: "get", path: "/api/v1/inbox/items", summary: "Inbox items: question, answer_question, spec_review, pr_review, studio_pr_review, blocked, failed (scope mine|team, factory, kind, read, q)", tag: "Inbox" },
   { method: "post", path: "/api/v1/inbox/read", summary: "Mark items read", body: Ids, tag: "Inbox" },
   { method: "post", path: "/api/v1/inbox/unread", summary: "Mark items unread", body: Ids, tag: "Inbox" },
   { method: "post", path: "/api/v1/inbox/resolve", summary: "Resolve (hide) items for you", body: Ids, tag: "Inbox" },
@@ -43,13 +43,18 @@ export const routes: Route[] = [
 ];
 
 /** The personal inbox and definition-change reviews. */
-export function register({ app, kiln, need, who, visible, options }: RouteContext) {
+export function register({ app, kiln, need, who, visible, options, access }: RouteContext) {
+  /** Studio App items belong to a team: its members see them. */
+  const inTeam = (c: Parameters<typeof who>[0], team: string) => {
+    const a = access(c);
+    return a.superuser || (a.user !== undefined && kiln.teams.role(team, a.user.id) !== undefined);
+  };
   app.get("/api/v1/inbox/items", (c) => {
     const q = InboxQuery.parse(queryObject(c));
     if (q.factory) need(c, "read", q.factory);
     const scope = q.scope ?? (options.devAuth ? "team" : "mine");
     return c.json(
-      kiln.inbox.list({ user: who(c), scope, factory: q.factory, kind: q.kind, read: q.read === undefined ? undefined : q.read === "true", q: q.q, includeResolved: q.include_resolved, limit: q.limit, cursor: q.cursor, visible: (f) => visible(c, f) }),
+      kiln.inbox.list({ user: who(c), scope, factory: q.factory, kind: q.kind, read: q.read === undefined ? undefined : q.read === "true", q: q.q, includeResolved: q.include_resolved, limit: q.limit, cursor: q.cursor, visible: (f) => visible(c, f), inTeam: (t) => inTeam(c, t) }),
     );
   });
   for (const action of ["read", "unread", "resolve", "unresolve"] as const) {

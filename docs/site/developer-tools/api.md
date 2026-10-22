@@ -147,6 +147,10 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/environments/{id}` | — | One environment |
 | PATCH | `/api/v1/environments/{id}` | — | Change an environment |
 | DELETE | `/api/v1/environments/{id}` | — | Delete an environment |
+| GET | `/api/v1/variables` | — | Variable layers of a team, project, factory or App, one per environment (no secret values) |
+| GET | `/api/v1/variables/resolve` | — | The variables an environment resolves to for a project, factory or App, and where each comes from |
+| PUT | `/api/v1/variables/{scope}/{owner}/{environment}` | — | Replace a layer's variables (a secret sent without a value keeps its value) |
+| DELETE | `/api/v1/variables/{scope}/{owner}/{environment}` | — | Delete a layer |
 
 ## Usage
 
@@ -267,7 +271,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/inbox` | — | Open decisions (gates), most urgent first |
 | GET | `/api/v1/gates/{id}` | `read` | A gate with its work item |
 | POST | `/api/v1/gates/{id}/decide` | `decide:*` | Approve, reject or answer (scope depends on the gate kind) |
-| GET | `/api/v1/inbox/items` | — | Inbox items: question, answer_question, spec_review, pr_review, blocked, failed (scope mine|team, factory, kind, read, q) |
+| GET | `/api/v1/inbox/items` | — | Inbox items: question, answer_question, spec_review, pr_review, studio_pr_review, blocked, failed (scope mine|team, factory, kind, read, q) |
 | POST | `/api/v1/inbox/read` | — | Mark items read |
 | POST | `/api/v1/inbox/unread` | — | Mark items unread |
 | POST | `/api/v1/inbox/resolve` | — | Resolve (hide) items for you |
@@ -436,6 +440,55 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/workers/{instance}/runs/{runId}/events` | `worker` | Stream a run's events back |
 | POST | `/api/v1/workers/{instance}/runs/{runId}/complete` | `worker` | Report a run's result, artifacts and pushed branches |
 | DELETE | `/api/v1/workers/{instance}` | `worker` | Disconnect; its running runs fail and are retried |
+
+## Studio
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/studio/apps` | `read` | Your team's Studio Apps |
+| POST | `/api/v1/studio/apps` | `send` | Create an App from a template or a repository your team may use; it starts as creating |
+| GET | `/api/v1/studio/apps/{id}` | `read` | An App with its chats and versions (newest first) |
+| PATCH | `/api/v1/studio/apps/{id}` | `send` | Rename an App, change its Kiln Project or dev command |
+| PUT | `/api/v1/studio/apps/{id}/ship-mode` | `send` | Change an App's ship mode, up to the highest mode the App's policy allows your team role |
+| POST | `/api/v1/studio/apps/{id}/ship` | `send` | Open or update the App's pull request; as its author, mark it ready for review; or cancel it |
+| POST | `/api/v1/studio/apps/{id}/pause` | `send` | Snapshot an App's workspace and free its sandbox; the next use resumes it |
+| POST | `/api/v1/studio/apps/{id}/chats` | `send` | Start a chat (its own worktree and preview), optionally with a first message |
+| GET | `/api/v1/studio/chats/{id}` | `read` | A chat with its turns (oldest first) |
+| POST | `/api/v1/studio/chats/{id}/messages` | `send` | Send a message: starts a turn, or steers the running one |
+| POST | `/api/v1/studio/chats/{id}/apply` | `send` | Apply a chat's checkpoints to the App's main line as a version |
+| GET | `/api/v1/studio/chats/{id}/diff` | `read` | The chat's changes since it branched or was last applied |
+| GET | `/api/v1/studio/chats/{id}/preview` | `read` | The chat's live preview (starts its dev server) |
+| GET | `/api/v1/studio/chats/{id}/events` | `read` | Server-sent events from the chat's Studio events: the chat and the turn each event names |
+| POST | `/api/v1/studio/versions/{id}/restore` | `send` | Restore a version as a new version |
+| POST | `/api/v1/studio/versions/{id}/bookmark` | `send` | Pin or unpin a version |
+| GET | `/api/v1/studio/versions/{id}/diff` | `read` | A version's changes against its parent |
+| GET | `/api/v1/studio/versions/{id}/preview` | `read` | Preview an earlier version |
+| GET | `/api/v1/studio/status` | `read` | What is working and what needs you, across your team's Apps |
+| GET | `/api/v1/studio/events` | `read` | Server-sent events for your team's Apps: Studio events and merge gate reviews |
+| POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send |
+| GET | `/api/v1/studio/apps/{id}/definition` | — | An App's own Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/apps/{id}/definition` | — | Replace an App's own definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/apps/{id}/definition` | — | Change an App's own definition layer from settings |
+| POST | `/api/v1/studio/apps/{id}/definition/use` | — | Point an App's own definition layer at an earlier sha |
+| GET | `/api/v1/studio/projects/{id}/definition` | — | A Kiln Project's Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/projects/{id}/definition` | — | Replace a Kiln Project's definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/projects/{id}/definition` | — | Change a Kiln Project's definition layer from settings |
+| POST | `/api/v1/studio/projects/{id}/definition/use` | — | Point a Kiln Project's definition layer at an earlier sha |
+| GET | `/api/v1/studio/team/definition` | — | The team's Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/team/definition` | — | Replace the team's definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/team/definition` | — | Change the team's definition layer from settings |
+| POST | `/api/v1/studio/team/definition/use` | — | Point the team's definition layer at an earlier sha |
+| GET | `/api/v1/studio/apps/{id}/settings` | — | An App's resolved settings and its own values |
+| GET | `/api/v1/studio/team/settings` | — | The team's Studio defaults, resolved |
+| GET | `/api/v1/studio/projects/{id}/settings` | — | A Kiln Project's Studio defaults, resolved |
+| GET | `/api/v1/studio/apps/{id}/definition/export` | — | An App's definition in kiln/v1 layout (?resolved=false for its own layer) |
+
+## Merge gate
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/merge-gate/reviews` | — | Pull requests the merge gate judged for the current team's Studio Apps (?state=) |
+| GET | `/api/v1/merge-gate/reviews/{id}` | — | One merge gate review: merged or sent to review, the reasons and the merge-safety answers |
 
 ## Errors
 

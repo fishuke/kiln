@@ -52,7 +52,20 @@ function loadLocalRead(): Record<string, boolean> {
   }
 }
 
-export function InboxView({ entries, gates, factories, ready = [] }: { entries: InboxEntry[]; gates: Record<string, GateView>; factories: FactoryOpt[]; ready?: Ready[] }) {
+export function InboxView({
+  entries,
+  gates,
+  factories,
+  ready = [],
+  studio,
+}: {
+  entries: InboxEntry[];
+  gates: Record<string, GateView>;
+  factories: FactoryOpt[];
+  ready?: Ready[];
+  /** Studio pull requests the merge gate sent to review. */
+  studio?: React.ReactNode;
+}) {
   const router = useRouter();
   const sp = useSearchParams();
   const [q, setQ] = useState("");
@@ -217,6 +230,7 @@ export function InboxView({ entries, gates, factories, ready = [] }: { entries: 
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-y-auto">
           <ReadyToMerge items={ready} />
+          {studio}
           {items.length === 0 ? (
             <EmptyInbox />
           ) : shown.length === 0 ? (

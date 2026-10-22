@@ -338,6 +338,45 @@ describe("secrets, MCP servers, environments and usage API", () => {
     expect(await o.environments()).toEqual([]);
   });
 
+  it("project environments: layers per owner, who may change them, masked secrets and the resolved view", async () => {
+    const s = setup();
+    const { owner, o, admin, member } = await people(s);
+    const team = owner.teams[0]!.id;
+    const project = await member.c.createProject({ name: "Portal", factories: ["webapp"] });
+    s.kiln.store.put("studio_apps", { id: "app_1", team, projectId: project.id, createdBy: "max@acme.test" });
+    s.kiln.store.put("studio_apps", { id: "app_2", team, createdBy: "olga@acme.test" });
+
+    await o.setVariables("team", team, "preview", [{ key: "API_URL", value: "https://team" }, { key: "REGION", value: "eu" }]);
+    await expect(member.c.setVariables("team", team, "preview", [{ key: "A", value: "1" }])).rejects.toMatchObject({ status: 403 });
+    // The project's owner may change its layer; so may team admins.
+    const layer = await member.c.setVariables("project", project.id, "preview", [{ key: "API_URL", value: "https://project" }, { key: "TOKEN", value: "tok_secret_123", secret: true }]);
+    expect(layer.variables).toEqual([
+      { key: "API_URL", secret: false, value: "https://project" },
+      { key: "TOKEN", secret: true },
+    ]);
+    await admin.c.setVariables("project", project.id, "production", [{ key: "API_URL", value: "https://prod" }]);
+    await expect(member.c.setVariables("factory", "webapp", "preview", [{ key: "A", value: "1" }])).rejects.toMatchObject({ status: 403 });
+    await o.setVariables("factory", "webapp", "preview", [{ key: "REGION", value: "us" }]);
+    await member.c.setVariables("app", "app_1", "preview", [{ key: "REGION", value: "app" }]);
+    await expect(member.c.setVariables("app", "app_2", "preview", [{ key: "A", value: "1" }])).rejects.toMatchObject({ status: 403 });
+    await expect(o.setVariables("app", "app_missing", "preview", [{ key: "A", value: "1" }])).rejects.toMatchObject({ status: 404 });
+    await expect(o.setVariables("project", project.id, "preview", [{ key: "NEW", secret: true }])).rejects.toMatchObject({ status: 400 });
+
+    expect((await member.c.variables("project", project.id)).map((l) => l.environment)).toEqual(["preview", "production"]);
+    const resolved = await member.c.resolveVariables({ environment: "preview", factory: "webapp" });
+    expect(resolved.variables).toEqual([
+      { key: "API_URL", secret: false, value: "https://project", scope: "project", owner: project.id },
+      { key: "REGION", secret: false, value: "us", scope: "factory", owner: "webapp" },
+      { key: "TOKEN", secret: true, scope: "project", owner: project.id },
+    ]);
+    expect((await member.c.resolveVariables({ environment: "preview", app: "app_1" })).variables.find((v) => v.key === "REGION")).toMatchObject({ value: "app", scope: "app" });
+    const everything = JSON.stringify([await o.variables("project", project.id), resolved, await o.audit()]);
+    expect(everything).not.toContain("tok_secret_123");
+
+    await member.c.deleteVariables("project", project.id, "production");
+    expect((await o.variables("project", project.id)).map((l) => l.environment)).toEqual(["preview"]);
+  });
+
   it("usage breakdowns and the spend limit returns budget_exceeded", async () => {
     const s = setup({ harnessCost: 4 });
     const { o, member } = await people(s);

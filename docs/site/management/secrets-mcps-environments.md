@@ -1,6 +1,6 @@
 ---
 title: Secrets, MCP servers and environments
-description: Team and personal secrets, team-managed model keys, the MCPs and apps registry, and environment templates that runs start from.
+description: Team and personal secrets, team-managed model keys, the MCPs and apps registry, environment templates that runs start from, and project environments.
 owner: docs
 section: Management
 ---
@@ -129,6 +129,52 @@ At run time:
 
 Manage environments with `GET`, `POST`, `PATCH` and `DELETE /api/v1/environments`.
 
+## Project environments
+
+A project environment is a named set of variables and secrets, such as `preview` or `production`, that a project's factories and Studio Apps get. Use it for settings an app needs to run, like the API URL a preview calls.
+
+Variables are set in layers. Each later layer replaces a key from an earlier one:
+
+| Layer | Who changes it | Applies to |
+| --- | --- | --- |
+| Team | Team owners and admins | Every factory in a project and every Studio App in the team |
+| Project | Team owners and admins, and the project's owner | The project's factories and Apps |
+| Factory | Admins of the factory | That factory |
+| App | Team owners and admins, and the App's creator | That Studio App |
+
+A factory that is in no project gets no project environment variables, not even the team's.
+
+### Where variables go
+
+Both use the `preview` environment:
+
+- **Factory runs:** the variables are added to the run's environment. Kiln's own variables (`KILN_*`), harness credentials and MCP server secrets win over a variable with the same name.
+- **PR previews:** the preview provider gets the factory's variables. The Kubernetes provider puts them in a Secret named `app-env` in the preview's namespace and loads it with `envFrom`. Vercel deployments use the variables set on the Vercel project.
+
+### Secrets
+
+Turn on **Secret** for a variable to keep it write-only. Secret values are sealed with `KILN_SECRET_KEY` like team secrets, never returned by the API or shown in the UI, and replaced with `[redacted]` in run output. To change other variables, leave a saved secret's value empty: Kiln keeps it.
+
+### Rules
+
+- Environment names use lowercase letters, digits and dashes, starting with a letter, at most 32 characters.
+- Keys use letters, digits and underscores, and can't start with `KILN_`.
+- A layer holds at most 200 variables. A value can be at most 128 KiB.
+- Every change is in the audit log as `variables.updated` or `variables.deleted`, with the keys and never the values.
+
+### Managing them
+
+Open a project and use **Environments**: one card per environment, with the team's variables it inherits listed underneath.
+
+Through the API:
+
+| Route | Does |
+| --- | --- |
+| `GET /api/v1/variables?scope=<scope>&owner=<id>` | Lists an owner's layers. `scope` is `team`, `project`, `factory` or `app`; for `team`, `owner` is the team id. |
+| `PUT /api/v1/variables/<scope>/<owner>/<environment>` | Replaces a layer: `{ "variables": [{ "key": "API_URL", "value": "https://api.example.com" }, { "key": "TOKEN", "secret": true }] }` |
+| `DELETE /api/v1/variables/<scope>/<owner>/<environment>` | Deletes a layer |
+| `GET /api/v1/variables/resolve?environment=preview&factory=<id>` | Shows what a factory, App (`app=`) or project (`project=`) gets, with the layer each key comes from |
+
 ## Private images
 
 A runner pulls a private image with a team secret of type `docker_registry` or `aws_ecr`:
@@ -155,3 +201,4 @@ An environment does the same with `registryCredentialSecretName` next to its `im
 - [Harnesses](../infrastructure/harnesses.md)
 - [Agents](../configuration/agents.md)
 - [Admin, RBAC and audit](admin-rbac-audit.md)
+- [Portfolio and projects](portfolio.md)

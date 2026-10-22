@@ -35,6 +35,11 @@ export function runTokenAuth(kiln: Kiln, raw: string | undefined): { token: ApiT
   return { token, principal };
 }
 
+/** A run id, or for a run token also a run name in its own tree (spawn `name`). */
+export function resolveRunRef(kiln: Kiln, p: RunPrincipal | undefined, ref: string): Run | undefined {
+  return kiln.runs.get(ref) ?? (p ? kiln.runs.byName(p.runId, ref) : undefined);
+}
+
 /** Whether a run belongs to the agent's own task or run tree. */
 export function inOwnTree(kiln: Kiln, p: RunPrincipal, run: Run | undefined): boolean {
   if (!run || run.factory !== p.factory) return false;
@@ -69,7 +74,7 @@ export function agentMayCall(kiln: Kiln, p: RunPrincipal, method: string, path: 
     if (!m) continue;
     const id = m[1] ? decodeURIComponent(m[1]) : undefined;
     if (rule.check === "factory" && id !== p.factory) return `run tokens only reach their own factory (${p.factory})`;
-    if (rule.check === "run" && !inOwnTree(kiln, p, kiln.runs.get(id!))) return `run ${id} is not part of this agent's task`;
+    if (rule.check === "run" && !inOwnTree(kiln, p, resolveRunRef(kiln, p, id!))) return `run ${id} is not part of this agent's task`;
     if (rule.check === "task" && id !== p.workItemId) return `task ${id} is not this agent's task`;
     return undefined;
   }

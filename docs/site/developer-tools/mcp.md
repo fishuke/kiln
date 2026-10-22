@@ -38,6 +38,7 @@ List my factories, then help me send a task to the right one and follow it throu
 | `create_team` | Create a team. You become its owner. Needs a user token (session or personal API key). |
 | `decide_gate` | Approve, reject or answer a gate. Needs the decide scope for the gate's kind. |
 | `follow_up_run` | Send a follow-up to a run: steers it while it runs, continues it when it finished. |
+| `get_app_settings` | A Studio App's definition: its agents (model, MCP servers, skills), shared skills (mandatory ones marked), ship mode cap, merge gate and budget, resolved from team and project defaults, plus what the App sets itself. |
 | `get_conversation` | A task's conversation (requests, foreman messages, agent summaries, decisions), or a run's normalized conversation. |
 | `get_factory_file_schema` | The definition schema catalog, or one document (e.g. agent.schema.json, factory.schema.json). |
 | `get_gate` | A gate (decision) and its answer. |
@@ -61,6 +62,20 @@ List my factories, then help me send a task to the right one and follow it throu
 | `send_task` | Send new work to a factory's foreman (factory, title, note), or hand a task you worked on locally back (task_id, branch or pr_url, note). |
 | `spawn_agent` | Start a subagent of your factory for part of the work. Returns at once with the child run; follow it with get_run. Only agents whose spawnableBy allows you can be started. |
 | `steer_run` | Send a steering message to a running agent. |
+| `studio_apply` | Studio: Apply a chat's changes to the app's main line as a new version. |
+| `studio_bookmark` | Studio: Pin or unpin a version. |
+| `studio_focus` | Studio: Move the person's screen to an app and, optionally, a chat. (Moves the caller's screen; changes nothing on the server.) |
+| `studio_look` | Studio: The live preview of a chat (its URL). |
+| `studio_new_chat` | Studio: Start a new chat (a parallel line of work) in an app with one of its agents (default general), optionally with a first message. |
+| `studio_open_app` | Studio: Open an app by id, or create one from a name and a source (a template or a repository). |
+| `studio_restore` | Studio: Restore an earlier version as a new version; nothing is lost. |
+| `studio_send` | Studio: Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them. |
+| `studio_set_ship_mode` | Studio: Change an App's ship mode (safe, review or cowboy), up to the highest mode the App's policy allows the caller's role. Only a person may. |
+| `studio_ship` | Studio: Open or update the App's pull request from its main line; or, as its author, mark it ready for review (the merge gate merges it or sends it to a reviewer); or cancel it. |
+| `studio_show` | Studio: Show the preview, the code or the history in the person's screen. (Moves the caller's screen; changes nothing on the server.) |
+| `studio_status` | Studio: What is running and what needs the person, for one app or all of them. |
+| `studio_stop` | Studio: Stop the chat's agent; it waits for the next message. |
+| `update_app_settings` | Change a Studio App's own definition layer (not its policy, which people change in the App's settings). null removes the App's value so it inherits from its project or team again. Every change is a new version. |
 | `validate_factory_files` | Validate a whole definition tree without saving it: diagnostics with file and line, plus what is resolved only when applied. With apply=true and a factory, applies it (definitions:write). |
 
 ## Related pages

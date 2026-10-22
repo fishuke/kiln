@@ -33,12 +33,19 @@ export class RuleImprover implements Improver {
     const path = agentFile(input.tree, input.agent);
     if (!path) return { target: "definition", changes: {}, rationale: `no agents/${input.agent}/agent.md to change` };
     const rejected = new Set(input.negatives.flatMap((n) => Object.values(n.changes).flatMap((c) => c.split("\n").filter((l) => l.startsWith("- ")))));
-    const lessons = [...new Set(input.failures.map(({ score }) => `- Avoid "${score.label}" on ${score.scorer}: ${score.rationale ?? "see the linked runs"}`))].filter((l) => !rejected.has(l));
+    const lessons = [
+      ...new Set(input.failures.map(({ score }) => `- Avoid "${score.label}" on ${score.scorer}: ${score.rationale ?? "see the linked runs"}`)),
+    ].filter((l) => !rejected.has(l));
     const src = input.tree[path]!;
     const { yaml, body, hasFrontmatter } = splitFrontmatter(src);
     const marker = "## Lessons from reviewed failures";
     const base = body.includes(marker) ? body.slice(0, body.indexOf(marker)).trimEnd() : body;
-    const existing = body.includes(marker) ? body.slice(body.indexOf(marker) + marker.length).split("\n").filter((l) => l.startsWith("- ")) : [];
+    const existing = body.includes(marker)
+      ? body
+          .slice(body.indexOf(marker) + marker.length)
+          .split("\n")
+          .filter((l) => l.startsWith("- "))
+      : [];
     const all = [...new Set([...existing, ...lessons])];
     const nextBody = `${base}\n\n${marker}\n\n${all.join("\n")}\n`;
     const content = hasFrontmatter ? `---\n${yaml}\n---\n${nextBody}` : nextBody;
@@ -96,7 +103,13 @@ export class AgentImprover implements Improver {
 }
 
 function glob(pattern: string): RegExp {
-  return new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, "\u0000").replace(/\*/g, "[^/]*").replace(/\u0000/g, ".*")}$`);
+  return new RegExp(
+    `^${pattern
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, "\u0000")
+      .replace(/\*/g, "[^/]*")
+      .replace(/\u0000/g, ".*")}$`,
+  );
 }
 
 export class ImprovementService {
@@ -139,7 +152,12 @@ export class ImprovementService {
     // Cluster first, so the improver reads one kind of failure at a time.
     const groups = new Map<string, typeof failures>();
     for (const f of failures) {
-      const o = await runDecision("failure-category", resolved.parsed.decisions["failure-category"] ?? BUILTIN_DECISIONS["failure-category"]!, { agent, label: f.score.label, summary: f.run.summary ?? "" }, this.k.decide);
+      const o = await runDecision(
+        "failure-category",
+        resolved.parsed.decisions["failure-category"] ?? BUILTIN_DECISIONS["failure-category"]!,
+        { agent, label: f.score.label, summary: f.run.summary ?? "" },
+        this.k.decide,
+      );
       const cat = top(o.answers.failure_category)?.option ?? "instructions";
       this.k.store.put(C.scores, { ...f.score, failureCategory: cat });
       groups.set(cat, [...(groups.get(cat) ?? []), f]);
@@ -148,9 +166,16 @@ export class ImprovementService {
     const negatives = this.list(factory).filter((p) => p.agent === agent && p.state === "rejected");
     const proposal = await this.k.improver.propose({ factory, agent, category, tree, failures: group, negatives });
 
-    const protectedGlobs = Object.values(resolved.parsed.policies).flatMap((p) => p.protectedPaths ?? []).map(glob);
-    const twoApproval = Object.values(resolved.parsed.policies).flatMap((p) => p.twoApprovalPaths ?? []).map(glob);
-    const dropped = Object.keys(proposal.changes).filter((p) => protectedGlobs.some((g) => g.test(p)) || p.startsWith("policies/") || p.startsWith("gates/"));
+    const protectedGlobs = Object.values(resolved.parsed.policies)
+      .flatMap((p) => p.protectedPaths ?? [])
+      .map(glob);
+    const twoApproval = Object.values(resolved.parsed.policies)
+      .flatMap((p) => p.twoApprovalPaths ?? [])
+      .map(glob);
+    // ADR-014: the merge-safety decision decides what merges without a person, so only people change it.
+    const dropped = Object.keys(proposal.changes).filter(
+      (p) => protectedGlobs.some((g) => g.test(p)) || p.startsWith("policies/") || p.startsWith("gates/") || /^decisions\/merge-safety\.ya?ml$/.test(p),
+    );
     const changes = Object.fromEntries(Object.entries(proposal.changes).filter(([p]) => !dropped.includes(p)));
     if (Object.keys(changes).length === 0) {
       this.k.audit("self-improvement", "proposal.empty", factory, { agent, dropped });
@@ -183,7 +208,10 @@ export class ImprovementService {
       proposal.rationale,
       "",
       "## Regressions addressed",
-      ...group.map(({ score, run }) => `- [${run.id}](${this.k.link(`/runs/${run.id}`)}): ${score.scorer} = ${score.label}${score.rationale ? ` — ${score.rationale}` : ""}`),
+      ...group.map(
+        ({ score, run }) =>
+          `- [${run.id}](${this.k.link(`/runs/${run.id}`)}): ${score.scorer} = ${score.label}${score.rationale ? ` — ${score.rationale}` : ""}`,
+      ),
       "",
       "## Replay",
       `Pass rate before: ${(passRateBefore * 100).toFixed(0)}% · after: ${(passRateAfter * 100).toFixed(0)}% (${replay.length} runs)`,
@@ -227,7 +255,14 @@ export class ImprovementService {
       const repo = binding.definitionRepo;
       const files = Object.fromEntries(Object.entries(changes).map(([path, c]) => [repo.dir ? `${repo.dir}/${path}` : path, c]));
       await this.k.commitFiles(repo, branch, files, `Self-improvement for ${agent}`);
-      const pr = await this.k.forge.openPullRequest({ repo, head: branch, base: repo.ref, title: `Self-improvement: ${agent} (${category})`, body, labels: ["kiln:self-improvement"] });
+      const pr = await this.k.forge.openPullRequest({
+        repo,
+        head: branch,
+        base: repo.ref,
+        title: `Self-improvement: ${agent} (${category})`,
+        body,
+        labels: ["kiln:self-improvement"],
+      });
       p.pr = { repo: pr.repo, number: pr.number, url: pr.url };
     }
     this.k.store.put(C.proposals, p);
@@ -245,7 +280,14 @@ export class ImprovementService {
     const si = this.k.defs.current(factory).factory.selfImprovement;
     const type = si?.reviewers.type ?? "admins";
     const roles = this.k.options.roles ?? {};
-    const pool = type === "none" ? [] : type === "custom" ? (si?.reviewers.emails ?? []) : type === "team" ? [...new Set(Object.values(roles).flat())] : (roles.admins ?? []);
+    const pool =
+      type === "none"
+        ? []
+        : type === "custom"
+          ? (si?.reviewers.emails ?? [])
+          : type === "team"
+            ? [...new Set(Object.values(roles).flat())]
+            : (roles.admins ?? []);
     if (!pool.length) return undefined;
     const h = [...seed].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) >>> 0, 7);
     return [...pool].sort()[h % pool.length];
@@ -281,7 +323,11 @@ export class ImprovementService {
       return next;
     }
     const tree = this.k.defs.tree(p.candidateSha!)!;
-    const r = this.k.defs.apply(tree, { author: `proposal:${p.id} approved by ${[...approvals].join(", ")}`, factory: p.factory, canaryPercent: this.k.options.canaryPercent ?? 10 });
+    const r = this.k.defs.apply(tree, {
+      author: `proposal:${p.id} approved by ${[...approvals].join(", ")}`,
+      factory: p.factory,
+      canaryPercent: this.k.options.canaryPercent ?? 10,
+    });
     if (!r.ok) throw new Error(`candidate no longer applies: ${r.errors[0]}`);
     const next: Proposal = { ...p, state: "merged" };
     this.k.store.put(C.proposals, { ...next, approvals: [...approvals] });

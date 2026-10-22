@@ -4,19 +4,43 @@ import { BUILTIN_DECISIONS, guardCommand, runDecision } from "@kiln/decide";
 import type { DefinitionTree, ResolvedAgent, ResolvedFactory } from "@kiln/definitions";
 import type { HarnessSession } from "@kiln/harness";
 import { repoKey, type RepoRef } from "@kiln/integrations";
-import { hashDir, type RegistryAuth, type Sandbox, type SandboxProvider, type SandboxRunner, type SnapshotRef } from "@kiln/sandbox";
+import { hashDir, withGuard, type RegistryAuth, type Sandbox, type SandboxProvider, type SandboxRunner, type SnapshotRef } from "@kiln/sandbox";
 import type { HarnessType, Runner } from "@kiln/schema";
 import { classifyError, KilnError, retriesAutomatically, runStatusFor } from "./errors";
 import type { Kiln } from "./kiln";
-import { cloudProviderEnv } from "./cloud";
+import { appRunDefinition, factoryRunDefinition, type AppRunDefinition, type RunDefinition } from "./run-definition";
 import { fileUrl, mediaOf } from "./media";
 import { codexHome, parseChatgptAuth, redactChatgptTokens } from "./platform/chatgpt";
 import { registryAuthFor } from "./platform/registry";
 import { checkMetadata, isTerminal, sourceFor } from "./run-state";
-import { C, newId, type Artifact, type Attachment, type ExecutionOverrides, type Run, type RunEvent, type RunKind, type RunMode, type RunSource, type WorkItem } from "./types";
+import {
+  C,
+  DEFAULT_RUNNER_IMAGE,
+  newId,
+  type Artifact,
+  type Attachment,
+  type ExecutionOverrides,
+  type Run,
+  type RunEvent,
+  type RunKind,
+  type RunMode,
+  type RunSource,
+  type WorkItem,
+} from "./types";
 import type { RemoteSession, WorkerJob } from "./workers";
 
 export { fileUrl, mediaOf } from "./media";
+
+/** A run name: lowercase letters, digits and dashes, starting with a letter or digit. */
+const RUN_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+/** Why a reporting child ended, for its parent. */
+function reportReason(run: Run): "finished" | "failed" | "stopped" | "out_of_budget" {
+  if (run.status === "succeeded") return "finished";
+  if (run.error?.code === "budget_exceeded") return "out_of_budget";
+  if (run.status === "failed" || run.status === "error") return "failed";
+  return "stopped";
+}
 
 export type ExecuteInput = {
   factory: string;
@@ -43,6 +67,11 @@ export type ExecuteInput = {
   attachments?: Attachment[];
   /** Set when this run is a subagent of another run. */
   parentRunId?: string;
+  /** A Studio App's run: its agents come from KilnOptions.apps; pass `factory: "app:<id>"`. */
+  app?: string;
+  /** See Run.name and Run.reportToParent. */
+  name?: string;
+  reportToParent?: boolean;
   backend?: "local" | "docker" | "kubernetes";
   source?: RunSource;
   title?: string;
@@ -70,7 +99,8 @@ const RESULT_PROTOCOL: Record<string, string> = {
   TRIAGE: '{"kind": "feature|bug|chore|incident|question", "size": "xs|s|m|l|xl", "summary": "...", "duplicateOf": "optional issue key"}',
   FOREMAN: '{"dispatch": {"stage": "triage|spec|build|review|handoff", "agent": "name", "context": "..."}} or {"ask": "question for the requester"}',
   SPEC: '{"specPath": "docs/specs/<id>.md", "why": "...", "goal": "...", "approach": "...", "criteria": ["AC1: ..."], "stories": ["..."], "outOfScope": ["..."], "risks": ["..."], "openQuestions": ["..."]}',
-  IMPLEMENT: '{"summary": "...", "testsPassed": true, "pr": {"title": "feat(scope): outcome in lowercase", "body": "## Why\\n...\\n\\n## What\\n- ...\\n\\n## Verification\\n- ..."}, "memories": [{"title": "...", "body": "..."}]}',
+  IMPLEMENT:
+    '{"summary": "...", "testsPassed": true, "pr": {"title": "feat(scope): outcome in lowercase", "body": "## Why\\n...\\n\\n## What\\n- ...\\n\\n## Verification\\n- ..."}, "memories": [{"title": "...", "body": "..."}]}',
   VERIFY: '{"testsPassed": true, "playwrightReport": "playwright-report/results.json"}',
   REVIEW: '{"verdict": "accepted|changes_requested|needs_human", "findings": ["file:line — issue — fix"]}',
   PLAN: '{"epics": [{"title": "...", "milestone": "...", "dependsOn": [], "issues": [{"title": "...", "body": "...", "criteria": ["..."], "factory": "alias"}]}]}',
@@ -115,7 +145,21 @@ export const BROWSER_INSTRUCTIONS = [
 export function browserServer(k: Pick<Kiln, "options">, harness: HarnessType, agent: Pick<ResolvedAgent, "computerUse">) {
   const mcp = k.options.browserMcp ?? { command: "npx", args: ["-y", "@playwright/mcp@0.0.83"] };
   if (mcp === false || harness !== "claude-code" || agent.computerUse === false) return undefined;
-  return { name: "browser", command: mcp.command, args: [...(mcp.args ?? []), "--headless", "--isolated", "--no-sandbox", "--caps=devtools,vision", "--output-dir", BROWSER_OUT, "--viewport-size", "1280,720"] };
+  return {
+    name: "browser",
+    command: mcp.command,
+    args: [
+      ...(mcp.args ?? []),
+      "--headless",
+      "--isolated",
+      "--no-sandbox",
+      "--caps=devtools,vision",
+      "--output-dir",
+      BROWSER_OUT,
+      "--viewport-size",
+      "1280,720",
+    ],
+  };
 }
 
 export function modeInstructions(mode: RunMode | undefined): string {
@@ -139,7 +183,9 @@ const DEFAULT_RUNNER = (backend: Runner["backend"]): SandboxRunner => ({ image: 
 type Prepared = {
   run: Run;
   input: ExecuteInput;
-  resolved: ResolvedFactory;
+  resolved: RunDefinition;
+  /** Set for a Studio App's run. */
+  app?: AppRunDefinition;
   agent: ResolvedAgent;
   harnessType: HarnessType;
   model?: string;
@@ -161,6 +207,8 @@ type Prepared = {
 
 export class RunService {
   private readonly sessions = new Map<string, HarnessSession>();
+  /** Runs working in a workspace the WorkspaceProvider lent them: released, never destroyed. */
+  private readonly borrowed = new Set<string>();
   private readonly remotes = new Map<string, RemoteSession>();
   private readonly sandboxes = new Map<string, Sandbox>();
   /** Forge credentials given to a run's sandbox, redacted from its output. */
@@ -181,8 +229,90 @@ export class RunService {
 
   list(filter: { factory?: string; workItemId?: string; agent?: string; kind?: RunKind } = {}) {
     return this.k.store
-      .list<Run>(C.runs, (r) => (!filter.factory || r.factory === filter.factory) && (!filter.workItemId || r.workItemId === filter.workItemId) && (!filter.agent || r.agent === filter.agent) && (!filter.kind || r.kind === filter.kind))
+      .list<Run>(
+        C.runs,
+        (r) =>
+          (!filter.factory || r.factory === filter.factory) &&
+          (!filter.workItemId || r.workItemId === filter.workItemId) &&
+          (!filter.agent || r.agent === filter.agent) &&
+          (!filter.kind || r.kind === filter.kind),
+      )
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  /** A run's definition: its factory's resolved tree (by sha, or a candidate tree), or its Studio App's. */
+  private definitionOf(input: { app?: string; sha: string; tree?: DefinitionTree }): { def: RunDefinition; app?: AppRunDefinition } {
+    if (input.app) {
+      if (!this.k.options.apps) throw new KilnError("integration_not_configured", `run for app ${input.app}, but this server has no Studio`);
+      const app = this.k.options.apps.definition(input.app);
+      return { def: appRunDefinition(app), app };
+    }
+    return { def: factoryRunDefinition(input.tree ? this.k.defs.resolveTree(input.tree) : this.k.defs.resolved(input.sha)) };
+  }
+
+  /** The decisions a run's definition sets, such as its command guard (the guard endpoint reads these). */
+  decisionsFor(run: Pick<Run, "app" | "definitionSha">): RunDefinition["decisions"] {
+    return this.definitionOf({ ...(run.app ? { app: run.app } : {}), sha: run.definitionSha }).def.decisions;
+  }
+
+  /** What `factory` (a factory id, or `app:<id>`) spent on runs since the first of this month. */
+  monthSpend(factory: string): number {
+    const start = new Date(this.k.clock.now());
+    start.setUTCDate(1);
+    start.setUTCHours(0, 0, 0, 0);
+    return this.list({ factory }).filter((x) => x.startedAt >= start.toISOString()).reduce((s, x) => s + x.costUsd, 0);
+  }
+
+  /** Throws budget_exceeded when `factory` has spent its monthly budget. */
+  assertMonthlyBudget(factory: string, monthlyUsd: number) {
+    const spent = this.monthSpend(factory);
+    if (spent >= monthlyUsd) throw new KilnError("budget_exceeded", `monthly budget of $${monthlyUsd} for ${factory} reached ($${spent.toFixed(2)} spent)`);
+  }
+
+  /** The latest run named `name` in the tree `runId` belongs to (a continuation keeps its run's name). */
+  byName(runId: string, name: string): Run | undefined {
+    const run = this.get(runId);
+    if (!run) return undefined;
+    const root = run.rootRunId ?? run.id;
+    return this.k.store
+      .list<Run>(C.runs, (r) => r.name === name && (r.rootRunId ?? r.id) === root)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+      .map((r) => this.get(r.id)!)[0];
+  }
+
+  /** A run's conversation so far, for a forked child: the request, the agent's messages and people's steering. */
+  private forkContext(runId: string): string {
+    const lines = this.k.runQuery
+      .conversation(runId)
+      .messages.filter((m) => m.type === "prompt" || m.type === "message" || m.type === "steer")
+      .map((m) => `### ${m.role === "user" ? "User" : "Agent"}\n${m.text}`);
+    return `## Conversation so far (forked from run ${runId})\n\n${lines.join("\n\n")}`;
+  }
+
+  /** A child that reports to its parent asked a question (ask_user): tell the parent. */
+  async reportQuestion(runId: string, question: string) {
+    const run = this.get(runId);
+    if (!run) throw new KilnError("resource_not_found", `unknown run ${runId}`);
+    if (run.reportToParent && run.parentRunId) await this.reportToParent(run, "needs_input", question);
+  }
+
+  /** Deliver a child's report to its parent as a follow-up: steers it when live, continues it when it finished. */
+  private async reportToParent(run: Run, reason: "finished" | "failed" | "stopped" | "out_of_budget" | "needs_input", question?: string) {
+    const branch = run.startState.repos[0]?.branch;
+    const report = [
+      `## Report from ${run.name ?? run.agent} (run ${run.id})`,
+      `Reason: ${reason}`,
+      ...(run.title ? [`Title: ${run.title}`] : []),
+      ...(run.summary ? [`Summary: ${run.summary}`] : []),
+      ...(branch ? [`Branch: ${branch}`] : []),
+      ...(question ? [`Question: ${question}`] : []),
+    ].join("\n");
+    try {
+      await this.followup(run.parentRunId!, { message: report, by: `agent:${run.agent}` });
+    } catch (err) {
+      // The child's own outcome stands; its record shows the report didn't arrive.
+      this.record(run, "error", `could not report to run ${run.parentRunId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   events(runId: string, afterSeq = 0): RunEvent[] {
@@ -234,7 +364,13 @@ export class RunService {
     const secrets = this.redactions.get(run.id);
     if (secrets?.length) {
       if (text) text = redact(text, secrets);
-      if (data !== undefined) data = JSON.parse(redact(JSON.stringify(data), secrets.map((s) => JSON.stringify(s).slice(1, -1))));
+      if (data !== undefined)
+        data = JSON.parse(
+          redact(
+            JSON.stringify(data),
+            secrets.map((s) => JSON.stringify(s).slice(1, -1)),
+          ),
+        );
     }
     // Codex may refresh a ChatGPT login mid-run; the new tokens are not in the list above, so match their shape.
     if (this.chatgptLogins.has(run.id)) {
@@ -251,9 +387,9 @@ export class RunService {
     this.k.store.put(C.runs, run);
   }
 
-  resolveModel(resolved: ResolvedFactory, model: string | undefined, prompt: string): Promise<string | undefined> | string | undefined {
+  resolveModel(resolved: RunDefinition, model: string | undefined, prompt: string): Promise<string | undefined> | string | undefined {
     if (!model?.startsWith("router:")) return model;
-    const router = resolved.parsed.routers[model.slice(7)];
+    const router = resolved.routers[model.slice(7)];
     if (!router) return undefined;
     if (router.type === "prompt") {
       const words = new Set(prompt.toLowerCase().match(/[a-z]{4,}/g) ?? []);
@@ -262,9 +398,12 @@ export class RunService {
         .sort((a, b) => b.hits - a.hits)[0];
       return best && best.hits > 0 ? best.r.model : router.default;
     }
-    return runDecision("model-router", resolved.parsed.decisions["model-router"] ?? BUILTIN_DECISIONS["model-router"]!, { title: prompt.slice(0, 200), body: prompt }, this.k.decide).then(
-      (o) => (o.action === "easy" ? router.routing.easy : o.action === "hard" ? router.routing.hard : router.routing.medium) ?? router.default,
-    );
+    return runDecision(
+      "model-router",
+      resolved.decisions["model-router"] ?? BUILTIN_DECISIONS["model-router"]!,
+      { title: prompt.slice(0, 200), body: prompt },
+      this.k.decide,
+    ).then((o) => (o.action === "easy" ? router.routing.easy : o.action === "hard" ? router.routing.hard : router.routing.medium) ?? router.default);
   }
 
   private provider(backend: Runner["backend"] | undefined): SandboxProvider {
@@ -314,15 +453,16 @@ export class RunService {
   }
 
   private async prepare(input: ExecuteInput, prior?: Run): Promise<Prepared> {
-    const resolved = input.tree ? this.k.defs.resolveTree(input.tree) : this.k.defs.resolved(input.sha);
+    const { def: resolved, app } = this.definitionOf(input);
     const agent: ResolvedAgent | undefined = resolved.agents[input.agent];
     if (!agent) throw new KilnError("resource_not_found", `factory ${input.factory} has no agent ${input.agent}`);
     const metaError = checkMetadata(input.metadata);
     if (metaError) throw new KilnError("invalid_request", metaError);
     const harnessType = (input.overrides?.harness ?? agent.harness.type) as HarnessType;
     const model = await this.resolveModel(resolved, input.overrides?.model ?? agent.harness.model, input.prompt);
-    const team = this.k.teams.factoryTeam(input.factory);
+    const team = app ? app.team : this.k.teams.factoryTeam(input.factory);
     this.k.usage.assertWithinBudget(team);
+    if (app?.monthlyUsd !== undefined) this.assertMonthlyBudget(input.factory, app.monthlyUsd);
     const user = input.triggeredBy ? this.k.users.get(input.triggeredBy) : this.k.users.forRequester(input.workItem?.requester);
     const automationEnv = input.workItem?.source.automation ? resolved.automations[input.workItem.source.automation]?.environmentId : undefined;
     // An automation's environmentId override selects the team environment for this run.
@@ -330,19 +470,23 @@ export class RunService {
     const environment = envRef ? this.k.environments.get(team, envRef) : undefined;
     if (envRef && !environment) throw new KilnError("resource_not_found", `environment ${envRef} is not defined for this team`);
     const runnerName = input.overrides?.runner ?? agent.runner;
-    const declared: Runner | undefined = runnerName ? resolved.parsed.runners[runnerName] : undefined;
+    const declared: Runner | undefined = runnerName ? resolved.runners[runnerName] : undefined;
     const teamSettings = team ? this.k.teams.settings(team) : undefined;
     const host = teamSettings?.defaultSandboxHost;
     const teamBackend = host === "local" || host === "docker" || host === "kubernetes" ? host : undefined;
     // The image: the runner's own, else the team environment's, else the server's runner image (KILN_RUNNER_IMAGE).
-    const image = declared?.image ?? environment?.image ?? this.k.options.defaultImage ?? "node:22-bookworm";
+    const image = declared?.image ?? environment?.image ?? this.k.options.defaultImage ?? DEFAULT_RUNNER_IMAGE;
     const base: SandboxRunner = declared ? { ...declared, image } : { ...DEFAULT_RUNNER(teamBackend ?? this.k.options.defaultBackend ?? "local"), image };
     const policy = agent.networkPolicy;
     // Environment setup commands run after the runner's own, in the workspace root (the runner's run in each repository); the team's egress allowlist and the agent's allowed hosts add to the runner's.
     // Kiln's own host is always allowed: the command guard and the Kiln MCP server live there.
     const kilnHost = this.k.options.publicUrl ? new URL(this.k.options.publicUrl).hostname : undefined;
     // So are the MCP servers the run gets, such as a team server for a self-hosted observability stack.
-    const mcpHosts = this.k.mcp.hosts(team, this.k.mcp.refsFor(team, input.overrides?.mcpServers ?? agent.mcpServers), this.k.vault.resolver({ teamId: team, userId: user?.id }));
+    const mcpHosts = this.k.mcp.hosts(
+      team,
+      this.k.mcp.refsFor(team, input.overrides?.mcpServers ?? agent.mcpServers),
+      this.k.vault.resolver({ teamId: team, userId: user?.id }),
+    );
     const runner: SandboxRunner = {
       ...base,
       setupCommands: base.setupCommands ?? [],
@@ -363,19 +507,31 @@ export class RunService {
     const picked = input.workItem?.repo?.toLowerCase();
     const factoryRepos =
       input.repos ??
-      resolved.factory.repositories
+      resolved.repositories
         .filter((r) => required.includes(repoKey(r).toLowerCase()) || (picked ? repoKey(r).toLowerCase() === picked : !r.deferred))
         .sort((a, b) => Number(repoKey(b).toLowerCase() === picked) - Number(repoKey(a).toLowerCase() === picked));
-    const repos = [...factoryRepos, ...(input.repos ? [] : (environment?.repos ?? []).filter((e) => !factoryRepos.some((r) => r.owner === e.owner && r.name === e.name)))];
+    const repos = [
+      ...factoryRepos,
+      ...(input.repos ? [] : (environment?.repos ?? []).filter((e) => !factoryRepos.some((r) => r.owner === e.owner && r.name === e.name))),
+    ];
     const workerHost = input.overrides?.workerHost === null ? undefined : (input.overrides?.workerHost ?? agent.workerHost);
     const now = this.k.clock.now().toISOString();
     const parent = input.parentRunId ? this.get(input.parentRunId) : undefined;
     const firstOfItem = input.workItem && !parent ? this.list({ workItemId: input.workItem.id }).at(-1) : undefined;
-    const explicitIdle = resolved.parsed.agents[input.agent]?.frontmatter.idleTimeoutMinutes;
+    const explicitIdle = resolved.explicitIdleMinutes(input.agent);
     const creator = input.creator ?? (parent ? `agent:${parent.agent}` : input.workItem?.requester) ?? "kiln";
     const id = prior?.id ?? newId("run");
     const run: Run = prior
-      ? { ...prior, status: workerHost ? "queued" : "running", error: undefined, attempt: (prior.attempt ?? 1) + 1, finishedAt: undefined, summary: undefined, result: undefined, artifacts: [] }
+      ? {
+          ...prior,
+          status: workerHost ? "queued" : "running",
+          error: undefined,
+          attempt: (prior.attempt ?? 1) + 1,
+          finishedAt: undefined,
+          summary: undefined,
+          result: undefined,
+          artifacts: [],
+        }
       : {
           id,
           kind: input.kind ?? "work",
@@ -390,19 +546,31 @@ export class RunService {
           startState: { prompt: input.prompt, instructions: "", skills: agent.skills, repos: [] },
           replayOf: input.replayOf,
           parentRunId: input.parentRunId,
+          ...(input.app ? { app: input.app } : {}),
+          ...(input.name ? { name: input.name } : {}),
+          ...(input.reportToParent ? { reportToParent: true } : {}),
           rootRunId: parent ? (parent.rootRunId ?? parent.id) : (firstOfItem?.rootRunId ?? firstOfItem?.id ?? id),
           artifacts: [],
           traceId: randomBytes(16).toString("hex"),
           status: workerHost ? "queued" : "running",
           source: sourceFor({ source: input.source, kind: input.kind, parentRunId: input.parentRunId, workItem: input.workItem }),
-          title: (input.title ?? input.workItem?.title ?? input.prompt.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") ?? input.agent).slice(0, 200),
+          title: (
+            input.title ??
+            input.workItem?.title ??
+            input.prompt
+              .split("\n")
+              .find((l) => l.trim())
+              ?.replace(/^#+\s*/, "") ??
+            input.agent
+          ).slice(0, 200),
           creator,
           executor: agent.credentialStrategy === "CREATOR" && !creator.startsWith("agent:") ? creator : `agent:${input.agent}`,
           ...(input.metadata && Object.keys(input.metadata).length ? { metadata: { ...input.metadata } } : {}),
           ...(input.mode && input.mode !== "normal" ? { mode: input.mode } : {}),
           attempt: 1,
           continuationOf: input.continuationOf,
-          idleTimeoutMinutes: input.idleTimeoutMinutes ?? input.overrides?.idleTimeoutMinutes ?? explicitIdle ?? (input.parentRunId ? 60 : agent.idleTimeoutMinutes),
+          idleTimeoutMinutes:
+            input.idleTimeoutMinutes ?? input.overrides?.idleTimeoutMinutes ?? explicitIdle ?? (input.parentRunId ? 60 : agent.idleTimeoutMinutes),
           ...(workerHost ? { workerHost, queuedAt: now } : {}),
           costUsd: 0,
           eventCount: 0,
@@ -416,19 +584,44 @@ export class RunService {
     this.live.set(run.id, run);
     if (!prior) input.onCreated?.(run);
     const token = this.k.secrets.issueRunToken(run.id, repos.map(repoKey));
-    const attachments = [...(input.workItem?.attachments ?? []), ...(input.attachments ?? [])].filter((a, i, all) => all.findIndex((b) => b.key === a.key) === i);
+    const attachments = [...(input.workItem?.attachments ?? []), ...(input.attachments ?? [])].filter(
+      (a, i, all) => all.findIndex((b) => b.key === a.key) === i,
+    );
     let prompt = input.prompt;
-    if (attachments.length) prompt = `${prompt}\n\nAttached files:\n${attachments.map((a) => `- .kiln/attachments/${a.name} (${a.contentType}, ${Math.ceil(a.size / 1024)} KB)`).join("\n")}`;
+    if (attachments.length)
+      prompt = `${prompt}\n\nAttached files:\n${attachments.map((a) => `- .kiln/attachments/${a.name} (${a.contentType}, ${Math.ceil(a.size / 1024)} KB)`).join("\n")}`;
     run.startState.prompt = prompt;
     const memories = input.workItem || input.kind === "work" ? this.k.memories.promptBlock(input.factory, input.prompt) : "";
     const browser = browserServer(this.k, harnessType, agent) ? BROWSER_INSTRUCTIONS : "";
-    const instructions = [agent.instructions, memories, input.extraInstructions ?? "", modeInstructions(input.mode), browser, resultProtocol(agent.agentType)].filter(Boolean).join("\n\n");
+    const instructions = [agent.instructions, memories, input.extraInstructions ?? "", modeInstructions(input.mode), browser, resultProtocol(agent.agentType)]
+      .filter(Boolean)
+      .join("\n\n");
     run.startState.instructions = instructions;
     this.save(run);
     // A private image: the runner's (or else the environment's) registry credential, checked against the image's registry.
     const registrySecret = declared?.platform?.linux?.registryCredentialSecretName ?? (declared ? undefined : environment?.registryCredentialSecretName);
     const registryAuth = registrySecret && !workerHost ? await registryAuthFor(this.k, team, registrySecret, runner.image) : undefined;
-    return { run, input: { ...input, prompt }, resolved, agent, harnessType, model, runner, deniedHosts: policy?.deniedHosts ?? [], repos, token, instructions, attachments, workerHost, team, userId: user?.id, environmentSecrets: environment?.secrets ?? [], envRef, registryAuth };
+    return {
+      run,
+      input: { ...input, prompt },
+      resolved,
+      ...(app ? { app } : {}),
+      agent,
+      harnessType,
+      model,
+      runner,
+      deniedHosts: policy?.deniedHosts ?? [],
+      repos,
+      token,
+      instructions,
+      attachments,
+      workerHost,
+      team,
+      userId: user?.id,
+      environmentSecrets: environment?.secrets ?? [],
+      envRef,
+      registryAuth,
+    };
   }
 
   private async executeOnce(input: ExecuteInput, prior?: Run): Promise<Run> {
@@ -461,7 +654,9 @@ export class RunService {
       const login = this.chatgptLogins.get(run.id);
       if (login) {
         this.chatgptLogins.delete(run.id);
-        await this.k.credentialPool.saveChatgptLogin(login.scope, login.name, login.sandbox, login.home, `run:${run.id}`).catch((err) => console.error(`saving the refreshed ChatGPT login ${login.name} failed`, err));
+        await this.k.credentialPool
+          .saveChatgptLogin(login.scope, login.name, login.sandbox, login.home, `run:${run.id}`)
+          .catch((err) => console.error(`saving the refreshed ChatGPT login ${login.name} failed`, err));
         this.k.credentialPool.release(login.scope, login.name);
       }
       this.redactions.delete(run.id);
@@ -470,18 +665,36 @@ export class RunService {
       this.remotes.delete(run.id);
       this.live.delete(run.id);
       run.finishedAt = this.k.clock.now().toISOString();
-      if (run.status !== "paused") {
+      if (this.borrowed.delete(run.id)) {
+        // The lender keeps the sandbox; the run only gives its workspace back.
+        this.sandboxes.delete(run.id);
+        try {
+          await this.k.options.workspaces!.release(run);
+        } catch (err) {
+          this.record(run, "error", `giving the workspace back failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } else if (run.status !== "paused") {
         this.sandboxes.delete(run.id);
         await sandbox?.destroy().catch(() => {});
       }
       this.k.stopping.delete(run.id);
       this.save(run);
-      const retrying = run.status === "error" && retriesAutomatically(run.error) && (run.attempt ?? 1) < Math.max(1, input.maxAttempts ?? this.k.options.maxRunAttempts ?? 3);
-      if (run.credential) this.k.credentialPool.recordOutcome({ teamId: run.team, userId: run.userId }, run.credential, { ok: run.status === "succeeded", message: run.error?.message ?? run.summary });
+      const retrying =
+        run.status === "error" && retriesAutomatically(run.error) && (run.attempt ?? 1) < Math.max(1, input.maxAttempts ?? this.k.options.maxRunAttempts ?? 3);
+      if (run.credential)
+        this.k.credentialPool.recordOutcome({ teamId: run.team, userId: run.userId }, run.credential, {
+          ok: run.status === "succeeded",
+          message: run.error?.message ?? run.summary,
+        });
       if (!retrying) {
         this.record(run, "finished", run.status, { costUsd: run.costUsd });
         await this.saveTranscript(run);
-        this.k.bus.publish("run.finished", { runId: run.id, outcome: run.status === "succeeded" ? "succeeded" : run.status === "failed" || run.status === "error" ? "failed" : "cancelled", costUsd: run.costUsd });
+        this.k.bus.publish("run.finished", {
+          runId: run.id,
+          outcome: run.status === "succeeded" ? "succeeded" : run.status === "failed" || run.status === "error" ? "failed" : "cancelled",
+          costUsd: run.costUsd,
+        });
+        if (run.reportToParent && run.parentRunId) await this.reportToParent(run, reportReason(run));
       }
     }
     return run;
@@ -497,34 +710,49 @@ export class RunService {
 
   private async runLocal(p: Prepared): Promise<Sandbox> {
     const { run, input, resolved, agent, harnessType, model, runner, repos, token, instructions, attachments } = p;
-    const decisions = resolved.parsed.decisions["command-guard"] ?? BUILTIN_DECISIONS["command-guard"]!;
+    const decisions = resolved.decisions["command-guard"] ?? BUILTIN_DECISIONS["command-guard"]!;
     const provider = this.provider(input.backend ?? runner.backend);
     // Setup commands target the runner's image; when Kiln falls back to the host they are skipped.
     const effective: SandboxRunner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [], workspaceSetupCommands: [] };
     let sandbox: Sandbox | undefined;
-    sandbox = await provider.create({
-      registryAuth: p.registryAuth,
-      runner: effective,
-      repos: await Promise.all(repos.map(async (r) => ({ name: r.name, url: this.k.forge.cloneUrl(r, await this.cloneToken(run.id, r, token)) }))),
-      env: { KILN_RUN_ID: run.id },
-      labels: { "kiln.dev/run": run.id, "kiln.dev/factory": input.factory },
-      deniedHosts: p.deniedHosts,
-      guard: async (command) => {
-        const { verdict, outcome } = await guardCommand(command, { cwd: sandbox?.workdir, branch: input.branch }, this.k.decide, decisions);
-        this.k.logDecision(outcome, { command }, { workItemId: input.workItem?.id, runId: run.id });
-        if (verdict !== "allow") this.record(run, "guard", `${verdict}: ${command}`);
-        return verdict;
-      },
-      askHuman: (command) => this.k.gates.askCommand({ run, workItem: input.workItem, command }),
-    });
+    const guard = async (command: string) => {
+      const { verdict, outcome } = await guardCommand(command, { cwd: sandbox?.workdir, branch: input.branch }, this.k.decide, decisions);
+      this.k.logDecision(outcome, { command }, { workItemId: input.workItem?.id, runId: run.id });
+      if (verdict !== "allow") this.record(run, "guard", `${verdict}: ${command}`);
+      return verdict;
+    };
+    const askHuman = (command: string) => this.k.gates.askCommand({ run, workItem: input.workItem, command });
+    const provided = await this.k.options.workspaces?.acquire(run, run.parentRunId ? this.get(run.parentRunId) : undefined);
+    if (provided) {
+      // Someone else's sandbox: this run's guard still decides its agent's commands.
+      sandbox = withGuard(provided.sandbox, guard, askHuman);
+      this.borrowed.add(run.id);
+    } else {
+      sandbox = await provider.create({
+        registryAuth: p.registryAuth,
+        runner: effective,
+        repos: await Promise.all(repos.map(async (r) => ({ name: r.name, url: this.k.forge.cloneUrl(r, await this.cloneToken(run.id, r, token)) }))),
+        env: { KILN_RUN_ID: run.id },
+        labels: { "kiln.dev/run": run.id, "kiln.dev/factory": input.factory },
+        deniedHosts: p.deniedHosts,
+        guard,
+        askHuman,
+      });
+    }
     this.sandboxes.set(run.id, sandbox);
     this.specs.set(run.id, runner);
-    const cwd = repos[0]?.name;
+    const cwd = provided ? provided.cwd : repos[0]?.name;
     run.startState.repos = [];
-    for (const r of repos) {
+    if (provided) {
+      const head = await sandbox.exec("git rev-parse HEAD", { cwd: provided.cwd, trusted: true });
+      if (head.code === 0) run.startState.repos.push({ name: provided.cwd, url: "", sha: head.stdout.trim() });
+    }
+    for (const r of provided ? [] : repos) {
       const dir = r.name;
       const sh = (cmd: string) => sandbox!.exec(cmd, { cwd: dir, trusted: true });
-      await sh(`git config user.name "kiln-agent[bot]" && git config user.email "agent@kiln.local" && mkdir -p .git/info && echo ".kiln/" >> .git/info/exclude`);
+      await sh(
+        `git config user.name "kiln-agent[bot]" && git config user.email "agent@kiln.local" && mkdir -p .git/info && echo ".kiln/" >> .git/info/exclude`,
+      );
       const pin = input.pinned?.[r.name];
       if (pin) await sh(`git checkout -q -B ${input.branch ?? "kiln/replay"} ${pin}`);
       else if (input.branch) {
@@ -538,7 +766,7 @@ export class RunService {
       const bytes = await this.k.objects.get(a.key);
       if (bytes) await sandbox.writeBytes(`${cwd ? `${cwd}/` : ""}.kiln/attachments/${a.name}`, bytes);
     }
-    if (sandbox.provider === "local") run.startState.workspaceSha = hashDir(sandbox.workdir);
+    if (sandbox.provider === "local" && !provided) run.startState.workspaceSha = hashDir(sandbox.workdir);
     this.save(run);
     this.k.skills.recordUsage(input.factory, agent.skills);
 
@@ -676,10 +904,10 @@ export class RunService {
     if (run.status === "failed") run.error = { ...classifyError(new Error(res.error ?? (res.summary || "the agent reported a failure"))), retryable: false };
   }
 
-  private skillsFor(resolved: ResolvedFactory, agentName: string, agent: ResolvedAgent) {
+  private skillsFor(resolved: RunDefinition, agentName: string, agent: ResolvedAgent) {
     return agent.skills.map((name) => {
-      const s = resolved.parsed.skills[name] ?? resolved.parsed.agents[agentName]?.skills[name];
-      return { name, body: s?.body ?? "", description: s?.frontmatter.description };
+      const s = resolved.skill(agentName, name);
+      return { name, body: s?.body ?? "", description: s?.description };
     });
   }
 
@@ -690,7 +918,12 @@ export class RunService {
     // Automation overrides add secrets (resolved through the vault like the agent's) and replace the MCP servers; team servers given to all agents always come along.
     // A ChatGPT login is a file in the sandbox, so only local runs (not self-hosted workers) get one from the pool.
     const chosen: { credential?: string; chatgptLogin?: string; files?: boolean } = { files: !p.workerHost };
-    const credentials = this.credentials(p.harnessType, { ...p.agent, secrets: [...new Set([...p.agent.secrets, ...p.environmentSecrets, ...(p.input.overrides?.secrets ?? [])])] }, scope, chosen);
+    const credentials = this.credentials(
+      p.harnessType,
+      { ...p.agent, secrets: [...new Set([...p.agent.secrets, ...p.environmentSecrets, ...(p.input.overrides?.secrets ?? [])])] },
+      scope,
+      chosen,
+    );
     if (chosen.credential) {
       p.run.credential = chosen.credential;
       this.save(p.run);
@@ -698,15 +931,32 @@ export class RunService {
     const mcp = this.k.mcp.resolve(p.team, this.k.mcp.refsFor(p.team, p.input.overrides?.mcpServers ?? p.agent.mcpServers), resolver);
     for (const s of mcp.skipped) this.record(p.run, "mcp_skipped", s);
     const loginTokens = chosen.chatgptLogin ? (parseChatgptAuth(chosen.chatgptLogin)?.tokens ?? []) : [];
-    this.redactions.set(p.run.id, [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope), ...loginTokens, ...(this.forgeTokens.get(p.run.id) ?? [])].filter((v) => v.length >= 6))]);
+    // The project's variables (team → project → factory, only for a factory in a project), or the App's (team → project → App).
+    const variables = p.app ? { env: p.app.env, secretValues: p.app.secretValues } : this.k.variables.forFactory(p.input.factory);
+    this.redactions.set(p.run.id, [
+      ...new Set(
+        [
+          ...Object.values(credentials),
+          ...Object.values(mcp.env),
+          ...this.k.vault.values(scope),
+          ...(variables?.secretValues ?? []),
+          ...loginTokens,
+          ...(this.forgeTokens.get(p.run.id) ?? []),
+        ].filter((v) => v.length >= 6),
+      ),
+    ]);
     const overrideEnv: Record<string, string> = {
-      ...cloudProviderEnv(p.resolved.factory),
+      ...p.resolved.cloudEnv,
       ...(p.envRef ? { KILN_ENVIRONMENT_ID: p.envRef } : {}),
       ...(p.workerHost ? { KILN_WORKER_HOST: p.workerHost } : {}),
       ...(p.run.idleTimeoutMinutes ? { KILN_IDLE_TIMEOUT_MINUTES: String(p.run.idleTimeoutMinutes) } : {}),
     };
     const browser = browserServer(this.k, p.harnessType, p.agent);
-    return { env: { ...mcp.env, ...credentials, ...overrideEnv }, mcpServers: [...this.mcpServers(p.token), ...(browser ? [browser] : []), ...mcp.servers], chatgptLogin: chosen.chatgptLogin };
+    return {
+      env: { ...variables?.env, ...mcp.env, ...credentials, ...overrideEnv },
+      mcpServers: [...this.mcpServers(p.token), ...(browser ? [browser] : []), ...mcp.servers],
+      chatgptLogin: chosen.chatgptLogin,
+    };
   }
 
   /** The forge's sandbox credential for a repository (GitHub: repo-scoped, an hour), else the run token. */
@@ -754,7 +1004,11 @@ export class RunService {
     if (auth?.source === "secret" || auth?.source === "managedSecret") {
       const typed = secrets.envFor(auth.secretName);
       const v = get(auth.secretName);
-      if (!v || !typed) throw new KilnError("integration_not_configured", `secret ${auth.secretName} for the ${type} harness is not set`, { integrationName: type, secretName: auth.secretName });
+      if (!v || !typed)
+        throw new KilnError("integration_not_configured", `secret ${auth.secretName} for the ${type} harness is not set`, {
+          integrationName: type,
+          secretName: auth.secretName,
+        });
       // Typed secrets (Bedrock keys and the like) bring their own variable names.
       if (!auth.env && !(auth.secretName in typed)) {
         Object.assign(env, typed);
@@ -762,12 +1016,25 @@ export class RunService {
       }
       const target =
         auth.env ??
-        (type === "claude-code" ? (v.startsWith("sk-ant-oat") ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY") : type === "codex" ? "OPENAI_API_KEY" : type === "gemini" ? "GEMINI_API_KEY" : auth.secretName);
+        (type === "claude-code"
+          ? v.startsWith("sk-ant-oat")
+            ? "CLAUDE_CODE_OAUTH_TOKEN"
+            : "ANTHROPIC_API_KEY"
+          : type === "codex"
+            ? "OPENAI_API_KEY"
+            : type === "gemini"
+              ? "GEMINI_API_KEY"
+              : auth.secretName);
       env[target] = v;
       return env;
     }
     // Several subscription tokens: the one with the most usage left (see CredentialPool).
-    const pooled = type === "claude-code" ? this.k.credentialPool.choose(scope) : type === "codex" && chosen.files ? this.k.credentialPool.choose(scope, "chatgpt") : undefined;
+    const pooled =
+      type === "claude-code"
+        ? this.k.credentialPool.choose(scope)
+        : type === "codex" && chosen.files
+          ? this.k.credentialPool.choose(scope, "chatgpt")
+          : undefined;
     if (pooled) {
       chosen.credential = pooled.name;
       if (pooled.value) chosen.chatgptLogin = pooled.value;
@@ -794,7 +1061,13 @@ export class RunService {
   private async saveTranscript(run: Run) {
     const key = `transcripts/${run.id}.jsonl`;
     try {
-      await this.k.objects.put(key, this.events(run.id).map((e) => JSON.stringify(e)).join("\n") + "\n", "application/x-ndjson");
+      await this.k.objects.put(
+        key,
+        this.events(run.id)
+          .map((e) => JSON.stringify(e))
+          .join("\n") + "\n",
+        "application/x-ndjson",
+      );
       run.transcriptKey = key;
       this.save(run);
     } catch (err) {
@@ -805,7 +1078,11 @@ export class RunService {
   /** Upload what the agent saved in .kiln/artifacts/ (and lists in result.artifacts) for reviewers. */
   private async collectArtifacts(run: Run, sandbox: Sandbox, cwd: string | undefined) {
     const base = cwd ? `${cwd}/` : "";
-    const listed = (await sandbox.exec(`[ -d ${base}.kiln/artifacts ] && cd ${base}.kiln/artifacts && find . -type f -size -50M | sed 's|^./||' || true`, { trusted: true })).stdout.split("\n").filter(Boolean);
+    const listed = (
+      await sandbox.exec(`[ -d ${base}.kiln/artifacts ] && cd ${base}.kiln/artifacts && find . -type f -size -50M | sed 's|^./||' || true`, { trusted: true })
+    ).stdout
+      .split("\n")
+      .filter(Boolean);
     // Workspace paths only: never an absolute path such as the Codex login under /tmp.
     const extra = ((run.result?.artifacts as string[] | undefined) ?? []).filter((p) => typeof p === "string" && !p.includes("..") && !p.startsWith("/"));
     const paths = [...listed.map((p) => `.kiln/artifacts/${p}`), ...extra];
@@ -841,17 +1118,38 @@ export class RunService {
    */
   async spawn(
     parentRunId: string,
-    input: { agent: string; prompt: string; attachments?: Attachment[]; mode?: RunMode; title?: string; metadata?: Record<string, string>; wait?: boolean; creator?: string },
+    input: {
+      agent: string;
+      prompt: string;
+      attachments?: Attachment[];
+      mode?: RunMode;
+      title?: string;
+      metadata?: Record<string, string>;
+      wait?: boolean;
+      creator?: string;
+      /** Unique among the runs of the parent's tree; followups accept it in place of the run id. */
+      name?: string;
+      /** Start the child's prompt with the parent's conversation so far; by default it gets only `prompt`. */
+      fork?: boolean;
+      /** Send the parent a report when the child finishes or asks a question. */
+      report?: boolean;
+    },
   ): Promise<Run> {
     const parent = this.get(parentRunId);
     if (!parent) throw new KilnError("resource_not_found", `unknown run ${parentRunId}`);
+    if (input.name !== undefined) {
+      if (!RUN_NAME.test(input.name))
+        throw new KilnError("invalid_request", `run name ${JSON.stringify(input.name)} must be lowercase letters, digits and dashes (at most 40)`);
+      if (this.byName(parentRunId, input.name)) throw new KilnError("invalid_request", `this run tree already has a run named ${input.name}`);
+    }
     if (isTerminal(parent)) throw new KilnError("operation_not_supported", `run ${parentRunId} has finished; only a running agent can spawn subagents`);
-    const resolved = this.k.defs.resolved(parent.definitionSha);
+    const resolved = this.definitionOf({ ...(parent.app ? { app: parent.app } : {}), sha: parent.definitionSha }).def;
     const child = resolved.agents[input.agent];
     if (!child) throw new KilnError("resource_not_found", `factory ${parent.factory} has no agent ${input.agent}`);
     const parentAgent = resolved.agents[parent.agent];
     const allowed = child.spawnableBy.includes(parent.agent) || (parentAgent?.agentType === "FOREMAN" && child.spawnableBy.includes("foreman"));
-    if (!allowed) throw new KilnError("not_authorized", `${parent.agent} may not spawn ${input.agent} (spawnableBy: ${child.spawnableBy.join(", ") || "none"})`);
+    if (!allowed)
+      throw new KilnError("not_authorized", `${parent.agent} may not spawn ${input.agent} (spawnableBy: ${child.spawnableBy.join(", ") || "none"})`);
     const depth = (id: string | undefined, n = 0): number => (id ? depth(this.get(id)?.parentRunId, n + 1) : n);
     if (depth(parentRunId) > 4) throw new KilnError("operation_not_supported", "subagents can nest at most 5 levels deep");
     const live = this.live.get(parentRunId) ?? parent;
@@ -860,7 +1158,10 @@ export class RunService {
       factory: parent.factory,
       sha: parent.definitionSha,
       agent: input.agent,
-      prompt: input.prompt,
+      prompt: input.fork ? `${this.forkContext(parentRunId)}\n\n## Your task\n${input.prompt}` : input.prompt,
+      ...(parent.app ? { app: parent.app } : {}),
+      ...(input.name ? { name: input.name } : {}),
+      ...(input.report ? { reportToParent: true } : {}),
       kind: parent.kind,
       stage: parent.stage,
       workItem: parent.workItemId ? this.k.workflow.get(parent.workItemId) : undefined,
@@ -912,8 +1213,9 @@ export class RunService {
   async steer(runId: string, text: string, by: string) {
     const session = this.sessions.get(runId);
     const remote = this.remotes.get(runId);
+    // A live run without a session is queued, claimed or still preparing its sandbox: its agent gets the message when it starts.
     const run = this.live.get(runId);
-    if (!run || (!session && !remote && run.status !== "queued" && run.status !== "claimed")) throw new KilnError("operation_not_supported", `run ${runId} is not running`);
+    if (!run) throw new KilnError("operation_not_supported", `run ${runId} is not running`);
     if (session) await session.steer(text);
     else if (remote) await remote.steer(text);
     run.steering.push(text);
@@ -927,10 +1229,13 @@ export class RunService {
    * A follow-up message: steers the run while it is live, otherwise continues it in a new run
    * with the same agent, branch and work item (the original prompt plus the follow-up).
    */
-  async followup(runId: string, input: { message: string; attachments?: Attachment[]; by: string; mode?: RunMode }): Promise<{ delivered: "steered" | "continued"; run: Run }> {
+  async followup(
+    runId: string,
+    input: { message: string; attachments?: Attachment[]; by: string; mode?: RunMode },
+  ): Promise<{ delivered: "steered" | "continued"; run: Run }> {
     const run = this.get(runId);
     if (!run) throw new KilnError("resource_not_found", `unknown run ${runId}`);
-    if (this.isActive(runId)) {
+    if (this.isActive(runId) || this.live.has(runId)) {
       const sandbox = this.sandboxes.get(runId);
       const cwd = run.startState.repos[0]?.name;
       for (const a of input.attachments ?? []) {
@@ -954,6 +1259,9 @@ export class RunService {
       branch,
       parentRunId: run.parentRunId,
       continuationOf: run.id,
+      ...(run.app ? { app: run.app } : {}),
+      ...(run.name ? { name: run.name } : {}),
+      ...(run.reportToParent ? { reportToParent: true } : {}),
       attachments: input.attachments,
       push: run.kind === "work" && Boolean(branch),
       source: run.source,
@@ -1037,8 +1345,7 @@ export class RunService {
     }
     const runner = this.specs.get(runId) ?? DEFAULT_RUNNER("local");
     const sandbox = await (provider ?? this.provider(runner.backend)).resume(ref, { runner, repos: [] }, this.k.objects);
-    const resolved = this.k.defs.resolved(run.definitionSha);
-    const agent = resolved.agents[run.agent]!;
+    const agent = this.definitionOf({ ...(run.app ? { app: run.app } : {}), sha: run.definitionSha }).def.agents[run.agent]!;
     const cwd = run.startState.repos[0]?.name;
     run.status = "running";
     this.save(run);

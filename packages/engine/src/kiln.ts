@@ -5,13 +5,26 @@ import { dirname, join } from "node:path";
 import { FakeProvider, type DecisionOutcome, type DecisionProvider } from "@kiln/decide";
 import { InMemoryEventBus } from "@kiln/events";
 import { adapterFor, type HarnessAdapter } from "@kiln/harness";
-import type { Chat, ConnectionProvider, ConnectionProviderId, Forge, GitHubAppCredentials, GitHubManifestClient, Mailer, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
+import type {
+  Chat,
+  ConnectionProvider,
+  ConnectionProviderId,
+  Forge,
+  GateMerger,
+  GitHubAppCredentials,
+  GitHubManifestClient,
+  Mailer,
+  PreviewProvider,
+  RepoRef,
+  Tracker,
+} from "@kiln/integrations";
 import { isActive } from "./state";
 import { ConnectionService, IdentityService } from "./connections";
 import { ReviewService } from "./reviews";
 import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
 import { WebhookSourceService } from "./webhook-sources";
-import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
+import type { AppRunHost } from "./run-definition";
+import { LocalSandboxProvider, type Sandbox, type SandboxProvider } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import { MemoryObjectStore, MemoryStore, type ObjectStore, type Store } from "@kiln/store";
 import { AutomationService } from "./automations";
@@ -28,9 +41,26 @@ import { FileService } from "./files";
 import { GateService } from "./gates";
 import { ImprovementService, RuleImprover, type Improver } from "./improvement";
 import { InboxService } from "./inbox";
+import { MergeGateService } from "./merge-gate";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
-import { AccountService, ChatgptSignIn, CredentialPool, EnvironmentService, HttpMcpProbe, McpRegistry, type McpProbe, NotificationService, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService } from "./platform";
+import {
+  AccountService,
+  ChatgptSignIn,
+  CredentialPool,
+  EnvironmentService,
+  HttpMcpProbe,
+  McpRegistry,
+  type McpProbe,
+  NotificationService,
+  type EcrTokenProvider,
+  SecretVault,
+  StorageRouter,
+  TeamService,
+  UsageService,
+  UserService,
+  VariableService,
+} from "./platform";
 import { PlanningService, type Planner } from "./planning";
 import { RunQuery } from "./run-query";
 import { RunService } from "./runs";
@@ -39,12 +69,25 @@ import { DecisionJudge, ScoringService, type Judge } from "./scoring";
 import { SecretsBroker } from "./secrets";
 import { SkillService } from "./skills";
 import { TaskService } from "./tasks";
-import { C, newId, systemClock, type AuditEntry, type Clock, type DecisionLog, type GateQuestion, type WorkItem } from "./types";
+import { C, newId, systemClock, type AuditEntry, type Clock, type DecisionLog, type GateQuestion, type Run, type WorkItem } from "./types";
 import { WorkerRegistry } from "./workers";
 import { Workflow } from "./workflow";
 import { FactoryWizard } from "./wizard";
 
+/**
+ * Where a run works when it shouldn't get a sandbox of its own: a Studio App's run works in the App's
+ * sandbox, in a chat's worktree. `acquire` answers undefined for runs it doesn't take; `release` is
+ * called once the agent finished, with the workspace still there, instead of destroying the sandbox.
+ */
+export interface WorkspaceProvider {
+  acquire(run: Run, parent?: Run): Promise<{ sandbox: Sandbox; cwd: string } | undefined>;
+  release(run: Run): Promise<void>;
+}
+
 export type KilnOptions = {
+  workspaces?: WorkspaceProvider;
+  /** Studio Apps' definitions, for App runs (ADR-012). */
+  apps?: AppRunHost;
   forge: Forge;
   store?: Store;
   objects?: ObjectStore;
@@ -55,6 +98,8 @@ export type KilnOptions = {
   sandboxes?: Partial<Record<"local" | "docker" | "kubernetes", SandboxProvider>>;
   harness?: (type: HarnessType, agentType: string) => HarnessAdapter;
   decide?: { primary: DecisionProvider; fallback?: DecisionProvider };
+  /** ADR-014: the merge gate's own merge capability, from its own credential. Only MergeGateService receives it. */
+  gateMerger?: GateMerger;
   judge?: Judge;
   improver?: Improver;
   planner?: Planner;
@@ -156,6 +201,7 @@ export class Kiln {
   readonly runQuery: RunQuery;
   readonly workers: WorkerRegistry;
   readonly inbox: InboxService;
+  readonly mergeGate: MergeGateService;
   readonly editor: DefinitionEditor;
   readonly definitionChanges: DefinitionChangeService;
   readonly factoryMetrics: FactoryMetricsService;
@@ -181,12 +227,19 @@ export class Kiln {
   readonly mcp: McpRegistry;
   readonly mcpProbe: McpProbe;
   readonly environments: EnvironmentService;
+  /** Project environments: variables and secrets inherited team → project → factory or App. */
+  readonly variables: VariableService;
   readonly usage: UsageService;
   /** Routes artifacts, transcripts and attachments to each team's storage; `objects` is this router. */
   readonly storage: StorageRouter;
   readonly notifications: NotificationService;
 
-  constructor(readonly options: KilnOptions) {
+  readonly options: KilnOptions;
+
+  constructor(input: KilnOptions) {
+    // The merge capability goes to the merge gate alone; it is not kept on `kiln.options`, which every service reads.
+    const { gateMerger, ...options } = input;
+    this.options = options;
     this.store = options.store ?? new MemoryStore();
     this.storage = new StorageRouter(this, options.objects ?? new MemoryObjectStore());
     this.objects = this.storage;
@@ -220,6 +273,7 @@ export class Kiln {
     this.runQuery = new RunQuery(this);
     this.workers = new WorkerRegistry(this);
     this.inbox = new InboxService(this);
+    this.mergeGate = new MergeGateService(this, gateMerger);
     this.editor = new DefinitionEditor(this);
     this.definitionChanges = new DefinitionChangeService(this);
     this.factoryMetrics = new FactoryMetricsService(this);
@@ -238,6 +292,7 @@ export class Kiln {
     this.mcp = new McpRegistry(this);
     this.mcpProbe = options.mcpProbe ?? new HttpMcpProbe();
     this.environments = new EnvironmentService(this);
+    this.variables = new VariableService(this);
     this.usage = new UsageService(this);
     this.connections = new ConnectionService(this, options.connectionProviders);
     this.identities = new IdentityService(this);
@@ -263,7 +318,11 @@ export class Kiln {
       const { factory, workItemId, from, to } = e.payload;
       const wi = this.workflow.get(workItemId);
       if (!wi || wi.source.automation?.startsWith("stage:")) return;
-      await this.automations.handleFactoryEvent(factory, { provider: "factory", event: "work_item_stage_changed", data: { from, to, workItemId, title: `${wi.title} → ${to}`, body: wi.body } });
+      await this.automations.handleFactoryEvent(factory, {
+        provider: "factory",
+        event: "work_item_stage_changed",
+        data: { from, to, workItemId, title: `${wi.title} → ${to}`, body: wi.body },
+      });
     });
 
     if (options.autoScore !== false) {
@@ -311,7 +370,12 @@ export class Kiln {
       if (wi) return this.teams.factoryTeam(wi.factory);
       const run = target.startsWith("run_") ? this.store.get<{ id: string; factory: string; team?: string }>(C.runs, target) : undefined;
       if (run) return run.team ?? this.teams.factoryTeam(run.factory);
-      const owned = this.store.get<{ id: string; factory?: string; teamId?: string }>(C.gates, target) ?? this.store.get(C.proposals, target) ?? this.store.get(C.memories, target) ?? this.store.get("mcp_servers", target) ?? this.store.get("environments", target);
+      const owned =
+        this.store.get<{ id: string; factory?: string; teamId?: string }>(C.gates, target) ??
+        this.store.get(C.proposals, target) ??
+        this.store.get(C.memories, target) ??
+        this.store.get("mcp_servers", target) ??
+        this.store.get("environments", target);
       if (owned?.teamId) return owned.teamId;
       if (owned?.factory) return this.teams.factoryTeam(owned.factory);
       const token = target.startsWith("tok_") ? this.store.get<{ id: string; teamId?: string; userId?: string }>("api_tokens", target) : undefined;
@@ -331,7 +395,7 @@ export class Kiln {
       .slice(0, limit);
   }
 
-  logDecision(outcome: DecisionOutcome, state: unknown, refs: { workItemId?: string; runId?: string } = {}) {
+  logDecision(outcome: DecisionOutcome, state: unknown, refs: { workItemId?: string; runId?: string } = {}): DecisionLog {
     const log: DecisionLog = {
       id: newId("dec"),
       decision: outcome.decision,
@@ -346,6 +410,7 @@ export class Kiln {
     };
     this.store.put(C.decisions, log);
     this.bus.publish("decision.made", { decision: outcome.decision, action: outcome.action, provider: outcome.provider, workItemId: refs.workItemId });
+    return log;
   }
 
   /** Post back where the work started: the Slack thread, the issue or the PR. */

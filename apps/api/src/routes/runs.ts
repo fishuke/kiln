@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { z } from "zod";
 import type { Env, RouteContext } from "../app";
 import { HttpError } from "../app";
+import { resolveRunRef } from "../run-auth";
 import type { Route } from "../openapi";
 import { Attachments, RunMode } from "../schemas";
 
@@ -18,6 +19,12 @@ export const SpawnAgent = z.object({
   metadata: Metadata.optional(),
   /** Wait for the subagent to finish (default false: return as soon as it starts). */
   wait: z.boolean().optional(),
+  /** Unique in the run tree; run tokens can use it in place of the run id. */
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, "lowercase letters, digits and dashes, at most 40").optional(),
+  /** Start with the parent's conversation so far instead of only the prompt. */
+  fork: z.boolean().optional(),
+  /** Report to the parent (as a follow-up) when the child finishes or asks a question. */
+  report: z.boolean().optional(),
 });
 export const RunAgents = z.object({ runs: z.array(SpawnAgent.omit({ wait: true })).min(1).max(10), wait: z.boolean().optional() });
 export const Ask = z.object({
@@ -71,7 +78,7 @@ export function register({ app, kiln, need, who, canReadRun, canSendRun }: Route
     return run;
   };
   const sendable = (c: Context<Env>, id: string): Run => {
-    const run = kiln.runs.get(id);
+    const run = resolveRunRef(kiln, c.get("run"), id);
     if (!run) throw new HttpError(404, "unknown run");
     if (!canSendRun(c, run)) throw new HttpError(403, `token lacks send on ${run.factory}`);
     return run;
@@ -145,7 +152,19 @@ export function register({ app, kiln, need, who, canReadRun, canSendRun }: Route
   };
   const spawnOne = async (c: Context<Env>, parent: Run, s: z.infer<typeof SpawnAgent>) => {
     const attachments = s.attachments?.length ? kiln.files.resolveAttachments(s.attachments, who(c), parent.factory) : undefined;
-    const child = await kiln.runs.spawn(parent.id, { agent: s.agent, prompt: s.prompt, title: s.title, mode: s.mode, metadata: s.metadata, attachments, wait: s.wait ?? false, creator: who(c) });
+    const child = await kiln.runs.spawn(parent.id, {
+      agent: s.agent,
+      prompt: s.prompt,
+      title: s.title,
+      mode: s.mode,
+      metadata: s.metadata,
+      attachments,
+      wait: s.wait ?? false,
+      creator: who(c),
+      name: s.name,
+      fork: s.fork,
+      report: s.report,
+    });
     return kiln.runQuery.view(child);
   };
 
@@ -178,6 +197,7 @@ export function register({ app, kiln, need, who, canReadRun, canSendRun }: Route
       runId: run.id,
       assignees: wi ? [wi.requester] : run.creator && !run.creator.includes(":") ? [run.creator] : undefined,
     });
+    if (gate.question) await kiln.runs.reportQuestion(run.id, gate.question);
     return c.json(gate, 201);
   });
 

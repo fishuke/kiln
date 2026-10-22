@@ -1,18 +1,23 @@
 import { serve } from "@hono/node-server";
+import type { IncomingMessage } from "node:http";
 import { resolve } from "node:path";
+import type { Duplex } from "node:stream";
 import { createMcpHandler } from "@kiln/mcp";
 import { createApp } from "./app";
 import { kilnFromEnv, seedDemo } from "./config";
+import { getPreviewResolver, previewConfig, previewPeerGuard, previewUpgrade, refusePreviewPeers } from "./routes/studio-preview";
 import { bridgeEvents, engineTelemetry, listenEgressLogs } from "./telemetry";
 
 const config = kilnFromEnv();
+// Studio sandboxes share the preview network with the API; the API only connects out to them, never the reverse.
+const fromPreview = previewPeerGuard(process.env.KILN_PREVIEW_SUBNET);
 const { kiln } = config;
 
 // Engine events (stages, runs, run events) and the egress proxy's access log go to the OTLP backend too.
 if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   const telemetry = engineTelemetry();
   bridgeEvents(kiln.bus, { run: (id) => kiln.runs.get(id) }, telemetry);
-  void listenEgressLogs(Number(process.env.KILN_EGRESS_LOG_PORT ?? 5140), telemetry.egressLogger);
+  void listenEgressLogs(Number(process.env.KILN_EGRESS_LOG_PORT ?? 5140), telemetry.egressLogger, fromPreview);
   process.once("SIGTERM", () => void telemetry.shutdown());
 }
 
@@ -30,13 +35,26 @@ let app: ReturnType<typeof createApp>;
 const mcp = createMcpHandler(config.publicUrl, async (input, init) => app.fetch(new Request(input as string, init)), { resourceMetadata: `${config.publicUrl.replace(/\/$/, "")}/.well-known/oauth-protected-resource/mcp` });
 app = createApp(kiln, { devAuth: config.devAuth, mcp, github: config.github, openSignup: config.openSignup });
 
-serve({ fetch: app.fetch, port: config.port }, () => {
+const server = serve({ fetch: app.fetch, port: config.port }, () => {
   console.log(`Kiln API on ${config.publicUrl} (${config.mode} mode, data in ${config.dataDir})`);
   console.log(`MCP endpoint: ${config.publicUrl}/mcp`);
   if (config.devAuth) console.log("Dev auth is on: every request without a token acts as dev@kiln.local, owner of the default team.");
   else if (kiln.accounts.needsOwner()) console.log(`No team owner yet: the first signup (POST /api/v1/auth/signup) owns the default team.`);
   else if (config.adminToken) console.log(`Admin token: in ${config.dataDir}/admin-token`);
 });
+
+if (fromPreview) refusePreviewPeers(server, fromPreview);
+else if (process.env.KILN_PREVIEW_NETWORK) console.warn("KILN_PREVIEW_NETWORK is set without KILN_PREVIEW_SUBNET: Studio sandboxes can open connections to the API.");
+
+// Studio previews: hot reload (Next.js HMR) is a WebSocket on the preview host; nothing else here upgrades.
+const preview = previewConfig();
+if (preview) {
+  const upgrade = previewUpgrade(preview, () => getPreviewResolver(kiln));
+  server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    if (!upgrade(req, socket, head)) socket.destroy();
+  });
+  console.log(`Studio previews on *.${preview.domain}`);
+}
 
 if (process.env.KILN_DEMO !== "0") {
   seedDemo(kiln, resolve(process.env.KILN_ROOT ?? process.cwd()))

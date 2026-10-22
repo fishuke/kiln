@@ -558,8 +558,54 @@ Validation checks every policy expression, that it only reads questions and stat
 | `model-router` | `complexity` (easy, medium, hard) | `easy: complexity.easy >= 0.8`, `hard: complexity.hard >= 0.6` | Picks the model of a `complexity` router. |
 | `failure-category` | `failure_category` (instructions, skills, tooling, model, app_code, flaky) | none | Groups failed runs before self-improvement. |
 | `inbox-urgency` | `urgency` (score 0–1) | `urgent: urgency >= 0.8` | Orders the inbox. |
+| `merge-safety` | `safe_to_merge`, `risk_tier` (low, medium, high), `touches_sensitive_area`; sees the diff, the areas it touches, CI, tests, preview, findings and the author | `review` (see below), `merge: safe_to_merge >= 0.9 and risk_tier.low >= 0.7` | The merge gate merges only on `merge`. See [Merge gate](#merge-gate). |
 
 All built-ins use `on_error: llm` and `timeout_ms: 800`.
+
+## Merge gate
+
+The merge gate merges a pull request without a person when the `merge-safety` decision says it is safe, and sends it to the Inbox otherwise (ADR-014). It runs only when a person marks a pull request **Ready for review**, never because it is open.
+
+It is off by default. A person turns it on in a policy, which agents and self-improvement can't change:
+
+```yaml
+# policies/merge.yaml (a factory), or the App's policies in Studio
+mergeGate: true
+```
+
+If any policy file says `mergeGate: false`, the gate is off. With the gate off, every pull request goes to a person and the decision does not run.
+
+The decision sees:
+
+| Field | Value |
+| --- | --- |
+| `title`, `author`, `files`, `areas` | The pull request, its changed paths and the parts of the app they belong to. |
+| `additions`, `deletions`, `lines` | Line counts. |
+| `diff` | The patches, up to 20,000 characters. |
+| `checks` | `success`, `failure`, `pending` or `none`, from the forge's checks on the head commit. |
+| `tests`, `preview` | What Studio reports: `passed`, `failed` or `none`, and `ready`, `failed` or `none`. |
+| `findings` | Review findings as `<severity>: <text>`. |
+| `sensitive_files` | How many changed paths are sensitive: auth, sessions, passwords, payments, billing, secrets, tokens, migrations, CI workflows, `.env` files, Dockerfiles, infrastructure, dependency manifests and lockfiles. |
+| `high_findings` | How many findings are `high`. |
+
+Kiln computes `lines`, `sensitive_files`, `high_findings` and `checks` itself, and the built-in policy tests them before any model answer:
+
+```yaml
+policy:
+  review: "checks != 'success' or tests == 'failed' or preview == 'failed' or sensitive_files > 0 or high_findings > 0 or lines > 300 or touches_sensitive_area >= 0.3 or risk_tier.high >= 0.3"
+  merge: "safe_to_merge >= 0.9 and risk_tier.low >= 0.7"
+```
+
+The diff and title are written by agents and customers, so a model can be talked into an answer. The computed fields keep a sensitive, large or flagged change with a person whatever the model says. Tune the thresholds in `decisions/merge-safety.yaml`; self-improvement never changes that file.
+
+What happens:
+
+| Result | What Kiln does |
+| --- | --- |
+| `merge` | The gate merges the commit the decision saw, with its own credential (`KILN_MERGE_GATE_TOKEN` on GitHub; see [Self-hosting](../infrastructure/self-hosting.md)). If the branch moved or the forge refuses, a person reviews it instead. |
+| Anything else, or no answer | An Inbox item for the reviewers with the reasons, such as "CI failed." or "It changes sensitive files: lib/auth/session.ts." |
+
+Every result is in the audit log: `merge_gate.merged`, `merge_gate.sent_to_review` or `merge_gate.merge_failed`, with the fields the decision saw, its answers and the action, so a bad merge can be traced and the decision tuned. Agents never get merge permission; only the gate holds the merge credential.
 
 ## Command guard
 
@@ -1097,6 +1143,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `deniedActions` | list of string |  |  |
 | `allowedTriggerers` | list of string |  |  |
 | `maxUsdPerWorkItem` | number |  |  |
+| `mergeGate` | boolean |  |  |
 
 ## runner
 
@@ -1246,6 +1293,36 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `title` | string | yes |  |
 | `tags` | list of string |  | default `[]` |
 | `author` | string |  |  |
+
+## app
+
+`app.yaml (Studio App)`
+
+| Key | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `schemaVersion` | `"kiln/v1"` | yes |  |
+| `name` | string |  |  |
+| `description` | string |  |  |
+| `skills` | object |  |  |
+| `skills.mandatory` | list of string |  |  |
+| `budgets` | object |  |  |
+| `budgets.monthlyUsd` | number |  |  |
+
+## app-policy
+
+`policies/<name>.yaml (Studio App)`
+
+| Key | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `description` | string |  |  |
+| `shipMode` | object |  |  |
+| `shipMode.max` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.roles` | object |  |  |
+| `shipMode.roles.owner` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.roles.admin` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.roles.member` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.pushDefaultBranch` | boolean |  |  |
+| `mergeGate` | boolean |  |  |
 
 ## Related pages
 
@@ -1557,6 +1634,122 @@ How a memory gets there:
 
 ---
 
+# Studio App definitions
+
+Source: https://github.com/fishuke/kiln/blob/main/docs/site/configuration/studio-app-definitions.md
+
+A Studio App is defined with the same `kiln/v1` files as a factory, minus the parts that only make sense for a factory, and a new App inherits everything it needs from its team and Kiln Project.
+
+## What an App definition holds
+
+```text
+app.yaml                                   # name, description, mandatory skills, budget
+agents/<name>/agent.md                     # agents, in the factory agent format
+agents/<name>/skills/<skill>/SKILL.md      # an agent's own skills
+skills/<skill>/SKILL.md                    # skills every agent gets
+policies/<name>.yaml                       # ship mode caps and the merge gate
+```
+
+Pipelines, gates, automations, runners, routers, scorers, benchmarks, webhooks, decisions and memories don't apply to Apps. A file under any of them is an error, for example `pipelines/feature.yaml:1: pipelines don't apply to Apps`.
+
+## app.yaml
+
+```yaml
+schemaVersion: kiln/v1
+name: Pricing site
+description: Marketing site for the pricing pages
+skills:
+  mandatory: [house-style]
+budgets:
+  monthlyUsd: 200
+```
+
+| Key                   | Notes                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| `schemaVersion`       | Must be `kiln/v1`.                                                                                   |
+| `name`, `description` | Optional.                                                                                            |
+| `skills.mandatory`    | Skills in `skills/` that every agent always gets in its instructions, not only in its skills folder. |
+| `budgets.monthlyUsd`  | What the App's chats may spend in a calendar month.                                                  |
+
+## Agents
+
+Agents use the [factory agent format](agents.md): `description`, `harness` or `model`, `mcpServers`, `secrets`, `spawnableBy` and the instructions in the body. An App can have any number of them, for example `implementer`, `reviewer` and `test-writer`.
+
+```markdown
+---
+description: Reviews a change before it is applied
+model: claude-opus-5-5
+mcpServers: [github]
+spawnableBy: [general]
+---
+
+Check the tests and the acceptance criteria. Report what is missing.
+```
+
+- Every App has an agent named `general` (Claude Code, no instructions), so a chat works with nothing configured. A chat that names no agent runs `general`.
+- A chat's agent can start the App's other agents as subagent runs. `spawnableBy` limits which agents may start an agent; without it, any of the App's agents may.
+- Each agent gets every shared skill plus its own skills. Mandatory skills are added to its instructions.
+- `agentType`, `runner`, `workerHost`, `environmentId`, `required_repos` and `credentialStrategy` only mean something in a factory. In an App they are ignored with a warning.
+- Set one of `harness` and `model`, not both, and name a model rather than a `router:`.
+
+`mcpServers` names servers from [MCPs and apps](../management/secrets-mcps-environments.md#mcp-servers-mcps-and-apps). Servers given to all agents are added as in factories.
+
+## Policies
+
+```yaml
+# policies/studio.yaml
+shipMode:
+  max: cowboy # the highest ship mode anyone may pick
+  roles: { member: review } # the highest per team role: owner, admin, member
+  pushDefaultBranch: false # imported App: Cowboy pushes the default branch
+mergeGate: false # Ready for review goes through the merge gate
+```
+
+The App's policies are the only place these settings live. Ship modes and the merge gate read them from here.
+
+- Ship modes go from `safe` to `review` to `cowboy`. A person picks a ship mode up to the lowest cap that applies to them.
+- `pushDefaultBranch` and `mergeGate` are off unless a policy turns them on, and any policy that turns one off wins. With the merge gate off, a person reviews every Studio pull request.
+- Only team owners and admins change an App's policies. The Kiln MCP can't change them.
+- Kiln records who changed each setting and when.
+
+## Defaults from the team and the Kiln Project
+
+An App's definition has up to four layers, applied in order: built-in, team, Kiln Project (when the App belongs to one), then the App itself. Each layer is a tree like the one above, and every layer is optional.
+
+| Part                  | How layers combine                                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Agents                | By name. A key a later layer sets wins; `null` clears it. Setting `harness` drops an earlier `model`.       |
+| Skills                | By name; a later layer's skill replaces an earlier one.                                                     |
+| Mandatory skills      | Added up across layers. An App can't drop a skill its team made mandatory.                                  |
+| Policies              | All of them apply. Caps take the lowest; a switch is on only if a policy turns it on and none turns it off. |
+| `budgets.monthlyUsd`  | The lowest of all layers.                                                                                   |
+| `name`, `description` | The last layer that sets them.                                                                              |
+
+Team owners and admins edit the team and project layers. Any member of the team can edit an App's own layer, except its policies.
+
+## Versions and export
+
+Kiln stores each layer by the content hash of its files. Every change makes a new version, and the layer points at one. **Use** on an earlier version points the layer back at it, as a new entry in its history.
+
+Export writes the resolved definition, all layers combined, in the layout above, ready to commit to a Git repository. Team and project policies are prefixed with their layer, for example `policies/team-guard.yaml`.
+
+## Editing
+
+- **App settings** in Studio edits the App's own layer: agents, skills, policy, budget and versions.
+- API: `GET|PUT|PATCH /api/v1/studio/apps/{id}/definition`, `POST …/definition/use`, `GET /api/v1/studio/apps/{id}/settings` and `GET /api/v1/studio/apps/{id}/definition/export`. The same routes exist for `projects/{id}` and `team`. A `PUT` with invalid files answers 400 with each error as `file:line: message`. See the [API reference](../developer-tools/api.md).
+- Kiln MCP: `get_app_settings` and `update_app_settings`. See [Kiln MCP](../developer-tools/mcp.md).
+
+## Related pages
+
+- [Factory agents](agents.md)
+- [Skills](skills.md)
+- [Policies and budgets](policies-and-budgets.md)
+- [Definitions as code](definitions-as-code.md)
+- [Definition file reference](definitions-reference.md)
+- [Secrets, MCPs and environments](../management/secrets-mcps-environments.md)
+
+---
+
 # API reference
 
 Source: https://github.com/fishuke/kiln/blob/main/docs/site/developer-tools/api.md
@@ -1702,6 +1895,10 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/environments/{id}` | — | One environment |
 | PATCH | `/api/v1/environments/{id}` | — | Change an environment |
 | DELETE | `/api/v1/environments/{id}` | — | Delete an environment |
+| GET | `/api/v1/variables` | — | Variable layers of a team, project, factory or App, one per environment (no secret values) |
+| GET | `/api/v1/variables/resolve` | — | The variables an environment resolves to for a project, factory or App, and where each comes from |
+| PUT | `/api/v1/variables/{scope}/{owner}/{environment}` | — | Replace a layer's variables (a secret sent without a value keeps its value) |
+| DELETE | `/api/v1/variables/{scope}/{owner}/{environment}` | — | Delete a layer |
 
 ## Usage
 
@@ -1822,7 +2019,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/inbox` | — | Open decisions (gates), most urgent first |
 | GET | `/api/v1/gates/{id}` | `read` | A gate with its work item |
 | POST | `/api/v1/gates/{id}/decide` | `decide:*` | Approve, reject or answer (scope depends on the gate kind) |
-| GET | `/api/v1/inbox/items` | — | Inbox items: question, answer_question, spec_review, pr_review, blocked, failed (scope mine|team, factory, kind, read, q) |
+| GET | `/api/v1/inbox/items` | — | Inbox items: question, answer_question, spec_review, pr_review, studio_pr_review, blocked, failed (scope mine|team, factory, kind, read, q) |
 | POST | `/api/v1/inbox/read` | — | Mark items read |
 | POST | `/api/v1/inbox/unread` | — | Mark items unread |
 | POST | `/api/v1/inbox/resolve` | — | Resolve (hide) items for you |
@@ -1992,6 +2189,55 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/workers/{instance}/runs/{runId}/complete` | `worker` | Report a run's result, artifacts and pushed branches |
 | DELETE | `/api/v1/workers/{instance}` | `worker` | Disconnect; its running runs fail and are retried |
 
+## Studio
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/studio/apps` | `read` | Your team's Studio Apps |
+| POST | `/api/v1/studio/apps` | `send` | Create an App from a template or a repository your team may use; it starts as creating |
+| GET | `/api/v1/studio/apps/{id}` | `read` | An App with its chats and versions (newest first) |
+| PATCH | `/api/v1/studio/apps/{id}` | `send` | Rename an App, change its Kiln Project or dev command |
+| PUT | `/api/v1/studio/apps/{id}/ship-mode` | `send` | Change an App's ship mode, up to the highest mode the App's policy allows your team role |
+| POST | `/api/v1/studio/apps/{id}/ship` | `send` | Open or update the App's pull request; as its author, mark it ready for review; or cancel it |
+| POST | `/api/v1/studio/apps/{id}/pause` | `send` | Snapshot an App's workspace and free its sandbox; the next use resumes it |
+| POST | `/api/v1/studio/apps/{id}/chats` | `send` | Start a chat (its own worktree and preview), optionally with a first message |
+| GET | `/api/v1/studio/chats/{id}` | `read` | A chat with its turns (oldest first) |
+| POST | `/api/v1/studio/chats/{id}/messages` | `send` | Send a message: starts a turn, or steers the running one |
+| POST | `/api/v1/studio/chats/{id}/apply` | `send` | Apply a chat's checkpoints to the App's main line as a version |
+| GET | `/api/v1/studio/chats/{id}/diff` | `read` | The chat's changes since it branched or was last applied |
+| GET | `/api/v1/studio/chats/{id}/preview` | `read` | The chat's live preview (starts its dev server) |
+| GET | `/api/v1/studio/chats/{id}/events` | `read` | Server-sent events from the chat's Studio events: the chat and the turn each event names |
+| POST | `/api/v1/studio/versions/{id}/restore` | `send` | Restore a version as a new version |
+| POST | `/api/v1/studio/versions/{id}/bookmark` | `send` | Pin or unpin a version |
+| GET | `/api/v1/studio/versions/{id}/diff` | `read` | A version's changes against its parent |
+| GET | `/api/v1/studio/versions/{id}/preview` | `read` | Preview an earlier version |
+| GET | `/api/v1/studio/status` | `read` | What is working and what needs you, across your team's Apps |
+| GET | `/api/v1/studio/events` | `read` | Server-sent events for your team's Apps: Studio events and merge gate reviews |
+| POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send |
+| GET | `/api/v1/studio/apps/{id}/definition` | — | An App's own Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/apps/{id}/definition` | — | Replace an App's own definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/apps/{id}/definition` | — | Change an App's own definition layer from settings |
+| POST | `/api/v1/studio/apps/{id}/definition/use` | — | Point an App's own definition layer at an earlier sha |
+| GET | `/api/v1/studio/projects/{id}/definition` | — | A Kiln Project's Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/projects/{id}/definition` | — | Replace a Kiln Project's definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/projects/{id}/definition` | — | Change a Kiln Project's definition layer from settings |
+| POST | `/api/v1/studio/projects/{id}/definition/use` | — | Point a Kiln Project's definition layer at an earlier sha |
+| GET | `/api/v1/studio/team/definition` | — | The team's Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/team/definition` | — | Replace the team's definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/team/definition` | — | Change the team's definition layer from settings |
+| POST | `/api/v1/studio/team/definition/use` | — | Point the team's definition layer at an earlier sha |
+| GET | `/api/v1/studio/apps/{id}/settings` | — | An App's resolved settings and its own values |
+| GET | `/api/v1/studio/team/settings` | — | The team's Studio defaults, resolved |
+| GET | `/api/v1/studio/projects/{id}/settings` | — | A Kiln Project's Studio defaults, resolved |
+| GET | `/api/v1/studio/apps/{id}/definition/export` | — | An App's definition in kiln/v1 layout (?resolved=false for its own layer) |
+
+## Merge gate
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/merge-gate/reviews` | — | Pull requests the merge gate judged for the current team's Studio Apps (?state=) |
+| GET | `/api/v1/merge-gate/reviews/{id}` | — | One merge gate review: merged or sent to review, the reasons and the merge-safety answers |
+
 ## Errors
 
 Errors are JSON: `{ "error": "message" }` with status 400 (invalid request; `issues` lists the fields), 401 (missing or invalid token), 402 (`{ "error": "budget_exceeded", "message": ... }`: the team's spend limit is reached and auto-stop is on), 403 (token lacks the scope), 404 (unknown resource), 409 (wrong state or already exists), 410 (expired invite) or 413 (upload too large).
@@ -2103,6 +2349,7 @@ List my factories, then help me send a task to the right one and follow it throu
 | `create_team` | Create a team. You become its owner. Needs a user token (session or personal API key). |
 | `decide_gate` | Approve, reject or answer a gate. Needs the decide scope for the gate's kind. |
 | `follow_up_run` | Send a follow-up to a run: steers it while it runs, continues it when it finished. |
+| `get_app_settings` | A Studio App's definition: its agents (model, MCP servers, skills), shared skills (mandatory ones marked), ship mode cap, merge gate and budget, resolved from team and project defaults, plus what the App sets itself. |
 | `get_conversation` | A task's conversation (requests, foreman messages, agent summaries, decisions), or a run's normalized conversation. |
 | `get_factory_file_schema` | The definition schema catalog, or one document (e.g. agent.schema.json, factory.schema.json). |
 | `get_gate` | A gate (decision) and its answer. |
@@ -2126,6 +2373,20 @@ List my factories, then help me send a task to the right one and follow it throu
 | `send_task` | Send new work to a factory's foreman (factory, title, note), or hand a task you worked on locally back (task_id, branch or pr_url, note). |
 | `spawn_agent` | Start a subagent of your factory for part of the work. Returns at once with the child run; follow it with get_run. Only agents whose spawnableBy allows you can be started. |
 | `steer_run` | Send a steering message to a running agent. |
+| `studio_apply` | Studio: Apply a chat's changes to the app's main line as a new version. |
+| `studio_bookmark` | Studio: Pin or unpin a version. |
+| `studio_focus` | Studio: Move the person's screen to an app and, optionally, a chat. (Moves the caller's screen; changes nothing on the server.) |
+| `studio_look` | Studio: The live preview of a chat (its URL). |
+| `studio_new_chat` | Studio: Start a new chat (a parallel line of work) in an app with one of its agents (default general), optionally with a first message. |
+| `studio_open_app` | Studio: Open an app by id, or create one from a name and a source (a template or a repository). |
+| `studio_restore` | Studio: Restore an earlier version as a new version; nothing is lost. |
+| `studio_send` | Studio: Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them. |
+| `studio_set_ship_mode` | Studio: Change an App's ship mode (safe, review or cowboy), up to the highest mode the App's policy allows the caller's role. Only a person may. |
+| `studio_ship` | Studio: Open or update the App's pull request from its main line; or, as its author, mark it ready for review (the merge gate merges it or sends it to a reviewer); or cancel it. |
+| `studio_show` | Studio: Show the preview, the code or the history in the person's screen. (Moves the caller's screen; changes nothing on the server.) |
+| `studio_status` | Studio: What is running and what needs the person, for one app or all of them. |
+| `studio_stop` | Studio: Stop the chat's agent; it waits for the next message. |
+| `update_app_settings` | Change a Studio App's own definition layer (not its policy, which people change in the App's settings). null removes the App's value so it inherits from its project or team again. Every change is a new version. |
 | `validate_factory_files` | Validate a whole definition tree without saving it: diagnostics with file and line, plus what is resolved only when applied. With apply=true and a factory, applies it (definitions:write). |
 
 ## Related pages
@@ -2161,25 +2422,25 @@ deduplication: { enabled: true, windowHours: 24, threshold: 0.5 }
 
 ## Task stages
 
-| Stage | Kiln states |
-| --- | --- |
-| `TRIAGE` | received, triaging |
-| `SPEC` | planning, awaiting_spec |
+| Stage       | Kiln states                |
+| ----------- | -------------------------- |
+| `TRIAGE`    | received, triaging         |
+| `SPEC`      | planning, awaiting_spec    |
 | `IMPLEMENT` | building, awaiting_preview |
-| `REVIEW` | reviewing, handed_off |
-| `COMPLETE` | complete |
-| `CANCELLED` | cancelled, failed |
+| `REVIEW`    | reviewing, handed_off      |
+| `COMPLETE`  | complete                   |
+| `CANCELLED` | cancelled, failed          |
 
 `PATCH …/tasks/{id}` may set any stage. `COMPLETE` needs `decide:merge` and closes the task as a person's confirmation; `CANCELLED` cancels it and every run and subagent still going. `DELETE` is a soft delete. Task outputs (`PLAN`, `PULL_REQUEST`, `SCREENSHOT`, `FILE`, `EXTERNAL_REFERENCE`) come newest first.
 
 ## Run states and sources
 
-| State | Meaning |
-| --- | --- |
-| `QUEUED` | Waiting for a [self-hosted worker](../infrastructure/self-hosted-workers.md). |
-| `CLAIMED` | A worker took it and is preparing the sandbox. |
-| `INPROGRESS` | The agent is working. |
-| `BLOCKED` | Waiting on a person: a command approval, an interrupt, or a paused run. |
+| State                                       | Meaning                                                                                          |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `QUEUED`                                    | Waiting for a [self-hosted worker](../infrastructure/self-hosted-workers.md).                    |
+| `CLAIMED`                                   | A worker took it and is preparing the sandbox.                                                   |
+| `INPROGRESS`                                | The agent is working.                                                                            |
+| `BLOCKED`                                   | Waiting on a person: a command approval, an interrupt, or a paused run.                          |
 | `SUCCEEDED`, `FAILED`, `ERROR`, `CANCELLED` | Finished. `FAILED` means the task could not be done as asked; `ERROR` means the platform failed. |
 
 The coarse `task_status` filter groups them: `running`, `blocked`, `failed`, `cancelled`, `complete`. Each run also has a `source` (`LINEAR`, `SLACK`, `GITHUB_WEBHOOK`, `API`, `CLI`, `MCP`, `WEB_APP`, `SCHEDULED_AGENT`, `ORCHESTRATION`, `SELF_IMPROVEMENT`, `BENCHMARK_TRIAL`, `CUSTOM_WEBHOOK`, …), a `title`, `creator` and `executor`, `rootRunId`, and up to 20 immutable `metadata` keys you can filter on with `metadata[key]=value`.
@@ -2203,7 +2464,10 @@ Errors carry a `code` from the catalog (`GET /api/v1/errors`): for example `budg
 A running agent gets `KILN_RUN_TOKEN` and the Kiln MCP server. With it, it may:
 
 - read its own task and the runs of its task or run tree, message its task, and upload files;
-- start subagents: `POST /runs/{id}/spawn` (MCP `spawn_agent`) or several at once with `run-agents` (`run_agents`). The child's `spawnableBy` decides who may start it; nesting stops at five levels;
+- start subagents: `POST /runs/{id}/spawn` (MCP `spawn_agent`) or several at once with `run-agents` (`run_agents`). The child's `spawnableBy` decides who may start it; nesting stops at five levels. Three options shape a subagent:
+  - `name`: lowercase letters, digits and dashes, unique among the runs of the tree. The agent can then use the name instead of the run id in `followups`, `interrupt` and the other run calls. A continuation keeps the name, so it always means the latest run of that line of work.
+  - `fork: true`: the child's prompt starts with the parent's conversation so far (its request, its messages and people's steering), then the brief. Without it the child gets only the brief.
+  - `report: true`: when the child finishes, fails, is stopped or runs out of budget, or asks a question, the parent gets a follow-up with a report: the child's name, title, summary, branch, the reason (`finished`, `failed`, `stopped`, `out_of_budget` or `needs_input`) and the question. A live parent is steered with it; a parent that finished continues in a new run. No polling is needed;
 - ask the requester a question (`POST /runs/{id}/questions`, MCP `ask_user`) with single- or multi-select options and a recommended option, and read the answer from the gate;
 - propose a definition change (`propose_definition_change`) that people review in the inbox;
 - call `complete_task`, which closes the task only after its pull request merged.
@@ -2928,15 +3192,15 @@ egress:
   - registry.npmjs.org
 ```
 
-| Key | Default | Notes |
-| --- | --- | --- |
-| `image` | Kiln's runner image | The container image. Docker pulls it if it is not cached. Without one, runs use the server's runner image (`KILN_RUNNER_IMAGE`), which has the agent CLIs. An image you name must have the harness CLI (`claude`, `codex` or `opencode`) on its `PATH`. |
-| `backend` | `docker` | `docker`, `kubernetes` or `local`. |
-| `shape` | none | `vcpus` and `memoryGb`. Sets CPU and memory limits. |
-| `setupCommands` | `[]` | Run in order after the repositories are cloned, inside each repository (so `pnpm install` finds its `package.json` and the `packageManager` pin). A failing command fails the run. Kiln's runner image has a corepack that runs pnpm 11 and later. |
-| `egress` | `[]` | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed. |
-| `platform.linux.registryCredentialSecretName` | none | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images). |
-| `description` | none | |
+| Key                                           | Default             | Notes                                                                                                                                                                                                                                                   |
+| --------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image`                                       | Kiln's runner image | The container image. Docker pulls it if it is not cached. Without one, runs use the server's runner image (`KILN_RUNNER_IMAGE`), which has the agent CLIs. An image you name must have the harness CLI (`claude`, `codex` or `opencode`) on its `PATH`. |
+| `backend`                                     | `docker`            | `docker`, `kubernetes` or `local`.                                                                                                                                                                                                                      |
+| `shape`                                       | none                | `vcpus` and `memoryGb`. Sets CPU and memory limits.                                                                                                                                                                                                     |
+| `setupCommands`                               | `[]`                | Run in order after the repositories are cloned, inside each repository (so `pnpm install` finds its `package.json` and the `packageManager` pin). A failing command fails the run. Kiln's runner image has a corepack that runs pnpm 11 and later.      |
+| `egress`                                      | `[]`                | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed.                                                                                                  |
+| `platform.linux.registryCredentialSecretName` | none                | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images).                                                                                                      |
+| `description`                                 | none                |                                                                                                                                                                                                                                                         |
 
 An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses the server's runner image on the server's default backend, which is `local` unless the server sets another. A run's image is the runner's own, else its [environment](../management/secrets-mcps-environments.md)'s, else `KILN_RUNNER_IMAGE`, else `node:22-bookworm`.
 
@@ -2954,6 +3218,7 @@ Each run is a container started with `sleep infinity` and `/workspace` as its wo
 - `--cpus` and `--memory` from `shape`,
 - `--security-opt no-new-privileges` and `--cap-drop ALL`,
 - the `kiln-egress` network with `HTTPS_PROXY` and `HTTP_PROXY` set to `http://kiln-egress-proxy:3128` (and `NODE_USE_ENV_PROXY=1`, so Node's `fetch`, which corepack uses to download pnpm, goes through the proxy too) and `KILN_EGRESS_ALLOW` set to the allowed hosts: the runner's `egress` list plus the hosts of the cloned repositories. With no hosts at all, the container gets `--network none`.
+- Studio sandboxes only: the `kiln-preview` network (`KILN_PREVIEW_NETWORK`) as well, where the API reaches their dev servers for [live previews](../integrations/previews.md#studio-live-previews). On Kubernetes they get the label `kiln.dev/preview: "true"` instead.
 
 ### Kubernetes with gVisor
 
@@ -3012,6 +3277,37 @@ A running agent can be paused, for example while it waits at a gate, and resumed
 - The run records the workspace hash at pause and at resume, so you can check the workspace is the same.
 
 Snapshots hold files only. On Docker, the server can also be set to take a CRIU checkpoint that keeps processes; the snapshot records whether it did. Kubernetes snapshots never keep processes.
+
+## The Studio runner
+
+Studio Apps run in their own image, `kiln-runner-studio`, so a new App needs no install. It is the runner image plus the Next.js template from `templates/nextjs` at `/opt/kiln/templates/nextjs`, with its `node_modules` installed, the pnpm store at `/opt/kiln/pnpm-store` and pnpm itself cached for corepack.
+
+```sh
+docker build -t kiln-runner-node:local runners/images/node
+docker build -t kiln-runner-studio:local -f runners/images/studio/Dockerfile templates/nextjs
+```
+
+Studio is off unless the API has `KILN_STUDIO=1`; without it, the Studio routes answer 503. Set `KILN_STUDIO_IMAGE=kiln-runner-studio:local` on the API. Without it, Studio uses `KILN_RUNNER_IMAGE` and creates the App with `create-next-app`, which downloads everything and takes minutes. `runners/studio.yaml` is the matching runner file.
+
+The template is App Router, TypeScript, Tailwind CSS 4 and shadcn/ui, with `AGENTS.md` (and a `CLAUDE.md` that imports it) telling agents to keep the dev server running, use the components in `components/ui/` and keep turns small. Its Studio settings are in `templates/templates.json`:
+
+| Step                       | Command                                                                  | Time              |
+| -------------------------- | ------------------------------------------------------------------------ | ----------------- |
+| Create the App             | `cp -a /opt/kiln/templates/nextjs/. .`                                   | 1–3 s             |
+| Install in a chat worktree | hard-link the App's `node_modules`, then `pnpm install --prefer-offline` | about 1 s         |
+| Start the preview          | `pnpm next dev --turbopack --port {port} --hostname 0.0.0.0`             |                   |
+| Ready                      | `GET /` on the port answers                                              | 4–5 s after start |
+
+The first preview is up 7 to 10 seconds after the App is created. A worktree hard-links `node_modules` because importing 400 MB from a store in an image layer makes overlayfs copy every file (about 20 seconds). The template loads its Geist fonts from the `geist` package, so the dev server needs no host but `registry.npmjs.org`. When the server sets `KILN_STUDIO_PREVIEW_DOMAIN`, the template's `next.config.ts` allows `*.<domain>` as a dev origin, so hot reload works through the preview proxy.
+
+To measure the boot on your machine:
+
+```sh
+pnpm tsx scripts/studio-template.ts kiln-runner-studio:local
+KILN_STUDIO_BOOT_IMAGE=kiln-runner-studio:local pnpm vitest run scripts/studio-template.test.ts
+```
+
+The test is skipped unless `KILN_STUDIO_BOOT_IMAGE` is set and Docker answers.
 
 ## Related pages
 
@@ -3189,7 +3485,18 @@ docker compose -f docker-compose.prod.yml --profile proxy up -d --build
 
 Caddy gets certificates for both domains. Open the web URL and sign up with `KILN_OWNER_EMAIL`, then invite everyone else.
 
-Sandboxes join the internal network `kiln-egress` and reach the internet only through the proxy. If your platform renames networks, set `KILN_EGRESS_NETWORK` to the name it uses. `KILN_RUNNER_IMAGE` picks another sandbox image; it needs git and the harness CLIs, like `runners/images/node`.
+Sandboxes join the internal network `kiln-egress` and reach the internet only through the proxy. If your platform renames networks, set `KILN_EGRESS_NETWORK` to the name it uses. Studio sandboxes and the API also share a second internal network, `kiln-preview` (`KILN_PREVIEW_NETWORK`), on the subnet `KILN_PREVIEW_SUBNET` (default `172.30.250.0/24`; change it if it clashes with yours). The API proxies previews into it and refuses any connection from it. `KILN_RUNNER_IMAGE` picks another sandbox image; it needs git and the harness CLIs, like `runners/images/node`.
+
+### Studio previews
+
+Studio serves each preview on its own host under a preview domain, such as `sc-3f9a….preview.kiln.example.com`. To turn it on:
+
+1. Set `KILN_STUDIO_PREVIEW_DOMAIN=preview.kiln.example.com`.
+2. Add a wildcard DNS record, `*.preview.kiln.example.com`, pointing at the server.
+3. Get a wildcard certificate for `*.preview.kiln.example.com`. Wildcard certificates need a DNS challenge, so your proxy needs your DNS provider's API.
+4. Send every host under the domain to the API on port 4000, with WebSocket upgrades. On Coolify, give the `api` service a second domain, `https://*.preview.kiln.example.com`, and set up Traefik's DNS challenge. With your own Caddy, add a site block `*.preview.kiln.example.com { tls { dns <provider> … } reverse_proxy api:4000 }` (the `caddy:alpine` image in `docker-compose.prod.yml` has no DNS plugins).
+
+Use a domain other than the web app's when you can, such as `kiln-preview.example.net`. Code in a preview runs on a subdomain of the preview domain, and a subdomain of the web app's domain can set cookies the web app receives. See [Previews](../integrations/previews.md#studio-live-previews).
 
 ### Kubernetes with Helm
 
@@ -3201,6 +3508,8 @@ helm install kiln deploy/helm/kiln \
 ```
 
 The chart creates the `kiln-sandboxes` namespace with the restricted pod security level, a `gvisor` RuntimeClass (handler `runsc`, which your nodes must provide), the egress proxy, a default-deny NetworkPolicy, and a Role that lets the API create sandbox pods there.
+
+For Studio previews, add `--set studio.previewDomain=preview.kiln.example.com` and create the TLS Secret `kiln-preview-tls` with a wildcard certificate (or name another with `studio.previewTlsSecret`). The chart adds an Ingress for `*.preview.kiln.example.com` to the API and a NetworkPolicy that lets the API reach the dev-server ports of Studio sandboxes.
 
 ### First factory
 
@@ -3290,6 +3599,8 @@ When a factory sets `cloudProviders` in `factory.yaml`, its runs get the federat
 
 Kiln talks to GitHub as a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`), minting a short-lived installation token for each call, or with a plain `GITHUB_TOKEN`. GitLab, Azure DevOps and Bitbucket use the tokens on their pages. It needs to read repositories, push `kiln/*` branches, open and update pull requests, comment, add labels and read check runs. Do not give it a branch-protection bypass. Agents never see this token; each run gets its own short-lived run token instead.
 
+The [merge gate](../configuration/decisions.md#merge-gate) merges with its own credential, `KILN_MERGE_GATE_TOKEN`: a token of a dedicated GitHub account that may merge pull requests on the repositories where a person turned the gate on. If branch protection requires reviews, that account needs to be allowed to merge without one. Never reuse the forge token or the GitHub App for it, because sandboxes get tokens from the App. Without it, every pull request goes to a person.
+
 ## Timers
 
 Kiln runs a timer pass that:
@@ -3316,6 +3627,7 @@ Kiln runs a timer pass that:
 | A run fails at install                                  | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed.                   |
 | Verify waits forever                                    | CI checks on the branch are still pending. Kiln checks again on each timer pass.                                                               |
 | Every command is blocked                                | The Claude Code hook cannot reach the public URL, so it blocks by design.                                                                      |
+| A Studio preview answers 502                            | The API can't reach the sandbox: on Docker it isn't on `kiln-preview`; on Kubernetes `studio.previewDomain` is unset. Or the dev server stopped. |
 | Webhooks return 401                                     | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set.                          |
 | An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory).      |
 
@@ -3792,14 +4104,14 @@ This needs `KILN_PUBLIC_URL` (GitHub calls it) and `KILN_SECRET_KEY` (the key is
 2. Set its webhook URL to `POST /webhooks/github` with a secret, and subscribe to Issues, Issue comment, Pull request, Pull request review, Pull request review comment, Check suite, Check run, Status, Workflow run and Push.
 3. Give Kiln the app's credentials and install the app on your organization:
 
-| Variable | Notes |
-| --- | --- |
-| `GITHUB_APP_ID` | The app's ID. |
-| `GITHUB_APP_PRIVATE_KEY` | The app's private key, as PEM (`\n` escapes are fine) or base64. |
-| `GITHUB_APP_INSTALLATION_ID` | The installation on your organization. Kiln mints a short-lived installation token for each call. |
-| `GITHUB_APP_SLUG` | Lets Kiln link to the install page and recognize its own `<slug>[bot]` events. |
-| `GITHUB_WEBHOOK_SECRET` | The webhook secret. |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The app's OAuth credentials, for people to link their GitHub accounts. |
+| Variable                                   | Notes                                                                                             |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `GITHUB_APP_ID`                            | The app's ID.                                                                                     |
+| `GITHUB_APP_PRIVATE_KEY`                   | The app's private key, as PEM (`\n` escapes are fine) or base64.                                  |
+| `GITHUB_APP_INSTALLATION_ID`               | The installation on your organization. Kiln mints a short-lived installation token for each call. |
+| `GITHUB_APP_SLUG`                          | Lets Kiln link to the install page and recognize its own `<slug>[bot]` events.                    |
+| `GITHUB_WEBHOOK_SECRET`                    | The webhook secret.                                                                               |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The app's OAuth credentials, for people to link their GitHub accounts.                            |
 
 A plain `GITHUB_TOKEN` still works instead of an app. You can also connect GitHub from the API; see [Connections](connections.md).
 
@@ -3809,6 +4121,8 @@ A plain `GITHUB_TOKEN` still works instead of an app. You can also connect GitHu
 Kiln verifies `X-Hub-Signature-256` on every call and ignores repeated `X-GitHub-Delivery` IDs.
 
 Connect more accounts and organizations with **Add a GitHub account or organization** in the same panel: each gets its own private app, and Kiln uses the app installed on each repository's owner (`GET /api/v1/connections/github/apps` lists them). A public app installed on several accounts works the same way. A sandbox never gets the app's own credentials: it clones and pushes with an installation token limited to that one repository (contents write, metadata read) that expires within the hour. Protect your default branch, because contents write can push to any branch that is not protected.
+
+Studio pushes the same way. Each push asks for a fresh token for the App's one repository, and every push is in the audit log. An imported App pushes only its `studio/<app id>` branch. It pushes the default branch only in Cowboy mode, when a team owner or admin turned on default-branch pushes in the App's policy and no factory uses the repository. To let Studio create a repository for a template App on its first push, give the app **Administration: read and write** on the organization. Without it, template Apps aren't pushed.
 
 ## Mention the factory
 
@@ -3846,6 +4160,7 @@ triggers:
       repos: [acme/web]
       labels: [kiln-ready]
 ---
+
 Take the labeled issue through the factory.
 ```
 
@@ -4255,7 +4570,35 @@ Kiln applies one namespace per pull request with `kubectl apply`:
 | Image | How to name the image for a repository and branch. Your CI must build and push that image. |
 | Port | The container port. Default 3000. |
 
-The preview URL is `https://pr-<number>.<repo>.<domain>`. Destroying a preview deletes its namespace.
+The preview URL is `https://pr-<number>.<repo>.<domain>`. When the factory is in a project with `preview` variables, Kiln also applies a Secret `app-env` with them and loads it into the container with `envFrom`. See [Project environments](../management/secrets-mcps-environments.md#project-environments). Destroying a preview deletes its namespace.
+
+## Studio live previews
+
+Studio (ADR-012) shows each chat's running dev server, with hot reload, instead of a deployment. The API proxies it from the sandbox.
+
+Each preview gets its own origin, `<id>.<KILN_STUDIO_PREVIEW_DOMAIN>`, never Kiln's. The id is the chat or version id with `_` written as `-`, for example `https://sc-3f9a….preview.kiln.example.com`.
+
+| Variable | Value |
+| --- | --- |
+| `KILN_STUDIO_PREVIEW_DOMAIN` | The preview domain, for example `preview.kiln.example.com`. Point a wildcard DNS record and a wildcard certificate for `*.<domain>` at the API. For local development, `preview.localhost:4000` gives `http://` URLs, because browsers send `*.localhost` to your own machine. |
+
+When the variable is unset, the preview URL is the sandbox's own address, such as `http://127.0.0.1:4101`. That works only with local sandboxes.
+
+What the proxy does with a request to a preview host:
+
+1. Looks up the id. An unknown, stopped or malformed id gets the same `404 preview not found`.
+2. Forwards the method, path, query, body and headers to the dev server in the sandbox, without `Cookie`, `Authorization`, `Proxy-*` and `X-Kiln-*`.
+3. Returns the answer without `Set-Cookie`.
+4. Tunnels WebSocket upgrades the same way, so Next.js hot reload works.
+
+Preview hosts never reach Kiln's sign-in or API routes, except `GET /api/v1/health`, `GET /api/v1/openapi.json` and `POST /api/v1/guard`, which Kiln answers first on every host.
+
+The id has 128 random bits and is the only credential: anyone with the URL can open the preview. Kiln never lists ids. Because the proxy drops cookies, an app in Studio can't keep a cookie session in its preview; use `localStorage` there.
+
+The API must reach the sandboxes:
+
+- **Docker:** Studio sandboxes also join the internal network `kiln-preview` (`KILN_PREVIEW_NETWORK`), and the API is on it too. No other sandbox and not the egress proxy joins it. The API only connects out to the sandboxes: it closes every connection, and drops every egress-log datagram, from the network's subnet (`KILN_PREVIEW_SUBNET`, default `172.30.250.0/24`). Both compose files set this up.
+- **Kubernetes:** set `studio.previewDomain` in the Helm chart. It adds a wildcard Ingress to the API (certificate in the Secret `studio.previewTlsSecret`) and the NetworkPolicy `kiln-preview-ingress`, which lets the API connect to ports 4100–4199 of sandbox pods labeled `kiln.dev/preview: "true"`.
 
 ## Evidence on the card
 
@@ -4267,6 +4610,7 @@ The card's criteria table comes from the verify stage. The verify agent runs Pla
 - [Pipelines and gates](../configuration/pipelines-and-gates.md)
 - [GitHub](github.md)
 - [Self-hosting](../infrastructure/self-hosting.md)
+- [Sandboxes](../infrastructure/sandboxes.md)
 
 ---
 
@@ -4542,6 +4886,10 @@ Kiln acts as your own GitHub account, never as the Kiln app (agents never approv
 
 When the `review-risk` decision finds a change low risk and the reviewer agent has no findings, nobody needs to read the code, so no inbox item opens. The pull request appears under **Ready to merge** at the top of the inbox, and one click merges it as you. See [Decisions](../configuration/decisions.md).
 
+## Pull requests the merge gate did not merge
+
+When a person marks a pull request ready for review and the [merge gate](../configuration/decisions.md#merge-gate) is on, the gate merges the pull requests the `merge-safety` decision finds safe. The rest appear here with the decision's reasons, for example "CI failed." or "It changes sensitive files: lib/auth/session.ts." With the gate off, every pull request ready for review appears here. Open the item to review and merge it in Studio or on the forge; it clears when the pull request is merged or closed.
+
 ## Order
 
 The `inbox-urgency` decision gives each gate an urgency score when it opens. The inbox sorts by urgency, highest first, then by age, oldest first. If the decision is not available, questions get 0.7 and other gates 0.5.
@@ -4584,7 +4932,7 @@ The digest groups open gates by person, oldest first, with each one's age in hou
 
 ## Inbox items API
 
-`GET /api/v1/inbox/items` lists your inbox across factories as items of six kinds:
+`GET /api/v1/inbox/items` lists your inbox across factories and Studio Apps as items of seven kinds:
 
 | Kind | When |
 | --- | --- |
@@ -4592,6 +4940,7 @@ The digest groups open gates by person, oldest first, with each one's age in hou
 | `answer_question` | A question on your task was answered (for your information, for a week). |
 | `spec_review` | A spec or plan waits for approval; also definition changes proposed by agents and self-improvement proposals, with their diff. |
 | `pr_review` | A pull request or preview waits on you. |
+| `studio_pr_review` | A Studio App's pull request the merge gate did not merge. It has `team`, `appId` and the gate's `reasons`, and goes to the team's owners and admins. |
 | `blocked`, `failed` | A task of yours is stuck, when nothing else on it needs you. |
 
 Filter with `scope=mine|team`, `factory`, `kind`, `read=true|false` and `q`. `POST /api/v1/inbox/read`, `/unread`, `/resolve` and `/unresolve` take `{ids}` (item ids, or plain gate ids). Items clear themselves when they stop being relevant: the question was answered, the spec approved, the PR merged.
@@ -4621,6 +4970,8 @@ To create a project through the API, your token needs `send` on every factory in
 
 A work item sent through the API can name a project.
 
+A project can hold environments: variables and secrets its factories and Studio Apps get in runs and previews. See [Project environments](secrets-mcps-environments.md#project-environments).
+
 Each project can hold one roadmap from the [plan agent](../product-owners/planning.md). Making a new plan replaces the project's current roadmap.
 
 ## The portfolio
@@ -4649,6 +5000,7 @@ The digest tells each person which decisions are waiting on them, oldest first, 
 - [Dashboard metrics](../measure-and-improve/metrics.md)
 - [Inbox](inbox.md)
 - [Admin, RBAC and audit](admin-rbac-audit.md)
+- [Secrets, MCP servers and environments](secrets-mcps-environments.md)
 
 ---
 
@@ -4780,6 +5132,52 @@ At run time:
 
 Manage environments with `GET`, `POST`, `PATCH` and `DELETE /api/v1/environments`.
 
+## Project environments
+
+A project environment is a named set of variables and secrets, such as `preview` or `production`, that a project's factories and Studio Apps get. Use it for settings an app needs to run, like the API URL a preview calls.
+
+Variables are set in layers. Each later layer replaces a key from an earlier one:
+
+| Layer | Who changes it | Applies to |
+| --- | --- | --- |
+| Team | Team owners and admins | Every factory in a project and every Studio App in the team |
+| Project | Team owners and admins, and the project's owner | The project's factories and Apps |
+| Factory | Admins of the factory | That factory |
+| App | Team owners and admins, and the App's creator | That Studio App |
+
+A factory that is in no project gets no project environment variables, not even the team's.
+
+### Where variables go
+
+Both use the `preview` environment:
+
+- **Factory runs:** the variables are added to the run's environment. Kiln's own variables (`KILN_*`), harness credentials and MCP server secrets win over a variable with the same name.
+- **PR previews:** the preview provider gets the factory's variables. The Kubernetes provider puts them in a Secret named `app-env` in the preview's namespace and loads it with `envFrom`. Vercel deployments use the variables set on the Vercel project.
+
+### Secrets
+
+Turn on **Secret** for a variable to keep it write-only. Secret values are sealed with `KILN_SECRET_KEY` like team secrets, never returned by the API or shown in the UI, and replaced with `[redacted]` in run output. To change other variables, leave a saved secret's value empty: Kiln keeps it.
+
+### Rules
+
+- Environment names use lowercase letters, digits and dashes, starting with a letter, at most 32 characters.
+- Keys use letters, digits and underscores, and can't start with `KILN_`.
+- A layer holds at most 200 variables. A value can be at most 128 KiB.
+- Every change is in the audit log as `variables.updated` or `variables.deleted`, with the keys and never the values.
+
+### Managing them
+
+Open a project and use **Environments**: one card per environment, with the team's variables it inherits listed underneath.
+
+Through the API:
+
+| Route | Does |
+| --- | --- |
+| `GET /api/v1/variables?scope=<scope>&owner=<id>` | Lists an owner's layers. `scope` is `team`, `project`, `factory` or `app`; for `team`, `owner` is the team id. |
+| `PUT /api/v1/variables/<scope>/<owner>/<environment>` | Replaces a layer: `{ "variables": [{ "key": "API_URL", "value": "https://api.example.com" }, { "key": "TOKEN", "secret": true }] }` |
+| `DELETE /api/v1/variables/<scope>/<owner>/<environment>` | Deletes a layer |
+| `GET /api/v1/variables/resolve?environment=preview&factory=<id>` | Shows what a factory, App (`app=`) or project (`project=`) gets, with the layer each key comes from |
+
 ## Private images
 
 A runner pulls a private image with a team secret of type `docker_registry` or `aws_ecr`:
@@ -4806,6 +5204,7 @@ An environment does the same with `registryCredentialSecretName` next to its `im
 - [Harnesses](../infrastructure/harnesses.md)
 - [Agents](../configuration/agents.md)
 - [Admin, RBAC and audit](admin-rbac-audit.md)
+- [Portfolio and projects](portfolio.md)
 
 ---
 

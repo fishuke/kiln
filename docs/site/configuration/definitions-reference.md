@@ -207,6 +207,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `deniedActions` | list of string |  |  |
 | `allowedTriggerers` | list of string |  |  |
 | `maxUsdPerWorkItem` | number |  |  |
+| `mergeGate` | boolean |  |  |
 
 ## runner
 
@@ -356,6 +357,36 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `title` | string | yes |  |
 | `tags` | list of string |  | default `[]` |
 | `author` | string |  |  |
+
+## app
+
+`app.yaml (Studio App)`
+
+| Key | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `schemaVersion` | `"kiln/v1"` | yes |  |
+| `name` | string |  |  |
+| `description` | string |  |  |
+| `skills` | object |  |  |
+| `skills.mandatory` | list of string |  |  |
+| `budgets` | object |  |  |
+| `budgets.monthlyUsd` | number |  |  |
+
+## app-policy
+
+`policies/<name>.yaml (Studio App)`
+
+| Key | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `description` | string |  |  |
+| `shipMode` | object |  |  |
+| `shipMode.max` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.roles` | object |  |  |
+| `shipMode.roles.owner` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.roles.admin` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.roles.member` | `safe` \| `review` \| `cowboy` |  |  |
+| `shipMode.pushDefaultBranch` | boolean |  |  |
+| `mergeGate` | boolean |  |  |
 
 ## Related pages
 

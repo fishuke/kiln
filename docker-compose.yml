@@ -9,6 +9,14 @@ services:
       KILN_PUBLIC_URL: ${KILN_PUBLIC_URL:-http://localhost:4000}
       KILN_WEB_URL: ${KILN_WEB_URL:-http://localhost:3000}
       KILN_SANDBOX: ${KILN_SANDBOX:-docker}
+      # Studio previews: e.g. preview.localhost:4000 (browsers resolve *.localhost to this machine).
+      KILN_STUDIO: ${KILN_STUDIO:-0}
+      KILN_STUDIO_PREVIEW_DOMAIN: ${KILN_STUDIO_PREVIEW_DOMAIN:-}
+      # Studio sandboxes also join kiln-preview, where the API reaches their dev servers. The API drops
+      # every connection and egress-log datagram that comes from that subnet.
+      KILN_PREVIEW_NETWORK: kiln-preview
+      KILN_PREVIEW_SUBNET: ${KILN_PREVIEW_SUBNET:-172.30.250.0/24}
+    networks: [default, kiln-preview]
     volumes:
       - kiln-data:/data
       - /var/run/docker.sock:/var/run/docker.sock
@@ -42,5 +50,10 @@ networks:
   kiln-egress:
     name: kiln-egress
     internal: true
+  # Only the API and Studio sandboxes; no internet, no egress proxy.
+  kiln-preview:
+    name: kiln-preview
+    internal: true
+    ipam: { config: [{ subnet: "${KILN_PREVIEW_SUBNET:-172.30.250.0/24}" }] }
 volumes:
   kiln-data:

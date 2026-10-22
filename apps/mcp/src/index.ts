@@ -1,4 +1,6 @@
+import { AppSettingsPatch } from "@kiln/studio";
 import { KilnClient, type TaskStage } from "@kiln/sdk-ts";
+import { STUDIO_TOOLS } from "@kiln/studio";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
@@ -7,7 +9,15 @@ const json = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON
 
 const STAGES = ["TRIAGE", "SPEC", "IMPLEMENT", "REVIEW", "COMPLETE", "CANCELLED"] as const;
 const MODE = z.enum(["normal", "plan", "orchestrate"]);
-const SpawnSpec = z.object({ agent: z.string().describe("Agent name in the factory"), prompt: z.string().describe("A complete brief"), title: z.string().optional(), mode: MODE.optional() });
+const SpawnSpec = z.object({
+  agent: z.string().describe("Agent name in the factory"),
+  prompt: z.string().describe("A complete brief"),
+  title: z.string().optional(),
+  mode: MODE.optional(),
+  name: z.string().optional().describe("A short name, unique in your run tree (lowercase, digits, dashes); use it in place of the run id for follow_up_run"),
+  fork: z.boolean().optional().describe("Give the subagent your conversation so far, not only the brief"),
+  report: z.boolean().optional().describe("Get a report as a follow-up message when the subagent finishes or asks a question, instead of polling"),
+});
 
 /**
  * The Kiln MCP server. People's coding agents use it to find, take over and hand back tasks and to
@@ -31,28 +41,29 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
   // ---- factories and onboarding ----
   server.registerTool("list_factories", { description: "List the factories this token can see." }, async () => json(await client.factories()));
 
-  server.registerTool(
-    "list_forge_repositories",
-    { description: "Repositories the code forge can reach, for picking a new factory's repos." },
-    async () => json(await client.forgeRepositories()),
+  server.registerTool("list_forge_repositories", { description: "Repositories the code forge can reach, for picking a new factory's repos." }, async () =>
+    json(await client.forgeRepositories()),
   );
 
-  server.registerTool(
-    "list_tracker_scopes",
-    { description: "Teams (Linear) or projects (Jira) of the connected tracker." },
-    async () => json(await client.trackerScopes()),
+  server.registerTool("list_tracker_scopes", { description: "Teams (Linear) or projects (Jira) of the connected tracker." }, async () =>
+    json(await client.trackerScopes()),
   );
 
   server.registerTool(
     "create_factory",
     {
-      description: "Create a factory: repos, agents to enable (the foreman is always there), Slack, tracker, cost preset, self-improvement and starter automations. Use dry_run first to show the files.",
+      description:
+        "Create a factory: repos, agents to enable (the foreman is always there), Slack, tracker, cost preset, self-improvement and starter automations. Use dry_run first to show the files.",
       inputSchema: {
         name: z.string(),
         alias: z.string().optional(),
         description: z.string().optional(),
-        repos: z.array(z.object({ owner: z.string(), name: z.string(), forge: z.enum(["github", "gitlab"]).optional(), deferred: z.boolean().optional() })).min(1),
-        agents: z.object({ triage: z.boolean().optional(), spec: z.boolean().optional(), implement: z.boolean().optional(), review: z.boolean().optional() }).optional(),
+        repos: z
+          .array(z.object({ owner: z.string(), name: z.string(), forge: z.enum(["github", "gitlab"]).optional(), deferred: z.boolean().optional() }))
+          .min(1),
+        agents: z
+          .object({ triage: z.boolean().optional(), spec: z.boolean().optional(), implement: z.boolean().optional(), review: z.boolean().optional() })
+          .optional(),
         slack: z.boolean().optional(),
         tracker: z.enum(["linear", "jira"]).optional(),
         tracker_scopes: z.array(z.string()).optional(),
@@ -84,10 +95,21 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
     "get_factory_file_schema",
     {
       description: "The definition schema catalog, or one document (e.g. agent.schema.json, factory.schema.json).",
-      inputSchema: { document: z.string().optional(), version: z.string().optional(), kind: z.string().optional().describe("Older spelling: a file kind such as agent or factory") },
+      inputSchema: {
+        document: z.string().optional(),
+        version: z.string().optional(),
+        kind: z.string().optional().describe("Older spelling: a file kind such as agent or factory"),
+      },
     },
     async ({ document, version, kind }) => {
-      const doc = document ?? (kind ? `${kind.replace(/-task$/, "_task").replace(/^benchmark-suite$/, "benchmark_suite").replace(/^benchmark-task$/, "benchmark_suite_task")}.schema.json` : undefined);
+      const doc =
+        document ??
+        (kind
+          ? `${kind
+              .replace(/-task$/, "_task")
+              .replace(/^benchmark-suite$/, "benchmark_suite")
+              .replace(/^benchmark-task$/, "benchmark_suite_task")}.schema.json`
+          : undefined);
       if (!doc) return json({ ...(await client.schemaVersions()), documents: Object.keys((await client.schemaBundle(version)).documents) });
       return json(await client.schemaDocument(doc, version));
     },
@@ -96,7 +118,8 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
   server.registerTool(
     "validate_factory_files",
     {
-      description: "Validate a whole definition tree without saving it: diagnostics with file and line, plus what is resolved only when applied. With apply=true and a factory, applies it (definitions:write).",
+      description:
+        "Validate a whole definition tree without saving it: diagnostics with file and line, plus what is resolved only when applied. With apply=true and a factory, applies it (definitions:write).",
       inputSchema: {
         files: z.union([z.array(z.object({ path: z.string(), content: z.string() })), z.record(z.string(), z.string())]),
         apply: z.boolean().optional(),
@@ -114,7 +137,8 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
   server.registerTool(
     "propose_definition_change",
     {
-      description: "Propose a change to a factory definition (prompts, skills, settings). People review it in the inbox and approve & merge it. Set a file to null to delete it.",
+      description:
+        "Propose a change to a factory definition (prompts, skills, settings). People review it in the inbox and approve & merge it. Set a file to null to delete it.",
       inputSchema: { factory: z.string(), title: z.string(), message: z.string().optional(), files: z.record(z.string(), z.string().nullable()) },
     },
     async ({ factory, title, message, files }) => json(await client.proposeDefinitionChange(factory, { title, message, files })),
@@ -125,10 +149,29 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
     "list_tasks",
     {
       description: "List tasks, newest first. Filter by factory, stage, creator (email) and dates (ISO).",
-      inputSchema: { factory: z.string().optional(), stage: z.array(z.enum(STAGES)).optional(), created_by: z.array(z.string()).optional(), created_after: z.string().optional(), created_before: z.string().optional(), limit: z.number().optional(), cursor: z.string().optional() },
+      inputSchema: {
+        factory: z.string().optional(),
+        stage: z.array(z.enum(STAGES)).optional(),
+        created_by: z.array(z.string()).optional(),
+        created_after: z.string().optional(),
+        created_before: z.string().optional(),
+        limit: z.number().optional(),
+        cursor: z.string().optional(),
+      },
     },
     async (a) =>
-      json(await client.allTasks({ factory: a.factory, stage: a.stage as TaskStage[] | undefined, createdBy: a.created_by, createdAfter: a.created_after, createdBefore: a.created_before, limit: a.limit, cursor: a.cursor, includeCurrentRun: true })),
+      json(
+        await client.allTasks({
+          factory: a.factory,
+          stage: a.stage as TaskStage[] | undefined,
+          createdBy: a.created_by,
+          createdAfter: a.created_after,
+          createdBefore: a.created_before,
+          limit: a.limit,
+          cursor: a.cursor,
+          includeCurrentRun: true,
+        }),
+      ),
   );
 
   server.registerTool(
@@ -140,7 +183,8 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
   server.registerTool(
     "get_task",
     {
-      description: "Get a task by id or reference (task or run URL, PR URL, issue URL or key, branch). With start_working=true, also returns git commands to continue it in a local worktree.",
+      description:
+        "Get a task by id or reference (task or run URL, PR URL, issue URL or key, branch). With start_working=true, also returns git commands to continue it in a local worktree.",
       inputSchema: { reference: z.string(), start_working: z.boolean().optional() },
     },
     async ({ reference, start_working }) => json(await client.findTask(reference, start_working)),
@@ -166,19 +210,35 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
     async (a) => {
       if (a.task_id) return json(await client.handbackTask(a.task_id, { note: a.note ?? a.body ?? "Handed back", branch: a.branch, prUrl: a.pr_url }));
       if (!a.factory || !a.title) throw new Error("pass factory and title for new work, or task_id to hand a task back");
-      return json(await client.send({ factory: a.factory, title: a.title, body: a.note ?? a.body, via: "mcp", attachments: a.attachments, mode: a.mode, correlationKey: a.correlation_key }));
+      return json(
+        await client.send({
+          factory: a.factory,
+          title: a.title,
+          body: a.note ?? a.body,
+          via: "mcp",
+          attachments: a.attachments,
+          mode: a.mode,
+          correlationKey: a.correlation_key,
+        }),
+      );
     },
   );
 
   server.registerTool(
     "message_foreman",
-    { description: "Message the foreman of a task. Answers its open question if there is one.", inputSchema: { task_id: z.string(), text: z.string(), attachments: z.array(z.string()).optional() } },
+    {
+      description: "Message the foreman of a task. Answers its open question if there is one.",
+      inputSchema: { task_id: z.string(), text: z.string(), attachments: z.array(z.string()).optional() },
+    },
     async ({ task_id, text, attachments }) => json(await client.message(task_id, text, attachments)),
   );
 
   server.registerTool(
     "get_conversation",
-    { description: "A task's conversation (requests, foreman messages, agent summaries, decisions), or a run's normalized conversation.", inputSchema: { task_id: z.string().optional(), run_id: z.string().optional() } },
+    {
+      description: "A task's conversation (requests, foreman messages, agent summaries, decisions), or a run's normalized conversation.",
+      inputSchema: { task_id: z.string().optional(), run_id: z.string().optional() },
+    },
     async ({ task_id, run_id }) => {
       if (run_id) return json(await client.runConversation(run_id));
       if (!task_id) throw new Error("pass task_id or run_id");
@@ -192,7 +252,9 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
     async ({ task_id }) => {
       const wi = await client.workItem(task_id);
       const routes = [
-        ...(wi.source.channel ? [{ kind: `${wi.source.provider}_thread`, target: `${wi.source.channel}${wi.source.thread ? `/${wi.source.thread}` : ""}`, url: wi.source.url }] : []),
+        ...(wi.source.channel
+          ? [{ kind: `${wi.source.provider}_thread`, target: `${wi.source.channel}${wi.source.thread ? `/${wi.source.thread}` : ""}`, url: wi.source.url }]
+          : []),
         ...(wi.trackerKey ? [{ kind: `${wi.source.provider}_issue`, target: wi.trackerKey, url: wi.source.url }] : []),
         ...(wi.source.repo && wi.source.number ? [{ kind: "github_issue", target: `${wi.source.repo}#${wi.source.number}`, url: wi.source.url }] : []),
         ...(wi.pr ? [{ kind: "pull_request", target: `${wi.pr.repo}#${wi.pr.number}`, url: wi.pr.url }] : []),
@@ -204,7 +266,8 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
   server.registerTool(
     "complete_task",
     {
-      description: "Close a task. Safe to call more than once. A factory agent may close it only after its pull request merged; a person (decide:merge) confirms completion. Pass task_id, or run_id to find the task.",
+      description:
+        "Close a task. Safe to call more than once. A factory agent may close it only after its pull request merged; a person (decide:merge) confirms completion. Pass task_id, or run_id to find the task.",
       inputSchema: { task_id: z.string().optional(), run_id: z.string().optional() },
     },
     async ({ task_id, run_id }) => {
@@ -218,7 +281,8 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
   server.registerTool(
     "spawn_agent",
     {
-      description: "Start a subagent of your factory for part of the work. Returns at once with the child run; follow it with get_run. Only agents whose spawnableBy allows you can be started.",
+      description:
+        "Start a subagent of your factory for part of the work. Returns at once with the child run; follow it with get_run. Only agents whose spawnableBy allows you can be started.",
       inputSchema: { run_id: z.string().optional().describe("Your run id; defaults to the calling run"), ...SpawnSpec.shape, wait: z.boolean().optional() },
     },
     async ({ run_id, wait, ...spec }) => json(await client.spawn(await callerRun(run_id), { ...spec, wait })),
@@ -235,29 +299,49 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
 
   server.registerTool(
     "get_run",
-    { description: "A run's state, summary, result, artifacts and children. With conversation=true, its messages too.", inputSchema: { run_id: z.string(), conversation: z.boolean().optional() } },
-    async ({ run_id, conversation }) => json({ run: await client.run(run_id), ...(conversation ? { conversation: (await client.runConversation(run_id)).messages } : {}) }),
+    {
+      description: "A run's state, summary, result, artifacts and children. With conversation=true, its messages too.",
+      inputSchema: { run_id: z.string(), conversation: z.boolean().optional() },
+    },
+    async ({ run_id, conversation }) =>
+      json({ run: await client.run(run_id), ...(conversation ? { conversation: (await client.runConversation(run_id)).messages } : {}) }),
   );
 
   server.registerTool(
     "ask_user",
     {
-      description: "Ask the requester a question and get a gate id; read the answer with get_gate. Questions can be single or multi select with a recommended option.",
+      description:
+        "Ask the requester a question and get a gate id; read the answer with get_gate. Questions can be single or multi select with a recommended option.",
       inputSchema: {
         run_id: z.string().optional(),
         title: z.string(),
         question: z.string().optional(),
-        questions: z.array(z.object({ id: z.string(), question: z.string(), type: z.enum(["single_select", "multi_select"]), options: z.array(z.string()).min(2), recommendedOptionIndex: z.number().optional() })).optional(),
+        questions: z
+          .array(
+            z.object({
+              id: z.string(),
+              question: z.string(),
+              type: z.enum(["single_select", "multi_select"]),
+              options: z.array(z.string()).min(2),
+              recommendedOptionIndex: z.number().optional(),
+            }),
+          )
+          .optional(),
       },
     },
     async ({ run_id, ...q }) => json(await client.ask(await callerRun(run_id), q)),
   );
 
-  server.registerTool("get_gate", { description: "A gate (decision) and its answer.", inputSchema: { gate_id: z.string() } }, async ({ gate_id }) => json(await client.gate(gate_id)));
+  server.registerTool("get_gate", { description: "A gate (decision) and its answer.", inputSchema: { gate_id: z.string() } }, async ({ gate_id }) =>
+    json(await client.gate(gate_id)),
+  );
 
   server.registerTool(
     "follow_up_run",
-    { description: "Send a follow-up to a run: steers it while it runs, continues it when it finished.", inputSchema: { run_id: z.string(), message: z.string() } },
+    {
+      description: "Send a follow-up to a run: steers it while it runs, continues it when it finished.",
+      inputSchema: { run_id: z.string().describe("A run id, or the name of a subagent in your run tree"), message: z.string() },
+    },
     async ({ run_id, message }) => json(await client.followup(run_id, message)),
   );
 
@@ -270,7 +354,13 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
   // ---- inbox, planning, metrics ----
   server.registerTool(
     "list_inbox",
-    { description: "Your inbox: questions, spec and PR reviews, blocked and failed tasks, definition changes. all=true lists the team's.", inputSchema: { all: z.boolean().optional(), kind: z.array(z.enum(["question", "answer_question", "spec_review", "pr_review", "blocked", "failed"])).optional() } },
+    {
+      description: "Your inbox: questions, spec and PR reviews, blocked and failed tasks, definition changes. all=true lists the team's.",
+      inputSchema: {
+        all: z.boolean().optional(),
+        kind: z.array(z.enum(["question", "answer_question", "spec_review", "pr_review", "blocked", "failed"])).optional(),
+      },
+    },
     async ({ all, kind }) => json(await client.inboxItems({ scope: all ? "team" : "mine", kind })),
   );
 
@@ -285,7 +375,10 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
 
   server.registerTool(
     "plan_project",
-    { description: "Turn a goal or PRD into a roadmap and tracker issues for a project.", inputSchema: { project_id: z.string(), goal: z.string(), prd: z.string().optional() } },
+    {
+      description: "Turn a goal or PRD into a roadmap and tracker issues for a project.",
+      inputSchema: { project_id: z.string(), goal: z.string(), prd: z.string().optional() },
+    },
     async ({ project_id, goal, prd }) => json(await client.plan(project_id, { goal, prd })),
   );
 
@@ -294,7 +387,14 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
     {
       description:
         "Factory metrics: PRs opened and merged, autonomy, cycle time, cost and cost per merged PR by agent (`since`), plus the autonomy funnel, PR latency medians, human interactions and period-over-period deltas (`start_date`, `end_date`, `group_by_period`). Dates are ISO.",
-      inputSchema: { factory: z.string(), since: z.string().optional(), agent: z.string().optional(), start_date: z.string().optional(), end_date: z.string().optional(), group_by_period: z.enum(["day", "week", "month"]).optional() },
+      inputSchema: {
+        factory: z.string(),
+        since: z.string().optional(),
+        agent: z.string().optional(),
+        start_date: z.string().optional(),
+        end_date: z.string().optional(),
+        group_by_period: z.enum(["day", "week", "month"]).optional(),
+      },
     },
     async ({ factory, since, agent, start_date, end_date, group_by_period }) => {
       const summary = await client.metrics(factory, { since, agent });
@@ -307,17 +407,36 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
     "query_runs",
     {
       description: "Runs with filters: factory, state (QUEUED…CANCELLED), source, agent, q, created_after. Or raw rows (runs, scores, work_items) with kind.",
-      inputSchema: { factory: z.string(), kind: z.enum(["runs", "scores", "work_items"]).optional(), since: z.string().optional(), state: z.array(z.string()).optional(), source: z.array(z.string()).optional(), agent: z.string().optional(), q: z.string().optional() },
+      inputSchema: {
+        factory: z.string(),
+        kind: z.enum(["runs", "scores", "work_items"]).optional(),
+        since: z.string().optional(),
+        state: z.array(z.string()).optional(),
+        source: z.array(z.string()).optional(),
+        agent: z.string().optional(),
+        q: z.string().optional(),
+      },
     },
     async ({ factory, kind, since, state, source, agent, q }) =>
-      json(kind ? await client.rawMetrics(factory, kind, since) : await client.runsPage({ factory, state: state as never, source, agent, q, createdAfter: since, limit: 100 })),
+      json(
+        kind
+          ? await client.rawMetrics(factory, kind, since)
+          : await client.runsPage({ factory, state: state as never, source, agent, q, createdAfter: since, limit: 100 }),
+      ),
   );
 
-  server.registerTool("list_teams", { description: "List the teams you belong to, with your role in each. Pass a team's slug as X-Kiln-Team to act in it." }, async () => json(await client.teams()));
+  server.registerTool(
+    "list_teams",
+    { description: "List the teams you belong to, with your role in each. Pass a team's slug as X-Kiln-Team to act in it." },
+    async () => json(await client.teams()),
+  );
 
   server.registerTool(
     "create_team",
-    { description: "Create a team. You become its owner. Needs a user token (session or personal API key).", inputSchema: { name: z.string(), slug: z.string().optional() } },
+    {
+      description: "Create a team. You become its owner. Needs a user token (session or personal API key).",
+      inputSchema: { name: z.string(), slug: z.string().optional() },
+    },
     async ({ name, slug }) => json(await client.createTeam({ name, slug })),
   );
 
@@ -330,7 +449,51 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
     },
   );
 
+  // ---- Studio (ADR-012): the same tools the web page and voice use, as studio_<name> ----
+  for (const tool of STUDIO_TOOLS) {
+    server.registerTool(
+      `studio_${tool.name}`,
+      {
+        description: `Studio: ${tool.description}${tool.kind === "client" ? " (Moves the caller's screen; changes nothing on the server.)" : ""}`,
+        inputSchema: inputShape(tool.input),
+      },
+      async (args) => json(await client.studioTool(tool.name, args)),
+    );
+  }
+  // ---- Studio App definitions ----
+  server.registerTool(
+    "get_app_settings",
+    {
+      description:
+        "A Studio App's definition: its agents (model, MCP servers, skills), shared skills (mandatory ones marked), ship mode cap, merge gate and budget, resolved from team and project defaults, plus what the App sets itself.",
+      inputSchema: { app: z.string() },
+    },
+    async ({ app }) => json(await client.studioSettings({ app })),
+  );
+
+  server.registerTool(
+    "update_app_settings",
+    {
+      description:
+        "Change a Studio App's own definition layer (not its policy, which people change in the App's settings). null removes the App's value so it inherits from its project or team again. Every change is a new version.",
+      inputSchema: { app: z.string(), patch: AppSettingsPatch.omit({ policy: true }) },
+    },
+    async ({ app, patch }) => json(await client.studioEditDefinition({ app }, patch)),
+  );
+
   return server;
+}
+
+/** MCP tools take an object schema; a union of objects (open_app) becomes one object whose fields are all optional. The API validates the real schema. */
+function inputShape(schema: z.ZodType): z.ZodRawShape {
+  if (schema instanceof z.ZodObject) return schema.shape;
+  if (schema instanceof z.ZodUnion) {
+    const shape: Record<string, z.ZodType> = {};
+    for (const option of schema.options as z.ZodType[])
+      for (const [key, field] of Object.entries(inputShape(option))) shape[key] = (field as z.ZodType).optional();
+    return shape;
+  }
+  throw new Error("a Studio tool's input must be an object or a union of objects");
 }
 
 /**
@@ -340,14 +503,28 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
  */
 export function createMcpHandler(apiBaseUrl: string, fetchImpl?: typeof fetch, opts: { resourceMetadata?: string } = {}) {
   const unauthorized = (error: string) =>
-    new Response(JSON.stringify({ error }), { status: 401, headers: { "content-type": "application/json", ...(opts.resourceMetadata ? { "www-authenticate": `Bearer resource_metadata="${opts.resourceMetadata}"` } : {}) } });
+    new Response(JSON.stringify({ error }), {
+      status: 401,
+      headers: {
+        "content-type": "application/json",
+        ...(opts.resourceMetadata ? { "www-authenticate": `Bearer resource_metadata="${opts.resourceMetadata}"` } : {}),
+      },
+    });
   return async (req: Request): Promise<Response> => {
     const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
     if (!token) return unauthorized("a bearer token is required");
     // X-Kiln-Team on the MCP connection picks the team the tools act in.
     const client = new KilnClient({ baseUrl: apiBaseUrl, token, fetch: fetchImpl, team: req.headers.get("x-kiln-team") ?? undefined });
     // Expired or revoked tokens answer 401 at the HTTP level, so clients sign in again.
-    if (opts.resourceMetadata && req.method === "POST" && !(await client.me().then(() => true, (e: { status?: number }) => e.status !== 401))) return unauthorized("the token is invalid or expired");
+    if (
+      opts.resourceMetadata &&
+      req.method === "POST" &&
+      !(await client.me().then(
+        () => true,
+        (e: { status?: number }) => e.status !== 401,
+      ))
+    )
+      return unauthorized("the token is invalid or expired");
     const server = createKilnMcpServer(client);
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);

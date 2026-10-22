@@ -474,13 +474,7 @@ export class Workflow {
       throw new KilnError("budget_exceeded", `budget of $${cap} reached ($${wi.costUsd.toFixed(2)} spent)`);
     }
     const monthly = r.factory.budgets?.monthlyUsd;
-    if (monthly !== undefined) {
-      const start = new Date(this.k.clock.now());
-      start.setUTCDate(1);
-      start.setUTCHours(0, 0, 0, 0);
-      const spent = this.k.runs.list({ factory: wi.factory }).filter((x) => x.startedAt >= start.toISOString()).reduce((s, x) => s + x.costUsd, 0);
-      if (spent >= monthly) throw new KilnError("budget_exceeded", `monthly budget of $${monthly} for ${wi.factory} reached ($${spent.toFixed(2)} spent)`);
-    }
+    if (monthly !== undefined) this.k.runs.assertMonthlyBudget(wi.factory, monthly);
   }
 
   /** `silent`: the run's summary stays out of the conversation (the agent foreman speaks for itself). */
@@ -1209,7 +1203,8 @@ export class Workflow {
     const accepted = this.k.gates.list({ workItemId: wi.id }).find((g) => g.kind === "preview" && g.state === "approved" && g.name === (stage.gate ?? "preview-acceptance") && g.openedAt >= (wi.previewDeployedAt ?? ""));
     if (accepted) return this.nextStage(wi);
     if (!this.k.preview || !wi.pr) return this.nextStage(wi);
-    const deployed = await this.k.preview.deploy({ repo: wi.pr.repo, branch: wi.branch!, pr: wi.pr.number });
+    const env = this.k.variables.forFactory(wi.factory)?.env;
+    const deployed = await this.k.preview.deploy({ repo: wi.pr.repo, branch: wi.branch!, pr: wi.pr.number, ...(env ? { env } : {}) });
     wi.previewUrl = deployed.url;
     wi.previewDeployedAt = this.k.clock.now().toISOString();
     const card = previewCard({ ...(wi.evidence ?? { workItemId: wi.id, criteria: {}, artifacts: [] }), previewUrl: deployed.url, prUrl: wi.pr.url }, wi.title);

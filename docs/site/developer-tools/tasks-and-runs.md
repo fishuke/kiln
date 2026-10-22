@@ -27,25 +27,25 @@ deduplication: { enabled: true, windowHours: 24, threshold: 0.5 }
 
 ## Task stages
 
-| Stage | Kiln states |
-| --- | --- |
-| `TRIAGE` | received, triaging |
-| `SPEC` | planning, awaiting_spec |
+| Stage       | Kiln states                |
+| ----------- | -------------------------- |
+| `TRIAGE`    | received, triaging         |
+| `SPEC`      | planning, awaiting_spec    |
 | `IMPLEMENT` | building, awaiting_preview |
-| `REVIEW` | reviewing, handed_off |
-| `COMPLETE` | complete |
-| `CANCELLED` | cancelled, failed |
+| `REVIEW`    | reviewing, handed_off      |
+| `COMPLETE`  | complete                   |
+| `CANCELLED` | cancelled, failed          |
 
 `PATCH …/tasks/{id}` may set any stage. `COMPLETE` needs `decide:merge` and closes the task as a person's confirmation; `CANCELLED` cancels it and every run and subagent still going. `DELETE` is a soft delete. Task outputs (`PLAN`, `PULL_REQUEST`, `SCREENSHOT`, `FILE`, `EXTERNAL_REFERENCE`) come newest first.
 
 ## Run states and sources
 
-| State | Meaning |
-| --- | --- |
-| `QUEUED` | Waiting for a [self-hosted worker](../infrastructure/self-hosted-workers.md). |
-| `CLAIMED` | A worker took it and is preparing the sandbox. |
-| `INPROGRESS` | The agent is working. |
-| `BLOCKED` | Waiting on a person: a command approval, an interrupt, or a paused run. |
+| State                                       | Meaning                                                                                          |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `QUEUED`                                    | Waiting for a [self-hosted worker](../infrastructure/self-hosted-workers.md).                    |
+| `CLAIMED`                                   | A worker took it and is preparing the sandbox.                                                   |
+| `INPROGRESS`                                | The agent is working.                                                                            |
+| `BLOCKED`                                   | Waiting on a person: a command approval, an interrupt, or a paused run.                          |
 | `SUCCEEDED`, `FAILED`, `ERROR`, `CANCELLED` | Finished. `FAILED` means the task could not be done as asked; `ERROR` means the platform failed. |
 
 The coarse `task_status` filter groups them: `running`, `blocked`, `failed`, `cancelled`, `complete`. Each run also has a `source` (`LINEAR`, `SLACK`, `GITHUB_WEBHOOK`, `API`, `CLI`, `MCP`, `WEB_APP`, `SCHEDULED_AGENT`, `ORCHESTRATION`, `SELF_IMPROVEMENT`, `BENCHMARK_TRIAL`, `CUSTOM_WEBHOOK`, …), a `title`, `creator` and `executor`, `rootRunId`, and up to 20 immutable `metadata` keys you can filter on with `metadata[key]=value`.
@@ -69,7 +69,10 @@ Errors carry a `code` from the catalog (`GET /api/v1/errors`): for example `budg
 A running agent gets `KILN_RUN_TOKEN` and the Kiln MCP server. With it, it may:
 
 - read its own task and the runs of its task or run tree, message its task, and upload files;
-- start subagents: `POST /runs/{id}/spawn` (MCP `spawn_agent`) or several at once with `run-agents` (`run_agents`). The child's `spawnableBy` decides who may start it; nesting stops at five levels;
+- start subagents: `POST /runs/{id}/spawn` (MCP `spawn_agent`) or several at once with `run-agents` (`run_agents`). The child's `spawnableBy` decides who may start it; nesting stops at five levels. Three options shape a subagent:
+  - `name`: lowercase letters, digits and dashes, unique among the runs of the tree. The agent can then use the name instead of the run id in `followups`, `interrupt` and the other run calls. A continuation keeps the name, so it always means the latest run of that line of work.
+  - `fork: true`: the child's prompt starts with the parent's conversation so far (its request, its messages and people's steering), then the brief. Without it the child gets only the brief.
+  - `report: true`: when the child finishes, fails, is stopped or runs out of budget, or asks a question, the parent gets a follow-up with a report: the child's name, title, summary, branch, the reason (`finished`, `failed`, `stopped`, `out_of_budget` or `needs_input`) and the question. A live parent is steered with it; a parent that finished continues in a new run. No polling is needed;
 - ask the requester a question (`POST /runs/{id}/questions`, MCP `ask_user`) with single- or multi-select options and a recommended option, and read the answer from the gate;
 - propose a definition change (`propose_definition_change`) that people review in the inbox;
 - call `complete_task`, which closes the task only after its pull request merged.

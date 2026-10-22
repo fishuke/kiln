@@ -10,6 +10,9 @@ export interface Clock {
 
 export const systemClock: Clock = { now: () => new Date() };
 
+/** The sandbox image when neither a runner, the team environment nor KILN_RUNNER_IMAGE names one. */
+export const DEFAULT_RUNNER_IMAGE = "node:22-bookworm";
+
 export class FakeClock implements Clock {
   constructor(private t = new Date("2026-10-20T09:00:00Z")) {}
   now() {
@@ -193,6 +196,12 @@ export type Run = {
   replayOf?: string;
   /** Set when another agent spawned this run as a subagent. */
   parentRunId?: string;
+  /** A Studio App's run (ADR-012): its definition comes from KilnOptions.apps, and `factory` is `app:<id>`. */
+  app?: string;
+  /** A name unique among the runs of its tree (a continuation keeps it); followups accept it in place of the id. */
+  name?: string;
+  /** When it finishes or asks a question, Kiln sends its parent a report as a follow-up. */
+  reportToParent?: boolean;
   artifacts: Artifact[];
   traceId: string;
   /**

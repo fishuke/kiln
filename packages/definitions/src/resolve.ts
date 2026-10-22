@@ -115,6 +115,34 @@ function toExecution(p: Partial): Execution {
 
 const repoRefs = (refs: Parameters<typeof requiredRepoRef>[0][] | undefined) => (refs ?? []).map(requiredRepoRef);
 
+/**
+ * One agent with its execution settings already layered (`exec`). Factories pass their
+ * agentDefaults under the agent; Studio Apps pass their team, project and App layers.
+ */
+export function resolveAgent(
+  name: string,
+  a: Pick<ParsedFactory["agents"][string], "frontmatter" | "instructions"> & { skills: Record<string, unknown> },
+  ctx: { exec: Partial; sharedSkills: string[]; networkPolicy?: NetworkPolicy; credentialStrategy?: CredentialStrategy; spawnableBy?: string[] },
+): ResolvedAgent {
+  const policy = a.frontmatter.networkPolicy === null ? undefined : (a.frontmatter.networkPolicy ?? ctx.networkPolicy);
+  return {
+    name,
+    agentType: a.frontmatter.agentType,
+    description: a.frontmatter.description,
+    instructions: a.instructions,
+    skills: [...ctx.sharedSkills, ...Object.keys(a.skills)],
+    spawnableBy: a.frontmatter.spawnableBy ?? ctx.spawnableBy ?? ["foreman"],
+    idleTimeoutMinutes: a.frontmatter.idleTimeoutMinutes ?? 10,
+    credentialStrategy: a.frontmatter.credentialStrategy ?? ctx.credentialStrategy ?? "EXECUTOR",
+    ...(policy ? { networkPolicy: policy } : {}),
+    requiredRepos: repoRefs(a.frontmatter.required_repos),
+    ...toExecution(ctx.exec),
+  };
+}
+
+/** Execution settings as layered by `applyLayer`. */
+export type ExecutionLayer = Partial;
+
 export function resolve(parsed: ParsedFactory): ResolvedFactory {
   if (!parsed.factory) throw new Error("cannot resolve a tree without factory.yaml");
   const defaults = applyLayer({}, parsed.factory.agentDefaults);
@@ -125,20 +153,7 @@ export function resolve(parsed: ParsedFactory): ResolvedFactory {
   for (const [name, a] of Object.entries(parsed.agents)) {
     const merged = applyLayer(defaults, a.frontmatter);
     layers[name] = merged;
-    const policy = a.frontmatter.networkPolicy === null ? undefined : (a.frontmatter.networkPolicy ?? parsed.factory.networkPolicy);
-    agents[name] = {
-      name,
-      agentType: a.frontmatter.agentType,
-      description: a.frontmatter.description,
-      instructions: a.instructions,
-      skills: [...sharedSkills, ...Object.keys(a.skills)],
-      spawnableBy: a.frontmatter.spawnableBy ?? ["foreman"],
-      idleTimeoutMinutes: a.frontmatter.idleTimeoutMinutes ?? 10,
-      credentialStrategy: a.frontmatter.credentialStrategy ?? parsed.factory.credentialStrategy ?? "EXECUTOR",
-      ...(policy ? { networkPolicy: policy } : {}),
-      requiredRepos: repoRefs(a.frontmatter.required_repos),
-      ...toExecution(merged),
-    };
+    agents[name] = resolveAgent(name, a, { exec: merged, sharedSkills, networkPolicy: parsed.factory.networkPolicy, credentialStrategy: parsed.factory.credentialStrategy });
   }
 
   const foreman = Object.values(agents).find((a) => a.agentType === "FOREMAN")?.name ?? "foreman";

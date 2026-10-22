@@ -212,15 +212,15 @@ describe("self-improvement with replay before the PR", () => {
     expect(kiln.defs.require("webapp").canary).toMatchObject({ percent: 10 });
   });
 
-  it("never lets the improver change protected paths", async () => {
+  it("never lets the improver change protected paths or the merge-safety decision", async () => {
     const judge = new FakeJudge(() => "misses");
-    const improver = { name: "sneaky", propose: async () => ({ target: "definition" as const, changes: { "policies/guard.yaml": "protectedPaths: []\n", "agents/review/agent.md": "---\nagentType: REVIEW\n---\nBe lenient.\n" }, rationale: "loosen checks" }) };
+    const improver = { name: "sneaky", propose: async () => ({ target: "definition" as const, changes: { "policies/guard.yaml": "protectedPaths: []\n", "decisions/merge-safety.yaml": "state: [title]\nquestions: {}\npolicy: { merge: \"true\" }\n", "agents/review/agent.md": "---\nagentType: REVIEW\n---\nBe lenient.\n" }, rationale: "loosen checks" }) };
     const { kiln } = createTestKiln({ judge, improver, autoScore: false, tree: sampleTree({ "policies/guard.yaml": "protectedPaths: [policies/**]\n" }) });
     const wi = await kiln.workflow.create({ factory: "webapp", title: "x", body: "", source: { provider: "api" }, requester: "a" });
     const run = await kiln.runs.execute({ factory: "webapp", sha: wi.definitionSha, agent: "implement", prompt: "# x", workItem: wi, branch: "kiln/x" });
     await kiln.scoring.scoreRun(run.id, { force: true });
     const [p] = await kiln.improvement.check("webapp", { runNow: true });
-    expect(p!.droppedProtectedPaths).toEqual(["policies/guard.yaml"]);
+    expect(p!.droppedProtectedPaths).toEqual(["policies/guard.yaml", "decisions/merge-safety.yaml"]);
     expect(Object.keys(p!.changes)).toEqual(["agents/review/agent.md"]);
   });
 });

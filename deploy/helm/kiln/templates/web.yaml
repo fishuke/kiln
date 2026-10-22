@@ -43,3 +43,20 @@ spec:
           - { path: /webhooks, pathType: Prefix, backend: { service: { name: kiln-api, port: { number: 4000 } } } }
           - { path: /, pathType: Prefix, backend: { service: { name: kiln-web, port: { number: 3000 } } } }
 {{- end }}
+{{- if and .Values.ingress.enabled .Values.studio.previewDomain }}
+---
+# Studio previews: every <id>.<previewDomain> goes to the API, which proxies it (and its HMR websocket) to the sandbox.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: kiln-preview, labels: {{- include "kiln.labels" . | nindent 4 }} }
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls: [{ hosts: ["*.{{ .Values.studio.previewDomain }}"], secretName: {{ .Values.studio.previewTlsSecret }} }]
+  {{- end }}
+  rules:
+    - host: "*.{{ .Values.studio.previewDomain }}"
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: kiln-api, port: { number: 4000 } } } }
+{{- end }}

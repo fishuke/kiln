@@ -19,22 +19,31 @@ export function PromptInput({
   sendLabel,
   placeholder,
   tools,
+  trailing,
   autoFocus,
   className,
   textareaClassName,
+  textareaRef,
+  header,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
   canSend: boolean;
-  files: ReturnType<typeof useAttachments>;
+  /** Omit for a composer without attachments (no attach button, no drop). */
+  files?: ReturnType<typeof useAttachments>;
   label: string;
   sendLabel: string;
   placeholder: string;
   tools?: React.ReactNode;
+  /** Controls next to the send button, on the right. */
+  trailing?: React.ReactNode;
   autoFocus?: boolean;
   className?: string;
   textareaClassName?: string;
+  textareaRef?: React.Ref<HTMLTextAreaElement>;
+  /** Shown above the text, inside the box (e.g. a note about steering). */
+  header?: React.ReactNode;
 }) {
   return (
     <form
@@ -45,18 +54,20 @@ export function PromptInput({
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
-        if (e.dataTransfer.files.length) void files.add(e.dataTransfer.files);
+        if (files && e.dataTransfer.files.length) void files.add(e.dataTransfer.files);
       }}
       className={className}
     >
-      {files.input}
+      {files?.input}
       <InputGroup className="h-auto rounded-xl bg-background shadow-xs transition-shadow focus-within:shadow-sm dark:bg-muted/20">
-        {files.items.length > 0 && (
+        {header && <InputGroupAddon align="block-start">{header}</InputGroupAddon>}
+        {files && files.items.length > 0 && (
           <InputGroupAddon align="block-start">
             <AttachmentChips items={files.items} onRemove={files.remove} />
           </InputGroupAddon>
         )}
         <InputGroupTextarea
+          ref={textareaRef}
           aria-label={label}
           autoFocus={autoFocus}
           value={value}
@@ -71,13 +82,18 @@ export function PromptInput({
           className={cn("px-3 text-sm leading-6", textareaClassName)}
         />
         <InputGroupAddon align="block-end">
-          <InputGroupButton size="icon-xs" variant="outline" aria-label="Attach files" onClick={files.open}>
-            <Plus />
-          </InputGroupButton>
+          {files && (
+            <InputGroupButton size="icon-xs" variant="outline" aria-label="Attach files" onClick={files.open}>
+              <Plus />
+            </InputGroupButton>
+          )}
           {tools}
-          <InputGroupButton type="submit" size="icon-xs" variant="default" aria-label={sendLabel} disabled={!canSend} className="ml-auto">
-            <ArrowUp />
-          </InputGroupButton>
+          <span className="ml-auto flex items-center gap-1">
+            {trailing}
+            <InputGroupButton type="submit" size="icon-xs" variant="default" aria-label={sendLabel} disabled={!canSend}>
+              <ArrowUp />
+            </InputGroupButton>
+          </span>
         </InputGroupAddon>
       </InputGroup>
     </form>

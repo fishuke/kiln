@@ -31,7 +31,33 @@ export type KilnEventMap = {
   "decision.made": { decision: string; action: string; provider: string; workItemId?: string };
   "self_improvement.proposed": { factory: string; agent: string; url: string };
   "message.posted": { channel: string; thread?: string; text: string };
+  "studio.turn_started": { appId: string; chatId: string; turnId: string; priority: "progress" };
+  "studio.turn_finished": { appId: string; chatId: string; turnId: string; title?: string; summary?: string; changed: boolean; priority: "finished" };
+  "studio.version_created": { appId: string; versionId: string; title: string; kind: "initial" | "apply" | "restore"; priority: "finished" };
+  "studio.needs_you": { appId: string; chatId: string; question: string; reason: "question" | "conflict" | "failed"; priority: "needs_you" };
+  /** An App's pull request changed state; never needs_you (the merge gate's merge_gate.review_updated is the one needs-you event for a review). */
+  "studio.pull_request_state_changed": {
+    appId: string;
+    pullRequestId: string;
+    state: "uat" | "ready_for_review" | "waiting_for_review" | "merged" | "cancelled";
+    url: string;
+    priority: "finished";
+  };
+  /** ADR-014: a pull request marked ready for review was merged by the gate, sent to a person, merged later or closed. */
+  "merge_gate.review_updated": {
+    reviewId: string;
+    appId?: string;
+    factory?: string;
+    pullRequestId?: string;
+    repo: string;
+    number: number;
+    state: "deciding" | "merged" | "needs_review" | "closed";
+    priority: "needs_you" | "finished";
+  };
 };
+
+/** How urgently a Studio event should reach the person (ADR-012): spoken, a badge, or silent. */
+export type StudioPriority = "needs_you" | "finished" | "progress";
 
 export type KilnEventType = keyof KilnEventMap;
 export type KilnEvent<T extends KilnEventType = KilnEventType> = { type: T; at: string; payload: KilnEventMap[T] };

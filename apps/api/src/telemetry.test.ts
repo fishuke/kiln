@@ -102,6 +102,21 @@ describe("egress proxy logs", () => {
     });
   });
 
+  it("drops datagrams from refused senders, such as Studio sandboxes", async () => {
+    const logs = new InMemoryLogRecordExporter();
+    const t = engineTelemetry({ traces: new SimpleSpanProcessor(new InMemorySpanExporter()), logs: new SimpleLogRecordProcessor({ exporter: logs }) });
+    const seen: string[] = [];
+    const socket = await listenEgressLogs(0, t.egressLogger, (address) => (seen.push(address), true));
+    const client = createSocket("udp4");
+    client.send("1792520855.123 10 172.20.0.5 TCP_TUNNEL/200 5000 CONNECT github.com:443 - HIER_DIRECT/1.2.3.4 -\n", socket.address().port, "127.0.0.1");
+    const start = Date.now();
+    while (!seen.length && Date.now() - start < 2000) await new Promise((r) => setTimeout(r, 10));
+    client.close();
+    socket.close();
+    expect(seen).toEqual(["127.0.0.1"]);
+    expect(logs.getFinishedLogRecords()).toHaveLength(0);
+  });
+
   it("turns datagrams into log records", async () => {
     const logs = new InMemoryLogRecordExporter();
     const t = engineTelemetry({ traces: new SimpleSpanProcessor(new InMemorySpanExporter()), logs: new SimpleLogRecordProcessor({ exporter: logs }) });

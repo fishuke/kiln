@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestKiln } from "@kiln/engine";
+import { studioEngineHooks } from "@kiln/studio";
 import { createMcpHandler } from "@kiln/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -32,9 +33,14 @@ function setup() {
     if (opts.prompt.startsWith("write ")) await opts.sandbox.writeFile(`${opts.cwd}/note.txt`, `${opts.prompt}\n`);
     emit({ type: "message", text: "Done." });
   });
-  const t = createTestKiln({ preview: false, sandboxes: { local: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-api-studio-"))) } });
-  configureStudio(t.kiln, {
+  // App turns run through the engine: its hooks answer from the Studio built for this Kiln, as config.ts wires them.
+  const t: ReturnType<typeof createTestKiln> = createTestKiln({
+    preview: false,
     harness: () => agent,
+    sandboxes: { local: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-api-studio-"))) },
+    ...studioEngineHooks(() => studioFor(t.kiln)),
+  });
+  configureStudio(t.kiln, {
     templates: { test: { id: "test", name: "Test", scaffold: ["echo hi > README.md"], install: [], dev: "sleep 30", egress: [] } },
     basePort: 30_000 + Math.floor(Math.random() * 20_000),
   });
@@ -131,6 +137,29 @@ describe("Studio API", () => {
     expect(app.setup).toMatchObject({ envRequired: ["ANTHROPIC_API_KEY", "APP_NAME"], envMissing: ["ANTHROPIC_API_KEY", "APP_NAME"] });
   });
 
+  it("streams the team's Studio and merge gate events, and no other team's", async () => {
+    const { app, client, kiln } = setup();
+    const ours = await client.studioCreateApp({ name: "Ours", source: { kind: "template", template: "test" } });
+    await studioFor(kiln)!.ready(ours.id);
+    const theirs = await studioFor(kiln)!.createApp({ team: "team_other", by: "x", name: "Theirs", source: { kind: "template", template: "test" } });
+    await studioFor(kiln)!.ready(theirs.id);
+    const res = await app.request("/api/v1/studio/events");
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    const publish = (type: string, payload: Record<string, unknown>) =>
+      (kiln.bus as unknown as { publish(t: string, p: unknown): void }).publish(type, payload);
+    publish("merge_gate.review_updated", { appId: theirs.id, state: "waiting_for_review" });
+    publish("merge_gate.review_updated", { appId: ours.id, state: "waiting_for_review" });
+    publish("run.finished", { runId: "run_x", outcome: "succeeded", costUsd: 0 });
+    while (!text.includes(ours.id)) text += decoder.decode((await reader.read()).value);
+    await reader.cancel();
+    expect(text).toContain("event: merge_gate.review_updated");
+    expect(text).not.toContain(theirs.id);
+    expect(text).not.toContain("run.finished");
+  });
+
   it("streams a chat's events from the bus", async () => {
     const { app, client, kiln } = setup();
     const created = await client.studioCreateApp({ name: "Live", source: { kind: "template", template: "test" } });
@@ -182,7 +211,10 @@ describe("Studio API", () => {
 
   it("serves the Studio tools over MCP with the caller's team", async () => {
     const { kiln } = setup();
-    const app = createApp(kiln, { devAuth: true, mcp: createMcpHandler("http://kiln.test", async (input, init) => app.fetch(new Request(input as string, init))) });
+    const app = createApp(kiln, {
+      devAuth: true,
+      mcp: createMcpHandler("http://kiln.test", async (input, init) => app.fetch(new Request(input as string, init))),
+    });
     const mcp = new Client({ name: "test", version: "1.0.0" });
     await mcp.connect(
       new StreamableHTTPClientTransport(new URL("http://kiln.test/mcp"), {

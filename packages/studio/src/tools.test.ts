@@ -1,15 +1,17 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryEventBus } from "@kiln/events";
+import { createTestKiln } from "@kiln/engine";
 import { FakeHarness } from "@kiln/harness";
 import { LocalSandboxProvider } from "@kiln/sandbox";
-import { MemoryObjectStore, MemoryStore } from "@kiln/store";
 import { afterEach, describe, expect, it } from "vitest";
+import { AppDefinitions } from "./app-definitions";
+import { studioEngineHooks, studioRuns } from "./engine-port";
 import { Studio } from "./studio";
 import { runTool, STUDIO_TOOLS } from "./tools";
 
-const caller = { team: "t1", by: "me@x.test", via: "mcp" as const };
+/** The caller acts in the test Kiln's default team (set by make). */
+let caller = { team: "", by: "me@x.test", via: "mcp" as const };
 const studios: Studio[] = [];
 
 function make() {
@@ -18,18 +20,23 @@ function make() {
     emit({ type: "message", text: "ok" });
   });
   let t = Date.parse("2026-10-22T10:00:00Z");
-  const studio = new Studio({
-    store: new MemoryStore(),
-    objects: new MemoryObjectStore(),
-    bus: new InMemoryEventBus(),
-    clock: { now: () => new Date((t += 1000)) },
+  const clock = { now: () => new Date((t += 1000)) };
+  let studio!: Studio;
+  const { kiln } = createTestKiln({ harness: () => harness, ...studioEngineHooks(() => studio) });
+  studio = new Studio({
+    store: kiln.store,
+    objects: kiln.objects,
+    bus: kiln.bus,
+    clock,
     sandboxes: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-tools-"))),
-    harness: () => harness,
+    definitions: new AppDefinitions({ store: kiln.store, clock }),
+    runs: studioRuns(kiln.runs),
     templates: { test: { id: "test", name: "Test", scaffold: ["echo hi > README.md"], install: [], dev: "sleep 60", egress: [] } },
     image: "kiln-runner-studio:test",
     previewUrl: (target) => `https://${target}.preview.test`,
   });
   studios.push(studio);
+  caller = { ...caller, team: kiln.teams.ensureDefaultTeam().id };
   return studio;
 }
 
@@ -48,6 +55,7 @@ describe("studio tools", () => {
       "restore:server",
       "bookmark:server",
       "look:server",
+      "stop:server",
       "focus:client",
       "show:client",
     ]);

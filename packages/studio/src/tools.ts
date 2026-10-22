@@ -21,6 +21,7 @@ const NewChat = z
     app: z.string(),
     prompt: z.string().min(1).optional(),
     mode: ChatMode.optional(),
+    agent: z.string().min(1).optional(),
     harness: HarnessType.optional(),
     model: z.string().optional(),
     title: z.string().max(100).optional(),
@@ -37,12 +38,13 @@ const Show = z.object({ view: z.enum(["preview", "code", "history"]) }).strict()
 export const STUDIO_TOOLS = [
   tool("status", "server", "What is running and what needs the person, for one app or all of them.", Status),
   tool("open_app", "server", "Open an app by id, or create one from a name and a source (a template or a repository).", OpenApp),
-  tool("new_chat", "server", "Start a new chat (a parallel line of work) in an app, optionally with a first message.", NewChat),
+  tool("new_chat", "server", "Start a new chat (a parallel line of work) in an app with one of its agents (default general), optionally with a first message.", NewChat),
   tool("send", "server", "Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them.", Send),
   tool("apply", "server", "Apply a chat's changes to the app's main line as a new version.", ChatRef),
   tool("restore", "server", "Restore an earlier version as a new version; nothing is lost.", VersionRef),
   tool("bookmark", "server", "Pin or unpin a version.", Bookmark),
   tool("look", "server", "The live preview of a chat (its URL).", ChatRef),
+  tool("stop", "server", "Stop the chat's agent; it waits for the next message.", ChatRef),
   tool("focus", "client", "Move the person's screen to an app and, optionally, a chat.", Focus),
   tool("show", "client", "Show the preview, the code or the history in the person's screen.", Show),
 ] as const satisfies readonly StudioTool[];
@@ -111,6 +113,9 @@ async function dispatch(studio: Studio, call: ToolCall, caller: ToolCaller): Pro
       return { ok: true, data: await studio.restore(version(call.input.version), caller.by) };
     case "bookmark":
       return { ok: true, data: studio.bookmark(version(call.input.version), call.input.on) };
+    case "stop":
+      await studio.stop(chat(call.input.chat), caller.by);
+      return { ok: true, data: null };
     case "look":
       return { ok: true, data: await studio.preview({ chatId: chat(call.input.chat) }) };
     case "focus": {

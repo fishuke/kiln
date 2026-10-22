@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
 import type { EventBus } from "@kiln/events";
-import type { HarnessAdapter, HarnessEvent, HarnessResult, HarnessSession } from "@kiln/harness";
+import type { ResolvedAgent } from "@kiln/definitions";
 import { shellQuote, type Proc, type Sandbox, type SandboxAddress, type SandboxProvider, type SandboxSpec } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import type { ObjectStore, Store } from "@kiln/store";
 import { z } from "zod";
+import { DEFAULT_AGENT, targetOf, type AppDefinitions } from "./app-definitions";
 import { detectSetup, devCommand, ENV_EXAMPLES, envKeys, listenPort } from "./setup";
 import { DEFAULT_READY, TEMPLATES, type Template } from "./templates";
 import {
@@ -31,6 +32,45 @@ export interface Clock {
   now(): Date;
 }
 
+/** Starting and talking to App runs; the API wires these to the engine's RunService (factory runs' machinery). */
+export interface StudioRuns {
+  /** Start a run of an App agent for a chat; resolves once the run exists. */
+  start(input: { appId: string; chatId: string; agent: string; prompt: string; by: string; via: Via; harness?: HarnessType; model?: string }): Promise<{ runId: string }>;
+  /** Steers a live run, or continues a finished one in a new run. */
+  followup(runId: string, input: { message: string; by: string }): Promise<{ delivered: "steered" | "continued"; runId: string }>;
+  interrupt(runId: string, by: string): Promise<void>;
+  /** Whether the run's agent is still working. */
+  active(runId: string): boolean;
+}
+
+/** The parts of an engine Run Studio reads (structural: Studio doesn't import the engine). */
+export type RunRef = {
+  id: string;
+  app?: string;
+  agent: string;
+  parentRunId?: string;
+  continuationOf?: string;
+  name?: string;
+  title?: string;
+  creator?: string;
+  metadata?: Record<string, string>;
+  status: string;
+  summary?: string;
+  costUsd: number;
+  startState: { prompt: string };
+};
+
+/** An App's definition for its runs, as the engine's KilnOptions.apps returns it (structural). */
+export type AppRunDefinition = {
+  sha: string;
+  team: string;
+  agents: Record<string, ResolvedAgent>;
+  skill(agent: string, name: string): { body: string; description?: string } | undefined;
+  monthlyUsd?: number;
+  env: Record<string, string>;
+  secretValues: string[];
+};
+
 export type StudioOptions = {
   store: Store;
   objects: ObjectStore;
@@ -38,9 +78,9 @@ export type StudioOptions = {
   clock: Clock;
   /** The one sandbox backend Studio apps run on. */
   sandboxes: SandboxProvider;
-  harness: (type: HarnessType) => HarnessAdapter;
-  /** Model keys for a harness run (BYOK). */
-  credentials?: (app: App, type: HarnessType) => Record<string, string>;
+  /** App definitions (team → Kiln Project → App): agents, skills, policies. */
+  definitions: AppDefinitions;
+  runs: StudioRuns;
   templates?: Record<string, Template>;
   /** Where prepared templates live ({templates} in a scaffold command); the studio runner image has them at /opt/kiln/templates. */
   templatesDir?: string;
@@ -66,7 +106,10 @@ export type AppEnv = { env: Record<string, string>; secretValues: string[] };
 
 /** `addresses`: where each dev server port is reachable, asked of the sandbox once per port. */
 type Live = { sandbox: Sandbox; devs: Map<string, Dev>; addresses: Map<number, SandboxAddress>; shownVersion?: string };
-type Running = { session?: HarnessSession; turnId: string; done: Promise<void> };
+/** A chat's turn in progress: its run once it has one; `finish` ends it. */
+type Running = { turnId: string; runId?: string; done: Promise<void>; finish: () => void };
+/** A run working in a chat's worktree. */
+type Lent = { chatId: string; turnId: string; startHead: string };
 
 const STUDIO_FILE = ".kiln/studio.json";
 const StudioFile = z.object({ title: z.string().optional(), summary: z.string().optional(), question: z.string().optional() }).passthrough();
@@ -87,29 +130,35 @@ const oneLine = (s: string, max = 80) => {
       ?.trim() ?? "";
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 };
+/** The newest message of a continued run's prompt (a follow-up appends "## Follow-up from …"). */
+const followUpText = (prompt: string) => prompt.split(/\n## Follow-up from [^\n]*\n/).at(-1)!.trim();
 
-/** Read-only modes and what every turn is told (ADR-012: modes are permissions). */
-export function instructionsFor(mode: ChatMode): string {
-  const base = [
-    "You are the coding agent in a Kiln Studio app. Your working directory is a Git worktree of the app; a person watches a live preview of it.",
-    `When you finish, write ${STUDIO_FILE} with {"title": "<what changed, past tense, at most 60 characters>", "summary": "<two short sentences for the person>"}, and add "question" only when you need the person to decide something.`,
-    "Studio commits your changes and merges them; don't push.",
-  ];
-  const modes: Record<ChatMode, string> = {
-    build: "You may read, edit and run commands. If the request is only a question, just answer it and change nothing.",
-    chat: "Read only: answer questions about the app and its code. Don't change any file; Studio discards changes in this mode.",
-    plan: "Read only: reply with a step-by-step plan for the request as your final message. Don't change any file; Studio discards changes in this mode.",
-  };
-  return [...base, modes[mode]].join("\n");
-}
+/** What every App agent is told about working in Studio (after its own instructions and mandatory skills). */
+export const STUDIO_INSTRUCTIONS = [
+  "## Working in Kiln Studio",
+  "Your working directory is a Git worktree of the app; a person watches a live preview of it.",
+  `When you finish, write ${STUDIO_FILE} with {"title": "<what changed, past tense, at most 60 characters>", "summary": "<two short sentences for the person>"}, and add "question" only when you need the person to decide something.`,
+  "Studio commits your changes and merges them; don't push. If the request is only a question, just answer it and change nothing.",
+].join("\n");
+
+/** Chat and plan mode are read only (ADR-012: modes are permissions); the note leads the person's message. */
+const MODE_NOTES: Record<ChatMode, string> = {
+  build: "",
+  chat: "Mode: chat. Read only: answer questions about the app and its code, and don't change any file; Studio discards changes in this mode.",
+  plan: "Mode: plan. Read only: reply with a step-by-step plan for the request as your final message, and don't change any file; Studio discards changes in this mode.",
+};
 
 /**
- * Studio (ADR-012): apps in a sandbox, chats on Git worktrees, turns that make a checkpoint only
- * when files change, versions on the app's main line, and dev server previews.
+ * Studio (ADR-012): apps in a sandbox, chats on Git worktrees, turns that are runs of the App's agents
+ * and make a checkpoint only when files change, versions on the app's main line, and dev server previews.
  */
 export class Studio {
   private readonly live = new Map<string, Live>();
   private readonly running = new Map<string, Running>();
+  private readonly lent = new Map<string, Lent>();
+  /** A chat whose finished turn is still applying and snapshotting; idle waits for it too. */
+  private readonly settling = new Map<string, Promise<void>>();
+  private readonly turnWaiters = new Map<string, { resolve: (turn: Turn) => void; reject: (err: Error) => void }>();
   private readonly provisioning = new Map<string, Promise<void>>();
   private readonly locks = new Map<string, Promise<unknown>>();
   private readonly templates: Record<string, Template>;
@@ -117,6 +166,14 @@ export class Studio {
   constructor(private readonly opts: StudioOptions) {
     this.templates = opts.templates ?? TEMPLATES;
     this.reconcile();
+    opts.bus.subscribe("run.event", (e) => this.recordEvent(e.payload));
+    // A run that ended without a workspace (it failed to start) never becomes a turn.
+    opts.bus.subscribe("run.finished", (e) => {
+      const waiter = this.turnWaiters.get(e.payload.runId);
+      if (!waiter || this.lent.has(e.payload.runId)) return;
+      this.turnWaiters.delete(e.payload.runId);
+      waiter.reject(new StudioError("unavailable", `run ${e.payload.runId} ended before it started working`));
+    });
   }
 
   /** On startup: what a restart cut off can't continue, so it fails and the chat asks the person. */
@@ -249,10 +306,10 @@ export class Studio {
 
   /** Stop every dev server, agent and sandbox without snapshotting (process shutdown, tests). */
   async shutdown(): Promise<void> {
-    const running = [...this.running.values()];
-    const stops = await Promise.allSettled(running.map((r) => r.session?.stop()));
-    // Let stopped turns finish their bookkeeping before their sandboxes go away.
-    await Promise.allSettled(running.map((r) => r.done));
+    const working = [...this.running.values()];
+    const stops = await Promise.allSettled(working.filter((r) => r.runId && this.opts.runs.active(r.runId)).map((r) => this.opts.runs.interrupt(r.runId!, "studio")));
+    // Let stopped turns finish their bookkeeping (release) before their sandboxes go away.
+    await Promise.allSettled([...working.map((r) => r.done), ...this.settling.values()]);
     for (const live of this.live.values()) this.stopDevs(live);
     const destroys = await Promise.allSettled([...this.live.values()].map((live) => live.sandbox.destroy()));
     this.live.clear();
@@ -336,22 +393,45 @@ export class Studio {
 
   async newChat(
     appId: string,
-    input: { by: string; via: Via; title?: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string },
+    input: { by: string; via: Via; title?: string; prompt?: string; mode?: ChatMode; agent?: string; harness?: HarnessType; model?: string },
   ): Promise<{ chat: Chat; turn?: Turn }> {
     await this.ready(appId);
     const p = this.readyApp(appId);
+    const agent = input.agent ?? DEFAULT_AGENT;
+    // Fails early for an agent the App doesn't define.
+    this.opts.definitions.chatConfig(targetOf(p), { agent });
+    const chat = await this.createChat(p, {
+      title: input.title ?? (input.prompt ? oneLine(input.prompt, 40) : undefined),
+      agent,
+      mode: input.mode ?? "build",
+      ...(input.harness ? { harness: input.harness } : {}),
+      ...(input.model ? { model: input.model } : {}),
+    });
+    if (!input.prompt) return { chat };
+    const { turn } = await this.send(chat.id, { by: input.by, via: input.via, text: input.prompt, ...(input.mode ? { mode: input.mode } : {}) });
+    return { chat: this.chat(chat.id), turn };
+  }
+
+  /** A chat's record and worktree (branch chat/<id> from the App's main line). */
+  private async createChat(
+    p: App,
+    input: { title?: string; agent: string; mode: ChatMode; harness?: HarnessType; model?: string; parentRunId?: string },
+  ): Promise<Chat> {
     const { sandbox } = await this.ensureLive(p);
     const chatId = id("sc");
-    const existing = this.getApp(appId)!.chats.length;
+    const existing = this.getApp(p.id)!.chats.length;
     if (existing >= MAX_CHATS) throw new StudioError("invalid", `an app can have at most ${MAX_CHATS} chats`);
     const now = this.now();
+    const model = input.model ?? p.model;
     const chat: Chat = {
       id: chatId,
-      appId,
-      title: input.title ?? (input.prompt ? oneLine(input.prompt, 40) : `Chat ${existing + 1}`),
-      mode: input.mode ?? "build",
+      appId: p.id,
+      title: input.title ?? `Chat ${existing + 1}`,
+      agent: input.agent,
+      mode: input.mode,
       harness: input.harness ?? p.harness,
-      ...((input.model ?? p.model) ? { model: input.model ?? p.model } : {}),
+      ...(model ? { model } : {}),
+      ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
       branch: `chat/${chatId}`,
       path: `chats/${chatId}`,
       port: this.basePort + 1 + existing,
@@ -359,21 +439,23 @@ export class Studio {
       createdAt: now,
       updatedAt: now,
     };
-    await this.locked(appId, () => must(sandbox, "app", `git worktree add -q -b ${chat.branch} ../${chat.path} ${shellQuote(p.setup!.mainBranch)}`));
+    await this.locked(p.id, () => must(sandbox, "app", `git worktree add -q -b ${chat.branch} ../${chat.path} ${shellQuote(p.setup!.mainBranch)}`));
     for (const cmd of p.setup!.install) await must(sandbox, chat.path, cmd, this.env(p));
-    this.save(C.chats, chat);
-    if (!input.prompt) return { chat };
-    const { turn } = await this.send(chatId, { by: input.by, via: input.via, text: input.prompt, ...(input.mode ? { mode: input.mode } : {}) });
-    return { chat: this.chat(chatId), turn };
+    return this.save(C.chats, chat);
   }
 
-  /** Start a turn, or steer the running one. Resolves once the turn has started. */
+  /**
+   * A message to a chat: steers its live run, or starts its next turn (a new run, or a follow-up that
+   * continues the chat's finished run). Resolves once the run exists.
+   */
   async send(chatId: string, input: { by: string; via: Via; text: string; mode?: ChatMode }, resolve = false): Promise<{ turn: Turn; steered: boolean }> {
     const chat = this.chat(chatId);
     const current = this.running.get(chatId);
-    if (current?.session) {
-      await current.session.steer(input.text);
-      return { turn: this.opts.store.get<Turn>(C.turns, current.turnId)!, steered: true };
+    if (current?.runId) {
+      const r = await this.opts.runs.followup(current.runId, { message: input.text, by: input.by });
+      if (r.delivered === "steered") return { turn: this.opts.store.get<Turn>(C.turns, current.turnId)!, steered: true };
+      // The run had just finished: the follow-up continued it, and that run is the chat's next turn.
+      return { turn: await this.turnOf(r.runId), steered: false };
     }
     if (current) throw new StudioError("busy", "the chat's turn is starting; try again in a moment");
     const max = this.opts.maxRunningChats ?? 3;
@@ -381,88 +463,176 @@ export class Studio {
     if (busy >= max) throw new StudioError("busy", `${max} chats are already working in this app`);
     const p = this.readyApp(chat.appId);
     const mode = input.mode ?? chat.mode;
+    const turn = this.newTurn(p, chat, { prompt: input.text, mode, via: input.via, by: input.by, resolve });
+    this.touch(C.chats, { ...chat, mode, status: "working", question: undefined });
+    const message = MODE_NOTES[mode] ? `${MODE_NOTES[mode]}\n\n${input.text}` : input.text;
+    try {
+      if (chat.runId) await this.opts.runs.followup(chat.runId, { message, by: input.by });
+      else
+        await this.opts.runs.start({
+          appId: p.id,
+          chatId,
+          agent: chat.agent,
+          prompt: message,
+          by: input.by,
+          via: input.via,
+          harness: chat.harness,
+          ...(chat.model ? { model: chat.model } : {}),
+        });
+    } catch (err) {
+      // The run never started (a budget, an unknown agent): the turn ends here.
+      this.finishFailed(p, chatId, turn, err instanceof Error ? err.message : String(err));
+      this.running.get(chatId)?.finish();
+      throw err;
+    }
+    return { turn: this.opts.store.get<Turn>(C.turns, turn.id)!, steered: false };
+  }
+
+  /** Interrupt the chat's run; it waits for a follow-up. */
+  async stop(chatId: string, by: string): Promise<void> {
+    const runId = this.running.get(chatId)?.runId;
+    if (!runId) throw new StudioError("invalid", "the chat has no running turn");
+    await this.opts.runs.interrupt(runId, by);
+  }
+
+  /** Resolves when the chat has no running turn and its last one is applied and saved, including a resolve turn Studio started itself. */
+  async idle(chatId: string): Promise<void> {
+    for (;;) {
+      const waiting = this.running.get(chatId)?.done ?? this.settling.get(chatId);
+      if (!waiting) return;
+      await waiting;
+    }
+  }
+
+  /** The turn a run became, once the run has its workspace; rejects if the run ends without one. */
+  private turnOf(runId: string): Promise<Turn> {
+    const lent = this.lent.get(runId);
+    if (lent) return Promise.resolve(this.opts.store.get<Turn>(C.turns, lent.turnId)!);
+    return new Promise<Turn>((resolve, reject) => this.turnWaiters.set(runId, { resolve, reject }));
+  }
+
+  /** A turn waiting for its run (send creates it; a run Studio didn't start gets one in acquire). */
+  private newTurn(p: App, chat: Chat, input: { prompt: string; mode: ChatMode; via: Via; by: string; resolve?: boolean }): Turn {
     const turn: Turn = {
       id: id("st"),
       appId: p.id,
-      chatId,
-      prompt: input.text,
-      mode,
+      chatId: chat.id,
+      prompt: input.prompt,
+      mode: input.mode,
       via: input.via,
       by: input.by,
       status: "running",
       reply: "",
       discarded: false,
-      ...(resolve ? { resolve: true } : {}),
+      ...(input.resolve ? { resolve: true } : {}),
       activity: [],
       costUsd: 0,
       startedAt: this.now(),
     };
-    let started!: () => void;
-    let failed!: (err: unknown) => void;
-    const ready = new Promise<void>((res, rej) => ((started = res), (failed = rej)));
-    const entry: Running = { turnId: turn.id, done: Promise.resolve() };
-    this.running.set(chatId, entry);
+    let finish!: () => void;
+    const done = new Promise<void>((res) => (finish = res));
+    this.running.set(chat.id, { turnId: turn.id, done, finish: () => (this.running.get(chat.id)?.turnId === turn.id && this.running.delete(chat.id), finish()) });
     this.save(C.turns, turn);
-    this.touch(C.chats, { ...chat, mode, status: "working", question: undefined });
-    this.opts.bus.publish("studio.turn_started", { appId: p.id, chatId, turnId: turn.id, priority: "progress" });
-    entry.done = this.runTurn(p, chatId, turn, entry, started, failed);
-    await ready;
-    return { turn: this.opts.store.get<Turn>(C.turns, turn.id)!, steered: false };
+    this.opts.bus.publish("studio.turn_started", { appId: p.id, chatId: chat.id, turnId: turn.id, priority: "progress" });
+    return turn;
   }
 
-  /** Resolves when the chat has no running turn, including a resolve turn Studio started itself. */
-  async idle(chatId: string): Promise<void> {
-    for (let r = this.running.get(chatId); r; r = this.running.get(chatId)) await r.done;
+  // ---- the engine's hooks (KilnOptions.apps and .workspaces) ----
+
+  /** An App's agents for its runs (KilnOptions.apps): the App definition, with Studio's turn instructions. */
+  definition(appId: string): AppRunDefinition {
+    const p = this.app(appId);
+    const target = targetOf(p);
+    const r = this.opts.definitions.resolve(target);
+    const agents = Object.fromEntries(
+      Object.entries(r.agents).map(([name, a]) => {
+        const { from: _from, ownSkills: _own, ...agent } = a;
+        return [name, { ...agent, instructions: `${this.opts.definitions.chatConfig(target, { agent: name }).instructions}\n\n${STUDIO_INSTRUCTIONS}` }];
+      }),
+    );
+    const { env, secretValues } = this.opts.env?.(p) ?? { env: {}, secretValues: [] };
+    return {
+      sha: r.sha,
+      team: p.team,
+      agents,
+      skill: (agent, name) => {
+        const s = r.agents[agent]?.ownSkills[name] ?? r.skills[name];
+        return s ? { body: s.body, ...(s.description ? { description: s.description } : {}) } : undefined;
+      },
+      ...(r.monthlyUsd !== undefined ? { monthlyUsd: r.monthlyUsd } : {}),
+      env,
+      secretValues,
+    };
   }
 
-  private async runTurn(p: App, chatId: string, turn: Turn, entry: Running, started: () => void, failed: (err: unknown) => void) {
-    let startHead = "";
-    let result: HarnessResult;
-    let live: Live;
-    try {
-      live = await this.ensureLive(p);
-      const chat = this.chat(chatId);
-      startHead = await must(live.sandbox, chat.path, "git rev-parse HEAD");
-      await must(live.sandbox, chat.path, `rm -f ${STUDIO_FILE}`);
-      entry.session = await this.opts.harness(chat.harness).start({
-        sandbox: live.sandbox,
-        cwd: chat.path,
-        instructions: instructionsFor(turn.mode),
-        prompt: turn.prompt,
-        ...(chat.model ? { model: chat.model } : {}),
-        env: { ...this.env(p), ...this.opts.credentials?.(p, chat.harness) },
-      });
-      started();
-      const clean = this.redactor(p);
-      for await (const e of entry.session.events) this.record(turn, e, clean);
-      result = await entry.session.result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      result = { outcome: "failed", summary: message, costUsd: 0, turns: 0 };
-      if (!entry.session) {
-        this.running.delete(chatId);
-        this.finishFailed(p, chatId, turn, message);
-        failed(err);
-        return;
-      }
+  /**
+   * Where an App's run works (KilnOptions.workspaces): its chat's worktree in the App's sandbox. A run
+   * an agent spawned gets a new chat and worktree; a continuation stays in its chat. Answers undefined
+   * for any other run.
+   */
+  async acquire(run: RunRef, parent?: RunRef): Promise<{ sandbox: Sandbox; cwd: string } | undefined> {
+    if (!run.app) return undefined;
+    const p = this.readyApp(run.app);
+    const live = await this.ensureLive(p);
+    const named = run.metadata?.["studio.chat"];
+    const continued = run.continuationOf ? this.opts.store.list<Chat>(C.chats, (c) => c.runId === run.continuationOf)[0] : undefined;
+    let chat = continued ?? (named ? this.chat(named) : undefined);
+    if (!chat) {
+      if (!parent) throw new StudioError("invalid", `run ${run.id} has no Studio chat`);
+      chat = await this.createChat(p, { title: run.name ?? run.title ?? oneLine(run.startState.prompt, 40), agent: run.agent, mode: "build", parentRunId: parent.id });
     }
+    // A turn Studio started (send) waits for its run; any other run (a child, a report, an agent's follow-up) is a new turn.
+    const waiting = this.running.get(chat.id);
+    const turn =
+      waiting && !waiting.runId
+        ? this.opts.store.get<Turn>(C.turns, waiting.turnId)!
+        : this.newTurn(p, chat, { prompt: followUpText(run.startState.prompt), mode: "build", via: "api", by: run.creator ?? "kiln" });
+    this.running.get(chat.id)!.runId = run.id;
+    this.save(C.turns, { ...turn, runId: run.id });
+    this.touch(C.chats, { ...this.chat(chat.id), runId: run.id, status: "working", question: undefined });
+    const startHead = await must(live.sandbox, chat.path, "git rev-parse HEAD");
+    await must(live.sandbox, chat.path, `rm -f ${STUDIO_FILE}`);
+    this.lent.set(run.id, { chatId: chat.id, turnId: turn.id, startHead });
+    this.turnWaiters.get(run.id)?.resolve(this.opts.store.get<Turn>(C.turns, turn.id)!);
+    this.turnWaiters.delete(run.id);
+    return { sandbox: live.sandbox, cwd: chat.path };
+  }
+
+  /** The run is done with its worktree: checkpoint, enforce the mode, record the turn, apply in cowboy mode, snapshot. */
+  async release(run: RunRef): Promise<void> {
+    const lent = this.lent.get(run.id);
+    if (!lent) return;
+    this.lent.delete(run.id);
+    let settled!: () => void;
+    const settling = new Promise<void>((res) => (settled = res));
+    this.settling.set(lent.chatId, settling);
     try {
-      await this.finishTurn(p, chatId, turn, result, startHead, live!);
-    } catch (err) {
-      this.finishFailed(p, chatId, turn, err instanceof Error ? err.message : String(err));
+      await this.settle(run, lent);
     } finally {
-      if (this.running.get(chatId) === entry) this.running.delete(chatId);
+      if (this.settling.get(lent.chatId) === settling) this.settling.delete(lent.chatId);
+      settled();
     }
+  }
+
+  private async settle(run: RunRef, lent: Lent): Promise<void> {
+    const p = this.app(run.app!);
+    const turn = this.opts.store.get<Turn>(C.turns, lent.turnId)!;
+    try {
+      await this.finishTurn(p, lent.chatId, turn, run, lent.startHead);
+    } catch (err) {
+      this.finishFailed(p, lent.chatId, turn, err instanceof Error ? err.message : String(err));
+    }
+    this.running.get(lent.chatId)?.finish();
     const after = this.opts.store.get<Turn>(C.turns, turn.id)!;
     const app = this.app(p.id);
-    if (app.shipMode === "cowboy" && after.checkpoint && !this.running.has(chatId)) {
+    if (app.shipMode === "cowboy" && after.checkpoint && !this.running.has(lent.chatId)) {
       try {
-        await this.autoApply(app, chatId, after);
+        await this.autoApply(app, lent.chatId, after);
       } catch (err) {
         // The checkpoint is safe on the chat branch; the person can apply it by hand.
         const question = `Applying this chat failed: ${err instanceof Error ? err.message : String(err)}`;
-        this.touch(C.chats, { ...this.chat(chatId), status: "needs_you", question });
-        this.opts.bus.publish("studio.needs_you", { appId: p.id, chatId, question, reason: "failed", priority: "needs_you" });
+        this.touch(C.chats, { ...this.chat(lent.chatId), status: "needs_you", question });
+        this.opts.bus.publish("studio.needs_you", { appId: p.id, chatId: lent.chatId, question, reason: "failed", priority: "needs_you" });
       }
     }
     try {
@@ -473,31 +643,39 @@ export class Studio {
     }
   }
 
-  private record(turn: Turn, e: HarnessEvent, clean: (text: string) => string) {
+  /** A run's events (already redacted by the run) become its turn's activity. */
+  private recordEvent(e: { runId: string; type: string; text?: string; data?: unknown }) {
+    const lent = this.lent.get(e.runId);
+    if (!lent) return;
+    const turn = this.opts.store.get<Turn>(C.turns, lent.turnId);
+    if (!turn) return;
+    const clean = this.redactor(this.app(turn.appId));
     const at = this.now();
+    const text = clean(e.text ?? "");
     let a: Activity | undefined;
     if (e.type === "message") {
-      a = { kind: "message", text: clean(e.text), at };
-      turn.reply = a.text;
-    } else if (e.type === "reasoning") a = { kind: "reasoning", text: clean(e.text), at };
+      a = { kind: "message", text, at };
+      turn.reply = text;
+    } else if (e.type === "reasoning") a = { kind: "reasoning", text, at };
     else if (e.type === "tool_call") {
-      const input = (e.input ?? {}) as Record<string, unknown>;
-      a = SUBAGENT_TOOLS.has(e.name)
-        ? { kind: "subagent", name: e.name, text: clean(String(input.description ?? input.prompt ?? "")), at }
-        : { kind: "tool", name: e.name, ...(typeof input.file_path === "string" ? { text: clean(input.file_path) } : {}), at };
-    } else if (e.type === "error") a = { kind: "error", text: clean(e.text), at };
-    else if (e.type === "cost") turn.costUsd += e.usd;
-    if (a) turn.activity.push(a);
+      const input = (e.data ?? {}) as Record<string, unknown>;
+      a = SUBAGENT_TOOLS.has(text)
+        ? { kind: "subagent", name: text, text: clean(String(input.description ?? input.prompt ?? "")), at }
+        : { kind: "tool", name: text, ...(typeof input.file_path === "string" ? { text: clean(input.file_path) } : {}), at };
+    } else if (e.type === "spawn") a = { kind: "subagent", name: "spawn_agent", text, at };
+    else if (e.type === "error") a = { kind: "error", text, at };
+    if (!a) return;
+    turn.activity.push(a);
     this.save(C.turns, turn);
   }
 
-  private async finishTurn(p: App, chatId: string, turn: Turn, result: HarnessResult, startHead: string, live: Live) {
+  private async finishTurn(p: App, chatId: string, turn: Turn, run: RunRef, startHead: string) {
     const chat = this.chat(chatId);
-    const sbx = live.sandbox;
+    const { sandbox: sbx } = await this.ensureLive(p);
     const meta = parseStudioFile(await sbx.readFile(`${chat.path}/${STUDIO_FILE}`));
     const clean = this.redactor(p);
-    turn.reply ||= clean(result.summary);
-    turn.costUsd = Math.max(turn.costUsd, result.costUsd);
+    turn.reply ||= clean(run.summary ?? "");
+    turn.costUsd = run.costUsd;
     const title = clean(meta.title?.trim() ? oneLine(meta.title) : oneLine(turn.reply) || "Changes");
     turn.title = title;
     if (meta.summary) turn.summary = clean(meta.summary);
@@ -515,11 +693,11 @@ export class Studio {
       }
       if (turn.mode === "plan") turn.plan = turn.reply;
     }
-    turn.status = result.outcome;
+    turn.status = run.status === "succeeded" ? "succeeded" : run.status === "failed" || run.status === "error" ? "failed" : "cancelled";
     turn.finishedAt = this.now();
     this.save(C.turns, turn);
-    const needs = turn.question ?? (result.outcome === "failed" ? `The agent failed: ${oneLine(result.summary, 200)}` : undefined);
-    this.touch(C.chats, { ...chat, status: needs ? "needs_you" : "idle", ...(needs ? { question: needs } : { question: undefined }) });
+    const needs = turn.question ?? (turn.status === "failed" ? `The agent failed: ${oneLine(clean(run.summary ?? ""), 200)}` : undefined);
+    this.touch(C.chats, { ...this.chat(chatId), status: needs ? "needs_you" : "idle", ...(needs ? { question: needs } : { question: undefined }) });
     this.opts.bus.publish("studio.turn_finished", {
       appId: p.id,
       chatId,
@@ -529,14 +707,7 @@ export class Studio {
       changed: Boolean(turn.checkpoint),
       priority: "finished",
     });
-    if (needs)
-      this.opts.bus.publish("studio.needs_you", {
-        appId: p.id,
-        chatId,
-        question: needs,
-        reason: turn.question ? "question" : "failed",
-        priority: "needs_you",
-      });
+    if (needs) this.opts.bus.publish("studio.needs_you", { appId: p.id, chatId, question: needs, reason: turn.question ? "question" : "failed", priority: "needs_you" });
   }
 
   private finishFailed(p: App, chatId: string, turn: Turn, message: string) {

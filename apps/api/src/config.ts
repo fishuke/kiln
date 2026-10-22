@@ -4,6 +4,8 @@ import { GitHubOAuthClient, issueToken, type GitHubOAuth } from "@kiln/auth";
 import { AnthropicProvider, FakeProvider, JevProvider, LlmProvider, type DecisionProvider } from "@kiln/decide";
 import { loadTree } from "@kiln/definitions";
 import { DecisionJudge, fakeAgents, FakeJudge, Kiln, sampleTree, type IntegrationAdapters, type KilnOptions } from "@kiln/engine";
+import { studioEngineHooks } from "@kiln/studio";
+import { studioFor } from "./routes/studio";
 import {
   AzureDevOpsForge,
   BitbucketForge,
@@ -137,6 +139,8 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     }),
     adapters: adaptersFromEnv(env),
     onGitHubApp: (app) => useGitHubApp(app),
+    // Studio App runs (ADR-012): their agents and workspaces come from the Studio built for this Kiln (KILN_STUDIO=1).
+    ...studioEngineHooks(() => studioFor(kiln)),
   };
   const kiln = new Kiln(options);
 

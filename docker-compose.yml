@@ -10,6 +10,7 @@ services:
       KILN_WEB_URL: ${KILN_WEB_URL:-http://localhost:3000}
       KILN_SANDBOX: ${KILN_SANDBOX:-docker}
       # Studio previews: e.g. preview.localhost:4000 (browsers resolve *.localhost to this machine).
+      KILN_STUDIO: ${KILN_STUDIO:-0}
       KILN_STUDIO_PREVIEW_DOMAIN: ${KILN_STUDIO_PREVIEW_DOMAIN:-}
       # Studio sandboxes also join kiln-preview, where the API reaches their dev servers. The API drops
       # every connection and egress-log datagram that comes from that subnet.

@@ -298,6 +298,21 @@ describe("runs: sources, metadata, follow-ups, interrupts and subagent trees", (
   });
 });
 
+describe("following up a run that is still starting", () => {
+  it("steers it once its agent starts instead of continuing it in another run", async () => {
+    const harness = new FakeHarness(async (ctx) => ({ summary: `heard: ${(await ctx.nextSteer(2000)) ?? "nothing"}` }));
+    const { kiln } = createTestKiln({ harness: () => harness });
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    const run = await kiln.runs.startInBackground({ factory: "webapp", sha, agent: "implement", prompt: "build", push: false });
+    // The run exists, but its sandbox and agent are still being prepared.
+    expect(kiln.runs.isActive(run.id)).toBe(false);
+    const r = await kiln.runs.followup(run.id, { message: "use the brand colour", by: "alice" });
+    expect(r).toMatchObject({ delivered: "steered", run: { id: run.id } });
+    for (let i = 0; i < 500 && kiln.runs.get(run.id)!.status !== "succeeded"; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(kiln.runs.get(run.id)!.summary).toBe("heard: use the brand colour");
+  });
+});
+
 describe("provided workspaces", () => {
   it("runs in a workspace someone else owns, under its own guard, and gives it back instead of destroying it", async () => {
     const shared = await new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-shared-"))).create({

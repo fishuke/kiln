@@ -117,7 +117,7 @@ docker build -t kiln-runner-node:local runners/images/node
 docker build -t kiln-runner-studio:local -f runners/images/studio/Dockerfile templates/nextjs
 ```
 
-Set `KILN_STUDIO_IMAGE=kiln-runner-studio:local` on the API. Without it, Studio uses `KILN_RUNNER_IMAGE` and creates the App with `create-next-app`, which downloads everything and takes minutes. `runners/studio.yaml` is the matching runner file.
+Studio is off unless the API has `KILN_STUDIO=1`; without it, the Studio routes answer 503. Set `KILN_STUDIO_IMAGE=kiln-runner-studio:local` on the API. Without it, Studio uses `KILN_RUNNER_IMAGE` and creates the App with `create-next-app`, which downloads everything and takes minutes. `runners/studio.yaml` is the matching runner file.
 
 The template is App Router, TypeScript, Tailwind CSS 4 and shadcn/ui, with `AGENTS.md` (and a `CLAUDE.md` that imports it) telling agents to keep the dev server running, use the components in `components/ui/` and keep turns small. Its Studio settings are in `templates/templates.json`:
 

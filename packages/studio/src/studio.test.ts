@@ -2,11 +2,13 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryEventBus } from "@kiln/events";
+import { createTestKiln } from "@kiln/engine";
 import { FakeHarness, type FakeScript } from "@kiln/harness";
 import { LocalSandboxProvider, type SandboxSpec } from "@kiln/sandbox";
-import { MemoryObjectStore, MemoryStore } from "@kiln/store";
+import { MemoryStore } from "@kiln/store";
 import { afterEach, describe, expect, it } from "vitest";
+import { AppDefinitions } from "./app-definitions";
+import { studioEngineHooks, studioRuns } from "./engine-port";
 import { Studio, type StudioOptions } from "./studio";
 import type { Template } from "./templates";
 
@@ -28,42 +30,77 @@ const TEST: Template = {
   egress: [],
 };
 
-/** A scripted agent: "write <file> <text>" writes a file, "ask" asks a question, anything else just answers. */
+/** A scripted agent, reading the newest message: "write <file> <text>" writes a file, "ask" asks a question, anything else just answers. */
 const agent: FakeScript = async ({ opts, emit }) => {
-  const write = async (path: string, text: string) => opts.sandbox.writeFile(`${opts.cwd}/${path}`, text);
-  for (const line of opts.prompt.split("\n")) {
+  const write = async (path: string, text: string) =>
+    opts.sandbox.writeFile(`${opts.cwd}/${path}`, text);
+  // A continued run's prompt is the first message plus "## Follow-up from …" sections; a real agent acts on the newest.
+  const latest = opts.prompt.split(/\n## Follow-up from [^\n]*\n/).at(-1)!;
+  for (const line of latest.split("\n")) {
     const m = /^write (\S+) (.*)$/.exec(line);
     if (m) {
       await write(m[1]!, `${m[2]}\n`);
       emit({ type: "tool_call", name: "Write", input: { file_path: m[1] } });
     }
-    if (line === "delegate") emit({ type: "tool_call", name: "Task", input: { description: "look around" } });
-    if (line === "ask") await write(".kiln/studio.json", JSON.stringify({ title: "Asked", summary: "A question.", question: "Text logo or upload one?" }));
-    if (line.startsWith("Run `git merge main`"))
-      await opts.sandbox.exec("git merge main || (printf 'export const n = 3;\\n' > app.ts && git add -A && git commit -qm resolved)", {
-        cwd: opts.cwd,
-        trusted: true,
+    if (line === "delegate")
+      emit({
+        type: "tool_call",
+        name: "Task",
+        input: { description: "look around" },
       });
+    if (line === "ask")
+      await write(
+        ".kiln/studio.json",
+        JSON.stringify({
+          title: "Asked",
+          summary: "A question.",
+          question: "Text logo or upload one?",
+        }),
+      );
+    if (line.startsWith("Run `git merge main`"))
+      await opts.sandbox.exec(
+        "git merge main || (printf 'export const n = 3;\\n' > app.ts && git add -A && git commit -qm resolved)",
+        {
+          cwd: opts.cwd,
+          trusted: true,
+        },
+      );
   }
-  const title = /^write (\S+)/m.exec(opts.prompt)?.[1];
-  if (title) await write(".kiln/studio.json", JSON.stringify({ title: `Changed ${title}`, summary: "Done." }));
+  const title = /^write (\S+)/m.exec(latest)?.[1];
+  if (title)
+    await write(
+      ".kiln/studio.json",
+      JSON.stringify({ title: `Changed ${title}`, summary: "Done." }),
+    );
   emit({ type: "message", text: "Done." });
   return { summary: "Done." };
 };
 
 const studios: Studio[] = [];
+/** Each test Studio's team: its Kiln's default team (the engine runs only for a team it knows). */
+const teams = new WeakMap<Studio, string>();
 let basePort = 20_000 + Math.floor(Math.random() * 20_000);
 
-function make(over: Partial<StudioOptions> = {}) {
-  const harness = new FakeHarness(agent);
-  const bus = new InMemoryEventBus();
-  const studio = new Studio({
-    store: new MemoryStore(),
-    objects: new MemoryObjectStore(),
-    bus,
-    clock: new TestClock(),
-    sandboxes: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-"))),
+/** A Studio on a test Kiln: every turn is a run of the App's agent through the engine, with `script` as the agent. */
+function make(over: Partial<StudioOptions> = {}, script: FakeScript = agent) {
+  const harness = new FakeHarness(script);
+  let studio!: Studio;
+  const { kiln } = createTestKiln({
     harness: () => harness,
+    ...studioEngineHooks(() => studio),
+  });
+  const clock = new TestClock();
+  const definitions = new AppDefinitions({ store: over.store ?? kiln.store, clock });
+  studio = new Studio({
+    store: kiln.store,
+    objects: kiln.objects,
+    bus: kiln.bus,
+    clock,
+    sandboxes: new LocalSandboxProvider(
+      mkdtempSync(join(tmpdir(), "kiln-studio-")),
+    ),
+    definitions,
+    runs: studioRuns(kiln.runs),
     templates: { test: TEST },
     image: "kiln-runner-studio:test",
     previewUrl: (target, a) => `http://${a.host}:${a.port}/#${target}`,
@@ -71,7 +108,8 @@ function make(over: Partial<StudioOptions> = {}) {
     ...over,
   });
   studios.push(studio);
-  return { studio, harness, bus };
+  teams.set(studio, kiln.teams.ensureDefaultTeam().id);
+  return { studio, harness, bus: kiln.bus, kiln, definitions };
 }
 
 afterEach(async () => {
@@ -80,7 +118,7 @@ afterEach(async () => {
 
 async function app(studio: Studio, shipMode: "safe" | "review" | "cowboy" = "cowboy") {
   // Ship mode is the source's default at creation; ship's setShipMode changes it through updateApp after its cap check.
-  const p = await studio.createApp({ team: "t1", by: "me@x.test", name: "Daily Done", source: { kind: "template", template: "test" } });
+  const p = await studio.createApp({ team: teams.get(studio)!, by: "me@x.test", name: "Daily Done", source: { kind: "template", template: "test" } });
   if (shipMode !== "cowboy") studio.updateApp(p.id, { shipMode });
   await studio.ready(p.id);
   return studio.getApp(p.id)!.app;
@@ -247,12 +285,14 @@ describe("turns and versions", () => {
   });
 
   it("refuses a turn beyond the running-chat limit", async () => {
-    const slow = new FakeHarness(async ({ nextSteer }) => void (await nextSteer(500)));
-    const { studio } = make({ harness: () => slow, maxRunningChats: 1 });
+    const slow: FakeScript = async ({ nextSteer }) => void (await nextSteer(2000));
+    const { studio } = make({ maxRunningChats: 1 }, slow);
     const p = await app(studio, "safe");
     const a = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
     const b = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
     await studio.send(a.id, { by: "me", via: "web", text: "work" });
+    // A turn can be steered once its run is working in the chat's worktree.
+    await waitFor(async () => expect(studio.getChat(a.id)!.chat.runId).toBeDefined());
     expect((await studio.send(a.id, { by: "me", via: "web", text: "also this" })).steered).toBe(true);
     await expect(studio.send(b.id, { by: "me", via: "web", text: "work" })).rejects.toMatchObject({ code: "busy" });
     await studio.idle(a.id);
@@ -284,6 +324,31 @@ describe("previews and pausing", () => {
     expect(again.checkpoint).toBeDefined();
     expect(studio.getApp(p.id)!.app.status).toBe("ready");
     expect(studio.getApp(p.id)!.versions[0]!.title).toBe("Changed b.ts");
+  });
+});
+
+describe("subagents", () => {
+  it("gives a run an App agent spawns its own chat, worktree and turn", async () => {
+    let kiln!: ReturnType<typeof make>["kiln"];
+    const lead: FakeScript = async (ctx) => {
+      if (ctx.opts.prompt.includes("split the work")) {
+        await kiln.runs.spawn(ctx.opts.env!.KILN_RUN_ID!, { agent: "helper", prompt: "write helper.ts from the helper", name: "helper", wait: true });
+        return { summary: "Split." };
+      }
+      return agent(ctx);
+    };
+    const made = make({}, lead);
+    kiln = made.kiln;
+    const p = await app(made.studio, "safe");
+    made.definitions.save({ team: p.team, appId: p.id }, { "agents/helper/agent.md": "---\nspawnableBy: [general]\n---\nHelp the lead.\n" }, "me");
+    const { chat } = await made.studio.newChat(p.id, { by: "me", via: "web" });
+    await say(made.studio, chat.id, "split the work");
+    const child = made.studio.getApp(p.id)!.chats.find((c) => c.agent === "helper")!;
+    expect(child).toMatchObject({ title: "helper", parentRunId: made.studio.getChat(chat.id)!.chat.runId, status: "idle" });
+    await made.studio.idle(child.id);
+    const [turn] = made.studio.getChat(child.id)!.turns;
+    expect(turn).toMatchObject({ status: "succeeded", title: "Changed helper.ts", checkpoint: expect.any(String) });
+    expect(await made.studio.diff({ chatId: child.id })).toContain("+from the helper");
   });
 });
 
@@ -341,13 +406,13 @@ describe("restarts", () => {
 describe("environment", () => {
   it("passes the App's assigned values to the agent and redacts secret values from what it stores", async () => {
     const seen: Record<string, string>[] = [];
-    const leaky = new FakeHarness(async ({ opts, emit }) => {
+    const leaky: FakeScript = async ({ opts, emit }) => {
       seen.push(opts.env ?? {});
       emit({ type: "message", text: "the key is s3cr3t-value-123" });
       emit({ type: "tool_call", name: "Bash", input: { command: "echo s3cr3t-value-123" } });
       return { summary: "used s3cr3t-value-123" };
-    });
-    const { studio } = make({ harness: () => leaky, env: () => ({ env: { API_KEY: "s3cr3t-value-123", REGION: "eu" }, secretValues: ["s3cr3t-value-123"] }) });
+    };
+    const { studio } = make({ env: () => ({ env: { API_KEY: "s3cr3t-value-123", REGION: "eu" }, secretValues: ["s3cr3t-value-123"] }) }, leaky);
     const p = await app(studio, "safe");
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     const t = await say(studio, chat.id, "hi");

@@ -18,6 +18,7 @@ import * as reviews from "./reviews";
 import * as runs from "./runs";
 import * as scorers from "./scorers";
 import { secretRoutes } from "./secrets";
+import { registerStudioPreview } from "./studio-preview";
 import * as tasks from "./tasks";
 import { teamRoutes } from "./teams";
 import { usageRoutes } from "./usage";
@@ -50,8 +51,8 @@ const PLATFORM: ((ctx: RouteContext) => void)[] = [
   factoryDeleteRoutes,
 ];
 
-/** Public routes (provider webhooks, OAuth callbacks): registered before the API's auth middleware. */
-const PUBLIC_MODULES: ((ctx: RouteContext) => void)[] = [registerWebhookRoutes, registerGitHubAppCallbacks, registerOAuthServer];
+/** Public routes (Studio preview hosts, provider webhooks, OAuth callbacks): registered before the API's auth middleware. */
+const PUBLIC_MODULES: ((ctx: RouteContext) => void)[] = [registerStudioPreview, registerWebhookRoutes, registerGitHubAppCallbacks, registerOAuthServer];
 
 export function registerModules(ctx: RouteContext) {
   for (const register of PLATFORM) register(ctx);

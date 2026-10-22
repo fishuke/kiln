@@ -4,7 +4,7 @@ import { collectPlaywrightEvidence, criteriaCovered, previewCard } from "@kiln/e
 import { evalBool, type Decision, type PipelineStage } from "@kiln/schema";
 import { foremanPrompt, movesWork, parseActions, type ForemanActions } from "./agent-foreman";
 import { correlationKeys } from "./dedupe";
-import { KilnError } from "./errors";
+import { KilnError, retriesAutomatically } from "./errors";
 import { BUILTIN_GATES } from "./gates";
 import type { Kiln } from "./kiln";
 import { isActive, transition, TRANSITIONS } from "./state";
@@ -26,6 +26,12 @@ const TYPE_TO_KIND: Record<string, StageKind> = {
 };
 
 type StepResult = "continue" | "wait" | "done";
+
+/** A run ended on a temporary platform error (network, restart) after its own retries: the stage runs again later. */
+class TemporaryError extends Error {}
+
+/** Waits between stage retries after temporary errors (1, 2, 5, 10, 20, 30 minutes); past the last one the task stops. */
+const STAGE_RETRY_MS = [1, 2, 5, 10, 20, 30].map((m) => m * 60_000);
 
 function specFrom(wi: WorkItem, res: SpecResult, run: Run): NonNullable<WorkItem["spec"]> {
   return {
@@ -325,6 +331,16 @@ export class Workflow {
     const prev = this.locks.get(id) ?? Promise.resolve();
     const next = prev.then(() => this.run(id)).catch((err) => {
       const wi = this.get(id);
+      if (wi && isActive(wi.state) && err instanceof TemporaryError) {
+        const n = wi.loops["temporary-errors"] ?? 0;
+        const wait = (this.k.options.stageRetryDelaysMs ?? STAGE_RETRY_MS)[n];
+        if (wait !== undefined) {
+          wi.loops["temporary-errors"] = n + 1;
+          wi.retryAt = new Date(this.k.clock.now().getTime() + wait).toISOString();
+          this.save(wi);
+          return;
+        }
+      }
       if (wi && isActive(wi.state)) {
         wi.blockedReason = err instanceof Error ? err.message : String(err);
         this.say(wi, "kiln", "system", `Stopped: ${wi.blockedReason}`);
@@ -346,6 +362,11 @@ export class Workflow {
     for (let guard = 0; guard < 50; guard++) {
       const wi = this.get(id);
       if (!wi || !isActive(wi.state) || wi.state === "blocked") return;
+      if (wi.retryAt) {
+        if (wi.retryAt > this.k.clock.now().toISOString()) return;
+        wi.retryAt = undefined;
+        this.save(wi);
+      }
       const r = await this.step(wi);
       if (r !== "continue") return;
     }
@@ -483,6 +504,13 @@ export class Workflow {
     });
     const fresh = this.get(wi.id)!;
     this.countRun(fresh, run);
+    // Infrastructure, not the agent: no message, no failure count; the stage tries again later.
+    if (run.status === "error" && retriesAutomatically(run.error)) {
+      this.save(fresh);
+      Object.assign(wi, fresh);
+      throw new TemporaryError(run.error!.message);
+    }
+    if (run.status === "succeeded") delete fresh.loops["temporary-errors"];
     if (!opts.silent) this.say(fresh, agent, "agent", run.summary || `${agent} ${run.status}`);
     this.save(fresh);
     Object.assign(wi, fresh);
@@ -613,20 +641,28 @@ export class Workflow {
     this.checkBudget(wi);
     const writes = ["IMPLEMENT", "SPEC", "CUSTOM"].includes(agent.agentType);
     const stage = d.stage ?? from?.stage ?? agent.agentType.toLowerCase();
-    void this.k.runs
-      .execute({
-        factory: wi.factory,
-        sha: wi.definitionSha,
-        agent: d.agent,
-        stage,
-        prompt: d.brief,
-        workItem: wi,
-        branch: this.branch(wi),
-        push: writes,
-        overrides: wi.execution,
-        ...(d.title ? { title: d.title } : {}),
-        ...(from ? { continuationOf: from.id } : {}),
-      })
+    const input = {
+      factory: wi.factory,
+      sha: wi.definitionSha,
+      agent: d.agent,
+      stage,
+      prompt: d.brief,
+      workItem: wi,
+      branch: this.branch(wi),
+      push: writes,
+      overrides: wi.execution,
+      ...(d.title ? { title: d.title } : {}),
+      ...(from ? { continuationOf: from.id } : {}),
+    };
+    // A temporary platform error is not news for the foreman: run it again after a pause, quietly.
+    const attempt = async (n: number): Promise<Run> => {
+      const run = await this.k.runs.execute(input);
+      const wait = (this.k.options.stageRetryDelaysMs ?? STAGE_RETRY_MS)[n];
+      if (run.status !== "error" || !retriesAutomatically(run.error) || wait === undefined) return run;
+      await new Promise((r) => setTimeout(r, wait));
+      return attempt(n + 1);
+    };
+    void attempt(0)
       .then((run) => this.queue(wi.id, "run_finished", `${run.agent} (${run.id}, ${stage}) ${run.status}${run.summary ? `: ${run.summary}` : ""}`, run.id))
       .catch((err) => this.queue(wi.id, "error", `${d.agent} could not run: ${err instanceof Error ? err.message : String(err)}`));
     const to: WorkItemState = writes ? (agent.agentType === "SPEC" ? "planning" : "building") : agent.agentType === "TRIAGE" ? "triaging" : "reviewing";

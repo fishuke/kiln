@@ -6,6 +6,7 @@ import { FakeProvider, type DecisionOutcome, type DecisionProvider } from "@kiln
 import { InMemoryEventBus } from "@kiln/events";
 import { adapterFor, type HarnessAdapter } from "@kiln/harness";
 import type { Chat, ConnectionProvider, ConnectionProviderId, Forge, GitHubAppCredentials, GitHubManifestClient, Mailer, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
+import { isActive } from "./state";
 import { ConnectionService, IdentityService } from "./connections";
 import { ReviewService } from "./reviews";
 import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
@@ -99,6 +100,10 @@ export type KilnOptions = {
   forgeToken?: string;
   /** Attempts per run for retryable platform errors (default 3). */
   maxRunAttempts?: number;
+  /** Waits between those attempts (default 5 s, 20 s, 60 s). */
+  retryDelaysMs?: number[];
+  /** Waits before a stage runs again after a run ended on a temporary error (default 1 to 30 minutes, six times). */
+  stageRetryDelaysMs?: number[];
   /** A worker that has not sent a heartbeat for this long is no longer connected (default 60 s). */
   workerStaleMs?: number;
   /** Runs nobody claims fail after this long (default 30 min). */
@@ -407,6 +412,7 @@ export class Kiln {
     await this.notifications.tick();
     for (const wi of this.workflow.list()) {
       if (wi.blockedReason === "waiting for CI" && wi.state === "building") await this.workflow.advance(wi.id);
+      else if (wi.retryAt && wi.retryAt <= this.clock.now().toISOString() && isActive(wi.state) && wi.state !== "blocked") await this.workflow.advance(wi.id);
     }
     this.improvement.evaluateCanaries();
     if (opts.selfImprovement) for (const f of this.defs.list()) if (f.appliedSha) await this.improvement.check(f.id);

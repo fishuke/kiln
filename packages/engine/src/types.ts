@@ -121,6 +121,8 @@ export type WorkItem = {
   costUsd: number;
   budgetUsd?: number;
   blockedReason?: string;
+  /** Set while a stage waits to retry after a temporary platform error; the tick retries it then. */
+  retryAt?: string;
   /** The agent foreman's checklist for the task, in its own words. */
   tasks?: ForemanTask[];
   /** Agent foreman bookkeeping: turns taken, and turns in a row that did nothing or failed. */

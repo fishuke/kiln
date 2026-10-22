@@ -53,6 +53,8 @@ export function createTestKiln(opts: Omit<Partial<KilnOptions>, "preview"> & { t
     mcpProbe: new FakeMcpProbe(),
     roles: { po: ["po@acme.test"], "code-owners": ["lead@acme.test"], admins: ["admin@acme.test"] },
     askHumanTimeoutMs: 2000,
+    retryDelaysMs: [0],
+    stageRetryDelaysMs: [0, 0],
     ...rest,
     forge,
     tracker,

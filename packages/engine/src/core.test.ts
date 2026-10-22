@@ -22,6 +22,30 @@ describe("errors and retries", () => {
     expect(classifyError(new Error("something odd"))).toMatchObject({ code: "internal_error", retryable: true });
   });
 
+  it("rides out a restart: network errors retry quietly and the task carries on without asking anyone", async () => {
+    let starts = 0;
+    const down: HarnessAdapter = {
+      type: "fake",
+      start: async (opts) => {
+        starts += 1;
+        // The egress proxy is down for the first five starts, as during a deploy.
+        if (starts > 1 && starts <= 6) throw new Error("git push failed: fatal: unable to access 'https://github.com/acme/web/': Failed to connect to kiln-egress-proxy port 3128 after 1 ms: Couldn't connect to server");
+        return fake.start(opts);
+      },
+    };
+    const { kiln } = createTestKiln({ harness: () => down, preview: false });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Add a footer link", body: "", source: { provider: "api" }, requester: "a@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    for (let i = 0; i < 200 && !["handed_off", "blocked", "failed"].includes(kiln.workflow.get(wi.id)!.state); i++) {
+      await kiln.tick();
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const done = kiln.workflow.get(wi.id)!;
+    expect(done.state).toBe("handed_off");
+    expect(kiln.gates.list({ workItemId: wi.id }).filter((g) => g.kind === "question")).toEqual([]);
+    expect(done.conversation.some((m) => /egress-proxy|Stopped/.test(m.text))).toBe(false);
+  });
+
   it("retries a retryable platform error on the same run and reports the final state", async () => {
     let starts = 0;
     const flaky: HarnessAdapter = {

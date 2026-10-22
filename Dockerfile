@@ -12,7 +12,8 @@ COPY apps/mcp ./apps/mcp
 COPY apps/web/package.json ./apps/web/package.json
 COPY factories ./factories
 RUN pnpm install --frozen-lockfile --filter '!@kiln/web'
-ENV NODE_ENV=production KILN_DATA_DIR=/data PORT=4000
+# DOCKER_CONFIG: a writable docker CLI config, so sandbox commands don't warn about /root/.docker.
+ENV NODE_ENV=production KILN_DATA_DIR=/data PORT=4000 DOCKER_CONFIG=/tmp/kiln-docker
 VOLUME ["/data"]
 EXPOSE 4000
 COPY deploy/docker-entrypoint.sh /usr/local/bin/kiln-entrypoint

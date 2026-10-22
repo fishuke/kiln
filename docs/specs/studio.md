@@ -408,8 +408,15 @@ The SDK re-declares these types (it doesn't depend on `packages/studio`), and a 
 Specified in [App definitions](app-definitions.md). What other Studio work builds against:
 
 - `@kiln/schema`: `AppManifest` (`app.yaml`), `AppPolicy` (`policies/<name>.yaml` in an App tree) and `AppShipMode` (the same values as `ShipMode`).
-- `@kiln/studio`: `AppDefinitions` (content-hashed layers team → Kiln Project → App, store collections `studio_app_definitions` and `studio_app_definition_refs`) and its `chatConfig(app, { harness?, model? }): ChatAgentConfig`. The turn runner calls `chatConfig` before `harness.start`: it appends `instructions` (the lead agent's instructions plus every mandatory skill) to the mode instructions, passes `skills` as `StartOptions.skills`, records `definitionSha` on the turn, and resolves `mcpServers` through a `StudioOptions` hook the API provides. A chat's explicit harness or model overrides the definition's. `maxShipMode` and `mergeGate` cap ship mode and drive the merge gate.
-- API: `apps/api/src/routes/studio-definitions.ts` (`/api/v1/studio/{apps/{id},projects/{id},team}/definition`, `/api/v1/studio/apps/{id}/settings`, `/api/v1/studio/apps/{id}/definition/export`); `appDefinitionsFor(kiln)` returns the instance `routes/studio.ts` should pass to `Studio`.
+- An App's agents are factory agents (`agents/<name>/agent.md`: model, MCP servers, skills, `spawnableBy`), resolved with the factory's `resolveAgent`. Every App has a `general` agent from the built-in layer, so nothing needs configuring.
+- `@kiln/studio`: `AppDefinitions` (content-hashed layers team → Kiln Project → App, store collections `studio_app_definitions` and `studio_app_definition_refs`) and
+
+  ```ts
+  chatConfig(targetOf(app), opts?: { agent?: string; harness?: HarnessType; model?: string }): ChatAgentConfig
+  ```
+
+  The turn runner calls it before `harness.start` for the chat's agent (`new_chat({ agent? })`, default `general`) and for each agent it spawns as a subagent run. It appends `instructions` (the agent's instructions plus every mandatory skill) to the mode instructions, passes `skills` as `StartOptions.skills`, records `definitionSha` on the turn, and resolves `mcpServers` through a `StudioOptions` hook the API provides. A chat's explicit harness or model overrides the definition's. An unknown agent throws `StudioError("invalid")`. `maxShipMode` and `mergeGate` cap ship mode and drive the merge gate.
+- API: `apps/api/src/routes/studio-definitions.ts` (`/api/v1/studio/{apps/{id},projects/{id},team}/definition` and `/settings`, `/api/v1/studio/apps/{id}/definition/export`); `appDefinitionsFor(kiln)` returns the instance `routes/studio.ts` should pass to `Studio`.
 - Web: `apps/web/src/components/studio-settings/` exports `AppSettingsView`, which the `/studio` pages mount (for example at `/studio/[app]/settings`).
 
 ## Later (not built in phases 1–4)

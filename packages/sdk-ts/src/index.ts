@@ -84,6 +84,8 @@ import type {
 } from "./platform";
 
 export type * from "./platform";
+import { studioScopePath, type StudioAppSettings, type StudioDefinitionLayer, type StudioDefinitionSaved, type StudioDefinitionScope, type StudioSettingsPatch } from "./studio-definitions";
+export * from "./studio-definitions";
 
 export type {
   ApplyResult,
@@ -706,6 +708,14 @@ export class KilnClient {
   deleteWebhook = (uid: string) => this.request<{ ok: true }>("DELETE", `/api/v1/webhooks/${encodeURIComponent(uid)}`);
   rotateWebhookSecret = (uid: string, secret?: string) => this.request<{ webhook: WebhookSource; url: string; secret?: string }>("POST", `/api/v1/webhooks/${encodeURIComponent(uid)}/rotate`, { secret });
   finishWebhook = (uid: string, secret: string) => this.request<WebhookSource>("POST", `/api/v1/webhooks/${encodeURIComponent(uid)}/finish`, { secret });
+  // Studio App definitions (docs/specs/app-definitions.md)
+  studioDefinition = (scope: StudioDefinitionScope) => this.request<StudioDefinitionLayer>("GET", `/api/v1/studio/${studioScopePath(scope)}/definition`);
+  studioPutDefinition = (scope: StudioDefinitionScope, tree: Record<string, string>, message?: string) => this.request<StudioDefinitionSaved>("PUT", `/api/v1/studio/${studioScopePath(scope)}/definition`, { tree, ...(message ? { message } : {}) });
+  studioEditDefinition = (scope: StudioDefinitionScope, patch: StudioSettingsPatch) => this.request<StudioDefinitionSaved>("PATCH", `/api/v1/studio/${studioScopePath(scope)}/definition`, patch);
+  studioUseDefinition = (scope: StudioDefinitionScope, sha: string) => this.request<StudioDefinitionSaved>("POST", `/api/v1/studio/${studioScopePath(scope)}/definition/use`, { sha });
+  studioSettings = (scope: StudioDefinitionScope) => this.request<StudioAppSettings>("GET", `/api/v1/studio/${studioScopePath(scope)}/settings`);
+  studioExportApp = (appId: string, opts: { resolved?: boolean } = {}) => this.request<{ sha?: string; tree: Record<string, string> }>("GET", `/api/v1/studio/apps/${encodeURIComponent(appId)}/definition/export${this.q({ resolved: opts.resolved === false ? false : undefined })}`);
+
   webhookDeliveries = (uid: string) => this.request<(Omit<WebhookDelivery, "payload"> & { hasPayload: boolean })[]>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries`);
   webhookDelivery = (uid: string, id: string) => this.request<WebhookDelivery>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries/${encodeURIComponent(id)}`);
 }

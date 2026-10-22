@@ -1,8 +1,8 @@
 import { treeSha, type DefinitionError, type DefinitionTree } from "@kiln/definitions";
 import type { HarnessType } from "@kiln/schema";
 import type { Store } from "@kiln/store";
-import type { ShipMode } from "../types";
-import { BUILTIN_LAYER, exportResolved, maxShipMode, resolveLayers, type LayerKind, type ResolvedAppDefinition, type ResolvedLayer } from "./resolve";
+import { StudioError, type ShipMode } from "../types";
+import { BUILTIN_LAYER, DEFAULT_AGENT, maxShipMode, resolveLayers, type LayerKind, type ResolvedAppDefinition, type ResolvedLayer } from "./resolve";
 import { applySettingsPatch, settingsView, type AppSettings, type AppSettingsPatch, type DefinitionVersion } from "./settings";
 import { formatErrors, validateAppTree } from "./tree";
 
@@ -29,22 +29,26 @@ export class AppDefinitionError extends Error {
   }
 }
 
-/** What the Studio chat runner needs to start a chat's lead agent. */
+/** What the Studio chat runner needs to start one of the App's agents (the chat's lead, or a subagent run). */
 export type ChatAgentConfig = {
   /** Sha of the resolved definition; record it on the turn. */
   definitionSha: string;
-  lead: string;
+  /** The agent's name: `general` unless the chat names another. */
+  agent: string;
+  description?: string;
   harness: HarnessType;
   model?: string;
   reasoningLevel?: "low" | "medium" | "high" | "xhigh" | "max";
-  /** The lead's instructions, then each mandatory skill's body under "## <skill>". */
+  /** The agent's instructions, then each mandatory skill's body under "## <skill>". */
   instructions: string;
-  /** Every other skill, for the harness's skills folder (`StartOptions.skills`). */
+  /** The agent's other skills (shared and its own), for the harness's skills folder (`StartOptions.skills`). */
   skills: { name: string; description: string; body: string }[];
   mandatorySkills: string[];
   /** MCP server names or ids, for the team's MCP registry. */
   mcpServers: string[];
   secrets: string[];
+  /** Agents that may spawn this one. */
+  spawnableBy: string[];
   /** The highest ship mode, without a role. */
   maxShipMode: ShipMode;
   mergeGate: boolean;
@@ -69,7 +73,7 @@ export class AppDefinitions {
   /** Validate a layer's tree against the layers it inherits from, store it, and point the layer at it. */
   save(target: DefinitionTarget, tree: DefinitionTree, by: string, message?: string): { sha: string; changed: boolean } {
     const inherited = resolveLayers(this.layers(target).slice(0, -1));
-    const result = validateAppTree(tree, { inheritedSkills: Object.keys(inherited.skills) });
+    const result = validateAppTree(tree, { inheritedSkills: Object.keys(inherited.skills), inheritedAgents: Object.keys(inherited.agents) });
     if (result.errors.length) throw new AppDefinitionError(result.errors);
     const sha = treeSha(tree);
     const { id, kind } = refId(target);
@@ -91,16 +95,13 @@ export class AppDefinitions {
 
   /** Apply a settings patch to the layer and save the result. */
   edit(target: DefinitionTarget, patch: AppSettingsPatch, by: string, message?: string): { sha: string; changed: boolean } {
-    const layers = this.layers(target);
-    const own = layers.at(-1)!;
-    const leadName = resolveLayers(layers.slice(0, -1)).lead.name;
-    return this.save(target, applySettingsPatch(this.layer(target).tree, own.tree, patch, leadName), by, message);
+    return this.save(target, applySettingsPatch(this.layer(target).tree, this.layers(target).at(-1)!.tree, patch), by, message);
   }
 
   /** Point the layer at an earlier sha from its history. */
   use(target: DefinitionTarget, sha: string, by: string): { sha: string; changed: boolean } {
     const known = this.layer(target).history.some((h) => h.sha === sha);
-    if (!known) throw new AppDefinitionError([{ file: "", line: 0, code: "ref", message: `unknown definition ${sha} for this layer` }]);
+    if (!known) throw new StudioError("not_found", `unknown definition ${sha} for this layer`);
     return this.save(target, this.tree(sha), by, `Use ${sha.slice(0, 7)}`);
   }
 
@@ -115,26 +116,36 @@ export class AppDefinitions {
     return settingsView(resolveLayers(layers), layers.at(-1)!.tree, { kind: own.kind, ...(own.sha ? { sha: own.sha } : {}), history: own.history });
   }
 
-  /** The lead agent's config for a chat. A chat's own harness or model overrides the definition's. */
-  chatConfig(target: DefinitionTarget, opts: { harness?: HarnessType; model?: string } = {}): ChatAgentConfig {
+  /**
+   * One agent's config for a chat or a subagent run: the factory agent resolution, with the App's
+   * mandatory skills put into its instructions. `agent` defaults to `general`. A chat's own
+   * harness or model overrides the definition's.
+   */
+  chatConfig(target: DefinitionTarget, opts: { agent?: string; harness?: HarnessType; model?: string } = {}): ChatAgentConfig {
     const r = this.resolve(target);
-    const mandatory = r.mandatorySkills.map((name) => `## ${name}\n\n${r.skills[name]!.body}`);
-    const harness = opts.harness ?? r.lead.harness.type;
+    const name = opts.agent ?? DEFAULT_AGENT;
+    const a = r.agents[name];
+    if (!a) throw new StudioError("invalid", `unknown agent ${name}; this App has ${Object.keys(r.agents).join(", ")}`);
+    const mandatory = r.mandatorySkills.map((s) => `## ${s}\n\n${r.skills[s]!.body}`);
+    const harness = opts.harness ?? a.harness.type;
     // A model belongs to its harness: a chat that switches harness doesn't keep the definition's model.
-    const model = opts.model ?? (harness === r.lead.harness.type ? r.lead.harness.model : undefined);
+    const model = opts.model ?? (harness === a.harness.type ? a.harness.model : undefined);
+    const text = (skill: string) => a.ownSkills[skill] ?? r.skills[skill]!;
     return {
       definitionSha: r.sha,
-      lead: r.lead.name,
+      agent: name,
+      ...(a.description ? { description: a.description } : {}),
       harness,
       ...(model ? { model } : {}),
-      ...(r.lead.harness.reasoningLevel ? { reasoningLevel: r.lead.harness.reasoningLevel } : {}),
-      instructions: [r.lead.instructions, ...mandatory].filter(Boolean).join("\n\n"),
-      skills: Object.entries(r.skills)
-        .filter(([name]) => !r.mandatorySkills.includes(name))
-        .map(([name, s]) => ({ name, description: s.description, body: s.body })),
+      ...(a.harness.reasoningLevel ? { reasoningLevel: a.harness.reasoningLevel } : {}),
+      instructions: [a.instructions, ...mandatory].filter(Boolean).join("\n\n"),
+      skills: [...new Set(a.skills)]
+        .filter((s) => !r.mandatorySkills.includes(s))
+        .map((s) => ({ name: s, description: text(s).description, body: text(s).body })),
       mandatorySkills: r.mandatorySkills,
-      mcpServers: r.lead.mcpServers,
-      secrets: r.lead.secrets,
+      mcpServers: a.mcpServers,
+      secrets: a.secrets,
+      spawnableBy: a.spawnableBy,
       maxShipMode: maxShipMode(r.policy),
       mergeGate: r.policy.mergeGate,
       ...(r.monthlyUsd !== undefined ? { monthlyUsd: r.monthlyUsd } : {}),
@@ -143,12 +154,12 @@ export class AppDefinitions {
 
   /** The definition in `kiln/v1` layout for Git: resolved (default), or the target layer as stored. */
   export(target: DefinitionTarget, opts: { resolved?: boolean } = {}): DefinitionTree {
-    return opts.resolved === false ? this.layer(target).tree : exportResolved(this.resolve(target));
+    return opts.resolved === false ? this.layer(target).tree : this.resolve(target).files;
   }
 
   private tree(sha: string): DefinitionTree {
     const d = this.opts.store.get<StoredDefinition>(DEFINITION_COLLECTIONS.definitions, sha);
-    if (!d) throw new AppDefinitionError([{ file: "", line: 0, code: "ref", message: `unknown definition ${sha}` }]);
+    if (!d) throw new StudioError("not_found", `unknown definition ${sha}`);
     return d.tree;
   }
 

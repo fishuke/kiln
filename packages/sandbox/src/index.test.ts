@@ -14,6 +14,7 @@ import {
   KubernetesSandboxProvider,
   LocalSandboxProvider,
   SandboxNotReachable,
+  withGuard,
   type SandboxSpec,
   type SnapshotRef,
 } from "./index";
@@ -214,6 +215,25 @@ describe("docker sandbox", () => {
     const setup = fake.calls.find((c) => c.args.includes("corepack enable"))!;
     expect(setup.args.slice(0, 3)).toEqual(["exec", "-w", "/workspace/app"]);
     expect(fake.calls.at(-1)?.args.slice(0, 2)).toEqual(["rm", "-f"]);
+  });
+});
+
+describe("a guarded view of a sandbox", () => {
+  it("runs another owner's guard on agent commands, and lets trusted ones through", async () => {
+    const sbx = await new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-g-"))).create({ runner, repos: [] });
+    const seen: string[] = [];
+    const view = withGuard(
+      sbx,
+      async (cmd) => (seen.push(cmd), cmd.includes("rm -rf") ? "block" : cmd.includes("push") ? "ask_human" : "allow"),
+      async () => false,
+    );
+    expect((await view.exec("echo ok")).stdout).toBe("ok\n");
+    await expect(view.exec("rm -rf /")).rejects.toBeInstanceOf(CommandBlocked);
+    await expect(view.exec("git push")).rejects.toThrow("a human declined");
+    expect((await view.exec("echo setup", { trusted: true })).stdout).toBe("setup\n");
+    expect(seen).toEqual(["echo ok", "rm -rf /", "git push"]);
+    expect(view.workdir).toBe(sbx.workdir);
+    await sbx.destroy();
   });
 });
 

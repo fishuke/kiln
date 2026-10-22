@@ -71,7 +71,7 @@ docker compose -f docker-compose.prod.yml --profile proxy up -d --build
 
 Caddy gets certificates for both domains. Open the web URL and sign up with `KILN_OWNER_EMAIL`, then invite everyone else.
 
-Sandboxes join the internal network `kiln-egress` and reach the internet only through the proxy. The API joins it too, so it can proxy Studio previews. If your platform renames networks, set `KILN_EGRESS_NETWORK` to the name it uses. `KILN_RUNNER_IMAGE` picks another sandbox image; it needs git and the harness CLIs, like `runners/images/node`.
+Sandboxes join the internal network `kiln-egress` and reach the internet only through the proxy. If your platform renames networks, set `KILN_EGRESS_NETWORK` to the name it uses. Studio sandboxes and the API also share a second internal network, `kiln-preview` (`KILN_PREVIEW_NETWORK`), on the subnet `KILN_PREVIEW_SUBNET` (default `172.30.250.0/24`; change it if it clashes with yours). The API proxies previews into it and refuses any connection from it. `KILN_RUNNER_IMAGE` picks another sandbox image; it needs git and the harness CLIs, like `runners/images/node`.
 
 ### Studio previews
 
@@ -211,7 +211,7 @@ Kiln runs a timer pass that:
 | A run fails at install                                  | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed.                   |
 | Verify waits forever                                    | CI checks on the branch are still pending. Kiln checks again on each timer pass.                                                               |
 | Every command is blocked                                | The Claude Code hook cannot reach the public URL, so it blocks by design.                                                                      |
-| A Studio preview answers 502                            | The API can't reach the sandbox: on Docker it isn't on `kiln-egress`; on Kubernetes `studio.previewDomain` is unset. Or the dev server stopped. |
+| A Studio preview answers 502                            | The API can't reach the sandbox: on Docker it isn't on `kiln-preview`; on Kubernetes `studio.previewDomain` is unset. Or the dev server stopped. |
 | Webhooks return 401                                     | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set.                          |
 | An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory).      |
 

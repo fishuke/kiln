@@ -8,9 +8,11 @@ import { createApp } from "./app";
 import {
   previewConfig,
   previewMiddleware,
+  previewPeerGuard,
   previewTarget,
   previewUpgrade,
   previewUrlFor,
+  refusePreviewPeers,
   setPreviewResolver,
   type PreviewResolver,
 } from "./routes/studio-preview";
@@ -159,6 +161,28 @@ describe("preview proxy (HTTP)", () => {
     expect(res.status).toBe(201);
     expect(seen.url).toBe("/api/v1/me");
     expect((await app.fetch(new Request("http://kiln.test/api/v1/me"))).status).toBe(401);
+  });
+});
+
+describe("preview network guard", () => {
+  it("matches addresses in the preview subnet, IPv4-mapped ones too", () => {
+    const fromPreview = previewPeerGuard("172.30.250.0/24")!;
+    expect(fromPreview("172.30.250.9")).toBe(true);
+    expect(fromPreview("::ffff:172.30.250.9")).toBe(true);
+    expect(fromPreview("172.30.251.9")).toBe(false);
+    expect(fromPreview(undefined)).toBe(false);
+  });
+
+  it("is off without a subnet and refuses a malformed one", () => {
+    expect(previewPeerGuard(undefined)).toBeUndefined();
+    expect(() => previewPeerGuard("kiln-preview")).toThrow(/KILN_PREVIEW_SUBNET/);
+  });
+
+  it("closes connections the API receives from the preview subnet, so sandboxes can't call it", async () => {
+    const server = createServer((_req, res) => res.end("kiln"));
+    refusePreviewPeers(server, previewPeerGuard("127.0.0.0/8")!);
+    const address = await listen(server);
+    await expect(fetch(`http://${address.host}:${address.port}/`)).rejects.toThrow();
   });
 });
 

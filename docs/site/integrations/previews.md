@@ -83,7 +83,7 @@ The id has 128 random bits and is the only credential: anyone with the URL can o
 
 The API must reach the sandboxes:
 
-- **Docker:** the API joins the sandbox network (`kiln-egress`). Both compose files do this.
+- **Docker:** Studio sandboxes also join the internal network `kiln-preview` (`KILN_PREVIEW_NETWORK`), and the API is on it too. No other sandbox and not the egress proxy joins it. The API only connects out to the sandboxes: it closes every connection, and drops every egress-log datagram, from the network's subnet (`KILN_PREVIEW_SUBNET`, default `172.30.250.0/24`). Both compose files set this up.
 - **Kubernetes:** set `studio.previewDomain` in the Helm chart. It adds a wildcard Ingress to the API (certificate in the Secret `studio.previewTlsSecret`) and the NetworkPolicy `kiln-preview-ingress`, which lets the API connect to ports 4100–4199 of sandbox pods labeled `kiln.dev/preview: "true"`.
 
 ## Evidence on the card

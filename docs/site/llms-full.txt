@@ -2928,15 +2928,15 @@ egress:
   - registry.npmjs.org
 ```
 
-| Key | Default | Notes |
-| --- | --- | --- |
-| `image` | Kiln's runner image | The container image. Docker pulls it if it is not cached. Without one, runs use the server's runner image (`KILN_RUNNER_IMAGE`), which has the agent CLIs. An image you name must have the harness CLI (`claude`, `codex` or `opencode`) on its `PATH`. |
-| `backend` | `docker` | `docker`, `kubernetes` or `local`. |
-| `shape` | none | `vcpus` and `memoryGb`. Sets CPU and memory limits. |
-| `setupCommands` | `[]` | Run in order after the repositories are cloned, inside each repository (so `pnpm install` finds its `package.json` and the `packageManager` pin). A failing command fails the run. Kiln's runner image has a corepack that runs pnpm 11 and later. |
-| `egress` | `[]` | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed. |
-| `platform.linux.registryCredentialSecretName` | none | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images). |
-| `description` | none | |
+| Key                                           | Default             | Notes                                                                                                                                                                                                                                                   |
+| --------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image`                                       | Kiln's runner image | The container image. Docker pulls it if it is not cached. Without one, runs use the server's runner image (`KILN_RUNNER_IMAGE`), which has the agent CLIs. An image you name must have the harness CLI (`claude`, `codex` or `opencode`) on its `PATH`. |
+| `backend`                                     | `docker`            | `docker`, `kubernetes` or `local`.                                                                                                                                                                                                                      |
+| `shape`                                       | none                | `vcpus` and `memoryGb`. Sets CPU and memory limits.                                                                                                                                                                                                     |
+| `setupCommands`                               | `[]`                | Run in order after the repositories are cloned, inside each repository (so `pnpm install` finds its `package.json` and the `packageManager` pin). A failing command fails the run. Kiln's runner image has a corepack that runs pnpm 11 and later.      |
+| `egress`                                      | `[]`                | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed.                                                                                                  |
+| `platform.linux.registryCredentialSecretName` | none                | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images).                                                                                                      |
+| `description`                                 | none                |                                                                                                                                                                                                                                                         |
 
 An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses the server's runner image on the server's default backend, which is `local` unless the server sets another. A run's image is the runner's own, else its [environment](../management/secrets-mcps-environments.md)'s, else `KILN_RUNNER_IMAGE`, else `node:22-bookworm`.
 
@@ -2954,6 +2954,7 @@ Each run is a container started with `sleep infinity` and `/workspace` as its wo
 - `--cpus` and `--memory` from `shape`,
 - `--security-opt no-new-privileges` and `--cap-drop ALL`,
 - the `kiln-egress` network with `HTTPS_PROXY` and `HTTP_PROXY` set to `http://kiln-egress-proxy:3128` (and `NODE_USE_ENV_PROXY=1`, so Node's `fetch`, which corepack uses to download pnpm, goes through the proxy too) and `KILN_EGRESS_ALLOW` set to the allowed hosts: the runner's `egress` list plus the hosts of the cloned repositories. With no hosts at all, the container gets `--network none`.
+- Studio sandboxes only: the `kiln-preview` network (`KILN_PREVIEW_NETWORK`) as well, where the API reaches their dev servers for [live previews](../integrations/previews.md#studio-live-previews). On Kubernetes they get the label `kiln.dev/preview: "true"` instead.
 
 ### Kubernetes with gVisor
 
@@ -3189,7 +3190,7 @@ docker compose -f docker-compose.prod.yml --profile proxy up -d --build
 
 Caddy gets certificates for both domains. Open the web URL and sign up with `KILN_OWNER_EMAIL`, then invite everyone else.
 
-Sandboxes join the internal network `kiln-egress` and reach the internet only through the proxy. The API joins it too, so it can proxy Studio previews. If your platform renames networks, set `KILN_EGRESS_NETWORK` to the name it uses. `KILN_RUNNER_IMAGE` picks another sandbox image; it needs git and the harness CLIs, like `runners/images/node`.
+Sandboxes join the internal network `kiln-egress` and reach the internet only through the proxy. If your platform renames networks, set `KILN_EGRESS_NETWORK` to the name it uses. Studio sandboxes and the API also share a second internal network, `kiln-preview` (`KILN_PREVIEW_NETWORK`), on the subnet `KILN_PREVIEW_SUBNET` (default `172.30.250.0/24`; change it if it clashes with yours). The API proxies previews into it and refuses any connection from it. `KILN_RUNNER_IMAGE` picks another sandbox image; it needs git and the harness CLIs, like `runners/images/node`.
 
 ### Studio previews
 
@@ -3329,7 +3330,7 @@ Kiln runs a timer pass that:
 | A run fails at install                                  | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed.                   |
 | Verify waits forever                                    | CI checks on the branch are still pending. Kiln checks again on each timer pass.                                                               |
 | Every command is blocked                                | The Claude Code hook cannot reach the public URL, so it blocks by design.                                                                      |
-| A Studio preview answers 502                            | The API can't reach the sandbox: on Docker it isn't on `kiln-egress`; on Kubernetes `studio.previewDomain` is unset. Or the dev server stopped. |
+| A Studio preview answers 502                            | The API can't reach the sandbox: on Docker it isn't on `kiln-preview`; on Kubernetes `studio.previewDomain` is unset. Or the dev server stopped. |
 | Webhooks return 401                                     | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set.                          |
 | An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory).      |
 
@@ -4296,7 +4297,7 @@ The id has 128 random bits and is the only credential: anyone with the URL can o
 
 The API must reach the sandboxes:
 
-- **Docker:** the API joins the sandbox network (`kiln-egress`). Both compose files do this.
+- **Docker:** Studio sandboxes also join the internal network `kiln-preview` (`KILN_PREVIEW_NETWORK`), and the API is on it too. No other sandbox and not the egress proxy joins it. The API only connects out to the sandboxes: it closes every connection, and drops every egress-log datagram, from the network's subnet (`KILN_PREVIEW_SUBNET`, default `172.30.250.0/24`). Both compose files set this up.
 - **Kubernetes:** set `studio.previewDomain` in the Helm chart. It adds a wildcard Ingress to the API (certificate in the Secret `studio.previewTlsSecret`) and the NetworkPolicy `kiln-preview-ingress`, which lets the API connect to ports 4100–4199 of sandbox pods labeled `kiln.dev/preview: "true"`.
 
 ## Evidence on the card

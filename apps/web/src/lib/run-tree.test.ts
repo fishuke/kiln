@@ -96,6 +96,12 @@ describe("filterRows", () => {
     expect(out.find((r) => r.id === "wi_a")!.children.map((c) => c.id)).toEqual(["r1"]);
   });
 
+  it("hides a cancelled task even when one of its runs matches the status", () => {
+    const dead = buildRunRows([wi("wi_x", { state: "cancelled" })], [run("y1", { workItemId: "wi_x", stage: "build", status: "failed" })]);
+    expect(filterRows(dead, { status: ["running", "failed", "blocked"] })).toEqual([]);
+    expect(filterRows(dead, { status: ["cancelled"] }).map((r) => r.id)).toEqual(["wi_x"]);
+  });
+
   it("ignores superseded attempts when filtering by status", () => {
     const tried = buildRunRows(
       [wi("wi_c", { state: "complete" })],

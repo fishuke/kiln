@@ -323,7 +323,8 @@ function rowMatches(row: RunRow, f: RunFilters): boolean {
 
 /**
  * Filters apply to root rows. Status, agent and source also match when a child matches, so a
- * parent stays visible with only its matching children.
+ * parent stays visible with only its matching children. A cancelled parent is the exception: its
+ * runs can no longer be stopped or retried, so it only shows when Cancelled itself is selected.
  */
 export function filterRows(rows: RunRow[], f: RunFilters): RunRow[] {
   const q = f.q?.trim().toLowerCase();
@@ -340,6 +341,7 @@ export function filterRows(rows: RunRow[], f: RunFilters): RunRow[] {
       out.push(row);
       continue;
     }
+    if (row.status === "cancelled" && f.status?.length && !f.status.includes("cancelled")) continue;
     const kids = filterChildren(row.children, f);
     if (kids.length) out.push({ ...row, children: kids });
   }

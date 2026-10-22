@@ -14,7 +14,7 @@ There are exactly two outcomes: **merged** and **review**.
 | `GateMerger` capability with Fake and GitHub implementations (`packages/integrations/src/merge-gate.ts`)                                     | merge gate                                     |
 | `MergeGateService` (`packages/engine/src/merge-gate.ts`): decision, merge, Inbox items, audit entries, the `merge_gate.review_updated` event | merge gate                                     |
 | Read-only `apps/api/src/routes/merge-gate.ts`, the `gateMerger` wiring in `apps/api/src/config.ts`                                           | merge gate                                     |
-| The App's `mergeGate` policy and `kiln.mergeGate.useAppPolicy(...)` registration                                                             | app definitions (with the API's Studio wiring) |
+| The App's `mergeGate` policy (`AppDefinitions.policy(target).mergeGate`)                                                                     | app definitions (with the API's Studio wiring) |
 | Calling `readyForReview` when the author marks the App's pull request ready, and recording the outcome                                       | studio (ship)                                  |
 | Showing the outcome in Studio and the `studio_pr_review` Inbox kind                                                                          | web                                            |
 
@@ -60,7 +60,7 @@ timeout_ms: 800
 Off by default. The switch is a policy, which only people edit; there is no runtime setting.
 
 - **Factory:** `mergeGate: true` in a file under `policies/` (`Policy.mergeGate?: boolean`). If any policy file says `false`, it's off. Agents and self-improvement can't change `policies/`.
-- **App:** `mergeGate` in the App definition's policies ([app-definitions](app-definitions.md)). The API registers the resolver once it builds App definitions: `kiln.mergeGate.useAppPolicy((appId) => appDefinitions.resolve(appId).mergeGate)`. Until it is registered, every App's gate is off. The App definition's built-in layer must default to `false` (ADR-014).
+- **App:** `mergeGate` in the App definition's policies ([app-definitions](app-definitions.md)). `apps/api/src/routes/merge-gate.ts` registers it: `kiln.mergeGate.useAppPolicy(({ appId, team }) => <App in studio_apps of that team> && appDefinitionsFor(kiln).policy(targetOf(app)).mergeGate)`. Unregistered, an unknown App, or an App of another team: off. The built-in App layer has it off.
 
 An App has no `decisions/` directory, so it uses the built-in `merge-safety` decision.
 
@@ -135,7 +135,7 @@ export type MergeReview = {
 };
 
 export class MergeGateService {
-  useAppPolicy(policy: (appId: string) => boolean): void;
+  useAppPolicy(policy: (app: { appId: string; team: string }) => boolean): void;
   enabled(scope: MergeGateScope): boolean;
   readyForReview(input: ReadyForReview): Promise<MergeGateOutcome>;
   /** The pull request was merged or closed on the forge (webhook) or cancelled in Studio. */
@@ -232,4 +232,3 @@ See [Studio: merge gate](studio.md#merge-gate-adr-014). The author marks the `Ap
 
 - Calling the gate from the factory workflow's hand-off (the factory policy switch exists; the factory flow still opens its own review gate).
 - Tuning `merge-safety` per App (an App uses the built-in decision).
-- Registering `useAppPolicy` in the API: it needs the App definitions resolver (app-definitions work).

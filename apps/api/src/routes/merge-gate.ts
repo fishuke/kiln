@@ -1,9 +1,11 @@
 import type { MergeReview } from "@kiln/engine";
+import { COLLECTIONS, targetOf, type App } from "@kiln/studio";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Env, RouteContext } from "../app";
 import { HttpError } from "../app";
 import type { Route } from "../openapi";
+import { appDefinitionsFor } from "./studio-definitions";
 
 const ListQuery = z.object({ state: z.enum(["deciding", "merged", "needs_review", "closed"]).optional() });
 
@@ -29,6 +31,12 @@ export const routes: Route[] = [
  * agent keys are refused.
  */
 export function register({ app, kiln, access, user, team, need }: RouteContext) {
+  // An App's switch is its definition's `mergeGate` policy (ADR-014), off by default and edited only by people.
+  // An unknown App, or one outside the team the request names, is off.
+  kiln.mergeGate.useAppPolicy(({ appId, team: teamId }) => {
+    const found = kiln.store.get<App>(COLLECTIONS.apps, appId);
+    return found !== undefined && found.team === teamId && appDefinitionsFor(kiln).policy(targetOf(found)).mergeGate;
+  });
   const person = (c: Context<Env>) => {
     if (access(c).token.type === "agent") throw new HttpError(403, "agent keys cannot read merge gate reviews");
     return user(c);

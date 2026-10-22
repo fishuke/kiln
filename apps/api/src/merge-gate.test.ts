@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "./app";
 import { ROUTES } from "./openapi";
 import { agentMayCall } from "./run-auth";
+import { appDefinitionsFor } from "./routes/studio-definitions";
 
 const repo = { owner: "acme", name: "web" };
 
@@ -68,12 +69,21 @@ const ready = (t: Awaited<ReturnType<typeof setup>>, appId = "sa_1", team = t.te
 describe("merge gate API", () => {
   it("lists and reads the team's reviews", async () => {
     const t = await setup();
-    t.kiln.mergeGate.useAppPolicy(() => true);
+    appDefinitionsFor(t.kiln).save({ team: t.team.id, appId: "sa_1" }, { "policies/studio.yaml": "mergeGate: true\n" }, "owner@acme.test");
     const { outcome, review } = await ready(t);
     expect(outcome).toBe("merged");
     expect((await t.forge.getPullRequest(repo, t.pr.number))?.state).toBe("merged");
     expect(await (await t.call(t.memberToken, `/api/v1/merge-gate/reviews/${review.id}`)).json()).toMatchObject({ id: review.id, state: "merged" });
     expect(((await (await t.call(t.memberToken, "/api/v1/merge-gate/reviews?state=merged")).json()) as { reviews: unknown[] }).reviews).toHaveLength(1);
+  });
+
+  it("keeps the gate off until the App's policy turns it on", async () => {
+    const t = await setup();
+    expect(await ready(t)).toMatchObject({ outcome: "review", reasons: ["The merge gate is off, so a person reviews every pull request."] });
+    expect(t.kiln.mergeGate.enabled({ kind: "app", appId: "sa_1", team: t.team.id })).toBe(false);
+    appDefinitionsFor(t.kiln).save({ team: t.team.id, appId: "sa_1" }, { "policies/studio.yaml": "mergeGate: true\n" }, "owner@acme.test");
+    expect(t.kiln.mergeGate.enabled({ kind: "app", appId: "sa_1", team: t.team.id })).toBe(true);
+    expect(t.kiln.mergeGate.enabled({ kind: "app", appId: "sa_1", team: "team_other" })).toBe(false);
   });
 
   it("hides another team's review", async () => {

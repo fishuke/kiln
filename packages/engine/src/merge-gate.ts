@@ -58,7 +58,7 @@ export type MergeReview = {
 export type MergeGateOutcome = { outcome: "merged"; review: MergeReview } | { outcome: "review"; reasons: string[]; review: MergeReview };
 
 /** Whether a person turned the gate on for an App, from the App definition's policies (ADR-014). */
-export type AppMergeGatePolicy = (appId: string) => boolean;
+export type AppMergeGatePolicy = (app: { appId: string; team: string }) => boolean;
 
 export class MergeGateError extends Error {
   constructor(
@@ -130,7 +130,7 @@ export class MergeGateService {
 
   /** On only when a person-edited policy turns it on: an App's definition, or a factory's policies/ (where `false` wins). */
   enabled(scope: MergeGateScope): boolean {
-    if (scope.kind === "app") return this.#appPolicy?.(scope.appId) ?? false;
+    if (scope.kind === "app") return this.#appPolicy?.({ appId: scope.appId, team: scope.team }) ?? false;
     const binding = this.k.defs.get(scope.factory);
     if (!binding) throw new MergeGateError("not_found", `unknown factory ${scope.factory}`);
     if (!binding.appliedSha) return false;

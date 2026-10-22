@@ -75,7 +75,7 @@ describe("merge gate", () => {
 
   it("merges a safe pull request as the gate and audits the decision's inputs and answer", async () => {
     const { kiln, forge, pr, scope, team, ready } = await setup();
-    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
+    kiln.mergeGate.useAppPolicy((a) => a.appId === scope.appId);
     const seen = events(kiln);
     const review = await ready();
     expect(review).toMatchObject({ state: "merged", mergedBy: "kiln-merge-gate", decision: { action: "merge" } });
@@ -101,7 +101,7 @@ describe("merge gate", () => {
 
   it("sends a pull request with failing checks to the team's owners and admins with the reasons", async () => {
     const { kiln, forge, pr, scope, team, ready } = await setup();
-    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
+    kiln.mergeGate.useAppPolicy((a) => a.appId === scope.appId);
     forge.setChecks(repo, pr.headSha!, { status: "failure", runs: [{ name: "ci", conclusion: "failure" }] });
     const review = await ready();
     expect(review.state).toBe("needs_review");
@@ -126,7 +126,7 @@ describe("merge gate", () => {
 
   it("sends a change to a sensitive file to review", async () => {
     const { kiln, scope, ready } = await setup({ files: { "auth.ts": "export const session = 1;\n" } });
-    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
+    kiln.mergeGate.useAppPolicy((a) => a.appId === scope.appId);
     const review = await ready();
     expect(review.state).toBe("needs_review");
     expect(review.reasons.some((r) => r === "Touches sensitive area: 0.80.")).toBe(true);
@@ -147,7 +147,7 @@ describe("merge gate", () => {
         };
       },
     });
-    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
+    kiln.mergeGate.useAppPolicy((a) => a.appId === scope.appId);
     const review = await ready();
     expect(review.state).toBe("needs_review");
     expect(review.reasons.at(-1)).toMatch(/changed after the merge-safety decision/);
@@ -156,7 +156,7 @@ describe("merge gate", () => {
 
   it("sends the pull request to review when the server has no merge credential", async () => {
     const { kiln, scope, ready } = await setup({ merger: () => undefined });
-    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
+    kiln.mergeGate.useAppPolicy((a) => a.appId === scope.appId);
     const review = await ready();
     expect(review).toMatchObject({ state: "needs_review", decision: { action: "merge" } });
     expect(review.reasons).toEqual(["This server has no merge credential for the gate (KILN_MERGE_GATE_TOKEN)."]);
@@ -202,7 +202,7 @@ describe("merge gate", () => {
   it("reads an App's switch from its definition's policy, and is off without one", async () => {
     const { kiln, scope } = await setup();
     expect(kiln.mergeGate.enabled(scope)).toBe(false);
-    kiln.mergeGate.useAppPolicy((id) => id === scope.appId);
+    kiln.mergeGate.useAppPolicy((a) => a.appId === scope.appId);
     expect(kiln.mergeGate.enabled(scope)).toBe(true);
     expect(kiln.mergeGate.enabled({ ...scope, appId: "sa_2" })).toBe(false);
   });

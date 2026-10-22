@@ -447,6 +447,8 @@ kiln.variables.forApp(app: { id: string; team: string; projectId?: string }, env
 };
 ```
 
+- `forApp` returns only values people assigned in the team, project and App layers. It never falls back to server secrets, the admin secret store or `KILN_SECRET_<NAME>`. A harness credential comes from `StudioOptions.credentials`, not from here.
+- This is the one environment resolver: factory runs (`kiln.variables.forFactory`) and PR previews use the same layers. Don't add another.
 - `routes/studio.ts` builds `Studio` with `env: (app) => kiln.variables.forApp(app).env` and redacts `secretValues` from turn events and dev server logs it stores.
 - App-level overrides are a variable layer with `scope: "app"`, `owner: <app id>` (`PUT /api/v1/variables/app/{appId}/preview`). The App's settings can link to it; Studio does not store variables itself.
 - `setup.envMissing` is computed against this map, so a key set on the project clears it for every App in that project.

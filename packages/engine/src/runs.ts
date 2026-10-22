@@ -700,10 +700,7 @@ export class RunService {
     const loginTokens = chosen.chatgptLogin ? (parseChatgptAuth(chosen.chatgptLogin)?.tokens ?? []) : [];
     // The project's variables (team → project → factory), only for a factory in a project.
     const variables = this.k.variables.forFactory(p.input.factory);
-    this.redactions.set(
-      p.run.id,
-      [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope), ...(variables?.secretValues ?? []), ...loginTokens, ...(this.forgeTokens.get(p.run.id) ?? [])].filter((v) => v.length >= 6))],
-    );
+    this.redactions.set(p.run.id, [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope), ...(variables?.secretValues ?? []), ...loginTokens, ...(this.forgeTokens.get(p.run.id) ?? [])].filter((v) => v.length >= 6))]);
     const overrideEnv: Record<string, string> = {
       ...cloudProviderEnv(p.resolved.factory),
       ...(p.envRef ? { KILN_ENVIRONMENT_ID: p.envRef } : {}),

@@ -698,7 +698,12 @@ export class RunService {
     const mcp = this.k.mcp.resolve(p.team, this.k.mcp.refsFor(p.team, p.input.overrides?.mcpServers ?? p.agent.mcpServers), resolver);
     for (const s of mcp.skipped) this.record(p.run, "mcp_skipped", s);
     const loginTokens = chosen.chatgptLogin ? (parseChatgptAuth(chosen.chatgptLogin)?.tokens ?? []) : [];
-    this.redactions.set(p.run.id, [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope), ...loginTokens, ...(this.forgeTokens.get(p.run.id) ?? [])].filter((v) => v.length >= 6))]);
+    // The project's variables (team → project → factory), only for a factory in a project.
+    const variables = this.k.variables.forFactory(p.input.factory);
+    this.redactions.set(
+      p.run.id,
+      [...new Set([...Object.values(credentials), ...Object.values(mcp.env), ...this.k.vault.values(scope), ...(variables?.secretValues ?? []), ...loginTokens, ...(this.forgeTokens.get(p.run.id) ?? [])].filter((v) => v.length >= 6))],
+    );
     const overrideEnv: Record<string, string> = {
       ...cloudProviderEnv(p.resolved.factory),
       ...(p.envRef ? { KILN_ENVIRONMENT_ID: p.envRef } : {}),
@@ -706,7 +711,7 @@ export class RunService {
       ...(p.run.idleTimeoutMinutes ? { KILN_IDLE_TIMEOUT_MINUTES: String(p.run.idleTimeoutMinutes) } : {}),
     };
     const browser = browserServer(this.k, p.harnessType, p.agent);
-    return { env: { ...mcp.env, ...credentials, ...overrideEnv }, mcpServers: [...this.mcpServers(p.token), ...(browser ? [browser] : []), ...mcp.servers], chatgptLogin: chosen.chatgptLogin };
+    return { env: { ...variables?.env, ...mcp.env, ...credentials, ...overrideEnv }, mcpServers: [...this.mcpServers(p.token), ...(browser ? [browser] : []), ...mcp.servers], chatgptLogin: chosen.chatgptLogin };
   }
 
   /** The forge's sandbox credential for a repository (GitHub: repo-scoped, an hour), else the run token. */

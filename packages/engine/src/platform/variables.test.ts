@@ -1,3 +1,4 @@
+import { FakeHarness, type StartOptions } from "@kiln/harness";
 import { describe, expect, it } from "vitest";
 import { createTestKiln } from "../testing";
 import { C } from "../types";
@@ -154,5 +155,28 @@ describe("variables", () => {
     kiln.variables.delete("project", project, "preview", "a");
     expect(kiln.variables.list("project", project)).toEqual([]);
     expect(() => kiln.variables.delete("project", project, "preview", "a")).toThrow("no preview variables");
+  });
+
+  it("gives factory runs the project's preview variables, under Kiln's own, and redacts secrets", async () => {
+    const seen: StartOptions[] = [];
+    const harness = new FakeHarness(async (ctx) => {
+      seen.push(ctx.opts);
+      ctx.emit({ type: "message", text: `token ${ctx.opts.env?.API_TOKEN}` });
+      return { summary: "ok" };
+    });
+    const { kiln } = createTestKiln({ harness: () => harness, secretKey: "k" });
+    const team = kiln.teams.ensureDefaultTeam().id;
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    kiln.variables.set({ scope: "team", owner: team, environment: "preview", variables: [{ key: "API_URL", value: "https://team" }] }, "a");
+    await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "x", push: false });
+    expect(seen[0]!.env).not.toHaveProperty("API_URL");
+
+    const project = kiln.planning.createProject({ name: "Portal", owner: "po@acme.test", factories: ["webapp"] }).id;
+    kiln.variables.set({ scope: "project", owner: project, environment: "preview", variables: [{ key: "API_TOKEN", value: "project-token-123", secret: true }] }, "a");
+    kiln.variables.set({ scope: "factory", owner: "webapp", environment: "preview", variables: [{ key: "ANTHROPIC_API_KEY", value: "not-the-credential" }] }, "a");
+    kiln.vault.set({ scope: "team", owner: team, name: "KEY", type: "anthropic_api_key", value: "sk-ant-real" }, "a");
+    const run = await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "x", push: false });
+    expect(seen[1]!.env).toMatchObject({ API_URL: "https://team", API_TOKEN: "project-token-123", ANTHROPIC_API_KEY: "sk-ant-real", KILN_FACTORY: "webapp" });
+    expect(kiln.runs.events(run.id).find((e) => e.type === "message")!.text).toBe("token [redacted]");
   });
 });

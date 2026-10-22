@@ -1209,7 +1209,8 @@ export class Workflow {
     const accepted = this.k.gates.list({ workItemId: wi.id }).find((g) => g.kind === "preview" && g.state === "approved" && g.name === (stage.gate ?? "preview-acceptance") && g.openedAt >= (wi.previewDeployedAt ?? ""));
     if (accepted) return this.nextStage(wi);
     if (!this.k.preview || !wi.pr) return this.nextStage(wi);
-    const deployed = await this.k.preview.deploy({ repo: wi.pr.repo, branch: wi.branch!, pr: wi.pr.number });
+    const env = this.k.variables.forFactory(wi.factory)?.env;
+    const deployed = await this.k.preview.deploy({ repo: wi.pr.repo, branch: wi.branch!, pr: wi.pr.number, ...(env ? { env } : {}) });
     wi.previewUrl = deployed.url;
     wi.previewDeployedAt = this.k.clock.now().toISOString();
     const card = previewCard({ ...(wi.evidence ?? { workItemId: wi.id, criteria: {}, artifacts: [] }), previewUrl: deployed.url, prUrl: wi.pr.url }, wi.title);

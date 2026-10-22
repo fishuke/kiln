@@ -39,6 +39,10 @@ Kiln acts as your own GitHub account, never as the Kiln app (agents never approv
 
 When the `review-risk` decision finds a change low risk and the reviewer agent has no findings, nobody needs to read the code, so no inbox item opens. The pull request appears under **Ready to merge** at the top of the inbox, and one click merges it as you. See [Decisions](../configuration/decisions.md).
 
+## Pull requests the merge gate did not merge
+
+When a person marks a pull request ready for review and the [merge gate](../configuration/decisions.md#merge-gate) is on, the gate merges the pull requests the `merge-safety` decision finds safe. The rest appear here with the decision's reasons, for example "CI failed." or "It changes sensitive files: lib/auth/session.ts." With the gate off, every pull request ready for review appears here. Open the item to review and merge it in Studio or on the forge; it clears when the pull request is merged or closed.
+
 ## Order
 
 The `inbox-urgency` decision gives each gate an urgency score when it opens. The inbox sorts by urgency, highest first, then by age, oldest first. If the decision is not available, questions get 0.7 and other gates 0.5.
@@ -81,7 +85,7 @@ The digest groups open gates by person, oldest first, with each one's age in hou
 
 ## Inbox items API
 
-`GET /api/v1/inbox/items` lists your inbox across factories as items of six kinds:
+`GET /api/v1/inbox/items` lists your inbox across factories and Studio Apps as items of seven kinds:
 
 | Kind | When |
 | --- | --- |
@@ -89,6 +93,7 @@ The digest groups open gates by person, oldest first, with each one's age in hou
 | `answer_question` | A question on your task was answered (for your information, for a week). |
 | `spec_review` | A spec or plan waits for approval; also definition changes proposed by agents and self-improvement proposals, with their diff. |
 | `pr_review` | A pull request or preview waits on you. |
+| `studio_pr_review` | A Studio App's pull request the merge gate did not merge. It has `team`, `appId` and the gate's `reasons`, and goes to the team's owners and admins. |
 | `blocked`, `failed` | A task of yours is stuck, when nothing else on it needs you. |
 
 Filter with `scope=mine|team`, `factory`, `kind`, `read=true|false` and `q`. `POST /api/v1/inbox/read`, `/unread`, `/resolve` and `/unresolve` take `{ids}` (item ids, or plain gate ids). Items clear themselves when they stop being relevant: the question was answered, the spec approved, the PR merged.

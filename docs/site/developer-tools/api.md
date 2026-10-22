@@ -267,7 +267,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/inbox` | — | Open decisions (gates), most urgent first |
 | GET | `/api/v1/gates/{id}` | `read` | A gate with its work item |
 | POST | `/api/v1/gates/{id}/decide` | `decide:*` | Approve, reject or answer (scope depends on the gate kind) |
-| GET | `/api/v1/inbox/items` | — | Inbox items: question, answer_question, spec_review, pr_review, blocked, failed (scope mine|team, factory, kind, read, q) |
+| GET | `/api/v1/inbox/items` | — | Inbox items: question, answer_question, spec_review, pr_review, studio_pr_review, blocked, failed (scope mine|team, factory, kind, read, q) |
 | POST | `/api/v1/inbox/read` | — | Mark items read |
 | POST | `/api/v1/inbox/unread` | — | Mark items unread |
 | POST | `/api/v1/inbox/resolve` | — | Resolve (hide) items for you |
@@ -436,6 +436,13 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/workers/{instance}/runs/{runId}/events` | `worker` | Stream a run's events back |
 | POST | `/api/v1/workers/{instance}/runs/{runId}/complete` | `worker` | Report a run's result, artifacts and pushed branches |
 | DELETE | `/api/v1/workers/{instance}` | `worker` | Disconnect; its running runs fail and are retried |
+
+## Merge gate
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/merge-gate/reviews` | — | Pull requests the merge gate judged for the current team's Studio Apps (?state=) |
+| GET | `/api/v1/merge-gate/reviews/{id}` | — | One merge gate review: merged or sent to review, the reasons and the merge-safety answers |
 
 ## Errors
 

@@ -207,6 +207,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `deniedActions` | list of string |  |  |
 | `allowedTriggerers` | list of string |  |  |
 | `maxUsdPerWorkItem` | number |  |  |
+| `mergeGate` | boolean |  |  |
 
 ## runner
 

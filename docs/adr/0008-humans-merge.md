@@ -11,3 +11,4 @@ Runs get short-lived signed tokens that allow pushing `kiln/*` branches, opening
 ## Consequences
 - Property tests cover the completion invariant.
 - Self-improvement and kiln-self changes to protected paths are dropped or need two people.
+- Kiln's merge gate, a service and not an agent, may merge a pull request when a person turned it on for that App or factory (ADR-014). Studio's cowboy ship mode is a narrow exception for an App's own repository (ADR-012).

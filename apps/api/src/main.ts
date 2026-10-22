@@ -16,6 +16,9 @@ if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   process.once("SIGTERM", () => void telemetry.shutdown());
 }
 
+// Rotating KILN_SECRET_KEY: what is still sealed with the previous key is resealed with the new one.
+if (process.env.KILN_SECRET_KEY_PREVIOUS) console.log(`KILN_SECRET_KEY rotation: resealed ${kiln.rotateSecretKey()} secret(s) with the new key. Remove KILN_SECRET_KEY_PREVIOUS now.`);
+
 // Runs and stage steps live in this process; whatever the last one left going cannot finish now.
 const recovered = kiln.recoverInterrupted();
 if (recovered.runs.length || recovered.workItems.length) console.log(`Stopped ${recovered.runs.length} run(s) and ${recovered.workItems.length} task(s) cut off by the last restart.`);

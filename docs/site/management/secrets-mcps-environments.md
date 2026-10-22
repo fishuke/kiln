@@ -45,6 +45,7 @@ Manage secrets with `GET /api/v1/managed-secrets`, `POST /api/v1/managed-secrets
 - **Lookup order** for a name: your personal secret (for runs you triggered), then the team secret, then the server's secrets (the older admin `PUT /api/v1/secrets/<name>` store, model-provider environment variables and `KILN_SECRET_<NAME>`).
 - **Redaction:** Kiln replaces every secret value a run could see with `[redacted]` in its events, tool output and summary.
 - **Encryption:** with `KILN_SECRET_KEY` set, values are sealed with AES-256-GCM in the store. Without it they are stored in plain text, so set it on any shared server.
+- **Rotating the key:** set the new value as `KILN_SECRET_KEY` and the old one as `KILN_SECRET_KEY_PREVIOUS`, then restart the API. It reads secrets sealed with either key, reseals them (and the GitHub App's credentials) with the new one, and logs how many. Remove `KILN_SECRET_KEY_PREVIOUS` afterwards. Run tokens signed with the old key stop working at once, so runs in progress lose access to the API; a new key alone, without the previous one, leaves sealed secrets unreadable and the API does not start.
 
 ### Team-managed model keys
 

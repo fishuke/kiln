@@ -411,6 +411,14 @@ describe("restarts", () => {
     expect(store.get("studio_turns", "st_1")).toMatchObject({ status: "failed", reply: "interrupted by a restart" });
     expect(studio.getChat("sc_1")!.chat).toMatchObject({ status: "needs_you", question: "The agent failed: interrupted by a restart" });
   });
+
+  it("gives a chat saved before chats had an agent the general agent", () => {
+    const store = new MemoryStore();
+    const at = "2026-10-22T10:00:00.000Z";
+    store.put("studio_chats", { id: "sc_old", appId: "sa_2", title: "Chat", mode: "build", harness: "claude-code", branch: "chat/sc_old", path: "chats/sc_old", port: 4101, status: "idle", createdAt: at, updatedAt: at });
+    const { studio } = make({ store });
+    expect(studio.getChat("sc_old")!.chat.agent).toBe("general");
+  });
 });
 
 describe("environment", () => {

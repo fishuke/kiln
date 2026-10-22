@@ -184,6 +184,8 @@ export class Studio {
       this.save(C.turns, { ...t, status: "failed", reply: t.reply || reason, finishedAt: this.now() });
     }
     for (const c of this.opts.store.list<Chat>(C.chats, (x) => x.status === "working")) this.touch(C.chats, { ...c, status: "needs_you", question: `The agent failed: ${reason}` });
+    // Chats saved before chats named their agent (Studio before turns became runs) use the default agent.
+    for (const c of this.opts.store.list<Partial<Chat> & Pick<Chat, "id">>(C.chats, (x) => !x.agent)) this.opts.store.put(C.chats, { ...c, agent: DEFAULT_AGENT });
   }
 
   // ---- reads ----

@@ -10,6 +10,9 @@ export interface Clock {
 
 export const systemClock: Clock = { now: () => new Date() };
 
+/** The sandbox image when neither a runner, the team environment nor KILN_RUNNER_IMAGE names one. */
+export const DEFAULT_RUNNER_IMAGE = "node:22-bookworm";
+
 export class FakeClock implements Clock {
   constructor(private t = new Date("2026-10-20T09:00:00Z")) {}
   now() {

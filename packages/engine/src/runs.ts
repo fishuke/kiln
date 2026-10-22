@@ -13,7 +13,7 @@ import { fileUrl, mediaOf } from "./media";
 import { codexHome, parseChatgptAuth, redactChatgptTokens } from "./platform/chatgpt";
 import { registryAuthFor } from "./platform/registry";
 import { checkMetadata, isTerminal, sourceFor } from "./run-state";
-import { C, newId, type Artifact, type Attachment, type ExecutionOverrides, type Run, type RunEvent, type RunKind, type RunMode, type RunSource, type WorkItem } from "./types";
+import { C, DEFAULT_RUNNER_IMAGE, newId, type Artifact, type Attachment, type ExecutionOverrides, type Run, type RunEvent, type RunKind, type RunMode, type RunSource, type WorkItem } from "./types";
 import type { RemoteSession, WorkerJob } from "./workers";
 
 export { fileUrl, mediaOf } from "./media";
@@ -335,7 +335,7 @@ export class RunService {
     const host = teamSettings?.defaultSandboxHost;
     const teamBackend = host === "local" || host === "docker" || host === "kubernetes" ? host : undefined;
     // The image: the runner's own, else the team environment's, else the server's runner image (KILN_RUNNER_IMAGE).
-    const image = declared?.image ?? environment?.image ?? this.k.options.defaultImage ?? "node:22-bookworm";
+    const image = declared?.image ?? environment?.image ?? this.k.options.defaultImage ?? DEFAULT_RUNNER_IMAGE;
     const base: SandboxRunner = declared ? { ...declared, image } : { ...DEFAULT_RUNNER(teamBackend ?? this.k.options.defaultBackend ?? "local"), image };
     const policy = agent.networkPolicy;
     // Environment setup commands run after the runner's own, in the workspace root (the runner's run in each repository); the team's egress allowlist and the agent's allowed hosts add to the runner's.

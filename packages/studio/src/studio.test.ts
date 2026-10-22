@@ -203,6 +203,16 @@ describe("turns and versions", () => {
     expect(studio.getApp(p.id)!.versions).toHaveLength(1);
   });
 
+  it("never counts what installing dependencies writes as the agent's change", async () => {
+    // An install that generates a lockfile and edits a tracked file, like `pnpm install` in a repository without one.
+    const { studio } = make({ templates: { test: { ...TEST, install: ["printf 'lockfileVersion: 9\\n' > pnpm-lock.yaml", "printf 'export const n = 2;\\n' > app.ts"] } } });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    const asked = await say(studio, chat.id, "how does it work?");
+    expect(asked.checkpoint).toBeUndefined();
+    expect(await studio.diff({ chatId: chat.id })).toBe("");
+  });
+
   it("reverts edits in chat and plan mode", async () => {
     const { studio } = make();
     const p = await app(studio, "safe");

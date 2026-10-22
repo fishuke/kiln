@@ -353,7 +353,7 @@ export class Studio {
       );
       const setup = await this.detect(sandbox, app, mainBranch, template);
       if (template) await must(sandbox, "app", "git add -A && git commit -q -m " + shellQuote(title));
-      else for (const cmd of setup.install) await must(sandbox, "app", cmd, env);
+      else await this.install(sandbox, "app", setup.install, env);
       const sha = await must(sandbox, "app", "git rev-parse HEAD");
       const p = this.app(app.id);
       p.setup = setup;
@@ -367,6 +367,16 @@ export class Studio {
       p.error = err instanceof Error ? err.message : String(err);
       this.touch(C.apps, p);
     }
+  }
+
+  /**
+   * Installs dependencies in a worktree, then puts its tracked and unignored files back as they were, so
+   * nothing the install writes (a generated lockfile, a reformatted package.json) counts as an agent's change.
+   * Ignored files, such as node_modules, stay.
+   */
+  private async install(sandbox: Sandbox, cwd: string, commands: string[], env: Record<string, string>) {
+    for (const cmd of commands) await must(sandbox, cwd, cmd, env);
+    if (commands.length) await must(sandbox, cwd, "git checkout -q -- . && git clean -fdq -e node_modules");
   }
 
   private async detect(sandbox: Sandbox, app: App, mainBranch: string, template?: Template): Promise<AppSetup> {
@@ -440,7 +450,7 @@ export class Studio {
       updatedAt: now,
     };
     await this.locked(p.id, () => must(sandbox, "app", `git worktree add -q -b ${chat.branch} ../${chat.path} ${shellQuote(p.setup!.mainBranch)}`));
-    for (const cmd of p.setup!.install) await must(sandbox, chat.path, cmd, this.env(p));
+    await this.install(sandbox, chat.path, p.setup!.install, this.env(p));
     return this.save(C.chats, chat);
   }
 
@@ -818,7 +828,7 @@ export class Studio {
       if (exists) await must(live.sandbox, "version", `git checkout -q --detach ${v.sha}`);
       else {
         await must(live.sandbox, "app", `git worktree add -q --detach ../version ${v.sha}`);
-        for (const cmd of p.setup!.install) await must(live.sandbox, "version", cmd, this.env(p));
+        await this.install(live.sandbox, "version", p.setup!.install, this.env(p));
       }
       live.shownVersion = v.id;
     });

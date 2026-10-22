@@ -22,6 +22,7 @@ import { ConnectionService, IdentityService } from "./connections";
 import { ReviewService } from "./reviews";
 import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
 import { WebhookSourceService } from "./webhook-sources";
+import type { AppRunHost } from "./run-definition";
 import { LocalSandboxProvider, type Sandbox, type SandboxProvider } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import { MemoryObjectStore, MemoryStore, type ObjectStore, type Store } from "@kiln/store";
@@ -83,6 +84,8 @@ export interface WorkspaceProvider {
 
 export type KilnOptions = {
   workspaces?: WorkspaceProvider;
+  /** Studio Apps' definitions, for App runs (ADR-012). */
+  apps?: AppRunHost;
   forge: Forge;
   store?: Store;
   objects?: ObjectStore;

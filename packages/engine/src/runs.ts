@@ -8,7 +8,7 @@ import { hashDir, withGuard, type RegistryAuth, type Sandbox, type SandboxProvid
 import type { HarnessType, Runner } from "@kiln/schema";
 import { classifyError, KilnError, retriesAutomatically, runStatusFor } from "./errors";
 import type { Kiln } from "./kiln";
-import { cloudProviderEnv } from "./cloud";
+import { appRunDefinition, factoryRunDefinition, type AppRunDefinition, type RunDefinition } from "./run-definition";
 import { fileUrl, mediaOf } from "./media";
 import { codexHome, parseChatgptAuth, redactChatgptTokens } from "./platform/chatgpt";
 import { registryAuthFor } from "./platform/registry";
@@ -67,6 +67,8 @@ export type ExecuteInput = {
   attachments?: Attachment[];
   /** Set when this run is a subagent of another run. */
   parentRunId?: string;
+  /** A Studio App's run: its agents come from KilnOptions.apps; pass `factory: "app:<id>"`. */
+  app?: string;
   /** See Run.name and Run.reportToParent. */
   name?: string;
   reportToParent?: boolean;
@@ -181,7 +183,9 @@ const DEFAULT_RUNNER = (backend: Runner["backend"]): SandboxRunner => ({ image: 
 type Prepared = {
   run: Run;
   input: ExecuteInput;
-  resolved: ResolvedFactory;
+  resolved: RunDefinition;
+  /** Set for a Studio App's run. */
+  app?: AppRunDefinition;
   agent: ResolvedAgent;
   harnessType: HarnessType;
   model?: string;
@@ -234,6 +238,35 @@ export class RunService {
           (!filter.kind || r.kind === filter.kind),
       )
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  /** A run's definition: its factory's resolved tree (by sha, or a candidate tree), or its Studio App's. */
+  private definitionOf(input: { app?: string; sha: string; tree?: DefinitionTree }): { def: RunDefinition; app?: AppRunDefinition } {
+    if (input.app) {
+      if (!this.k.options.apps) throw new KilnError("integration_not_configured", `run for app ${input.app}, but this server has no Studio`);
+      const app = this.k.options.apps.definition(input.app);
+      return { def: appRunDefinition(app), app };
+    }
+    return { def: factoryRunDefinition(input.tree ? this.k.defs.resolveTree(input.tree) : this.k.defs.resolved(input.sha)) };
+  }
+
+  /** The decisions a run's definition sets, such as its command guard (the guard endpoint reads these). */
+  decisionsFor(run: Pick<Run, "app" | "definitionSha">): RunDefinition["decisions"] {
+    return this.definitionOf({ ...(run.app ? { app: run.app } : {}), sha: run.definitionSha }).def.decisions;
+  }
+
+  /** What `factory` (a factory id, or `app:<id>`) spent on runs since the first of this month. */
+  monthSpend(factory: string): number {
+    const start = new Date(this.k.clock.now());
+    start.setUTCDate(1);
+    start.setUTCHours(0, 0, 0, 0);
+    return this.list({ factory }).filter((x) => x.startedAt >= start.toISOString()).reduce((s, x) => s + x.costUsd, 0);
+  }
+
+  /** Throws budget_exceeded when `factory` has spent its monthly budget. */
+  assertMonthlyBudget(factory: string, monthlyUsd: number) {
+    const spent = this.monthSpend(factory);
+    if (spent >= monthlyUsd) throw new KilnError("budget_exceeded", `monthly budget of $${monthlyUsd} for ${factory} reached ($${spent.toFixed(2)} spent)`);
   }
 
   /** The latest run named `name` in the tree `runId` belongs to (a continuation keeps its run's name). */
@@ -354,9 +387,9 @@ export class RunService {
     this.k.store.put(C.runs, run);
   }
 
-  resolveModel(resolved: ResolvedFactory, model: string | undefined, prompt: string): Promise<string | undefined> | string | undefined {
+  resolveModel(resolved: RunDefinition, model: string | undefined, prompt: string): Promise<string | undefined> | string | undefined {
     if (!model?.startsWith("router:")) return model;
-    const router = resolved.parsed.routers[model.slice(7)];
+    const router = resolved.routers[model.slice(7)];
     if (!router) return undefined;
     if (router.type === "prompt") {
       const words = new Set(prompt.toLowerCase().match(/[a-z]{4,}/g) ?? []);
@@ -367,7 +400,7 @@ export class RunService {
     }
     return runDecision(
       "model-router",
-      resolved.parsed.decisions["model-router"] ?? BUILTIN_DECISIONS["model-router"]!,
+      resolved.decisions["model-router"] ?? BUILTIN_DECISIONS["model-router"]!,
       { title: prompt.slice(0, 200), body: prompt },
       this.k.decide,
     ).then((o) => (o.action === "easy" ? router.routing.easy : o.action === "hard" ? router.routing.hard : router.routing.medium) ?? router.default);
@@ -420,15 +453,16 @@ export class RunService {
   }
 
   private async prepare(input: ExecuteInput, prior?: Run): Promise<Prepared> {
-    const resolved = input.tree ? this.k.defs.resolveTree(input.tree) : this.k.defs.resolved(input.sha);
+    const { def: resolved, app } = this.definitionOf(input);
     const agent: ResolvedAgent | undefined = resolved.agents[input.agent];
     if (!agent) throw new KilnError("resource_not_found", `factory ${input.factory} has no agent ${input.agent}`);
     const metaError = checkMetadata(input.metadata);
     if (metaError) throw new KilnError("invalid_request", metaError);
     const harnessType = (input.overrides?.harness ?? agent.harness.type) as HarnessType;
     const model = await this.resolveModel(resolved, input.overrides?.model ?? agent.harness.model, input.prompt);
-    const team = this.k.teams.factoryTeam(input.factory);
+    const team = app ? app.team : this.k.teams.factoryTeam(input.factory);
     this.k.usage.assertWithinBudget(team);
+    if (app?.monthlyUsd !== undefined) this.assertMonthlyBudget(input.factory, app.monthlyUsd);
     const user = input.triggeredBy ? this.k.users.get(input.triggeredBy) : this.k.users.forRequester(input.workItem?.requester);
     const automationEnv = input.workItem?.source.automation ? resolved.automations[input.workItem.source.automation]?.environmentId : undefined;
     // An automation's environmentId override selects the team environment for this run.
@@ -436,7 +470,7 @@ export class RunService {
     const environment = envRef ? this.k.environments.get(team, envRef) : undefined;
     if (envRef && !environment) throw new KilnError("resource_not_found", `environment ${envRef} is not defined for this team`);
     const runnerName = input.overrides?.runner ?? agent.runner;
-    const declared: Runner | undefined = runnerName ? resolved.parsed.runners[runnerName] : undefined;
+    const declared: Runner | undefined = runnerName ? resolved.runners[runnerName] : undefined;
     const teamSettings = team ? this.k.teams.settings(team) : undefined;
     const host = teamSettings?.defaultSandboxHost;
     const teamBackend = host === "local" || host === "docker" || host === "kubernetes" ? host : undefined;
@@ -473,7 +507,7 @@ export class RunService {
     const picked = input.workItem?.repo?.toLowerCase();
     const factoryRepos =
       input.repos ??
-      resolved.factory.repositories
+      resolved.repositories
         .filter((r) => required.includes(repoKey(r).toLowerCase()) || (picked ? repoKey(r).toLowerCase() === picked : !r.deferred))
         .sort((a, b) => Number(repoKey(b).toLowerCase() === picked) - Number(repoKey(a).toLowerCase() === picked));
     const repos = [
@@ -484,7 +518,7 @@ export class RunService {
     const now = this.k.clock.now().toISOString();
     const parent = input.parentRunId ? this.get(input.parentRunId) : undefined;
     const firstOfItem = input.workItem && !parent ? this.list({ workItemId: input.workItem.id }).at(-1) : undefined;
-    const explicitIdle = resolved.parsed.agents[input.agent]?.frontmatter.idleTimeoutMinutes;
+    const explicitIdle = resolved.explicitIdleMinutes(input.agent);
     const creator = input.creator ?? (parent ? `agent:${parent.agent}` : input.workItem?.requester) ?? "kiln";
     const id = prior?.id ?? newId("run");
     const run: Run = prior
@@ -512,6 +546,7 @@ export class RunService {
           startState: { prompt: input.prompt, instructions: "", skills: agent.skills, repos: [] },
           replayOf: input.replayOf,
           parentRunId: input.parentRunId,
+          ...(input.app ? { app: input.app } : {}),
           ...(input.name ? { name: input.name } : {}),
           ...(input.reportToParent ? { reportToParent: true } : {}),
           rootRunId: parent ? (parent.rootRunId ?? parent.id) : (firstOfItem?.rootRunId ?? firstOfItem?.id ?? id),
@@ -570,6 +605,7 @@ export class RunService {
       run,
       input: { ...input, prompt },
       resolved,
+      ...(app ? { app } : {}),
       agent,
       harnessType,
       model,
@@ -674,7 +710,7 @@ export class RunService {
 
   private async runLocal(p: Prepared): Promise<Sandbox> {
     const { run, input, resolved, agent, harnessType, model, runner, repos, token, instructions, attachments } = p;
-    const decisions = resolved.parsed.decisions["command-guard"] ?? BUILTIN_DECISIONS["command-guard"]!;
+    const decisions = resolved.decisions["command-guard"] ?? BUILTIN_DECISIONS["command-guard"]!;
     const provider = this.provider(input.backend ?? runner.backend);
     // Setup commands target the runner's image; when Kiln falls back to the host they are skipped.
     const effective: SandboxRunner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [], workspaceSetupCommands: [] };
@@ -868,10 +904,10 @@ export class RunService {
     if (run.status === "failed") run.error = { ...classifyError(new Error(res.error ?? (res.summary || "the agent reported a failure"))), retryable: false };
   }
 
-  private skillsFor(resolved: ResolvedFactory, agentName: string, agent: ResolvedAgent) {
+  private skillsFor(resolved: RunDefinition, agentName: string, agent: ResolvedAgent) {
     return agent.skills.map((name) => {
-      const s = resolved.parsed.skills[name] ?? resolved.parsed.agents[agentName]?.skills[name];
-      return { name, body: s?.body ?? "", description: s?.frontmatter.description };
+      const s = resolved.skill(agentName, name);
+      return { name, body: s?.body ?? "", description: s?.description };
     });
   }
 
@@ -895,8 +931,8 @@ export class RunService {
     const mcp = this.k.mcp.resolve(p.team, this.k.mcp.refsFor(p.team, p.input.overrides?.mcpServers ?? p.agent.mcpServers), resolver);
     for (const s of mcp.skipped) this.record(p.run, "mcp_skipped", s);
     const loginTokens = chosen.chatgptLogin ? (parseChatgptAuth(chosen.chatgptLogin)?.tokens ?? []) : [];
-    // The project's variables (team → project → factory), only for a factory in a project.
-    const variables = this.k.variables.forFactory(p.input.factory);
+    // The project's variables (team → project → factory, only for a factory in a project), or the App's (team → project → App).
+    const variables = p.app ? { env: p.app.env, secretValues: p.app.secretValues } : this.k.variables.forFactory(p.input.factory);
     this.redactions.set(p.run.id, [
       ...new Set(
         [
@@ -910,7 +946,7 @@ export class RunService {
       ),
     ]);
     const overrideEnv: Record<string, string> = {
-      ...cloudProviderEnv(p.resolved.factory),
+      ...p.resolved.cloudEnv,
       ...(p.envRef ? { KILN_ENVIRONMENT_ID: p.envRef } : {}),
       ...(p.workerHost ? { KILN_WORKER_HOST: p.workerHost } : {}),
       ...(p.run.idleTimeoutMinutes ? { KILN_IDLE_TIMEOUT_MINUTES: String(p.run.idleTimeoutMinutes) } : {}),
@@ -1107,7 +1143,7 @@ export class RunService {
       if (this.byName(parentRunId, input.name)) throw new KilnError("invalid_request", `this run tree already has a run named ${input.name}`);
     }
     if (isTerminal(parent)) throw new KilnError("operation_not_supported", `run ${parentRunId} has finished; only a running agent can spawn subagents`);
-    const resolved = this.k.defs.resolved(parent.definitionSha);
+    const resolved = this.definitionOf({ ...(parent.app ? { app: parent.app } : {}), sha: parent.definitionSha }).def;
     const child = resolved.agents[input.agent];
     if (!child) throw new KilnError("resource_not_found", `factory ${parent.factory} has no agent ${input.agent}`);
     const parentAgent = resolved.agents[parent.agent];
@@ -1123,6 +1159,7 @@ export class RunService {
       sha: parent.definitionSha,
       agent: input.agent,
       prompt: input.fork ? `${this.forkContext(parentRunId)}\n\n## Your task\n${input.prompt}` : input.prompt,
+      ...(parent.app ? { app: parent.app } : {}),
       ...(input.name ? { name: input.name } : {}),
       ...(input.report ? { reportToParent: true } : {}),
       kind: parent.kind,
@@ -1222,6 +1259,7 @@ export class RunService {
       branch,
       parentRunId: run.parentRunId,
       continuationOf: run.id,
+      ...(run.app ? { app: run.app } : {}),
       ...(run.name ? { name: run.name } : {}),
       ...(run.reportToParent ? { reportToParent: true } : {}),
       attachments: input.attachments,
@@ -1307,8 +1345,7 @@ export class RunService {
     }
     const runner = this.specs.get(runId) ?? DEFAULT_RUNNER("local");
     const sandbox = await (provider ?? this.provider(runner.backend)).resume(ref, { runner, repos: [] }, this.k.objects);
-    const resolved = this.k.defs.resolved(run.definitionSha);
-    const agent = resolved.agents[run.agent]!;
+    const agent = this.definitionOf({ ...(run.app ? { app: run.app } : {}), sha: run.definitionSha }).def.agents[run.agent]!;
     const cwd = run.startState.repos[0]?.name;
     run.status = "running";
     this.save(run);

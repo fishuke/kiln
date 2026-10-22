@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeProvider, heuristicRule, type FakeRule } from "@kiln/decide";
-import { FakeHarness, type HarnessAdapter } from "@kiln/harness";
+import type { ResolvedAgent } from "@kiln/definitions";
+import { FakeHarness, type HarnessAdapter, type StartOptions } from "@kiln/harness";
 import { FakeForge } from "@kiln/integrations";
 import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
 import { describe, expect, it } from "vitest";
@@ -11,6 +12,7 @@ import { fakeAgents, fakeAgentScript } from "./fake-agents";
 import { validateFiles } from "./factory-files";
 import { runState, taskStage } from "./run-state";
 import { parseTicketRef } from "./tasks";
+import type { AppRunHost } from "./run-definition";
 import { C } from "./types";
 import { createTestKiln, sampleTree, waitFor } from "./testing";
 
@@ -332,6 +334,91 @@ describe("provided workspaces", () => {
     expect(own.status).toBe("succeeded");
     expect(released).toEqual([run.id]);
     await shared.destroy();
+  });
+});
+
+describe("Studio App runs", () => {
+  const agent = (name: string, over: Partial<ResolvedAgent> = {}): ResolvedAgent => ({
+    name,
+    agentType: "CUSTOM",
+    harness: { type: "claude-code", model: "claude-sonnet-5-5" },
+    instructions: `You are ${name}.\n\n## house-rules\n\nAlways write tests.`,
+    skills: ["design"],
+    spawnableBy: [],
+    idleTimeoutMinutes: 10,
+    credentialStrategy: "EXECUTOR",
+    requiredRepos: [],
+    secrets: [],
+    mcpServers: [],
+    ...over,
+  });
+  // The App's team is the test Kiln's default team, which `team` reads once the Kiln exists.
+  const host = (team: () => string, monthlyUsd?: number): AppRunHost => ({
+    definition: (id) => ({
+      sha: `app-${id}-v1`,
+      team: team(),
+      agents: { general: agent("general"), helper: agent("helper", { spawnableBy: ["general"] }), stranger: agent("stranger") },
+      skill: (_agent, name) => (name === "design" ? { body: "Use the design system.", description: "Design" } : undefined),
+      ...(monthlyUsd !== undefined ? { monthlyUsd } : {}),
+      env: { API_URL: "https://api.test", API_TOKEN: "app-secret-value" },
+      secretValues: ["app-secret-value"],
+    }),
+  });
+
+  it("resolves the App's agent, team, environment and skills, and redacts its secrets", async () => {
+    const seen: StartOptions[] = [];
+    const harness = new FakeHarness(async (ctx) => {
+      seen.push(ctx.opts);
+      ctx.emit({ type: "message", text: `token is ${ctx.opts.env?.API_TOKEN}` });
+      return { summary: "done", costUsd: 1 };
+    });
+    let kiln!: ReturnType<typeof createTestKiln>["kiln"];
+    ({ kiln } = createTestKiln({ harness: () => harness, apps: host(() => kiln.teams.ensureDefaultTeam().id) }));
+    const run = await kiln.runs.execute({ factory: "app:sa_1", app: "sa_1", sha: "", agent: "general", prompt: "build", push: false });
+    expect(run).toMatchObject({
+      status: "succeeded",
+      app: "sa_1",
+      factory: "app:sa_1",
+      team: kiln.teams.ensureDefaultTeam().id,
+      definitionSha: "app-sa_1-v1",
+      model: "claude-sonnet-5-5",
+    });
+    expect(seen[0]!.instructions).toContain("Always write tests.");
+    expect(seen[0]!.skills).toEqual([{ name: "design", body: "Use the design system.", description: "Design" }]);
+    expect(seen[0]!.env).toMatchObject({ API_URL: "https://api.test", API_TOKEN: "app-secret-value" });
+    expect(JSON.stringify(kiln.runs.events(run.id))).not.toContain("app-secret-value");
+    expect(kiln.runs.decisionsFor(run)).toEqual({});
+  });
+
+  it("spawns only App agents whose spawnableBy allows the parent", async () => {
+    let kiln!: ReturnType<typeof createTestKiln>["kiln"];
+    const harness = new FakeHarness(async (ctx) => {
+      if (ctx.opts.prompt === "lead") {
+        const id = ctx.opts.env!.KILN_RUN_ID!;
+        const child = await kiln.runs.spawn(id, { agent: "helper", prompt: "help", wait: true });
+        expect(child).toMatchObject({ app: "sa_1", factory: "app:sa_1", parentRunId: id, status: "succeeded" });
+        await expect(kiln.runs.spawn(id, { agent: "stranger", prompt: "x" })).rejects.toThrow(/may not spawn stranger/);
+      }
+      return { summary: "done" };
+    });
+    ({ kiln } = createTestKiln({ harness: () => harness, apps: host(() => kiln.teams.ensureDefaultTeam().id) }));
+    const run = await kiln.runs.execute({ factory: "app:sa_1", app: "sa_1", sha: "", agent: "general", prompt: "lead", push: false });
+    expect(run.status).toBe("succeeded");
+  });
+
+  it("stops at the App's monthly budget through the run budget check", async () => {
+    const harness = new FakeHarness(async () => ({ summary: "done", costUsd: 3 }));
+    let kiln!: ReturnType<typeof createTestKiln>["kiln"];
+    ({ kiln } = createTestKiln({ harness: () => harness, apps: host(() => kiln.teams.ensureDefaultTeam().id, 5) }));
+    const go = () => kiln.runs.execute({ factory: "app:sa_1", app: "sa_1", sha: "", agent: "general", prompt: "build", push: false });
+    expect((await go()).status).toBe("succeeded");
+    expect((await go()).status).toBe("succeeded");
+    await expect(go()).rejects.toMatchObject({ code: "budget_exceeded" });
+  });
+
+  it("refuses an App run on a server without Studio", async () => {
+    const { kiln } = createTestKiln({});
+    await expect(kiln.runs.execute({ factory: "app:sa_1", app: "sa_1", sha: "", agent: "general", prompt: "x", push: false })).rejects.toThrow(/no Studio/);
   });
 });
 

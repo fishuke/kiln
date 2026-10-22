@@ -56,7 +56,7 @@ Set these variables:
 | `KILN_WEB_URL`                                | The web app's URL, for example `https://kiln.example.com`.                                                       |
 | `KILN_PUBLIC_URL`                             | The API's URL, for example `https://api.kiln.example.com`. Webhooks from GitHub, Slack and the rest arrive here. |
 | `KILN_OWNER_EMAIL`                            | Your email. Only this address can create the first account, which owns the server.                               |
-| `KILN_SECRET_KEY`                             | A long random value (`openssl rand -hex 32`). It signs run tokens; keep it stable.                               |
+| `KILN_SECRET_KEY`                             | A long random value (`openssl rand -hex 32`). It seals stored secrets and signs run tokens; keep it stable.      |
 | `CLAUDE_CODE_OAUTH_TOKEN`                     | From `claude setup-token`, or set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`.                 |
 | `GITHUB_TOKEN` and the other integration keys | Optional; see [Connect your systems](#connect-your-systems).                                                     |
 
@@ -139,7 +139,7 @@ Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscrip
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `KILN_OPEN_SIGNUP=1`                       | Anyone may sign up and join the default team. Otherwise, after the first owner, signup needs an invite.                                                                    |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Turn on GitHub login. The OAuth app's callback URL is `<KILN_PUBLIC_URL>/api/v1/auth/github/callback`. `GITHUB_OAUTH_URL` and `GITHUB_API_URL` point at GitHub Enterprise. |
-| `KILN_SECRET_KEY`                          | Seals team and personal secrets with AES-256-GCM, and signs run tokens. Set it, and keep it stable across restarts.                                                        |
+| `KILN_SECRET_KEY`                          | Seals team and personal secrets with AES-256-GCM, and signs run tokens. Set it, and keep it stable across restarts. To rotate it, see [Secrets](../management/secrets-mcps-environments.md). |
 | `KILN_ADMIN_EMAILS`                        | Comma-separated emails of server admins. They see every team's audit log, tokens and server secrets. Team owners and admins see only their own team.                       |
 | `KILN_SMTP_URL`, `KILN_MAIL_FROM`          | Email notifications, for example `smtp://user:pass@mail.acme.test:587?from=kiln@acme.test`.                                                                                |
 | `KILN_DEV_AUTH=1`                          | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team.                                                                       |

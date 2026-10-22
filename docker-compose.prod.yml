@@ -14,6 +14,8 @@ services:
       KILN_WEB_URL: ${KILN_WEB_URL:?the web app's public URL, e.g. https://kiln.example.com}
       KILN_OWNER_EMAIL: ${KILN_OWNER_EMAIL:?your email, the only one that can create the first account}
       KILN_SECRET_KEY: ${KILN_SECRET_KEY:?a long random value, e.g. openssl rand -hex 32}
+      # Rotating KILN_SECRET_KEY: set the old value here for one deploy; stored secrets are resealed with the new key.
+      KILN_SECRET_KEY_PREVIOUS: ${KILN_SECRET_KEY_PREVIOUS:-}
       KILN_ADMIN_EMAILS: ${KILN_ADMIN_EMAILS:-}
       KILN_OPEN_SIGNUP: ${KILN_OPEN_SIGNUP:-0}
       KILN_DEMO: ${KILN_DEMO:-0}

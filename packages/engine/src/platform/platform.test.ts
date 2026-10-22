@@ -132,6 +132,27 @@ describe("secrets", () => {
     expect(kiln.vault.resolver({ teamId: team.id }).get("TOKEN")).toBe("plain-text-value");
   });
 
+  it("rotates KILN_SECRET_KEY: reads with the previous key, reseals with the new one, and drops run tokens signed with the old one", () => {
+    const old = createTestKiln({ secretKey: "o".repeat(32) });
+    const team = old.kiln.teams.ensureDefaultTeam();
+    old.kiln.vault.set({ scope: "team", owner: team.id, name: "TOKEN", value: "team-token" }, "a");
+    old.kiln.store.put("github_app", { id: "kiln", sealed: old.kiln.vault.seal({ appId: "1", slug: "kiln", privateKey: "pem", webhookSecret: "whsec" }), slug: "kiln", appId: "1", createdBy: "a", createdAt: "2026-01-01T00:00:00.000Z" });
+    const oldRunToken = old.kiln.secrets.issueRunToken("run_1", ["acme/web"]);
+
+    const { kiln: withoutPrevious } = createTestKiln({ store: old.kiln.store, secretKey: "n".repeat(32) });
+    expect(() => withoutPrevious.vault.resolver({ teamId: team.id }).get("TOKEN")).toThrow("KILN_SECRET_KEY_PREVIOUS");
+
+    const { kiln: rotating } = createTestKiln({ store: old.kiln.store, secretKey: "n".repeat(32), previousSecretKey: "o".repeat(32) });
+    expect(rotating.vault.resolver({ teamId: team.id }).get("TOKEN")).toBe("team-token");
+    expect(rotating.secrets.verify(oldRunToken)).toBeUndefined();
+    expect(rotating.rotateSecretKey()).toBe(2);
+    expect(rotating.rotateSecretKey()).toBe(0);
+
+    const { kiln: rotated } = createTestKiln({ store: old.kiln.store, secretKey: "n".repeat(32) });
+    expect(rotated.vault.resolver({ teamId: team.id }).get("TOKEN")).toBe("team-token");
+    expect(rotated.githubApp.credentials()?.privateKey).toBe("pem");
+  });
+
   it("personal secrets reach only the runs their owner triggers; typed harness keys map to provider variables; output is redacted", async () => {
     const seen: StartOptions[] = [];
     const harness = new FakeHarness(async (ctx) => {

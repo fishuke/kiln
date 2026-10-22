@@ -86,6 +86,11 @@ export type KilnOptions = {
   canaryPercent?: number;
   canaryDays?: number;
   secretKey?: string;
+  /**
+   * The key KILN_SECRET_KEY replaced (KILN_SECRET_KEY_PREVIOUS). Sealed secrets are read with either and resealed
+   * with the new one at startup; run tokens are only ever signed and accepted with the new one.
+   */
+  previousSecretKey?: string;
   /** Server admins (KILN_ADMIN_EMAILS): users who see every team's audit log, tokens and server secrets. */
   serverAdmins?: string[];
   /** Email for notifications (KILN_SMTP_URL). */
@@ -275,6 +280,12 @@ export class Kiln {
 
   link(path: string): string {
     return `${(this.options.webUrl ?? this.options.publicUrl ?? "http://localhost:3000").replace(/\/$/, "")}${path}`;
+  }
+
+  /** Reseals stored secrets still under KILN_SECRET_KEY_PREVIOUS with KILN_SECRET_KEY; returns how many (0 without a previous key). */
+  rotateSecretKey(): number {
+    if (!this.options.previousSecretKey) return 0;
+    return this.vault.rotate() + this.githubApp.rotate();
   }
 
   audit(actor: string, action: string, target: string, details?: unknown) {

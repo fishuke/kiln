@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemoryEventBus } from "@kiln/events";
 import { FakeHarness, type FakeScript } from "@kiln/harness";
-import { LocalSandboxProvider } from "@kiln/sandbox";
+import { LocalSandboxProvider, type SandboxSpec } from "@kiln/sandbox";
 import { MemoryObjectStore, MemoryStore } from "@kiln/store";
 import { afterEach, describe, expect, it } from "vitest";
 import { Studio, type StudioOptions } from "./studio";
@@ -92,7 +92,7 @@ describe("projects", () => {
   it("scaffolds a template project with an initial version on main", async () => {
     const { studio } = make();
     const p = await project(studio);
-    expect(p.status).toBe("ready");
+    expect(p).toMatchObject({ status: "ready", shipMode: "cowboy" });
     expect(p.setup).toMatchObject({ mainBranch: "main", envMissing: [] });
     const { versions } = studio.getProject(p.id)!;
     expect(versions.map((v) => [v.kind, v.title])).toEqual([["initial", "Created Daily Done"]]);
@@ -111,7 +111,8 @@ describe("projects", () => {
     const created = await studio.createProject({ team: "t1", by: "me", name: "Imported", source: { kind: "repo", repo: "acme/app" } });
     await studio.ready(created.id);
     const p = studio.getProject(created.id)!.project;
-    expect(p.status).toBe("ready");
+    // Imported repositories ship by pull request unless the person picks otherwise.
+    expect(p).toMatchObject({ status: "ready", shipMode: "review" });
     expect(p.setup).toMatchObject({
       mainBranch: "trunk",
       packageManager: "npm",
@@ -122,6 +123,18 @@ describe("projects", () => {
     });
     expect(studio.updateProject(p.id, { devCommand: "node other.js" }).setup?.dev).toBe("node other.js");
     expect(studio.updateProject(p.id, { devCommand: null }).setup?.dev).toBe("npm run dev");
+  });
+
+  it("labels its sandboxes for the preview network policy and keeps ports in the preview range", async () => {
+    const local = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
+    const labels: Record<string, string>[] = [];
+    const sandboxes = { name: "local", create: (spec: SandboxSpec) => (labels.push(spec.labels ?? {}), local.create(spec)), resume: local.resume.bind(local) };
+    const { studio } = make({ sandboxes, basePort: undefined });
+    const p = await project(studio);
+    expect(labels[0]).toMatchObject({ "kiln.dev/preview": "true", "kiln.studio.project": p.id });
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    expect(chat.port).toBe(4101);
+    expect(chat.id).toMatch(/^sc_[0-9a-f]{32}$/);
   });
 });
 

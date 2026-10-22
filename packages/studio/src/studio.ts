@@ -60,6 +60,8 @@ type Running = { session?: HarnessSession; turnId: string; done: Promise<void> }
 const STUDIO_FILE = ".kiln/studio.json";
 const StudioFile = z.object({ title: z.string().optional(), summary: z.string().optional(), question: z.string().optional() }).passthrough();
 const SUBAGENT_TOOLS = new Set(["Task", "Agent"]);
+/** Chat dev servers use the ports after the version preview's; the preview network policy allows 4100–4199. */
+const MAX_CHATS = 99;
 
 const id = (prefix: string) => `${prefix}_${randomBytes(16).toString("hex")}`;
 const oneLine = (s: string, max = 80) => {
@@ -159,7 +161,8 @@ export class Studio {
       team: input.team,
       name: input.name,
       source,
-      shipMode: input.shipMode ?? "cowboy",
+      // Imported repositories ship by pull request; templates are experiments (ADR-012).
+      shipMode: input.shipMode ?? (source.kind === "repo" ? "review" : "cowboy"),
       harness: input.harness ?? "claude-code",
       ...(input.model ? { model: input.model } : {}),
       status: "creating",
@@ -296,6 +299,7 @@ export class Studio {
     const { sandbox } = await this.ensureLive(p);
     const chatId = id("sc");
     const existing = this.getProject(projectId)!.chats.length;
+    if (existing >= MAX_CHATS) throw new StudioError("invalid", `a project can have at most ${MAX_CHATS} chats`);
     const now = this.now();
     const chat: Chat = {
       id: chatId,
@@ -642,7 +646,8 @@ export class Studio {
       runner: { image: template?.image ?? this.opts.image ?? "node:22", backend, setupCommands: [], egress: template?.egress ?? ["registry.npmjs.org"] },
       repos: [],
       env: this.env(p),
-      labels: { "kiln.studio.project": p.id },
+      // The Helm chart's kiln-preview-ingress policy admits the API to ports 4100–4199 of pods with this label.
+      labels: { "kiln.studio.project": p.id, "kiln.dev/preview": "true" },
     };
   }
 

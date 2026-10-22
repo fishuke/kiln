@@ -390,7 +390,7 @@ Every route needs a signed-in caller (`ctx.user`) and a token scope: reads need 
 | -------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `GET /api/v1/studio/apps`                    |                                                   | `{ apps: App[] }`                                                                                          |
 | `POST /api/v1/studio/apps`                   | `{ name, projectId?, source?, harness?, model? }` | `App` (status `creating`; poll until `ready`)                                                              |
-| `GET /api/v1/studio/apps/{id}`               |                                                   | `{ app, chats: Chat[], versions: Version[] }` (versions newest first)                                      |
+| `GET /api/v1/studio/apps/{id}`               |                                                   | `{ app, chats: Chat[], versions: Version[], pullRequest?: AppPullRequest }` (versions newest first; the App's latest pull request) |
 | `PATCH /api/v1/studio/apps/{id}`             | `{ name?, projectId?, devCommand? }`              | `App`                                                                                                      |
 | `POST /api/v1/studio/apps/{id}/pause`        |                                                   | `App`                                                                                                      |
 | `POST /api/v1/studio/apps/{id}/chats`        | `{ prompt?, mode?, harness?, model?, title? }`    | `{ chat: Chat, turn?: Turn }`                                                                              |
@@ -529,6 +529,34 @@ kiln.variables.forApp(app: { id: string; team: string; projectId?: string }, env
 - App-level overrides are a variable layer with `scope: "app"`, `owner: <app id>` (`PUT /api/v1/variables/app/{appId}/preview`). The App's settings can link to it; Studio does not store variables itself.
 - `setup.envMissing` is computed against this map, so a key set on the project clears it for every App in that project.
 - Dev servers, installs and harness runs all get `preview`. `production` is for shipping, later.
+
+### Merge gate (ADR-014)
+
+Contract: [merge-gate.md](merge-gate.md). Ship calls the gate when the author marks the App's pull request ready for review, never when it is only opened. `packages/studio` redeclares these types structurally (no `@kiln/engine` import); `apps/api/src/routes/studio.ts` passes `kiln.mergeGate` as `StudioOptions.mergeGate` (or the Shipper's option). The App switch is `AppDefinitions.policy(target).mergeGate`, which `apps/api/src/routes/merge-gate.ts` registers with `kiln.mergeGate.useAppPolicy`.
+
+```ts
+export interface StudioMergeGate {
+  readyForReview(input: {
+    scope: { kind: "app"; appId: string; team: string };
+    repo: string; // AppPullRequest.repo, "owner/name"
+    number: number; // AppPullRequest.number
+    by: string; // the author who marked it ready
+    pullRequestId: string; // AppPullRequest.id
+    preview?: { url?: string; status: "ready" | "failed" | "none" }; // AppPullRequest.previewUrl, when there is one
+    tests?: "passed" | "failed" | "none";
+    areas?: string[]; // the parts of the app it touches, if Studio knows them
+    link?: string; // the App in Studio, where a reviewer opens it
+  }): Promise<{ outcome: "merged" } | { outcome: "review"; reasons: string[] }>;
+  pullRequestClosed(input: { repo: string; number: number; merged: boolean; by?: string }): unknown;
+}
+```
+
+- `merged`: set the `AppPullRequest` to `merged`. `review`: set it to `waiting_for_review` with `reasons`.
+- The gate creates the Inbox item (`studio_pr_review`, for the team's owners and admins) and the one needs-you event, `merge_gate.review_updated` (`{ reviewId; appId; pullRequestId; repo; number; state; priority }`). Ship adds no Inbox item and emits no `needs_you` event for `waiting_for_review`.
+- A person's later merge reaches the gate through the forge webhook; ship follows `merge_gate.review_updated` with `state: "merged"` (or its own `forgeMerged`) to set `merged`.
+- Cancelling a pull request that is `waiting_for_review`: call `pullRequestClosed({ repo, number, merged: false })` so the Inbox item clears.
+- The switch is the App definition's `mergeGate` policy, off by default. Studio never turns it on.
+
 
 ## Acceptance
 

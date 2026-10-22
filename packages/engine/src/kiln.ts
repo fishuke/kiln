@@ -10,6 +10,7 @@ import type {
   ConnectionProvider,
   ConnectionProviderId,
   Forge,
+  GateMerger,
   GitHubAppCredentials,
   GitHubManifestClient,
   Mailer,
@@ -40,6 +41,7 @@ import { FileService } from "./files";
 import { GateService } from "./gates";
 import { ImprovementService, RuleImprover, type Improver } from "./improvement";
 import { InboxService } from "./inbox";
+import { MergeGateService } from "./merge-gate";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
 import {
@@ -96,6 +98,8 @@ export type KilnOptions = {
   sandboxes?: Partial<Record<"local" | "docker" | "kubernetes", SandboxProvider>>;
   harness?: (type: HarnessType, agentType: string) => HarnessAdapter;
   decide?: { primary: DecisionProvider; fallback?: DecisionProvider };
+  /** ADR-014: the merge gate's own merge capability, from its own credential. Only MergeGateService receives it. */
+  gateMerger?: GateMerger;
   judge?: Judge;
   improver?: Improver;
   planner?: Planner;
@@ -192,6 +196,7 @@ export class Kiln {
   readonly runQuery: RunQuery;
   readonly workers: WorkerRegistry;
   readonly inbox: InboxService;
+  readonly mergeGate: MergeGateService;
   readonly editor: DefinitionEditor;
   readonly definitionChanges: DefinitionChangeService;
   readonly factoryMetrics: FactoryMetricsService;
@@ -224,7 +229,12 @@ export class Kiln {
   readonly storage: StorageRouter;
   readonly notifications: NotificationService;
 
-  constructor(readonly options: KilnOptions) {
+  readonly options: KilnOptions;
+
+  constructor(input: KilnOptions) {
+    // The merge capability goes to the merge gate alone; it is not kept on `kiln.options`, which every service reads.
+    const { gateMerger, ...options } = input;
+    this.options = options;
     this.store = options.store ?? new MemoryStore();
     this.storage = new StorageRouter(this, options.objects ?? new MemoryObjectStore());
     this.objects = this.storage;
@@ -258,6 +268,7 @@ export class Kiln {
     this.runQuery = new RunQuery(this);
     this.workers = new WorkerRegistry(this);
     this.inbox = new InboxService(this);
+    this.mergeGate = new MergeGateService(this, gateMerger);
     this.editor = new DefinitionEditor(this);
     this.definitionChanges = new DefinitionChangeService(this);
     this.factoryMetrics = new FactoryMetricsService(this);
@@ -373,7 +384,7 @@ export class Kiln {
       .slice(0, limit);
   }
 
-  logDecision(outcome: DecisionOutcome, state: unknown, refs: { workItemId?: string; runId?: string } = {}) {
+  logDecision(outcome: DecisionOutcome, state: unknown, refs: { workItemId?: string; runId?: string } = {}): DecisionLog {
     const log: DecisionLog = {
       id: newId("dec"),
       decision: outcome.decision,
@@ -388,6 +399,7 @@ export class Kiln {
     };
     this.store.put(C.decisions, log);
     this.bus.publish("decision.made", { decision: outcome.decision, action: outcome.action, provider: outcome.provider, workItemId: refs.workItemId });
+    return log;
   }
 
   /** Post back where the work started: the Slack thread, the issue or the PR. */

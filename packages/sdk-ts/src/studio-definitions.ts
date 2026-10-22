@@ -3,7 +3,7 @@
  * the web app don't depend on @kiln/studio; studio-definitions.test.ts keeps them assignable.
  */
 
-export type StudioShipMode = "safe" | "review" | "cowboy";
+import type { StudioShipMode } from "./studio";
 export type StudioHarnessType = "claude-code" | "codex" | "opencode" | "gemini" | "pi";
 export type StudioLayerKind = "builtin" | "team" | "project" | "app";
 

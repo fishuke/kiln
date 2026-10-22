@@ -460,7 +460,6 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
       async (args) => json(await client.studioTool(tool.name, args)),
     );
   }
-
   // ---- Studio App definitions ----
   server.registerTool(
     "get_app_settings",

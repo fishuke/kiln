@@ -20,6 +20,8 @@ services:
       KILN_AGENTS: ${KILN_AGENTS:-real}
       KILN_SANDBOX: ${KILN_SANDBOX:-docker}
       KILN_RUNNER_IMAGE: ${KILN_RUNNER_IMAGE:-kiln-runner-node:local}
+      # Studio Apps: the runner image plus the Next.js template with node_modules installed.
+      KILN_STUDIO_IMAGE: ${KILN_STUDIO_IMAGE:-kiln-runner-studio:local}
       KILN_EGRESS_NETWORK: ${KILN_EGRESS_NETWORK:-kiln-egress}
       KILN_EGRESS_PROXY: http://kiln-egress-proxy:3128
       # Studio previews on <id>.<domain>: needs wildcard DNS and a wildcard certificate (see self-hosting.md).
@@ -61,6 +63,7 @@ services:
     networks: [default, preview]
     depends_on:
       runner-image: { condition: service_started }
+      runner-studio-image: { condition: service_started }
     # Checked every 2s so a deploy's restart gap is seconds, not the default 10s+ before the first check.
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -99,6 +102,21 @@ services:
     stop_grace_period: 2s
     restart: unless-stopped
     network_mode: none
+  # Builds Studio's sandbox image: the runner image plus the Next.js template from templates/nextjs,
+  # with node_modules and a warm pnpm store, so a new App is a copy (runners/images/studio). It only idles.
+  runner-studio-image:
+    build:
+      context: templates/nextjs
+      dockerfile: ../../runners/images/studio/Dockerfile
+      args: { BASE: "${KILN_RUNNER_IMAGE:-kiln-runner-node:local}" }
+    image: ${KILN_STUDIO_IMAGE:-kiln-runner-studio:local}
+    command: ["sleep", "infinity"]
+    init: true
+    stop_grace_period: 2s
+    restart: unless-stopped
+    network_mode: none
+    depends_on:
+      runner-image: { condition: service_started }
   # Sandboxes reach the internet only through this proxy, which enforces each run's allowlist.
   egress-proxy:
     build: deploy/egress-proxy

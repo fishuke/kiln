@@ -6,7 +6,7 @@ import type { HarnessType } from "@kiln/schema";
 import type { ObjectStore, Store } from "@kiln/store";
 import { z } from "zod";
 import { detectSetup, devCommand, ENV_EXAMPLES, envKeys, listenPort } from "./setup";
-import { TEMPLATES, type Template } from "./templates";
+import { DEFAULT_READY, TEMPLATES, type Template } from "./templates";
 import {
   COLLECTIONS as C,
   StudioError,
@@ -52,9 +52,14 @@ export type StudioOptions = {
   maxRunningChats?: number;
   /** The version preview listens here, chats on the ports after it. Default 4100. */
   basePort?: number;
+  /** Passed to dev servers as KILN_STUDIO_PREVIEW_DOMAIN, so the app allows hot reload from preview origins. */
+  previewDomain?: string;
+  /** For the preview ready check; defaults to the global fetch. */
+  fetch?: typeof fetch;
 };
 
-type Live = { sandbox: Sandbox; devs: Map<string, { proc: Proc; port: number }>; shownVersion?: string };
+type Dev = { proc: Proc; port: number; state: "starting" | "ready" | "failed" };
+type Live = { sandbox: Sandbox; devs: Map<string, Dev>; shownVersion?: string };
 type Running = { session?: HarnessSession; turnId: string; done: Promise<void> };
 
 const STUDIO_FILE = ".kiln/studio.json";
@@ -303,7 +308,7 @@ export class Studio {
     const { sandbox } = await this.ensureLive(p);
     const chatId = id("sc");
     const existing = this.getApp(appId)!.chats.length;
-    if (existing >= MAX_CHATS) throw new StudioError("invalid", `a app can have at most ${MAX_CHATS} chats`);
+    if (existing >= MAX_CHATS) throw new StudioError("invalid", `an app can have at most ${MAX_CHATS} chats`);
     const now = this.now();
     const chat: Chat = {
       id: chatId,
@@ -607,19 +612,41 @@ export class Studio {
     const dev = p.setup?.dev;
     if (!dev) throw new StudioError("invalid", "no dev command: set one in the app settings");
     let running = live.devs.get(key);
-    const status = running ? "ready" : "starting";
     if (!running) {
       const cmd = dev.replaceAll("{port}", String(port));
-      const proc = live.sandbox.spawn("sh", ["-c", cmd], { cwd, env: { ...this.env(p), PORT: String(port), HOST: "0.0.0.0" } });
-      running = { proc, port };
+      const env: Record<string, string> = { ...this.env(p), PORT: String(port), HOST: "0.0.0.0" };
+      // The template's next.config.ts allows dev origins (hot reload) under the preview domain.
+      if (this.opts.previewDomain) env.KILN_STUDIO_PREVIEW_DOMAIN = this.opts.previewDomain;
+      const proc = live.sandbox.spawn("sh", ["-c", cmd], { cwd, env });
+      running = { proc, port, state: "starting" };
       live.devs.set(key, running);
       void this.watchDev(live, key, running);
+      const template = p.source.kind === "template" ? this.templates[p.source.template] : undefined;
+      void this.checkReady(live.sandbox, running, template?.ready ?? DEFAULT_READY);
     }
-    return { target, url: this.opts.previewUrl(target, await live.sandbox.expose(running.port)), status };
+    return { target, url: this.opts.previewUrl(target, await live.sandbox.expose(running.port)), status: running.state };
+  }
+
+  /** Ready once GET `path` answers with any status; failed after `timeoutMs`. */
+  private async checkReady(sandbox: Sandbox, dev: Dev, ready: { path: string; timeoutMs: number }) {
+    const fetchImpl = this.opts.fetch ?? fetch;
+    const deadline = Date.now() + ready.timeoutMs;
+    while (Date.now() < deadline && dev.state === "starting") {
+      try {
+        const a = await sandbox.expose!(dev.port);
+        const left = Math.max(1, deadline - Date.now());
+        await fetchImpl(`http://${a.host}:${a.port}${ready.path}`, { signal: AbortSignal.timeout(Math.min(left, 5000)) });
+        dev.state = "ready";
+        return;
+      } catch {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+    if (dev.state === "starting") dev.state = "failed";
   }
 
   /** Follow a dev server's output: switch to the port it says it listens on, forget it when it exits. */
-  private async watchDev(live: Live, key: string, dev: { proc: Proc; port: number }) {
+  private async watchDev(live: Live, key: string, dev: Dev) {
     let seen = 0;
     try {
       for await (const line of dev.proc.lines) {

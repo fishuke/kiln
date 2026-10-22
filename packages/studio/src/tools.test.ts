@@ -58,7 +58,7 @@ describe("studio tools", () => {
     expect(await runTool(studio, "teleport", {}, caller)).toEqual({ ok: false, error: "unknown tool teleport" });
   });
 
-  it("opens a app, starts a chat that the screen follows, and reports status", async () => {
+  it("opens an app, starts a chat that the screen follows, and reports status", async () => {
     const studio = make();
     const opened = await runTool(studio, "open_app", { name: "Daily Done", source: { kind: "template", template: "test" }, shipMode: "safe" }, caller);
     expect(opened).toMatchObject({ ok: true, client: { focus: { app: expect.stringMatching(/^sa_/) } } });

@@ -23,7 +23,8 @@ const TEST: Template = {
   name: "Test",
   scaffold: ["printf 'export const n = 1;\\n' > app.ts", "printf 'node_modules\\n' > .gitignore"],
   install: [],
-  dev: `node -e "require('http').createServer((q, s) => s.end('preview ' + process.cwd())).listen({port}, '127.0.0.1')"`,
+  dev: `node -e "require('http').createServer((q, s) => s.end('preview ' + process.cwd() + ' ' + (process.env.KILN_STUDIO_PREVIEW_DOMAIN || ''))).listen({port}, '127.0.0.1')"`,
+  ready: { path: "/", timeoutMs: 5000 },
   egress: [],
 };
 
@@ -256,15 +257,19 @@ describe("turns and versions", () => {
 
 describe("previews and pausing", () => {
   it("serves a chat's dev server and a version's, and resumes after a pause", async () => {
-    const { studio } = make();
+    const { studio } = make({ previewDomain: "preview.localhost" });
     const p = await app(studio, "cowboy");
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     await say(studio, chat.id, "write a.ts one");
     const preview = await studio.preview({ chatId: chat.id });
-    expect(preview.url).toBe(`http://127.0.0.1:${chat.port}/#${chat.id}`);
+    expect(preview).toMatchObject({ url: `http://127.0.0.1:${chat.port}/#${chat.id}`, status: "starting" });
     expect(await studio.resolvePreview(chat.id)).toEqual({ host: "127.0.0.1", port: chat.port });
-    const body = await waitFor(() => fetch(`http://127.0.0.1:${chat.port}/`).then((r) => r.text()));
+    // The ready check answers once the dev server does.
+    await waitFor(async () => expect((await studio.preview({ chatId: chat.id })).status).toBe("ready"));
+    const body = await (await fetch(`http://127.0.0.1:${chat.port}/`)).text();
     expect(body).toContain(`chats/${chat.id}`);
+    // The template's next.config.ts allows dev origins under the preview domain.
+    expect(body).toContain("preview.localhost");
     const v = studio.getApp(p.id)!.versions.at(-1)!;
     expect((await studio.preview({ versionId: v.id })).target).toBe(v.id);
     expect(await studio.resolvePreview("sc_unknown")).toBeUndefined();
@@ -275,6 +280,16 @@ describe("previews and pausing", () => {
     expect(again.checkpoint).toBeDefined();
     expect(studio.getApp(p.id)!.app.status).toBe("ready");
     expect(studio.getApp(p.id)!.versions[0]!.title).toBe("Changed b.ts");
+  });
+});
+
+describe("a dev server that never answers", () => {
+  it("marks the preview failed after the template's ready timeout", async () => {
+    const { studio } = make({ templates: { test: { ...TEST, dev: "sleep 30", ready: { path: "/", timeoutMs: 300 } } } });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    expect((await studio.preview({ chatId: chat.id })).status).toBe("starting");
+    await waitFor(async () => expect((await studio.preview({ chatId: chat.id })).status).toBe("failed"));
   });
 });
 

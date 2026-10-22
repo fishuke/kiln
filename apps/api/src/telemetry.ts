@@ -246,9 +246,11 @@ export function parseSquidLine(line: string): { severity: "INFO" | "WARN"; body:
 }
 
 /** Receives the egress proxy's access log over UDP (squid `access_log udp://…`) as log records. */
-export function listenEgressLogs(port: number, logger: Logger): Promise<Socket> {
+/** `refuse`: senders whose datagrams are dropped (Studio sandboxes on the preview network). */
+export function listenEgressLogs(port: number, logger: Logger, refuse?: (address: string) => boolean): Promise<Socket> {
   const socket = createSocket("udp4");
-  socket.on("message", (msg) => {
+  socket.on("message", (msg, from) => {
+    if (refuse?.(from.address)) return;
     for (const line of msg.toString("utf8").split("\n")) {
       const parsed = parseSquidLine(line);
       if (!parsed) continue;

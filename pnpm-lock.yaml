@@ -56,6 +56,9 @@ importers:
       '@kiln/store':
         specifier: workspace:*
         version: link:packages/store
+      '@kiln/studio':
+        specifier: workspace:*
+        version: link:packages/studio
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.1
         version: 1.32.1(zod@4.6.7)
@@ -230,6 +233,9 @@ importers:
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@eslint/eslintrc':
         specifier: ^3
@@ -298,6 +304,8 @@ importers:
   packages/sdk-ts: {}
 
   packages/store: {}
+
+  packages/studio: {}
 
 packages:
 

@@ -4,6 +4,8 @@ import { GitHubOAuthClient, issueToken, type GitHubOAuth } from "@kiln/auth";
 import { AnthropicProvider, FakeProvider, JevProvider, LlmProvider, type DecisionProvider } from "@kiln/decide";
 import { loadTree } from "@kiln/definitions";
 import { DecisionJudge, fakeAgents, FakeJudge, Kiln, sampleTree, type IntegrationAdapters, type KilnOptions } from "@kiln/engine";
+import { studioEngineHooks } from "@kiln/studio";
+import { studioFor } from "./routes/studio";
 import {
   AzureDevOpsForge,
   BitbucketForge,
@@ -11,9 +13,12 @@ import {
   DiscordChat,
   FakeChat,
   FakeForge,
+  FakeGateMerger,
+  type GateMerger,
   FakePreview,
   FakeTracker,
   GitHubForge,
+  GitHubGateMerger,
   type GitHubAppCredentials,
   GitLabForge,
   HttpGitHubAppAuth,
@@ -87,6 +92,10 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
   const primary: DecisionProvider = env.JEV_API_KEY ? new JevProvider({ baseUrl: env.JEV_API_URL || undefined, apiKey: env.JEV_API_KEY }) : (llm ?? new FakeProvider());
   const decide = { primary, fallback: llm ?? new FakeProvider() };
 
+  // ADR-014: the merge gate merges with a credential of its own, never the forge's app token or a sandbox token.
+  // Local mode merges on the git-backed forge. Without a gate credential there is no gate merger: every pull request goes to a person.
+  const gateMerger: GateMerger | undefined = env.KILN_MERGE_GATE_TOKEN ? new GitHubGateMerger({ token: env.KILN_MERGE_GATE_TOKEN, identity: "kiln-merge-gate" }) : forgeImpl instanceof FakeForge ? new FakeGateMerger(forgeImpl) : undefined;
+
   const realAgents = env.KILN_AGENTS === "real";
   // A made-up preview URL only makes sense next to fake agents; with real agents, no provider means no preview.
   const preview = env.VERCEL_TOKEN && env.VERCEL_PROJECT ? new VercelPreview({ token: env.VERCEL_TOKEN, project: env.VERCEL_PROJECT, teamId: env.VERCEL_TEAM_ID }) : realAgents ? undefined : new FakePreview();
@@ -99,11 +108,12 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     store: new FileStore(join(dataDir, "kiln.json")),
     objects: new FileObjectStore(join(dataDir, "objects")),
     decide,
+    gateMerger,
     judge: realAgents ? new DecisionJudge(primary, llm ? new DecisionJudge(llm) : undefined) : new FakeJudge(({ run }) => (run.status === "succeeded" ? "meets" : "misses")),
     harness: realAgents ? undefined : fakeAgents(),
     sandboxes: {
       local: new LocalSandboxProvider(join(dataDir, "sandboxes")),
-      ...(backend === "docker" ? { docker: new DockerSandboxProvider(undefined, { egress: { network: env.KILN_EGRESS_NETWORK || DEFAULT_EGRESS.network, proxy: env.KILN_EGRESS_PROXY || DEFAULT_EGRESS.proxy } }) } : {}),
+      ...(backend === "docker" ? { docker: new DockerSandboxProvider(undefined, { egress: { network: env.KILN_EGRESS_NETWORK || DEFAULT_EGRESS.network, proxy: env.KILN_EGRESS_PROXY || DEFAULT_EGRESS.proxy }, previewNetwork: env.KILN_PREVIEW_NETWORK || undefined }) } : {}),
       ...(backend === "kubernetes" ? { kubernetes: new KubernetesSandboxProvider(undefined, env.KILN_SANDBOX_NAMESPACE) } : {}),
     },
     defaultBackend: backend,
@@ -130,6 +140,8 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     }),
     adapters: adaptersFromEnv(env),
     onGitHubApp: (app) => useGitHubApp(app),
+    // Studio App runs (ADR-012): their agents and workspaces come from the Studio built for this Kiln (KILN_STUDIO=1).
+    ...studioEngineHooks(() => studioFor(kiln)),
   };
   const kiln = new Kiln(options);
 

@@ -176,6 +176,8 @@ const PATHS: Record<FileKind, string> = {
   webhook: "webhooks/<name>.yaml",
   decision: "decisions/<name>.yaml",
   memory: "memories/<slug>.md (frontmatter)",
+  app: "app.yaml (Studio App)",
+  "app-policy": "policies/<name>.yaml (Studio App)",
 };
 write(
   "configuration/definitions-reference.md",

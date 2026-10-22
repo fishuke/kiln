@@ -15,6 +15,8 @@ To create a project through the API, your token needs `send` on every factory in
 
 A work item sent through the API can name a project.
 
+A project can hold environments: variables and secrets its factories and Studio Apps get in runs and previews. See [Project environments](secrets-mcps-environments.md#project-environments).
+
 Each project can hold one roadmap from the [plan agent](../product-owners/planning.md). Making a new plan replaces the project's current roadmap.
 
 ## The portfolio
@@ -43,3 +45,4 @@ The digest tells each person which decisions are waiting on them, oldest first, 
 - [Dashboard metrics](../measure-and-improve/metrics.md)
 - [Inbox](inbox.md)
 - [Admin, RBAC and audit](admin-rbac-audit.md)
+- [Secrets, MCP servers and environments](secrets-mcps-environments.md)

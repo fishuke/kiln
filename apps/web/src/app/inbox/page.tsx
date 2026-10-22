@@ -6,11 +6,13 @@ import { buildInbox, type GateLike } from "@/lib/inbox-model";
 import { api, safe } from "@/lib/kiln";
 import type { GateView } from "@/lib/run-detail";
 import { InboxView } from "./inbox-view";
+import { studioPrReviews } from "./studio-pr-data";
+import { StudioPrReviews } from "./studio-pr-reviews";
 
 export const metadata: Metadata = { title: "Inbox" };
 
 export default async function InboxPage() {
-  const [gates, items, factories, ready] = await Promise.all([safe(() => api.inbox({ all: true }), null), safe(() => api.workItems(), []), safe(() => api.factories(), []), safe(() => api.readyToMerge(), { items: [] })]);
+  const [gates, items, factories, ready, studio] = await Promise.all([safe(() => api.inbox({ all: true }), null), safe(() => api.workItems(), []), safe(() => api.factories(), []), safe(() => api.readyToMerge(), { items: [] }), studioPrReviews()]);
   if (!gates) return <ApiDown />;
   const entries = buildInbox(gates as GateLike[], items);
   const views: Record<string, GateView> = {};
@@ -19,7 +21,7 @@ export default async function InboxPage() {
     <>
       <AutoRefresh ms={8000} />
       <Suspense>
-        <InboxView entries={entries} gates={views} factories={factories.map((f) => ({ id: f.id, name: f.name }))} ready={ready.items} />
+        <InboxView entries={entries} gates={views} factories={factories.map((f) => ({ id: f.id, name: f.name }))} ready={ready.items} studio={<StudioPrReviews items={studio} />} />
       </Suspense>
     </>
   );

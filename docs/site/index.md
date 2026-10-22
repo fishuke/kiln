@@ -26,6 +26,7 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 - [Pipelines and gates](configuration/pipelines-and-gates.md): Fix a factory's stages with pipelines/<name>.yaml, and define where people approve, answer and accept with gates/<name>.yaml.
 - [Policies and budgets](configuration/policies-and-budgets.md): Protect paths from self-improvement, require two approvals on sensitive files, and cap what a work item may spend.
 - [Skills](configuration/skills.md): Give agents reusable know-how with SKILL.md files, shared across a factory or scoped to one agent, and share them between factories.
+- [Studio App definitions](configuration/studio-app-definitions.md): Set a Studio App's agents, skills, MCP servers, ship mode caps, merge gate and budget with the factory building blocks, inherited from the team and the Kiln Project.
 
 ## Infrastructure
 
@@ -47,7 +48,7 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 - [Jira](integrations/jira.md): Connect Jira Cloud with OAuth, start agent sessions by assigning or mentioning the factory, react to issue events, and create roadmap issues.
 - [Linear](integrations/linear.md): Start work from Linear agent sessions and issue events, report progress in the session, and let the planning agent create issues with acceptance criteria.
 - [Microsoft Teams](integrations/microsoft-teams.md): Mention the Kiln bot in a Teams channel to start work, follow it in the thread, and link your account with sign in.
-- [Previews](integrations/previews.md): Deploy each factory pull request to a preview environment on Vercel or Kubernetes, post a card with videos, and ask a person to accept it.
+- [Previews](integrations/previews.md): Deploy each factory pull request to a preview environment on Vercel or Kubernetes, post a card with videos, ask a person to accept it, and serve Studio's live previews.
 - [Slack](integrations/slack.md): Send work to a factory by mentioning its alias in Slack, follow progress in the thread, and approve specs and previews with a reply.
 
 ## Product owners
@@ -77,7 +78,7 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 - [Admin, RBAC and audit](management/admin-rbac-audit.md): Issue API and MCP tokens with scopes per factory, manage secrets, and read the audit log.
 - [Inbox](management/inbox.md): Every decision waiting on people, across all factories, ordered by urgency, with the evidence to decide and the same result from every surface.
 - [Portfolio and projects](management/portfolio.md): Group factories into projects, roll up their metrics in the portfolio, and plan roadmaps across them.
-- [Secrets, MCP servers and environments](management/secrets-mcps-environments.md): Team and personal secrets, team-managed model keys, the MCPs and apps registry, and environment templates that runs start from.
+- [Secrets, MCP servers and environments](management/secrets-mcps-environments.md): Team and personal secrets, team-managed model keys, the MCPs and apps registry, environment templates that runs start from, and project environments.
 - [Teams and users](management/teams-and-users.md): Accounts, login, teams, invites, team and factory roles, API keys, user settings and linked accounts.
 - [Usage and spend limits](management/usage-and-spend-limits.md): Usage per team, factory, agent, model and user from run costs, and the team's monthly spend limit with optional auto-stop.
 

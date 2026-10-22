@@ -47,7 +47,7 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 - [Jira](integrations/jira.md): Connect Jira Cloud with OAuth, start agent sessions by assigning or mentioning the factory, react to issue events, and create roadmap issues.
 - [Linear](integrations/linear.md): Start work from Linear agent sessions and issue events, report progress in the session, and let the planning agent create issues with acceptance criteria.
 - [Microsoft Teams](integrations/microsoft-teams.md): Mention the Kiln bot in a Teams channel to start work, follow it in the thread, and link your account with sign in.
-- [Previews](integrations/previews.md): Deploy each factory pull request to a preview environment on Vercel or Kubernetes, post a card with videos, and ask a person to accept it.
+- [Previews](integrations/previews.md): Deploy each factory pull request to a preview environment on Vercel or Kubernetes, post a card with videos, ask a person to accept it, and serve Studio's live previews.
 - [Slack](integrations/slack.md): Send work to a factory by mentioning its alias in Slack, follow progress in the thread, and approve specs and previews with a reply.
 
 ## Product owners

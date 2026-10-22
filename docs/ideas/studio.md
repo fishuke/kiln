@@ -1,43 +1,70 @@
-# Idea: Studio, vibe coding that graduates into a factory
+# Idea: Studio, vibe coding next to factories
 
 Status: idea, not scheduled · Raised 2026-10-20, reworked 2026-10-22 · Decision record: [ADR-012](../adr/0012-studio.md) (proposed) · Replaces "product-owner chat with a fast preview"
 
 ## The idea
 
-Before a project is ready for a factory, you want to talk to one model and watch the app appear on the right, like chat-to-preview tools. Studio is that space. Describe an app, see it running in seconds, keep changing it, run several lines of work at once, and talk to it if you like. When the project matures, **Turn into factory** gives it a repository and a factory that builds and maintains features with the usual gates and reviews.
+Talk to one model and watch the app change on the right, like chat-to-preview tools. Start something new from a template, or open an existing app from GitHub and change it. Run several lines of work at once, and talk to it if you like. When a change is ready, ship it as a pull request that someone reviews and merges. Couple the App to a factory when you want automation around it, such as checks when a pull request opens or deploy monitoring after a merge.
 
-Studio sits next to factories, not inside them: no spec, no gates, no pull requests until the project graduates.
+Studio sits next to factories, not inside them. An App works without a factory.
 
 ## Building blocks
 
 ```
-Workspace
- └─ Project        one repo + one sandbox (template: Next.js); main line = Versions
-     └─ Chat        own git worktree + branch + dev server port + live preview
-         └─ Lead agent   one harness session, model of your choice, steered by each message
-             └─ Subagents  spawned by the harness inside the same worktree
+Team
+ └─ Kiln Project (optional)   groups Apps and factories; shared environments
+     └─ App          one repo + one sandbox (from a template or an imported repo); main line = Versions
+         └─ Chat      own git worktree + branch + dev server port + live preview
+             └─ Lead agent   one harness session, model of your choice, steered by each message
+                 └─ Subagents  spawned by the harness inside the same worktree
 ```
 
-- **Project.** A Git repository in one sandbox, started from a template with dependencies already installed in the runner image, so the first preview is up in about ten seconds.
+- **App.** A Git repository in one sandbox.
+  - **From a template:** dependencies are already installed in the runner image, so the first preview is up in about ten seconds.
+  - **Imported from GitHub:** Kiln clones the repository, picks the package manager from the lockfile, installs on first open (snapshots keep later opens fast), and runs `scripts.dev` (you can override it). It asks for any environment variables the app needs to boot.
+- **Kiln Project.** Groups Apps and factories, for example _Saba_: the frontend App and the backend factory. Its **environments** (variables and secrets, such as the API URL a preview should use) are inherited by its Apps' previews and its factories' runs. Each layer can override: team → project → App or factory.
 - **Chat.** A parallel line of work ("pricing page" while "fix login" runs). Each chat has its own preview, so chats don't overwrite each other.
 - **Subagents** belong to a chat. The lead agent spawns them through its harness; Studio shows them as nested activity.
-- Idle chats pause using sandbox snapshots, and a project has a limit on how many chats run at once.
+- Idle chats pause using sandbox snapshots, and an App has a limit on how many chats run at once.
 
 ## Versions
 
 - A turn that **changes files** makes a checkpoint on its chat's branch. A turn that **changes nothing**, such as a question, makes nothing, whatever the mode.
-- **Apply** merges a chat into the project's main line and records a version with a short title ("Added drag-to-order"). In chat it appears as a card with **Details** (the diff) and **Preview**.
-- When Apply happens depends on the project's **ship mode**:
+- **Apply** merges a chat into the App's main line and records a version with a short title ("Added drag-to-order"). In chat it appears as a card with **Details** (the diff) and **Preview**.
+- **History** lists the versions, and **Bookmarks** the ones you pinned. Previewing an old version shows it with a **Previewing** banner, **Restore** and **Back to latest**. Restore makes a new version, so nothing is lost.
 
-  | Mode             | Apply                                                                                                          | The project's GitHub repository           |
-  | ---------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-  | Safe             | You click Apply                                                                                                | Nothing is pushed until you ask           |
-  | Review           | You click Apply                                                                                                | The agent opens a pull request; you merge |
-  | Cowboy (default) | Automatic after every turn that changes files, in every chat; on a conflict the chat's agent resolves it first | The agent pushes main                     |
+## Ship modes
 
-  Cowboy is fine because Studio projects are experiments. The agent's push token only reaches that one Studio repository, and graduating into a factory ends Cowboy: from then on the factory's rules apply and a person merges ([ADR-012](../adr/0012-studio.md)).
+| Mode   | Apply                                                        | On GitHub                                                                         |
+| ------ | ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Safe   | You click Apply                                              | Nothing is pushed until you ask                                                   |
+| Review | You click Apply                                              | The agent opens a pull request from a `studio/<app>` branch; a person merges      |
+| Cowboy | Automatic after every turn that changes files, in every chat | Template App: the agent pushes main. Imported App: only the `studio/<app>` branch |
 
-- **History** lists the versions, and **Bookmarks** the ones you pinned. Previewing an old version shows it in the preview with a **Previewing** banner, **Restore** and **Back to latest**. Restore makes a new version, so nothing is lost.
+- A template App defaults to **Cowboy**: it's an experiment, so who cares. An imported App defaults to **Review**. No agent ever pushes to an imported repository's main branch.
+- Cowboy pushing main is the only place an agent merges, and only on the repository Kiln created for a template App, until that App is coupled to a factory ([ADR-012](../adr/0012-studio.md)).
+
+## From Studio to a reviewed pull request
+
+This mirrors how a customer and a developer already work together in a tracker:
+
+1. A customer opens the App in Studio, asks for a change and sees it in the preview.
+2. **Ship** (or Review mode) opens a pull request. The App shows its state: **UAT**.
+3. The customer tests it in the built-in preview, and in the pull request's deployment preview if one is configured. More messages keep updating the same pull request.
+4. The customer moves it to **Ready for review**, and it appears in the reviewers' Inbox in Kiln. Or they **Cancel** it: the pull request closes and no reviewer is bothered.
+5. A developer reviews and merges on the forge.
+
+Who may open, ship or review an App is part of the separate roles plan.
+
+## Coupling to a factory
+
+An App can be coupled to the factory that owns its repository, but doesn't have to be. When it is:
+
+- The factory's automations run on the App's pull requests like on any other: `pull_request_opened` for checks, `pull_request_merged` for deploy follow-up and monitoring (see [Factories after merge](factory-deployments.md)).
+- ADR-008 applies to that repository unchanged.
+- **Turn into factory** on a template App creates a factory pointed at its repository and writes a project brief from the chats and bookmarked versions.
+
+Later, an App might get its own skills or agents (for example a legal review) without a full factory. That isn't planned yet.
 
 ## Modes
 
@@ -52,54 +79,54 @@ Modes control what the agent may do, not whether a version is made.
 ## Live preview
 
 - `Sandbox.expose(port)` lets the API proxy each chat's dev server, with hot reload.
-- Previews are served from their own origin (`<id>.preview.<domain>`), never from Kiln's own, so generated code can't read Kiln's cookies or call its API. Local development can use a `localhost` port.
+- Previews are served from their own origin (`sc-<id>.<preview domain>`), never from Kiln's own, preferably on a separate domain, so generated code can't read or set Kiln's cookies or call its API.
 - The preview pane has Preview and Code tabs, a route picker, reload and "open in a new tab".
 
 ## One control surface
 
 Every Studio action is a typed tool, available through the API and the Kiln MCP. The web UI, Claude Code and voice all use the same tools.
 
-| Tool                                                       | Kind   | What it does                                                               |
-| ---------------------------------------------------------- | ------ | -------------------------------------------------------------------------- |
-| `status`                                                   | server | What is running and what is waiting on you, for one project or all of them |
-| `open_project`, `new_chat`                                 | server | Start or open work                                                         |
-| `send(chat, text)`                                         | server | Prompt or steer a chat's agent                                             |
-| `apply`, `restore`, `bookmark`                             | server | Manage versions                                                            |
-| `look(chat)`                                               | server | A screenshot of the preview, for the voice model to see                    |
-| `focus(project, chat)`, `show(preview \| code \| history)` | client | Move your screen                                                           |
+| Tool                                                   | Kind   | What it does                                                                       |
+| ------------------------------------------------------ | ------ | ---------------------------------------------------------------------------------- |
+| `status`                                               | server | What is running and what is waiting on you, for one App or all of them             |
+| `open_app`, `new_chat`                                 | server | Start or open work                                                                 |
+| `send(chat, text)`                                     | server | Prompt or steer a chat's agent                                                     |
+| `apply`, `restore`, `bookmark`                         | server | Manage versions                                                                    |
+| `ship`                                                 | server | Open or update the App's pull request, or move it to Ready for review or Cancelled |
+| `look(chat)`                                           | server | A screenshot of the preview                                                        |
+| `focus(app, chat)`, `show(preview \| code \| history)` | client | Move your screen                                                                   |
 
-- **Focus** is the project and chat you're looking at, and the default target of a message. "Add a logo" needs no name.
+- **Focus** is the App and chat you're looking at, and the default target of a message. "Add a logo" needs no name.
 - Studio events go on the event bus with a priority: **needs you** (an agent asks something), **finished** (a turn or chat is done), **progress**. The top bar shows a badge for anything that needs you.
 
 ## Voice
 
-Every chat composer has a mic for **dictation**: speech becomes text in the box. Talking to a chat, and moving between chats and projects by voice, is a separate idea that builds on the tools above: see [Voice](voice.md) and [ADR-013](../adr/0013-voice.md).
-
-## Graduation
-
-**Turn into factory** creates a repository on your forge, pushes the main line with its history, creates a factory from a template pointed at that repository, and writes a project brief from the chats and bookmarked versions so the factory's agents know what was built and why. The Studio project becomes read-only. Later, a Studio chat might open pull requests into the factory's repository.
+Every chat composer has a mic for **dictation**. Talking to a chat, and moving between chats and Apps by voice, is a separate idea: see [Voice](voice.md) and [ADR-013](../adr/0013-voice.md).
 
 ## Phases
 
-1. **ADR and spec.** [ADR-012](../adr/0012-studio.md), and a spec for the packages and API routes.
-2. **A one-chat MVP.** `Sandbox.expose`, the preview proxy, the Next.js template and runner image, one chat per project, versions, History and Bookmarks, the three modes.
+1. **ADR and spec.** [ADR-012](../adr/0012-studio.md), and the contract in `docs/specs/studio.md`.
+2. **A one-chat MVP.** `Sandbox.expose`, the preview proxy, the Next.js template and runner image, importing a GitHub repo, one chat per App, versions, History and Bookmarks, the modes, dictation.
 3. **Several chats.** Worktrees, a preview per chat, Apply with conflict resolution, subagent activity in the UI.
 4. **Control surface.** `studio.*` API and MCP tools, focus and client tools, events with priorities, the attention badge.
-5. **Voice.** Its own track; see [Voice](voice.md). Dictation ships with phase 2.
-6. **Graduation.** Forge repository creation, a factory from a template, the project brief.
+5. **Shipping.** Pushing per ship mode, pull requests from Studio, UAT → Ready for review → Inbox, Cancel.
+6. **Projects and factories.** Apps in Kiln Projects, project environments, coupling an App to a factory, Turn into factory.
+7. **Several repositories in one App.** Run a frontend and its backend in one sandbox, wire the frontend to the local backend, and ship linked pull requests under one review. This fixes previews that hit the live API because the backend change isn't deployed yet.
 
-The control surface comes before voice on purpose: with the right tools, voice is mostly UI, and the tools can be tested without a microphone.
+Voice is its own track; see [Voice](voice.md).
 
 ## Open questions
 
-- Which model each mode uses by default, and whether a project can mix harnesses across chats.
-- Budgets: a spend limit per project, and what happens when it is reached mid-turn.
+- Which model each mode uses by default, and whether an App can mix harnesses across chats.
+- Budgets: a spend limit per App, and what happens when it is reached mid-turn.
 - How a design system or existing components are made available so previews look like the product.
-- Sharing: can a teammate open your Studio project or its preview?
+- Who an App's reviewers are by default: the factory's people when coupled, otherwise the App's owner.
 
 ## Related
 
 - [ADR-012: Studio](../adr/0012-studio.md)
+- [Voice](voice.md)
+- [Factories after merge](factory-deployments.md)
 - [Sandboxes](../site/infrastructure/sandboxes.md)
-- [Harnesses](../site/infrastructure/harnesses.md)
 - [Previews](../site/integrations/previews.md)
+- [Portfolio and projects](../site/management/portfolio.md)

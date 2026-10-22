@@ -45,7 +45,7 @@ interface Sandbox {
 
 - Local: `127.0.0.1:<port>`.
 - Docker: the container IP from `docker inspect`. It throws `SandboxNotReachable` when the container has no network (`--network none`, which means a runner with no egress). The API must share the sandbox network; in compose that's `kiln-egress`.
-- Kubernetes: the pod IP. Allowing ingress from the API in the sandbox NetworkPolicy is a follow-up.
+- Kubernetes: the pod IP. The Helm chart's `kiln-preview-ingress` NetworkPolicy admits the API to ports 4100–4199 of sandbox pods labeled `kiln.dev/preview: "true"`, so Studio creates its sandboxes with that label.
 - A port outside 1–65535 throws `RangeError`.
 
 ## Types (`packages/studio/src/types.ts`)
@@ -53,7 +53,7 @@ interface Sandbox {
 Every type is a zod schema with an inferred type of the same name. Dates are ISO strings.
 
 ```ts
-export const ShipMode = z.enum(["safe", "review", "cowboy"]); // default "cowboy"
+export const ShipMode = z.enum(["safe", "review", "cowboy"]); // default "cowboy" for templates, "review" for imported repositories
 export const ChatMode = z.enum(["build", "chat", "plan"]); // default "build"
 export const Priority = z.enum(["needs_you", "finished", "progress"]);
 export const ProjectStatus = z.enum(["creating", "ready", "paused", "failed"]);
@@ -66,7 +66,8 @@ export type Project = {
   id: string; // "sp_…"
   team: string;
   name: string;
-  template: string; // Template.id, e.g. "nextjs"
+  source: ProjectSource; // a template or an existing repository
+  setup?: ProjectSetup; // what Studio detected when it created the workspace
   shipMode: ShipMode;
   harness: HarnessType; // default for new chats, "claude-code"
   model?: string;
@@ -76,6 +77,21 @@ export type Project = {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ProjectSource =
+  | { kind: "template"; template: string } // Template.id, e.g. "nextjs"
+  | { kind: "repo"; connection?: string; repo: string; branch?: string }; // repo "owner/name"; connection defaults to the server's forge
+
+export type ProjectSetup = {
+  mainBranch: string; // the project's main line in the sandbox: "main" for templates, the cloned branch for repos
+  packageManager: "pnpm" | "npm" | "yarn" | "bun";
+  install: string[]; // from the template or the detected package manager
+  dev?: string; // effective dev command; {port} is replaced
+  devDetected?: string; // from package.json scripts.dev, before an override
+  devOverride?: string; // set by the person
+  envRequired: string[]; // keys from .env.example / .env.sample / .env.local.example
+  envMissing: string[]; // required keys the environment resolver didn't provide
 };
 
 export type Chat = {
@@ -171,10 +187,28 @@ export const TEMPLATES: Record<string, Template>;
 
 The template owner provides `/opt/kiln/templates/nextjs`, a ready app with `node_modules` and a pnpm store warmed in the runner image, so the first preview takes about 10 seconds.
 
+## Project source and import
+
+A project starts from a template or from an existing repository (`source.kind`). Preview, versions and chats work the same for both.
+
+Import (`source.kind: "repo"`):
+
+1. **Clone.** `StudioOptions.clone(source)` returns a clone URL with a short-lived, repo-scoped token (the API builds it from the forge interface: `cloneUrl` + `sandboxToken`). Studio clones it into `<workdir>/project` and checks out `branch` (default: the repository's default branch). That branch becomes `setup.mainBranch`.
+2. **Package manager** from the lockfile: `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, `bun.lockb`/`bun.lock` → bun, else npm. `install` is `pnpm install --prefer-offline`, `yarn install`, `bun install` or `npm install`.
+3. **Install on first open.** It runs once when the workspace is created; snapshots keep later opens warm. Each new chat worktree installs again (with a warm store, this is fast).
+4. **Dev command.** `package.json` `scripts.dev` → `<pm> run dev`, recorded as `devDetected`. A person can set `devOverride` (`PATCH … { devCommand }`; `null` clears it). With neither, the project is `ready` but previews answer `StudioError("invalid", "no dev command")`.
+5. **Port.** The dev server gets `PORT={port}` and `HOST=0.0.0.0`. For `next dev` and `vite` without an explicit port, Studio appends `--port {port}` (and `--hostname`/`--host 0.0.0.0`). If the server prints a different `localhost:<n>` / `0.0.0.0:<n>` URL in its first output, Studio records that port for the target.
+6. **Environment.** Required keys come from `.env.example`, `.env.sample` or `.env.local.example`. `StudioOptions.env(project)` (the API resolves the team's Kiln secrets and environment templates) provides values, passed to installs, dev servers and harness runs, never written to the repository. Missing keys are listed in `setup.envMissing`. The project is still `ready`, and the UI shows them with a link to Secrets. They're computed again on every open.
+
+**Ship mode on imported repositories (decided).** An imported project defaults to `review`: its forge sync opens a pull request and never pushes to the default branch. `cowboy` is allowed, but on an imported repository it pushes only to a `studio/<project id>` branch, never the default branch. Template projects keep the `cowboy` default. Inside the sandbox the modes behave as in the ship mode table (cowboy auto-applies to the project's main line). Nothing in phases 1–4 pushes. Still open:
+
+- A repository that belongs to a factory gets pull requests only (ADR-008), whatever the ship mode.
+- An explicit per-repository "playground" opt-in lets `cowboy` push to the default branch.
+
 ## Workspace layout (inside the project sandbox)
 
 ```
-<workdir>/project          main repository, branch main; the versions
+<workdir>/project          main repository, branch setup.mainBranch; the versions
 <workdir>/chats/<chatId>   git worktree, branch chat/<chatId>
 <workdir>/version          detached worktree for previewing an old version
 ```
@@ -195,7 +229,12 @@ export type StudioOptions = {
   templates?: Record<string, Template>;               // default TEMPLATES
   image?: string;                                     // fallback runner image
   previewUrl: (target: string, address: SandboxAddress) => string;
-  maxRunningChats?: number;                           // default 3
+  /** Imported projects: a clone URL with a short-lived repo-scoped token, and the branch to use. */
+  clone?: (source: Extract<ProjectSource, { kind: "repo" }>) => Promise<{ url: string; branch?: string }>;
+  /** Environment for installs, dev servers and runs (Kiln secrets and environment templates). */
+  env?: (project: Project) => Record<string, string>;
+  maxRunningChats?: number;
+  basePort?: number; // the version preview's port; chats use the next ones. Default 4100                           // default 3
 };
 
 export class Studio {
@@ -203,8 +242,12 @@ export class Studio {
 
   listProjects(team: string): Project[];
   getProject(id: string): { project: Project; chats: Chat[]; versions: Version[] } | undefined;
-  createProject(input: { team: string; by: string; name: string; template?: string; shipMode?: ShipMode; harness?: HarnessType; model?: string }): Promise<Project>;
-  updateProject(id: string, patch: { name?: string; shipMode?: ShipMode }): Project;
+  createProject(input: { team: string; by: string; name: string; source?: ProjectSource; shipMode?: ShipMode; harness?: HarnessType; model?: string }): Promise<Project>; // default source: the nextjs template
+  updateProject(id: string, patch: { name?: string; shipMode?: ShipMode; devCommand?: string | null }): Project;
+  /** Resolves when a new project is ready or has failed (creation runs in the background). */
+  ready(projectId: string): Promise<void>;
+  /** Stops every dev server, agent and sandbox without snapshotting (process shutdown, tests). */
+  shutdown(): Promise<void>;
   pause(projectId: string): Promise<Project>;          // snapshot, destroy the sandbox
 
   newChat(projectId: string, input: { by: string; via: Via; title?: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string }): Promise<{ chat: Chat; turn?: Turn }>;
@@ -269,7 +312,7 @@ export type ClientAction = { focus: { project: string; chat?: string } } | { sho
 | Name           | Kind   | Input (zod)                                                                                                                                 |
 | -------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `status`       | server | `{ project?: string }`                                                                                                                      |
-| `open_project` | server | `{ project: string } \| { name: string; template?: string; shipMode?: ShipMode }`; returns the project plus `client: { focus }`             |
+| `open_project` | server | `{ project: string } \| { name: string; source?: ProjectSource; shipMode?: ShipMode }`; returns the project plus `client: { focus }`        |
 | `new_chat`     | server | `{ project: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string; title?: string }`; returns `client: { focus }` |
 | `send`         | server | `{ chat: string; text: string; mode?: ChatMode }`                                                                                           |
 | `apply`        | server | `{ chat: string }`                                                                                                                          |
@@ -285,31 +328,32 @@ Client tools return `{ ok: true, data: null, client }` and change nothing on the
 
 Every route needs a signed-in caller (`ctx.user`). Projects belong to `ctx.team(c)`; a project of another team answers 404. Bodies are validated with the zod schemas above; a `StudioError` maps to 404, 400, 409, 409 and 503.
 
-| Method and path                              | Body                                               | Response                                                                                     |
-| -------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `GET /api/v1/studio/projects`                |                                                    | `{ projects: Project[] }`                                                                    |
-| `POST /api/v1/studio/projects`               | `{ name, template?, shipMode?, harness?, model? }` | `Project` (status `creating`; poll until `ready`)                                            |
-| `GET /api/v1/studio/projects/{id}`           |                                                    | `{ project, chats: Chat[], versions: Version[] }` (versions newest first)                    |
-| `PATCH /api/v1/studio/projects/{id}`         | `{ name?, shipMode? }`                             | `Project`                                                                                    |
-| `POST /api/v1/studio/projects/{id}/chats`    | `{ prompt?, mode?, harness?, model?, title? }`     | `{ chat: Chat, turn?: Turn }`                                                                |
-| `GET /api/v1/studio/chats/{id}`              |                                                    | `{ chat, turns: Turn[] }` (oldest first)                                                     |
-| `POST /api/v1/studio/chats/{id}/messages`    | `{ text, mode? }`                                  | `{ turn: Turn, steered: boolean }`                                                           |
-| `POST /api/v1/studio/chats/{id}/apply`       |                                                    | `{ ok: true, version } \| { ok: false, conflict: string[] } \| { ok: false, nothing: true }` |
-| `GET /api/v1/studio/chats/{id}/diff`         |                                                    | `{ diff: string }` (since the chat's last apply)                                             |
-| `GET /api/v1/studio/chats/{id}/preview`      |                                                    | `Preview` (starts the dev server if needed)                                                  |
-| `GET /api/v1/studio/chats/{id}/events`       |                                                    | SSE: `turn` (a `Turn`, on every change) and `chat` (a `Chat`)                                |
-| `POST /api/v1/studio/versions/{id}/restore`  |                                                    | `Version`                                                                                    |
-| `POST /api/v1/studio/versions/{id}/bookmark` | `{ on: boolean }`                                  | `Version`                                                                                    |
-| `GET /api/v1/studio/versions/{id}/diff`      |                                                    | `{ diff: string }` (against its parent version)                                              |
-| `GET /api/v1/studio/versions/{id}/preview`   |                                                    | `Preview` (checks the version out in `version`)                                              |
-| `GET /api/v1/studio/status`                  |                                                    | `StatusReport`                                                                               |
-| `POST /api/v1/studio/tools/{name}`           | the tool's input                                   | `ToolResult`                                                                                 |
+| Method and path                              | Body                                             | Response                                                                                     |
+| -------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `GET /api/v1/studio/projects`                |                                                  | `{ projects: Project[] }`                                                                    |
+| `POST /api/v1/studio/projects`               | `{ name, source?, shipMode?, harness?, model? }` | `Project` (status `creating`; poll until `ready`)                                            |
+| `GET /api/v1/studio/projects/{id}`           |                                                  | `{ project, chats: Chat[], versions: Version[] }` (versions newest first)                    |
+| `PATCH /api/v1/studio/projects/{id}`         | `{ name?, shipMode?, devCommand? }`              | `Project`                                                                                    |
+| `POST /api/v1/studio/projects/{id}/chats`    | `{ prompt?, mode?, harness?, model?, title? }`   | `{ chat: Chat, turn?: Turn }`                                                                |
+| `GET /api/v1/studio/chats/{id}`              |                                                  | `{ chat, turns: Turn[] }` (oldest first)                                                     |
+| `POST /api/v1/studio/chats/{id}/messages`    | `{ text, mode? }`                                | `{ turn: Turn, steered: boolean }`                                                           |
+| `POST /api/v1/studio/chats/{id}/apply`       |                                                  | `{ ok: true, version } \| { ok: false, conflict: string[] } \| { ok: false, nothing: true }` |
+| `GET /api/v1/studio/chats/{id}/diff`         |                                                  | `{ diff: string }` (since the chat's last apply)                                             |
+| `GET /api/v1/studio/chats/{id}/preview`      |                                                  | `Preview` (starts the dev server if needed)                                                  |
+| `GET /api/v1/studio/chats/{id}/events`       |                                                  | SSE: `turn` (a `Turn`, on every change) and `chat` (a `Chat`)                                |
+| `POST /api/v1/studio/versions/{id}/restore`  |                                                  | `Version`                                                                                    |
+| `POST /api/v1/studio/versions/{id}/bookmark` | `{ on: boolean }`                                | `Version`                                                                                    |
+| `GET /api/v1/studio/versions/{id}/diff`      |                                                  | `{ diff: string }` (against its parent version)                                              |
+| `GET /api/v1/studio/versions/{id}/preview`   |                                                  | `Preview` (checks the version out in `version`)                                              |
+| `GET /api/v1/studio/status`                  |                                                  | `StatusReport`                                                                               |
+| `POST /api/v1/studio/tools/{name}`           | the tool's input                                 | `ToolResult`                                                                                 |
 
 ### Preview proxy (`apps/api/src/routes/studio-preview.ts`, a `PUBLIC_MODULES` entry)
 
-- `KILN_STUDIO_PREVIEW_DOMAIN` set (e.g. `preview.kiln.example.com`): `previewUrl(target) = https://<target>.<domain>`. The proxy matches `Host: <target>.<domain>` only, calls `studio.resolvePreview(target)` and forwards the request (method, path, query, headers minus `cookie` and `authorization`, body) to `http://<host>:<port>`. An unknown target answers 404. Every other host goes to `next()`. The target id carries 128 bits of randomness and is the only credential; Kiln cookies never reach the preview origin.
+- `KILN_STUDIO_PREVIEW_DOMAIN` set (e.g. `preview.kiln.example.com`): `previewUrl(target) = https://<label>.<domain>`, where `<label>` is the target id with `_` replaced by `-` (`sc_3f…` → `sc-3f…`): DNS labels and wildcard certificates don't allow `_`, and browsers lowercase host names, so a target id's random suffix must be lowercase letters and digits (32 hex characters for 128 bits). A domain ending in `.localhost` (optionally with a port, e.g. `preview.localhost:4000`) gives `http://` URLs for local development. The proxy matches `Host: <label>.<domain>` only, calls `studio.resolvePreview(target)` and forwards the request (method, path, query, headers minus `cookie`, `authorization` and `x-kiln-*`, body) to `http://<host>:<port>`; it drops `set-cookie` from the response. An unknown, stopped or malformed target answers the same 404. Every other host goes to `next()`. The target id carries 128 bits of randomness and is the only credential; Kiln cookies never reach the preview origin.
+- The proxy finds Studio through `setPreviewResolver(kiln, studio)` (exported by `routes/studio-preview.ts`), which `routes/studio.ts` calls when it builds the Studio service. `previewUrlFor(env)` from the same file is the `previewUrl` option for `Studio`.
 - Unset (local development): `previewUrl = http://<address.host>:<address.port>`, and nothing is proxied.
-- WebSocket upgrades for hot reload go in `apps/api/src/main.ts` (Node `upgrade`) and are a follow-up. Until then the web page reloads the iframe on `turn_finished`.
+- WebSocket upgrades for hot reload are proxied in `apps/api/src/main.ts` (Node `upgrade`) by the same rules. The web page still reloads the iframe on `turn_finished`.
 
 ## SDK (`packages/sdk-ts`), used by the web page and MCP
 
@@ -336,7 +380,7 @@ The SDK re-declares these types (it doesn't depend on `packages/studio`), and a 
 
 ## Web page (`apps/web/src/app/studio`)
 
-- `/studio` lists projects, with a "New app" form (name, template, ship mode).
+- `/studio` lists projects, with a "New app" form: name, ship mode, and a source that is either a template or an existing repository. Repositories are listed with the existing `api.forgeRepositories()`, plus an optional branch. A project with `setup.envMissing` shows the missing keys with a link to Secrets; the dev command can be overridden in project settings.
 - `/studio/[project]` has the chat rail on the left and the preview on the right.
 - **Chat rail.** One chat tab per chat and "+" for a new one. Turns are shown with the AI Elements `Message` / `MessageScroller`. A turn with a checkpoint shows a version card with the title, **Details** (diff) and **Preview**. The composer is `PromptInput` with a Build/Chat/Plan mode picker (⌥P). A plan card has **Build it**. A chat in `conflict` or `needs_you` shows the question. Without cowboy mode, an **Apply** button shows when the chat has unapplied checkpoints.
 - **Top bar.** History and Bookmarks panels (versions; bookmark toggle; preview a version with a "Previewing" banner, **Restore** and **Back to latest**), a ship-mode picker, and a needs-you badge from `studioStatus()`.
@@ -356,4 +400,4 @@ The SDK re-declares these types (it doesn't depend on `packages/studio`), and a 
 
 ## Follow-ups
 
-WebSocket proxying for hot reload; a Kubernetes ingress policy for previews; screenshots for `look`; idle pause on a timer; forge sync per ship mode (ADR-012's guards); voice (ADR-013); graduation.
+A Kubernetes ingress policy for previews (written in the Helm chart, pending security review); screenshots for `look`; idle pause on a timer; forge sync per ship mode (ADR-012's guards); voice (ADR-013); graduation.

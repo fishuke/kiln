@@ -22,6 +22,8 @@ services:
       KILN_RUNNER_IMAGE: ${KILN_RUNNER_IMAGE:-kiln-runner-node:local}
       KILN_EGRESS_NETWORK: ${KILN_EGRESS_NETWORK:-kiln-egress}
       KILN_EGRESS_PROXY: http://kiln-egress-proxy:3128
+      # Studio previews on <id>.<domain>: needs wildcard DNS and a wildcard certificate (see self-hosting.md).
+      KILN_STUDIO_PREVIEW_DOMAIN: ${KILN_STUDIO_PREVIEW_DOMAIN:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -51,6 +53,8 @@ services:
       # Sandboxes are sibling containers. Access to this socket is root on the host: run Kiln on a host you trust it with.
       - /var/run/docker.sock:/var/run/docker.sock
     expose: ["4000"]
+    # On the sandbox network too, so the Studio preview proxy reaches the sandboxes' dev servers.
+    networks: [default, egress]
     depends_on:
       runner-image: { condition: service_started }
     # Checked every 2s so a deploy's restart gap is seconds, not the default 10s+ before the first check.

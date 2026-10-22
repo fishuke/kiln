@@ -341,7 +341,7 @@ export function filterRows(rows: RunRow[], f: RunFilters): RunRow[] {
       out.push(row);
       continue;
     }
-    if (row.status === "cancelled") continue;
+    if (row.status === "cancelled" && f.status?.length && !f.status.includes("cancelled")) continue;
     const kids = filterChildren(row.children, f);
     if (kids.length) out.push({ ...row, children: kids });
   }

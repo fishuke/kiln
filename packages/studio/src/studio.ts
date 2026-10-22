@@ -42,8 +42,8 @@ export type StudioOptions = {
   /** Model keys for a harness run (BYOK). */
   credentials?: (app: App, type: HarnessType) => Record<string, string>;
   templates?: Record<string, Template>;
-  /** Runner image when the template names none. */
-  image?: string;
+  /** Runner image when the template names none (KILN_STUDIO_IMAGE, else the server's runner image). */
+  image: string;
   previewUrl: (target: string, address: SandboxAddress) => string;
   /** Imported apps: a clone URL with a short-lived repo-scoped token, and the branch to use. */
   clone?: (source: RepoSource) => Promise<{ url: string; branch?: string }>;
@@ -67,6 +67,10 @@ const StudioFile = z.object({ title: z.string().optional(), summary: z.string().
 const SUBAGENT_TOOLS = new Set(["Task", "Agent"]);
 /** Chat dev servers use the ports after the version preview's; the preview network policy allows 4100–4199. */
 const MAX_CHATS = 99;
+/** How often the ready check asks a starting dev server. */
+const READY_POLL_MS = 200;
+/** What an imported App's sandbox may reach (docs/specs/studio.md): its package registry. */
+const IMPORT_EGRESS = ["registry.npmjs.org"];
 
 const id = (prefix: string) => `${prefix}_${randomBytes(16).toString("hex")}`;
 const oneLine = (s: string, max = 80) => {
@@ -125,6 +129,10 @@ export class Studio {
     const chat = this.opts.store.get<Chat>(C.chats, chatId);
     if (!chat) return undefined;
     return { chat, turns: this.opts.store.list<Turn>(C.turns, (t) => t.chatId === chatId).sort((a, b) => a.startedAt.localeCompare(b.startedAt)) };
+  }
+
+  getVersion(versionId: string): Version | undefined {
+    return this.opts.store.get<Version>(C.versions, versionId);
   }
 
   status(input: { team: string; app?: string }): StatusReport {
@@ -225,31 +233,37 @@ export class Studio {
 
   /** Stop every dev server, agent and sandbox without snapshotting (process shutdown, tests). */
   async shutdown(): Promise<void> {
-    for (const r of this.running.values()) await r.session?.stop().catch(() => {});
-    for (const live of this.live.values()) {
-      this.stopDevs(live);
-      await live.sandbox.destroy().catch(() => {});
-    }
+    const stops = [...this.running.values()].map((r) => r.session?.stop());
+    for (const live of this.live.values()) this.stopDevs(live);
+    const destroys = [...this.live.values()].map((live) => live.sandbox.destroy());
     this.live.clear();
+    // Stop everything even when one step fails, then report every failure.
+    const failed = (await Promise.allSettled([...stops, ...destroys])).filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed.length)
+      throw new AggregateError(
+        failed.map((f) => f.reason),
+        "Studio shutdown failed",
+      );
   }
 
   private async provision(app: App) {
     try {
       const template = app.source.kind === "template" ? this.templates[app.source.template]! : undefined;
-      const sandbox = await this.opts.sandboxes.create(this.spec(app));
+      const clone = app.source.kind === "repo" ? await this.opts.clone!(app.source) : undefined;
+      // The provider clones an imported repository into "app" and allows its host for the clone.
+      const sandbox = await this.opts.sandboxes.create(this.spec(app, clone?.url));
       this.live.set(app.id, { sandbox, devs: new Map() });
       const env = this.env(app);
-      await must(sandbox, ".", "mkdir -p app chats");
+      await must(sandbox, ".", "mkdir -p chats");
       let mainBranch = "main";
       let title: string;
       if (app.source.kind === "template") {
+        await must(sandbox, ".", "mkdir -p app");
         for (const cmd of template!.scaffold) await must(sandbox, "app", cmd, env);
         await must(sandbox, "app", "git init -q -b main");
         title = `Created ${app.name}`;
       } else {
-        const { url, branch } = await this.opts.clone!(app.source);
-        await must(sandbox, ".", `git clone -q ${shellQuote(url)} app`);
-        const want = app.source.branch ?? branch;
+        const want = app.source.branch ?? clone!.branch;
         if (want) await must(sandbox, "app", `git checkout -q ${shellQuote(want)}`);
         mainBranch = await must(sandbox, "app", "git rev-parse --abbrev-ref HEAD");
         // Forget the credential in the clone URL; Studio never pushes in phases 1–4.
@@ -284,15 +298,17 @@ export class Studio {
     const detected = detectSetup({ files, packageJson: await sandbox.readFile("app/package.json") });
     const example = ENV_EXAMPLES.find((f) => files.includes(f));
     const envRequired = example ? envKeys((await sandbox.readFile(`app/${example}`)) ?? "") : [];
-    const provided = this.env(app);
     const setup: AppSetup = {
       mainBranch,
       packageManager: detected.packageManager,
       install: template ? template.install : detected.install,
       ...(template ? { devDetected: template.dev } : detected.devDetected ? { devDetected: detected.devDetected } : {}),
       envRequired,
-      envMissing: envRequired.filter((k) => !(k in provided)),
+      envMissing: [],
     };
+    // The resolver may only look up the keys the App asks for, so it sees the setup first.
+    const provided = this.env({ ...app, setup });
+    setup.envMissing = envRequired.filter((k) => !(k in provided));
     const dev = devCommand(setup);
     return dev ? { ...setup, dev } : setup;
   }
@@ -420,7 +436,12 @@ export class Studio {
     const after = this.opts.store.get<Turn>(C.turns, turn.id)!;
     const app = this.app(p.id);
     if (app.shipMode === "cowboy" && after.checkpoint && !this.running.has(chatId)) await this.autoApply(app, chatId, after);
-    await this.snapshot(p.id).catch(() => {});
+    try {
+      await this.snapshot(p.id);
+    } catch (err) {
+      // The turn is saved; only resuming after a restart is at risk. Record it on the App.
+      this.touch(C.apps, { ...this.app(p.id), error: `saving the workspace failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
   }
 
   private record(turn: Turn, e: HarnessEvent) {
@@ -624,11 +645,12 @@ export class Studio {
       // The template's next.config.ts allows dev origins (hot reload) under the preview domain.
       if (this.opts.previewDomain) env.KILN_STUDIO_PREVIEW_DOMAIN = this.opts.previewDomain;
       const proc = live.sandbox.spawn("sh", ["-c", cmd], { cwd, env });
-      running = { proc, port, state: "starting" };
-      live.devs.set(key, running);
-      void this.watchDev(live, key, running);
+      const started: Dev = { proc, port, state: "starting" };
+      running = started;
+      live.devs.set(key, started);
+      this.watchDev(live, key, started).catch(() => this.devFailed(live, key, started));
       const template = p.source.kind === "template" ? this.templates[p.source.template] : undefined;
-      void this.checkReady(live.sandbox, running, template?.ready ?? DEFAULT_READY);
+      this.checkReady(live.sandbox, started, template?.ready ?? DEFAULT_READY).catch(() => this.devFailed(live, key, started));
     }
     return { target, url: this.opts.previewUrl(target, await live.sandbox.expose(running.port)), status: running.state };
   }
@@ -637,31 +659,33 @@ export class Studio {
   private async checkReady(sandbox: Sandbox, dev: Dev, ready: { path: string; timeoutMs: number }) {
     const fetchImpl = this.opts.fetch ?? fetch;
     const deadline = Date.now() + ready.timeoutMs;
-    while (Date.now() < deadline && dev.state === "starting") {
-      try {
-        const a = await sandbox.expose!(dev.port);
-        const left = Math.max(1, deadline - Date.now());
-        await fetchImpl(`http://${a.host}:${a.port}${ready.path}`, { signal: AbortSignal.timeout(Math.min(left, 5000)) });
-        dev.state = "ready";
+    while (dev.state === "starting") {
+      const left = deadline - Date.now();
+      if (left <= 0) {
+        dev.state = "failed";
         return;
-      } catch {
-        await new Promise((r) => setTimeout(r, 200));
       }
+      const a = await sandbox.expose!(dev.port);
+      if (await answers(fetchImpl, `http://${a.host}:${a.port}${ready.path}`, left)) dev.state = "ready";
+      else await new Promise((r) => setTimeout(r, READY_POLL_MS));
     }
-    if (dev.state === "starting") dev.state = "failed";
   }
 
   /** Follow a dev server's output: switch to the port it says it listens on, forget it when it exits. */
   private async watchDev(live: Live, key: string, dev: Dev) {
     let seen = 0;
-    try {
-      for await (const line of dev.proc.lines) {
-        const port = seen++ < 50 ? listenPort(line) : undefined;
-        if (port && port !== dev.port) dev.port = port;
-      }
-    } catch {
-      // the process went away
+    for await (const line of dev.proc.lines) {
+      const port = seen++ < 50 ? listenPort(line) : undefined;
+      if (port && port !== dev.port) dev.port = port;
     }
+    // The next preview starts it again.
+    if (live.devs.get(key) === dev) live.devs.delete(key);
+  }
+
+  /** A dev server whose output or address broke: the preview shows failed, and the next preview starts it again. */
+  private devFailed(live: Live, key: string, dev: Dev) {
+    dev.state = "failed";
+    dev.proc.kill();
     if (live.devs.get(key) === dev) live.devs.delete(key);
   }
 
@@ -676,17 +700,18 @@ export class Studio {
     return this.opts.basePort ?? 4100;
   }
 
-  private spec(p: App): SandboxSpec {
+  /** `cloneUrl`: an imported App's repository, cloned into "app" when the sandbox is created. */
+  private spec(p: App, cloneUrl?: string): SandboxSpec {
     const template = p.source.kind === "template" ? this.templates[p.source.template] : undefined;
     const backend = this.opts.sandboxes.name as SandboxSpec["runner"]["backend"];
     return {
-      runner: { image: template?.image ?? this.opts.image ?? "node:22", backend, setupCommands: [], egress: template?.egress ?? ["registry.npmjs.org"] },
-      repos: [],
-      // Joins the preview network (Docker) and gets the kiln.dev/preview label (Kubernetes), so the API can reach dev servers.
+      runner: { image: template?.image ?? this.opts.image, backend, setupCommands: [], egress: template?.egress ?? IMPORT_EGRESS },
+      // No branch: the provider would create it; Studio checks out the requested branch after the clone.
+      repos: cloneUrl ? [{ name: "app", url: cloneUrl }] : [],
+      // The preview network (Docker) or the kiln.dev/preview label (Kubernetes): the API can reach the dev servers.
       preview: true,
       env: this.env(p),
-      // The Helm chart's kiln-preview-ingress policy admits the API to ports 4100–4199 of pods with this label.
-      labels: { "kiln.studio.app": p.id, "kiln.dev/preview": "true" },
+      labels: { "kiln.studio.app": p.id },
     };
   }
 
@@ -787,6 +812,16 @@ export class Studio {
     const v = this.opts.store.get<Version>(C.versions, versionId);
     if (!v) throw new StudioError("not_found", `unknown version ${versionId}`);
     return v;
+  }
+}
+
+/** True when anything answers HTTP at `url`. A refused connection or a timeout means the server isn't up yet. */
+async function answers(fetchImpl: typeof fetch, url: string, leftMs: number): Promise<boolean> {
+  try {
+    await fetchImpl(url, { signal: AbortSignal.timeout(Math.min(leftMs, 5000)) });
+    return true;
+  } catch {
+    return false;
   }
 }
 

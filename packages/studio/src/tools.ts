@@ -48,6 +48,9 @@ export const STUDIO_TOOLS = [
 ] as const satisfies readonly StudioTool[];
 
 export type StudioToolName = (typeof STUDIO_TOOLS)[number]["name"];
+type Tools = (typeof STUDIO_TOOLS)[number];
+/** A validated call: the tool's name with its parsed input, so each case below sees its own input type. */
+type ToolCall = { [T in Tools as T["name"]]: { name: T["name"]; input: z.infer<T["input"]> } }[StudioToolName];
 
 /** Run a tool by name with unvalidated input, as the caller's team. Errors come back as `{ ok: false }`. */
 export async function runTool(studio: Studio, name: string, input: unknown, caller: ToolCaller): Promise<ToolResult> {
@@ -56,14 +59,14 @@ export async function runTool(studio: Studio, name: string, input: unknown, call
   const parsed = def.input.safeParse(input ?? {});
   if (!parsed.success) return { ok: false, error: parsed.error.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ") };
   try {
-    return await dispatch(studio, name as StudioToolName, parsed.data, caller);
+    return await dispatch(studio, { name: def.name, input: parsed.data } as ToolCall, caller);
   } catch (err) {
     if (err instanceof StudioError) return { ok: false, error: err.message };
     throw err;
   }
 }
 
-async function dispatch(studio: Studio, name: StudioToolName, a: any, caller: ToolCaller): Promise<ToolResult> {
+async function dispatch(studio: Studio, call: ToolCall, caller: ToolCaller): Promise<ToolResult> {
   const app = (id: string) => {
     const p = studio.getApp(id);
     if (!p || p.app.team !== caller.team) throw new StudioError("not_found", `unknown app ${id}`);
@@ -73,45 +76,50 @@ async function dispatch(studio: Studio, name: StudioToolName, a: any, caller: To
     const c = studio.getChat(id);
     if (!c) throw new StudioError("not_found", `unknown chat ${id}`);
     app(c.chat.appId);
-    return c;
-  };
-  const version = (id: string) => {
-    const p = studio.listApps(caller.team).find((x) => studio.getApp(x.id)!.versions.some((v) => v.id === id));
-    if (!p) throw new StudioError("not_found", `unknown version ${id}`);
     return id;
   };
-  switch (name) {
-    case "status":
-      if (a.app) app(a.app);
-      return { ok: true, data: studio.status({ team: caller.team, ...(a.app ? { app: a.app } : {}) }) };
+  const version = (id: string) => {
+    const v = studio.getVersion(id);
+    if (!v) throw new StudioError("not_found", `unknown version ${id}`);
+    app(v.appId);
+    return id;
+  };
+  switch (call.name) {
+    case "status": {
+      const { app: appId } = call.input;
+      if (appId) app(appId);
+      return { ok: true, data: studio.status({ team: caller.team, ...(appId ? { app: appId } : {}) }) };
+    }
     case "open_app": {
+      const a = call.input;
       const p = "app" in a ? app(a.app).app : await studio.createApp({ team: caller.team, by: caller.by, ...a });
       return { ok: true, data: p, client: { focus: { app: p.id } } };
     }
     case "new_chat": {
-      const { app: appId, ...rest } = a;
+      const { app: appId, ...rest } = call.input;
       app(appId);
       const r = await studio.newChat(appId, { by: caller.by, via: caller.via, ...rest });
       return { ok: true, data: r, client: { focus: { app: appId, chat: r.chat.id } } };
     }
-    case "send":
-      chat(a.chat);
-      return { ok: true, data: await studio.send(a.chat, { by: caller.by, via: caller.via, text: a.text, ...(a.mode ? { mode: a.mode } : {}) }) };
+    case "send": {
+      const { chat: chatId, text, mode } = call.input;
+      return { ok: true, data: await studio.send(chat(chatId), { by: caller.by, via: caller.via, text, ...(mode ? { mode } : {}) }) };
+    }
     case "apply":
-      chat(a.chat);
-      return { ok: true, data: await studio.apply(a.chat, caller.by) };
+      return { ok: true, data: await studio.apply(chat(call.input.chat), caller.by) };
     case "restore":
-      return { ok: true, data: await studio.restore(version(a.version), caller.by) };
+      return { ok: true, data: await studio.restore(version(call.input.version), caller.by) };
     case "bookmark":
-      return { ok: true, data: studio.bookmark(version(a.version), a.on) };
+      return { ok: true, data: studio.bookmark(version(call.input.version), call.input.on) };
     case "look":
-      chat(a.chat);
-      return { ok: true, data: await studio.preview({ chatId: a.chat }) };
-    case "focus":
-      return { ok: true, data: null, client: { focus: a.chat ? { app: a.app, chat: a.chat } : { app: a.app } } };
+      return { ok: true, data: await studio.preview({ chatId: chat(call.input.chat) }) };
+    case "focus": {
+      const { app: appId, chat: chatId } = call.input;
+      return { ok: true, data: null, client: { focus: chatId ? { app: appId, chat: chatId } : { app: appId } } };
+    }
     case "show":
-      return { ok: true, data: null, client: { show: a.view } };
+      return { ok: true, data: null, client: { show: call.input.view } };
     default:
-      return name satisfies never;
+      return call satisfies never;
   }
 }

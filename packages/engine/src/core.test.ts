@@ -29,7 +29,10 @@ describe("errors and retries", () => {
       start: async (opts) => {
         starts += 1;
         // The egress proxy is down for the first five starts, as during a deploy.
-        if (starts > 1 && starts <= 6) throw new Error("git push failed: fatal: unable to access 'https://github.com/acme/web/': Failed to connect to kiln-egress-proxy port 3128 after 1 ms: Couldn't connect to server");
+        if (starts > 1 && starts <= 6)
+          throw new Error(
+            "git push failed: fatal: unable to access 'https://github.com/acme/web/': Failed to connect to kiln-egress-proxy port 3128 after 1 ms: Couldn't connect to server",
+          );
         return fake.start(opts);
       },
     };
@@ -77,14 +80,27 @@ describe("recovering after a restart", () => {
   it("stops runs and tasks a restart cut off, so they can be retried instead of showing as working forever", async () => {
     const { kiln } = createTestKiln({ preview: false });
     const sha = kiln.defs.require("webapp").appliedSha!;
-    const wi = await kiln.workflow.create({ factory: "webapp", title: "Save room lists", body: "- whitelist", source: { provider: "api" }, requester: "a@acme.test" });
+    const wi = await kiln.workflow.create({
+      factory: "webapp",
+      title: "Save room lists",
+      body: "- whitelist",
+      source: { provider: "api" },
+      requester: "a@acme.test",
+    });
     const ciWait = await kiln.workflow.create({ factory: "webapp", title: "Wait for CI", body: "- x", source: { provider: "api" }, requester: "a@acme.test" });
     const done = await kiln.runs.execute({ factory: "webapp", sha, agent: "foreman", prompt: "build it", push: false });
     // What the store holds when the server dies mid-build: a run saved as running and its open command question.
     kiln.store.put(C.runs, { ...done, status: "running", workItemId: wi.id, finishedAt: undefined });
     kiln.store.put(C.workItems, { ...kiln.workflow.get(wi.id)!, state: "building" });
     kiln.store.put(C.workItems, { ...kiln.workflow.get(ciWait.id)!, state: "building", blockedReason: "waiting for CI" });
-    const gate = await kiln.gates.open({ workItem: kiln.workflow.get(wi.id)!, kind: "question", name: "command-approval", title: "Allow build to run a risky command?", runId: done.id, command: "rm -rf node_modules" });
+    const gate = await kiln.gates.open({
+      workItem: kiln.workflow.get(wi.id)!,
+      kind: "question",
+      name: "command-approval",
+      title: "Allow build to run a risky command?",
+      runId: done.id,
+      command: "rm -rf node_modules",
+    });
 
     const { kiln: restarted } = createTestKiln({ preview: false, store: kiln.store });
     expect(restarted.recoverInterrupted()).toEqual({ runs: [done.id], workItems: [wi.id] });
@@ -102,7 +118,11 @@ describe("default runner image", () => {
   it("uses KILN_RUNNER_IMAGE for agents without a runner, on the configured backend", async () => {
     const images: string[] = [];
     const local = new LocalSandboxProvider();
-    const recording: SandboxProvider = { name: "docker", create: (spec) => (images.push(spec.runner.image), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })), resume: (ref, spec, store) => local.resume(ref, spec, store) };
+    const recording: SandboxProvider = {
+      name: "docker",
+      create: (spec) => (images.push(spec.runner.image), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })),
+      resume: (ref, spec, store) => local.resume(ref, spec, store),
+    };
     const { kiln } = createTestKiln({ sandboxes: { local, docker: recording }, defaultBackend: "docker", defaultImage: "ghcr.io/acme/kiln-runner:1" });
     await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "foreman", prompt: "route this", push: false });
     expect(images).toEqual(["ghcr.io/acme/kiln-runner:1"]);
@@ -111,7 +131,11 @@ describe("default runner image", () => {
   it("lets every run reach Kiln itself (the command guard and the Kiln MCP server) through the egress allowlist", async () => {
     const egress: string[][] = [];
     const local = new LocalSandboxProvider();
-    const recording: SandboxProvider = { name: "docker", create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })), resume: (ref, spec, store) => local.resume(ref, spec, store) };
+    const recording: SandboxProvider = {
+      name: "docker",
+      create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })),
+      resume: (ref, spec, store) => local.resume(ref, spec, store),
+    };
     const { kiln } = createTestKiln({ sandboxes: { local, docker: recording }, defaultBackend: "docker", publicUrl: "https://kiln-api.acme.test" });
     await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "foreman", prompt: "route this", push: false });
     expect(egress[0]).toContain("kiln-api.acme.test");
@@ -151,7 +175,16 @@ describe("default runner image", () => {
     const { kiln } = createTestKiln({ sandboxes: { local, docker: recording }, defaultBackend: "docker", tree });
     const team = kiln.teams.ensureDefaultTeam();
     kiln.vault.set({ scope: "team", owner: team.id, name: "SIGNOZ_API_KEY", value: "signoz-service-key" }, "a");
-    kiln.mcp.create(team.id, { name: "signoz", command: "signoz-mcp-server", args: ["--docs=https://docs.acme.test/x"], env: { SIGNOZ_URL: "https://signoz.acme.test", SIGNOZ_API_KEY: "{{SIGNOZ_API_KEY}}", LOG_LEVEL: "info" } }, "a");
+    kiln.mcp.create(
+      team.id,
+      {
+        name: "signoz",
+        command: "signoz-mcp-server",
+        args: ["--docs=https://docs.acme.test/x"],
+        env: { SIGNOZ_URL: "https://signoz.acme.test", SIGNOZ_API_KEY: "{{SIGNOZ_API_KEY}}", LOG_LEVEL: "info" },
+      },
+      "a",
+    );
     await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "implement", prompt: "x", push: false });
     expect(egress[0]).toEqual(expect.arrayContaining(["signoz.acme.test"]));
     // Only whole URL values count; an argument with a URL inside it adds nothing.
@@ -162,7 +195,11 @@ describe("default runner image", () => {
     const run = async (runnerYaml: string) => {
       const images: string[] = [];
       const local = new LocalSandboxProvider();
-      const recording: SandboxProvider = { name: "docker", create: (spec) => (images.push(spec.runner.image), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })), resume: (ref, spec, store) => local.resume(ref, spec, store) };
+      const recording: SandboxProvider = {
+        name: "docker",
+        create: (spec) => (images.push(spec.runner.image), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })),
+        resume: (ref, spec, store) => local.resume(ref, spec, store),
+      };
       const tree = sampleTree({ "runners/plain.yaml": runnerYaml, "agents/plain/agent.md": "---\nagentType: CUSTOM\nrunner: plain\n---\nDo it.\n" });
       const { kiln } = createTestKiln({ tree, sandboxes: { local, docker: recording }, defaultBackend: "docker", defaultImage: "ghcr.io/acme/kiln-runner:1" });
       await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "plain", prompt: "go", push: false });
@@ -176,12 +213,36 @@ describe("default runner image", () => {
 describe("runs: sources, metadata, follow-ups, interrupts and subagent trees", () => {
   it("records source, title, creator, root and metadata, and rejects bad metadata", async () => {
     const { kiln } = createTestKiln();
-    const wi = await kiln.workflow.create({ factory: "webapp", title: "Footer", body: "", source: { provider: "slack", channel: "C1" }, requester: "po@acme.test" });
-    const run = await kiln.runs.execute({ factory: "webapp", sha: wi.definitionSha, agent: "foreman", prompt: "go", workItem: wi, push: false, metadata: { ticket: "ENG-1" } });
-    expect(run).toMatchObject({ source: "SLACK", title: "Footer", creator: "po@acme.test", executor: "agent:foreman", rootRunId: run.id, metadata: { ticket: "ENG-1" }, idleTimeoutMinutes: 10 });
+    const wi = await kiln.workflow.create({
+      factory: "webapp",
+      title: "Footer",
+      body: "",
+      source: { provider: "slack", channel: "C1" },
+      requester: "po@acme.test",
+    });
+    const run = await kiln.runs.execute({
+      factory: "webapp",
+      sha: wi.definitionSha,
+      agent: "foreman",
+      prompt: "go",
+      workItem: wi,
+      push: false,
+      metadata: { ticket: "ENG-1" },
+    });
+    expect(run).toMatchObject({
+      source: "SLACK",
+      title: "Footer",
+      creator: "po@acme.test",
+      executor: "agent:foreman",
+      rootRunId: run.id,
+      metadata: { ticket: "ENG-1" },
+      idleTimeoutMinutes: 10,
+    });
     const second = await kiln.runs.execute({ factory: "webapp", sha: wi.definitionSha, agent: "foreman", prompt: "again", workItem: wi, push: false });
     expect(second.rootRunId).toBe(run.id);
-    await expect(kiln.runs.execute({ factory: "webapp", sha: wi.definitionSha, agent: "foreman", prompt: "x", metadata: { "bad key!": "v" } })).rejects.toThrow(/metadata key/);
+    await expect(kiln.runs.execute({ factory: "webapp", sha: wi.definitionSha, agent: "foreman", prompt: "x", metadata: { "bad key!": "v" } })).rejects.toThrow(
+      /metadata key/,
+    );
     expect(kiln.runQuery.list({ metadata: { ticket: "ENG-1" } }).runs.map((r) => r.id)).toEqual([run.id]);
     expect(kiln.runQuery.list({ source: ["SLACK"], limit: 1 }).pageInfo.hasNextPage).toBe(true);
   });
@@ -192,7 +253,8 @@ describe("runs: sources, metadata, follow-ups, interrupts and subagent trees", (
     let kiln!: ReturnType<typeof createTestKiln>["kiln"];
     const harness = new FakeHarness(async (ctx) => {
       if (ctx.opts.prompt.includes("[hold]")) {
-        if (ctx.opts.env?.KILN_AGENT_TYPE === "IMPLEMENT") children.push((await kiln.runs.spawn(ctx.opts.env.KILN_RUN_ID!, { agent: "helper", prompt: "[hold] help", wait: false })).id);
+        if (ctx.opts.env?.KILN_AGENT_TYPE === "IMPLEMENT")
+          children.push((await kiln.runs.spawn(ctx.opts.env.KILN_RUN_ID!, { agent: "helper", prompt: "[hold] help", wait: false })).id);
         while (!ctx.signal.cancelled) await new Promise((r) => setTimeout(r, 10));
         return { summary: "stopped" };
       }
@@ -231,10 +293,123 @@ describe("runs: sources, metadata, follow-ups, interrupts and subagent trees", (
   });
 });
 
+describe("subagent names, forks and reports", () => {
+  const tree = () => sampleTree({ "agents/helper/agent.md": "---\nagentType: CUSTOM\nspawnableBy: [implement]\n---\nHelp.\n" });
+  const until = async (ok: () => boolean) => {
+    for (let i = 0; i < 500 && !ok(); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(ok()).toBe(true);
+  };
+
+  it("addresses a subagent by a name unique in its tree, and a continuation keeps the name", async () => {
+    let kiln!: ReturnType<typeof createTestKiln>["kiln"];
+    const harness = new FakeHarness(async (ctx) => {
+      if (ctx.opts.prompt.includes("[hold]")) while (!ctx.signal.cancelled) await new Promise((r) => setTimeout(r, 10));
+      return { summary: "done" };
+    });
+    ({ kiln } = createTestKiln({ harness: () => harness, tree: tree() }));
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    const parent = await kiln.runs.startInBackground({ factory: "webapp", sha, agent: "implement", prompt: "[hold] build", push: false });
+    await until(() => kiln.runs.isActive(parent.id));
+    const child = await kiln.runs.spawn(parent.id, { agent: "helper", prompt: "look around", name: "researcher", wait: true });
+    expect(child).toMatchObject({ name: "researcher", status: "succeeded" });
+    expect(kiln.runs.byName(parent.id, "researcher")?.id).toBe(child.id);
+    await expect(kiln.runs.spawn(parent.id, { agent: "helper", prompt: "again", name: "researcher" })).rejects.toThrow(/already has a run named researcher/);
+    await expect(kiln.runs.spawn(parent.id, { agent: "helper", prompt: "x", name: "Not A Name" })).rejects.toThrow(/name/);
+    const next = await kiln.runs.followup(child.id, { message: "dig deeper", by: "agent:implement" });
+    expect(next.run.name).toBe("researcher");
+    // From anywhere in the tree, the name means the latest run of that line of work.
+    expect(kiln.runs.byName(child.id, "researcher")?.id).toBe(next.run.id);
+    await kiln.runs.cancelTree(parent.id, "alice");
+  });
+
+  it("forks the parent's conversation into the child's prompt only when asked", async () => {
+    let kiln!: ReturnType<typeof createTestKiln>["kiln"];
+    const harness = new FakeHarness(async (ctx) => {
+      if (ctx.opts.prompt.startsWith("[hold]")) {
+        ctx.emit({ type: "message", text: "I will split this in two." });
+        while (!ctx.signal.cancelled) await new Promise((r) => setTimeout(r, 10));
+      }
+      return { summary: "done" };
+    });
+    ({ kiln } = createTestKiln({ harness: () => harness, tree: tree() }));
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    const parent = await kiln.runs.startInBackground({ factory: "webapp", sha, agent: "implement", prompt: "[hold] build the pricing page", push: false });
+    await until(() => kiln.runQuery.conversation(parent.id).messages.some((m) => m.text === "I will split this in two."));
+    const forked = await kiln.runs.spawn(parent.id, { agent: "helper", prompt: "do the table", fork: true, wait: true });
+    expect(forked.startState.prompt).toContain("## Conversation so far");
+    expect(forked.startState.prompt).toContain("build the pricing page");
+    expect(forked.startState.prompt).toContain("I will split this in two.");
+    expect(forked.startState.prompt.trim().endsWith("do the table")).toBe(true);
+    const fresh = await kiln.runs.spawn(parent.id, { agent: "helper", prompt: "do the footer", wait: true });
+    expect(fresh.startState.prompt).toBe("do the footer");
+    await kiln.runs.cancelTree(parent.id, "alice");
+  });
+
+  it("reports a finished child to its live parent, and continues a finished parent with the report", async () => {
+    let kiln!: ReturnType<typeof createTestKiln>["kiln"];
+    const steered: string[] = [];
+    const harness = new FakeHarness(async (ctx) => {
+      if (ctx.opts.prompt.includes("[wait-report]")) {
+        steered.push((await ctx.nextSteer(5000)) ?? "");
+        return { summary: "parent done" };
+      }
+      if (ctx.opts.prompt.startsWith("[spawn-and-finish]") && !ctx.opts.prompt.includes("## Follow-up")) {
+        await kiln.runs.spawn(ctx.opts.env!.KILN_RUN_ID!, { agent: "helper", prompt: "[slow-fail] the chart", name: "chart", report: true, wait: false });
+        return { summary: "parent done early" };
+      }
+      if (ctx.opts.prompt.startsWith("[slow-fail]")) {
+        await new Promise((r) => setTimeout(r, 300));
+        throw new Error("the chart would not render");
+      }
+      return { summary: "built the table" };
+    });
+    ({ kiln } = createTestKiln({ harness: () => harness, tree: tree() }));
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    const parent = await kiln.runs.startInBackground({ factory: "webapp", sha, agent: "implement", prompt: "[wait-report] build", push: false });
+    await until(() => kiln.runs.isActive(parent.id));
+    await kiln.runs.spawn(parent.id, { agent: "helper", prompt: "the table", name: "table", report: true, wait: true });
+    await until(() => steered.length === 1);
+    expect(steered[0]).toContain("## Report from table");
+    expect(steered[0]).toContain("Reason: finished");
+    expect(steered[0]).toContain("built the table");
+    await until(() => kiln.runs.get(parent.id)!.status === "succeeded");
+
+    // The parent has finished before its child reports: the report continues it in a new run.
+    const early = await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "[spawn-and-finish] build", push: false });
+    expect(early.status).toBe("succeeded");
+    await until(() => kiln.runs.list().some((r) => r.continuationOf === early.id));
+    const continued = kiln.runs.list().find((r) => r.continuationOf === early.id)!;
+    expect(continued.startState.prompt).toMatch(/## Report from chart[\s\S]*Reason: failed[\s\S]*would not render/);
+  });
+
+  it("reports a child's question to its parent", async () => {
+    let kiln!: ReturnType<typeof createTestKiln>["kiln"];
+    let steered: string[] = [];
+    const harness = new FakeHarness(async (ctx) => {
+      if (ctx.opts.prompt === "[hold] build") steered = ctx.steering;
+      if (ctx.opts.prompt.startsWith("[hold]")) while (!ctx.signal.cancelled) await new Promise((r) => setTimeout(r, 10));
+      return { summary: "done" };
+    });
+    ({ kiln } = createTestKiln({ harness: () => harness, tree: tree() }));
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    const parent = await kiln.runs.startInBackground({ factory: "webapp", sha, agent: "implement", prompt: "[hold] build", push: false });
+    await until(() => kiln.runs.isActive(parent.id));
+    const child = await kiln.runs.spawn(parent.id, { agent: "helper", prompt: "[hold] logo", name: "logo", report: true, wait: false });
+    await until(() => kiln.runs.isActive(child.id));
+    await kiln.runs.reportQuestion(child.id, "Text logo or upload one?");
+    await until(() => steered.length === 1);
+    expect(steered[0]).toMatch(/## Report from logo[\s\S]*Reason: needs_input[\s\S]*Question: Text logo or upload one\?/);
+    await kiln.runs.cancelTree(parent.id, "alice");
+  });
+});
+
 describe("tasks", () => {
   it("maps states to stages, dispatches with a ticket, lists, patches, soft-deletes and finds by run", async () => {
     const { kiln } = createTestKiln({ preview: false });
-    expect(parseTicketRef("linear:PAY-123", "https://linear.app/x/PAY-123")).toEqual({ source: { provider: "linear", issueId: "PAY-123", url: "https://linear.app/x/PAY-123" }, trackerKey: "PAY-123" });
+    expect(parseTicketRef("linear:PAY-123", "https://linear.app/x/PAY-123")).toEqual({
+      source: { provider: "linear", issueId: "PAY-123", url: "https://linear.app/x/PAY-123" },
+      trackerKey: "PAY-123",
+    });
     expect(taskStage({ state: "awaiting_spec" })).toBe("SPEC");
     expect(taskStage({ state: "blocked", stage: "review" })).toBe("REVIEW");
     const d = await kiln.tasks.dispatch("webapp", { prompt: "Fix typo in the footer", ticketRef: "linear:ENG-7", by: "po@acme.test" });
@@ -305,7 +480,12 @@ describe("tasks", () => {
     void kiln.workflow.advance(wi.id);
     const done = await waitFor(kiln, wi.id, ["handed_off"]);
     expect(done.pr).toBeDefined();
-    expect(kiln.runs.list({ workItemId: wi.id }).map((r) => `${r.agent}:${r.stage}`).sort()).toEqual(["implement:draft", "review:check"]);
+    expect(
+      kiln.runs
+        .list({ workItemId: wi.id })
+        .map((r) => `${r.agent}:${r.stage}`)
+        .sort(),
+    ).toEqual(["implement:draft", "review:check"]);
   });
 });
 
@@ -325,14 +505,23 @@ describe("foreman updates", () => {
 describe("inbox and definition changes", () => {
   it("lists items per person with read and resolved state, and clears answered ones", async () => {
     const { kiln } = createTestKiln({ preview: false });
-    const wi = await kiln.workflow.create({ factory: "webapp", title: "Team invites", body: "- Admins invite by email\n- Invites expire\n- Large redesign", source: { provider: "api" }, requester: "po@acme.test" });
+    const wi = await kiln.workflow.create({
+      factory: "webapp",
+      title: "Team invites",
+      body: "- Admins invite by email\n- Invites expire\n- Large redesign",
+      source: { provider: "api" },
+      requester: "po@acme.test",
+    });
     await kiln.workflow.advance(wi.id);
     const mine = kiln.inbox.list({ user: "po@acme.test" });
     const item = mine.items.find((i) => i.taskId === wi.id)!;
     expect(item).toMatchObject({ kind: "spec_review", isRead: false, stage: "SPEC" });
     expect(kiln.inbox.list({ user: "someone@acme.test" }).items).toHaveLength(0);
     expect(kiln.inbox.list({ user: "someone@acme.test", scope: "team" }).items.length).toBeGreaterThan(0);
-    expect(kiln.inbox.markRead("po@acme.test", [item.id, "nope"])).toEqual([{ id: item.id, ok: true }, { id: "nope", ok: false }]);
+    expect(kiln.inbox.markRead("po@acme.test", [item.id, "nope"])).toEqual([
+      { id: item.id, ok: true },
+      { id: "nope", ok: false },
+    ]);
     expect(kiln.inbox.list({ user: "po@acme.test", read: false }).items.find((i) => i.id === item.id)).toBeUndefined();
     kiln.inbox.resolve("po@acme.test", [item.id]);
     expect(kiln.inbox.list({ user: "po@acme.test" }).items.find((i) => i.id === item.id)).toBeUndefined();
@@ -344,8 +533,15 @@ describe("inbox and definition changes", () => {
 
   it("agents propose definition changes; people approve and merge or request changes", async () => {
     const { kiln } = createTestKiln();
-    expect(() => kiln.definitionChanges.propose({ factory: "webapp", title: "bad", files: { "agents/x/agent.md": "---\nagentType: NOPE\n---\n" }, by: "agent:foreman" })).toThrow(/invalid/);
-    const ch = kiln.definitionChanges.propose({ factory: "webapp", title: "Add docs agent", files: { "agents/docs/agent.md": "---\nagentType: CUSTOM\n---\nWrite docs.\n" }, by: "agent:foreman" });
+    expect(() =>
+      kiln.definitionChanges.propose({ factory: "webapp", title: "bad", files: { "agents/x/agent.md": "---\nagentType: NOPE\n---\n" }, by: "agent:foreman" }),
+    ).toThrow(/invalid/);
+    const ch = kiln.definitionChanges.propose({
+      factory: "webapp",
+      title: "Add docs agent",
+      files: { "agents/docs/agent.md": "---\nagentType: CUSTOM\n---\nWrite docs.\n" },
+      by: "agent:foreman",
+    });
     expect(ch.diff.added).toEqual(["agent/docs"]);
     const item = kiln.inbox.list({ user: "admin@acme.test" }).items.find((i) => i.changeId === ch.id)!;
     expect(item).toMatchObject({ kind: "spec_review", actions: ["approve_and_merge", "request_changes", "comment"] });
@@ -353,7 +549,12 @@ describe("inbox and definition changes", () => {
     const merged = await kiln.definitionChanges.approve(ch.id, "lead@acme.test");
     expect(merged.state).toBe("merged");
     expect(kiln.defs.current("webapp").agents.docs).toBeDefined();
-    const second = kiln.definitionChanges.propose({ factory: "webapp", title: "Tweak", files: { "agents/docs/agent.md": "---\nagentType: CUSTOM\n---\nWrite better docs.\n" }, by: "agent:foreman" });
+    const second = kiln.definitionChanges.propose({
+      factory: "webapp",
+      title: "Tweak",
+      files: { "agents/docs/agent.md": "---\nagentType: CUSTOM\n---\nWrite better docs.\n" },
+      by: "agent:foreman",
+    });
     const rc = await kiln.definitionChanges.requestChanges(second.id, "lead@acme.test", "Name the docs folder");
     expect(rc).toMatchObject({ state: "changes_requested", comments: [{ text: "Name the docs folder" }] });
   });
@@ -362,20 +563,45 @@ describe("inbox and definition changes", () => {
 describe("definition editing", () => {
   it("edits agents, settings and files on a managed factory and refuses unsafe changes", async () => {
     const { kiln } = createTestKiln();
-    const r = await kiln.editor.upsertAgent("webapp", "docs", { prompt: "Write docs.", description: "Docs", model: "claude-haiku-5-5", workerHost: "farm", idleTimeoutMinutes: 15, networkPolicy: { allowedHosts: ["docs.acme.test"] } }, "lead");
+    const r = await kiln.editor.upsertAgent(
+      "webapp",
+      "docs",
+      {
+        prompt: "Write docs.",
+        description: "Docs",
+        model: "claude-haiku-5-5",
+        workerHost: "farm",
+        idleTimeoutMinutes: 15,
+        networkPolicy: { allowedHosts: ["docs.acme.test"] },
+      },
+      "lead",
+    );
     expect(r.ok && r.mode).toBe("applied");
-    expect(kiln.defs.current("webapp").agents.docs).toMatchObject({ workerHost: "farm", idleTimeoutMinutes: 15, harness: { type: "claude-code", model: "claude-haiku-5-5" }, networkPolicy: { allowedHosts: ["docs.acme.test"] } });
+    expect(kiln.defs.current("webapp").agents.docs).toMatchObject({
+      workerHost: "farm",
+      idleTimeoutMinutes: 15,
+      harness: { type: "claude-code", model: "claude-haiku-5-5" },
+      networkPolicy: { allowedHosts: ["docs.acme.test"] },
+    });
     await kiln.editor.upsertAgent("webapp", "docs", { description: null, workerHost: null }, "lead");
     expect(kiln.defs.current("webapp").agents.docs!.workerHost).toBeUndefined();
     await expect(kiln.editor.deleteAgent("webapp", "foreman", "lead")).rejects.toThrow(/foreman cannot be deleted/);
     await expect(kiln.editor.upsertAgent("webapp", "bad", { prompt: "x", runner: "missing" }, "lead")).rejects.toThrow(/runner missing/);
-    await kiln.editor.updateSettings("webapp", { alias: "Web App", description: "The storefront", credentialStrategy: "CREATOR", addRepositories: [{ owner: "acme", name: "ui", deferred: true }] }, "lead");
+    await kiln.editor.updateSettings(
+      "webapp",
+      { alias: "Web App", description: "The storefront", credentialStrategy: "CREATOR", addRepositories: [{ owner: "acme", name: "ui", deferred: true }] },
+      "lead",
+    );
     const f = kiln.defs.current("webapp").factory;
     expect(f).toMatchObject({ alias: "Web App", description: "The storefront", credentialStrategy: "CREATOR" });
     expect(f.repositories.map((x) => `${x.owner}/${x.name}`)).toEqual(["acme/web", "acme/ui"]);
     expect(kiln.defs.current("webapp").agents.implement!.credentialStrategy).toBe("CREATOR");
     await kiln.editor.updateSelfImprovement("webapp", { failedRunThreshold: 5, reviewers: { type: "none" }, scorers: { criteria: false } }, "lead");
-    expect(kiln.improvement.settings("webapp")).toMatchObject({ failedRunThreshold: 5, reviewers: { type: "none" }, scorers: [{ slug: "criteria", selfImprovement: false }] });
+    expect(kiln.improvement.settings("webapp")).toMatchObject({
+      failedRunThreshold: 5,
+      reviewers: { type: "none" },
+      scorers: [{ slug: "criteria", selfImprovement: false }],
+    });
     const w = await kiln.editor.write("webapp", { "skills/house-style/SKILL.md": null }, { message: "drop skill", by: "lead" });
     expect(w.ok).toBe(true);
     expect(kiln.defs.current("webapp").parsed.skills["house-style"]).toBeUndefined();
@@ -406,7 +632,15 @@ describe("factory wizard", () => {
   it("creates a full factory: agents, skills, scorers, automations; and refuses alias clashes", async () => {
     const { kiln } = createTestKiln();
     const r = await kiln.wizard.create(
-      { name: "Shop Front", repos: [{ owner: "acme", name: "web" }], communications: { slack: true }, tracker: { type: "linear" }, costPreset: "efficient", agents: { review: false }, automationTemplates: ["autofix-ci-failures", "linear-duplicate-check", "auto-review-prs"] },
+      {
+        name: "Shop Front",
+        repos: [{ owner: "acme", name: "web" }],
+        communications: { slack: true },
+        tracker: { type: "linear" },
+        costPreset: "efficient",
+        agents: { review: false },
+        automationTemplates: ["autofix-ci-failures", "linear-duplicate-check", "auto-review-prs"],
+      },
       "lead@acme.test",
     );
     expect(r.factory?.id).toBe("shop-front");
@@ -415,15 +649,26 @@ describe("factory wizard", () => {
     expect(resolved.agents.triage!.harness.model).toBe("claude-haiku-5-5");
     expect(resolved.agents.foreman!.instructions).toContain("factory:shop-front");
     expect(Object.keys(resolved.parsed.skills).sort()).toEqual(["code-review", "github", "linear", "slack", "ui-verification"]);
-    expect(Object.keys(resolved.parsed.scorers).sort()).toEqual(["code-quality", "efficiency", "procedure-compliance", "task-compliance", "task-correctness", "verbosity"]);
+    expect(Object.keys(resolved.parsed.scorers).sort()).toEqual([
+      "code-quality",
+      "efficiency",
+      "procedure-compliance",
+      "task-compliance",
+      "task-correctness",
+      "verbosity",
+    ]);
     expect(resolved.parsed.scorers["task-compliance"]!.frontmatter.agents).not.toContain("review");
     expect(resolved.automations["auto-review-prs"]!.agent).toBe("foreman");
     // No pinned image: the server's runner image (which carries the harness CLIs) applies (#13).
     expect(resolved.parsed.runners.default!.image).toBeUndefined();
-    expect(Object.keys(resolved.automations)).toEqual(expect.arrayContaining(["github-issue-labeled", "linear-agent-sessions", "slack-app-mentions", "autofix-ci-failures", "linear-duplicate-check"]));
+    expect(Object.keys(resolved.automations)).toEqual(
+      expect.arrayContaining(["github-issue-labeled", "linear-agent-sessions", "slack-app-mentions", "autofix-ci-failures", "linear-duplicate-check"]),
+    );
     await expect(kiln.wizard.create({ name: "Other", alias: "Shop-Front", repos: [{ owner: "acme", name: "web" }] }, "x")).rejects.toThrow(/already used/);
     await expect(kiln.wizard.create({ name: "Other", alias: "shop front", repos: [{ owner: "acme", name: "web" }] }, "x")).rejects.toThrow(/already exists/);
-    await expect(kiln.wizard.create({ name: "J", repos: [{ owner: "acme", name: "web" }], automationTemplates: ["linear-duplicate-check"] }, "x")).rejects.toThrow(/needs linear/);
+    await expect(
+      kiln.wizard.create({ name: "J", repos: [{ owner: "acme", name: "web" }], automationTemplates: ["linear-duplicate-check"] }, "x"),
+    ).rejects.toThrow(/needs linear/);
   });
 });
 
@@ -451,8 +696,29 @@ describe("metrics, scorers and benchmarks", () => {
 
   it("scorer CRUD, manual dispatch, results and metrics", async () => {
     const { kiln } = createTestKiln();
-    const run = await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "implement", prompt: "Add a footer", push: false });
-    await kiln.scorers.create("webapp", { name: "Docs Quality", scoringPrompt: "Are the docs clear?", classifications: [{ value: "meets", score: 1 }, { value: "misses", score: 0 }], threshold: 1, scopeMode: "selected_agents", agents: [{ name: "implement", includeDescendants: true }], model: "claude-haiku-5-5" }, "lead");
+    const run = await kiln.runs.execute({
+      factory: "webapp",
+      sha: kiln.defs.require("webapp").appliedSha!,
+      agent: "implement",
+      prompt: "Add a footer",
+      push: false,
+    });
+    await kiln.scorers.create(
+      "webapp",
+      {
+        name: "Docs Quality",
+        scoringPrompt: "Are the docs clear?",
+        classifications: [
+          { value: "meets", score: 1 },
+          { value: "misses", score: 0 },
+        ],
+        threshold: 1,
+        scopeMode: "selected_agents",
+        agents: [{ name: "implement", includeDescendants: true }],
+        model: "claude-haiku-5-5",
+      },
+      "lead",
+    );
     expect(kiln.scorers.get("webapp", "docs-quality")).toMatchObject({ name: "Docs Quality", version: 1, resultCount: 0 });
     const d = await kiln.scorers.dispatch("webapp", [run.id], ["docs-quality"], "lead");
     expect(d).toEqual([expect.objectContaining({ status: "dispatched" })]);
@@ -475,12 +741,31 @@ describe("metrics, scorers and benchmarks", () => {
       {
         name: "core",
         agent: "implement",
-        configurations: [{ name: "sonnet", agents: [{ agent: "implement", model: "claude-sonnet-5-5" }] }, { name: "haiku", agents: [{ agent: "implement", model: "claude-haiku-5-5" }] }],
-        firstTask: { title: "Footer link", prompt: "Add a footer link", successCriteria: ["The footer has a link"], startingRepoRefs: [`github.com:acme/web@${sha}`] },
+        configurations: [
+          { name: "sonnet", agents: [{ agent: "implement", model: "claude-sonnet-5-5" }] },
+          { name: "haiku", agents: [{ agent: "implement", model: "claude-haiku-5-5" }] },
+        ],
+        firstTask: {
+          title: "Footer link",
+          prompt: "Add a footer link",
+          successCriteria: ["The footer has a link"],
+          startingRepoRefs: [`github.com:acme/web@${sha}`],
+        },
       },
       "lead",
     );
-    const again = await kiln.benchmarkAdmin.createTask("webapp", "core", { slug: "footer-link", title: "Footer link", prompt: "Add a footer link", successCriteria: ["The footer has a link"], startingRepoRefs: [`github.com:acme/web@${sha}`] }, "lead");
+    const again = await kiln.benchmarkAdmin.createTask(
+      "webapp",
+      "core",
+      {
+        slug: "footer-link",
+        title: "Footer link",
+        prompt: "Add a footer link",
+        successCriteria: ["The footer has a link"],
+        startingRepoRefs: [`github.com:acme/web@${sha}`],
+      },
+      "lead",
+    );
     expect(again.created).toBe(false);
     const run = await kiln.benchmarkAdmin.start("webapp", "core", { repetitions: 2 }, "lead", { wait: true });
     expect(kiln.benchmarkAdmin.run(run.id).state).toBe("completed");
@@ -499,8 +784,13 @@ describe("factory files: schemas and validation", () => {
   it("reports diagnostics with lines and what is resolved on apply", () => {
     const ok = validateFiles(Object.entries(sampleTree()).map(([path, content]) => ({ path, content })));
     expect(ok.ok).toBe(true);
-    expect(ok.deferredResolutions).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "model", value: "claude-sonnet-5-5" }), expect.objectContaining({ kind: "alias" })]));
-    const bad = validateFiles([...Object.entries(sampleTree()).map(([path, content]) => ({ path, content })), { path: "agents/x/agent.md", content: "---\nagentType: NOPE\n---\n" }]);
+    expect(ok.deferredResolutions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "model", value: "claude-sonnet-5-5" }), expect.objectContaining({ kind: "alias" })]),
+    );
+    const bad = validateFiles([
+      ...Object.entries(sampleTree()).map(([path, content]) => ({ path, content })),
+      { path: "agents/x/agent.md", content: "---\nagentType: NOPE\n---\n" },
+    ]);
     expect(bad.ok).toBe(false);
     expect(bad.diagnostics.find((d) => d.severity === "error")).toMatchObject({ path: "agents/x/agent.md", line: 2 });
     expect(() => validateFiles(Array.from({ length: 257 }, (_, i) => ({ path: `f${i}`, content: "" })))).toThrow(/at most 256/);
@@ -512,13 +802,24 @@ describe("computer use", () => {
     const seen: Record<string, { servers: string[]; args: string[]; instructions: string }> = {};
     const harness = new FakeHarness(async (ctx) => {
       const browser = ctx.opts.mcpServers?.find((s) => s.name === "browser");
-      seen[ctx.opts.env?.KILN_AGENT_TYPE ?? "?"] = { servers: (ctx.opts.mcpServers ?? []).map((s) => s.name), args: browser && "command" in browser ? (browser.args ?? []) : [], instructions: ctx.opts.instructions };
-      if (ctx.opts.env?.KILN_AGENT_TYPE === "VERIFY") await ctx.opts.sandbox.writeBytes(`${ctx.opts.cwd ? `${ctx.opts.cwd}/` : ""}.kiln/artifacts/browser/checkout.png`, new Uint8Array([137, 80, 78, 71]));
+      seen[ctx.opts.env?.KILN_AGENT_TYPE ?? "?"] = {
+        servers: (ctx.opts.mcpServers ?? []).map((s) => s.name),
+        args: browser && "command" in browser ? (browser.args ?? []) : [],
+        instructions: ctx.opts.instructions,
+      };
+      if (ctx.opts.env?.KILN_AGENT_TYPE === "VERIFY")
+        await ctx.opts.sandbox.writeBytes(`${ctx.opts.cwd ? `${ctx.opts.cwd}/` : ""}.kiln/artifacts/browser/checkout.png`, new Uint8Array([137, 80, 78, 71]));
       return fakeAgentScript(ctx);
     });
     const tree = sampleTree({ "agents/review/agent.md": "---\nagentType: REVIEW\ncomputerUse: false\n---\nReview adversarially.\n" });
     const { kiln, forge } = createTestKiln({ harness: () => harness, tree, preview: false, browserMcp: { command: "playwright-mcp" } });
-    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix the checkout button", body: "It is misaligned", source: { provider: "api" }, requester: "po@acme.test" });
+    const wi = await kiln.workflow.create({
+      factory: "webapp",
+      title: "Fix the checkout button",
+      body: "It is misaligned",
+      source: { provider: "api" },
+      requester: "po@acme.test",
+    });
     void kiln.workflow.advance(wi.id);
     await waitFor(kiln, wi.id, ["handed_off"]);
     expect(seen.VERIFY!.servers).toContain("browser");
@@ -536,7 +837,14 @@ describe("pull request description and attribution", () => {
 
   it("opens the pull request with the implement agent's title and description, then evidence and tracking, and one attribution comment", async () => {
     const { kiln, forge } = createTestKiln({ preview: false });
-    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix the checkout button", body: "It is misaligned", source: { provider: "api" }, requester: "po@acme.test", trackerKey: "WEB-7" });
+    const wi = await kiln.workflow.create({
+      factory: "webapp",
+      title: "Fix the checkout button",
+      body: "It is misaligned",
+      source: { provider: "api" },
+      requester: "po@acme.test",
+      trackerKey: "WEB-7",
+    });
     void kiln.workflow.advance(wi.id);
     const done = await waitFor(kiln, wi.id, ["handed_off"]);
     const pr = (await forge.getPullRequest({ owner: "acme", name: "web" }, done.pr!.number))!;
@@ -570,7 +878,13 @@ describe("pull request description and attribution", () => {
       return out;
     });
     const { kiln, forge } = createTestKiln({ harness: () => harness, preview: false });
-    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix the checkout button", body: "It is misaligned", source: { provider: "api" }, requester: "po@acme.test" });
+    const wi = await kiln.workflow.create({
+      factory: "webapp",
+      title: "Fix the checkout button",
+      body: "It is misaligned",
+      source: { provider: "api" },
+      requester: "po@acme.test",
+    });
     void kiln.workflow.advance(wi.id);
     const done = await waitFor(kiln, wi.id, ["handed_off"]);
     const pr = (await forge.getPullRequest({ owner: "acme", name: "web" }, done.pr!.number))!;
@@ -616,7 +930,13 @@ describe("multi-repository factories", () => {
     const forge = new FakeForge();
     forge.createRepo({ owner: "acme", name: "api" }, { "README.md": "# api\n", "package.json": '{ "name": "api" }\n' });
     const { kiln } = createTestKiln({ tree: twoRepos(), forge, decide: { primary: decide }, preview: false });
-    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix rounding in invoice totals", body: "", source: { provider: "api" }, requester: "a@acme.test" });
+    const wi = await kiln.workflow.create({
+      factory: "webapp",
+      title: "Fix rounding in invoice totals",
+      body: "",
+      source: { provider: "api" },
+      requester: "a@acme.test",
+    });
     await kiln.workflow.advance(wi.id);
     const done = kiln.workflow.get(wi.id)!;
     expect(done.repo).toBe("acme/api");
@@ -660,7 +980,13 @@ describe("spec stage failures", () => {
         return failing;
       },
     });
-    const wi = await kiln.workflow.create({ factory: "webapp", title: "Redesign the billing page", body: "- show invoices\n- show plan", source: { provider: "api" }, requester: "a@acme.test" });
+    const wi = await kiln.workflow.create({
+      factory: "webapp",
+      title: "Redesign the billing page",
+      body: "- show invoices\n- show plan",
+      source: { provider: "api" },
+      requester: "a@acme.test",
+    });
     void kiln.workflow.advance(wi.id);
     const parked = await waitFor(kiln, wi.id, ["blocked"]);
     expect(parked.blockedReason).toContain("setup command failed");
@@ -681,7 +1007,13 @@ describe("spec stage failures", () => {
       preview: false,
       harness: (type, agentType) => (agentType === "SPEC" && ++specRuns <= 2 ? failing : agents(type, agentType)),
     });
-    const wi = await kiln.workflow.create({ factory: "webapp", title: "Redesign the billing page", body: "- show invoices", source: { provider: "api" }, requester: "a@acme.test" });
+    const wi = await kiln.workflow.create({
+      factory: "webapp",
+      title: "Redesign the billing page",
+      body: "- show invoices",
+      source: { provider: "api" },
+      requester: "a@acme.test",
+    });
     void kiln.workflow.advance(wi.id);
     await waitFor(kiln, wi.id, ["blocked"]);
     const question = kiln.gates.list({ workItemId: wi.id, state: "open" }).find((g) => g.name === "spec-failed")!;
@@ -703,7 +1035,13 @@ describe("spec stage failures", () => {
       preview: false,
       harness: (type, agentType) => (agentType === "SPEC" && ++specRuns <= 2 ? failing : agents(type, agentType)),
     });
-    const wi = await kiln.workflow.create({ factory: "webapp", title: "Redesign the billing page", body: "- show invoices", source: { provider: "api" }, requester: "a@acme.test" });
+    const wi = await kiln.workflow.create({
+      factory: "webapp",
+      title: "Redesign the billing page",
+      body: "- show invoices",
+      source: { provider: "api" },
+      requester: "a@acme.test",
+    });
     void kiln.workflow.advance(wi.id);
     await waitFor(kiln, wi.id, ["blocked"]);
     const question = kiln.gates.list({ workItemId: wi.id, state: "open" }).find((g) => g.name === "spec-failed")!;
@@ -739,7 +1077,13 @@ describe("spec review", () => {
       return out;
     });
   const create = (kiln: ReturnType<typeof createTestKiln>["kiln"]) =>
-    kiln.workflow.create({ factory: "webapp", title: "Redesign the billing page", body: "- show invoices\n- show plan", source: { provider: "api" }, requester: "a@acme.test" });
+    kiln.workflow.create({
+      factory: "webapp",
+      title: "Redesign the billing page",
+      body: "- show invoices\n- show plan",
+      source: { provider: "api" },
+      requester: "a@acme.test",
+    });
 
   it("asks the spec agent for the why, the goal and the approach", async () => {
     const { kiln } = createTestKiln({ preview: false });
@@ -754,14 +1098,14 @@ describe("spec review", () => {
   it("opens with why, goal and approach, then the criteria, out of scope, risks and open questions", async () => {
     const agents = fakeAgents();
     const spec = specReporting({
-        why: "Finance cannot find old invoices and files tickets.",
-        goal: "Invoices are self-serve; billing tickets drop.",
-        approach: "List invoices on the billing page.",
-        criteria: ["AC1: The billing page lists the last 12 invoices"],
-        outOfScope: ["Editing invoices"],
-        risks: [],
-        openQuestions: ["Show credit notes too?"],
-      });
+      why: "Finance cannot find old invoices and files tickets.",
+      goal: "Invoices are self-serve; billing tickets drop.",
+      approach: "List invoices on the billing page.",
+      criteria: ["AC1: The billing page lists the last 12 invoices"],
+      outOfScope: ["Editing invoices"],
+      risks: [],
+      openQuestions: ["Show credit notes too?"],
+    });
     const { kiln } = createTestKiln({ preview: false, harness: (type, agentType) => (agentType === "SPEC" ? spec : agents(type, agentType)) });
     const wi = await create(kiln);
     const gate = await specGate(kiln, wi.id);
@@ -774,7 +1118,11 @@ describe("spec review", () => {
     expect(q).toContain("Out of scope:\n- Editing invoices");
     expect(q).not.toContain("Risks and trade-offs");
     expect(q).toContain("Open questions:\n- Show credit notes too?");
-    expect(kiln.workflow.get(wi.id)!.spec).toMatchObject({ why: expect.stringContaining("Finance"), goal: expect.any(String), outOfScope: ["Editing invoices"] });
+    expect(kiln.workflow.get(wi.id)!.spec).toMatchObject({
+      why: expect.stringContaining("Finance"),
+      goal: expect.any(String),
+      outOfScope: ["Editing invoices"],
+    });
   });
 
   it("still opens the gate for a result without the new fields", async () => {

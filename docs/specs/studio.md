@@ -212,9 +212,13 @@ Import (`source.kind: "repo"`):
 4. **Install on first open.** It runs once when the workspace is created; snapshots keep later opens warm. Each new chat worktree installs again (with a warm store, this is fast).
 5. **Dev command.** `package.json` `scripts.dev` → `<pm> run dev`, recorded as `devDetected`. A person can set `devOverride` (`PATCH … { devCommand }`; `null` clears it). With neither, the App is `ready` but previews answer `StudioError("invalid", "no dev command")`.
 6. **Port.** The dev server gets `PORT={port}` and `HOST=0.0.0.0`. For `next dev` and `vite` without an explicit port, Studio appends `--port {port}` (and `--hostname`/`--host 0.0.0.0`). If the server prints a different `localhost:<n>` / `0.0.0.0:<n>` URL in its first output, Studio records that port for the target.
-7. **Environment.** Required keys come from `.env.example`, `.env.sample` or `.env.local.example`. `StudioOptions.env(app)` (the API resolves the team's Kiln secrets and environment templates, and later its Kiln Project's) provides values. They're passed to installs, dev servers and harness runs and never written to the repository. Missing keys are listed in `setup.envMissing`. The App is still `ready`, and the UI shows them with a link to Secrets.
+7. **Environment.** Required keys come from `.env.example`, `.env.sample` or `.env.local.example` and only drive the list of missing keys. `StudioOptions.env(app)` provides values: the API resolves the App's environment variables (team → Kiln Project → App, see [Spec change: environments](#spec-change-environments)), only what people assigned, never the secret vault. They're passed to installs, dev servers and harness runs and never written to the repository; secret values are redacted from turn and dev-server output. Missing keys are listed in `setup.envMissing`. The App is still `ready`, and the UI shows them with a link to its environment.
 
 **Ship mode on imported repositories (decided).** An imported App defaults to `review`. Inside the sandbox the modes behave as in the ship mode table (cowboy auto-applies to the App's main line). What reaches the forge is in [Shipping](#shipping).
+
+**Import authorization.** An import is allowed only for a repository the caller's team may use: `ctx.checkOrgs` (the team's enabled GitHub orgs) runs in `POST /apps` and in the `open_app` tool before Studio is called. `source.connection` must be one of the team's forge connections; without it, the server's forge is used, under the same org check.
+
+**App environment.** An App's environment comes only from values a person assigned to it (the `project-env` resolver: team → Kiln Project → App). Studio never resolves the keys of an example env file through the secret vault, which would fall back to server secrets. Until `project-env` is merged, an App's environment is empty and every required key is listed as missing.
 
 ## Workspace layout (inside the App's sandbox)
 
@@ -225,6 +229,11 @@ Import (`source.kind: "repo"`):
 ```
 
 `.kiln/` is listed in `.git/info/exclude`, so `.kiln/studio.json` (`{ title, summary, question? }`, written by the agent at the end of a turn) is never committed.
+
+## Enabling Studio and restarts
+
+- Studio is on only when the server sets `KILN_STUDIO=1`. Otherwise every Studio route answers 503 `Studio is not enabled on this server (KILN_STUDIO=1)`, and no preview resolver is registered.
+- On startup, Studio reconciles what a restart cut off: an App still `creating` becomes `failed` ("interrupted by a restart"); a `running` turn becomes `failed` with the same reason; a `working` chat becomes `needs_you` with that turn's failure as the question. Paused and ready Apps resume lazily from their snapshot.
 
 ## Service (`packages/studio/src/studio.ts`)
 
@@ -242,7 +251,7 @@ export type StudioOptions = {
   previewUrl: (target: string, address: SandboxAddress) => string;
   /** Imported Apps: a clone URL with a short-lived repo-scoped token, and the branch to use. */
   clone?: (source: Extract<AppSource, { kind: "repo" }>) => Promise<{ url: string; branch?: string }>;
-  /** Environment for installs, dev servers and runs (Kiln secrets and environment templates). */
+  /** Environment for installs, dev servers and runs: the App's resolved variables (team → project → App). */
   env?: (app: App) => Record<string, string>;
   maxRunningChats?: number; // default 3
   basePort?: number; // the version preview's port; chats use the next 99. Default 4100
@@ -255,8 +264,8 @@ export class Studio {
 
   listApps(team: string): App[];
   getApp(id: string): { app: App; chats: Chat[]; versions: Version[] } | undefined; // versions newest first
-  createApp(input: { team: string; by: string; name: string; projectId?: string; source?: AppSource; shipMode?: ShipMode; harness?: HarnessType; model?: string }): Promise<App>; // default source: the nextjs template
-  updateApp(id: string, patch: { name?: string; projectId?: string | null; shipMode?: ShipMode; devCommand?: string | null }): App;
+  createApp(input: { team: string; by: string; name: string; projectId?: string; source?: AppSource; harness?: HarnessType; model?: string }): Promise<App>; // ship mode: the default for the source // default source: the nextjs template
+  updateApp(id: string, patch: { name?: string; projectId?: string | null; devCommand?: string | null }): App; // ship mode: ship's setShipMode
   /** Resolves when a new App is ready or has failed (creation runs in the background). */
   ready(appId: string): Promise<void>;
   /** Stops every dev server, agent and sandbox without snapshotting (process shutdown, tests). */
@@ -305,7 +314,37 @@ export class StudioError extends Error {
 - **Preview.** A dev server per chat worktree on `chat.port`, and one for `version` on `basePort`, started with `setup.dev` through `sandbox.spawn`. `url` is `previewUrl(target, await sandbox.expose(port))`. An App has at most 99 chats, so ports stay within 4100–4199.
 - **Limits.** If `maxRunningChats` turns are already running in the App, `send` throws `StudioError("busy")`.
 - **Durability.** Every step persists before and after it runs. After each turn the sandbox is snapshotted to `objects`, and an App whose sandbox isn't in memory resumes from `snapshot` (worktrees are repaired, because their paths may change). Dev servers start again lazily. Time comes only from `clock`.
-- **Sandboxes** carry the labels `kiln.studio.app: <id>` and `kiln.dev/preview: "true"`.
+- **Sandboxes** carry the label `kiln.studio.app: <id>` and `preview: true`, which puts them on the preview network (Docker) or gives them `kiln.dev/preview: "true"` (Kubernetes).
+
+## Chats reuse runs and subagents (next; supersedes the direct harness turn above)
+
+ADR-012: every agent execution in a chat is a **run**, and parallel work is **subagent runs**, exactly as in factories ([Tasks, runs and subagents](../site/developer-tools/tasks-and-runs.md)). Studio builds no lead/child mechanism of its own. Built today: a turn calls `harness.start` directly. This section replaces that; nothing below is built yet.
+
+**What maps to what**
+
+| Studio                            | Runs                                                                                                                                                                                                                    |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A turn                            | One run of the App's lead agent (from the App definition), `source: "WEB_APP"` (or `MCP`), `metadata: { "studio.app": <appId>, "studio.chat": <chatId> }`                                                               |
+| A person's next message in a chat | `RunService.followup(chat.runId, …)`: steers the live run, or continues the finished one in a new run (`continuationOf`)                                                                                                |
+| A chat started by an agent        | `spawn_agent` / `run_agents` from the chat's run with its run token; `spawnableBy` and the five-level limit apply. The child run gets its own worktree, branch and preview (below), and Studio shows it as a child chat |
+| Stop                              | `RunService.interrupt` (the run is `blocked` until a follow-up)                                                                                                                                                         |
+| Agent types                       | The agents of the App definition (`app-definitions` branch), with their `spawnableBy`                                                                                                                                   |
+| Status                            | The App's run trees (`ancestor_run_id`), read through Studio's routes                                                                                                                                                   |
+
+`Turn` becomes Studio's record of a run: `Turn.runId` is added, and `checkpoint`, `discarded`, `plan`, `title` and `summary` stay Studio's. `Chat.runId` is the latest run of that line of work. The parent/child relation comes from `Run.parentRunId`; Chat gets no parent field of its own.
+
+**Additions to the shared run machinery** (for factories too; not in `gates.ts` or `state.ts`):
+
+1. **Workspace hook.** `KilnOptions.workspaces?: { acquire(run: Run, parent?: Run): Promise<{ sandbox: Sandbox; cwd: string } | undefined>; release(run: Run): Promise<void> }`. When `acquire` returns a workspace, the run executes there instead of creating its own sandbox. It doesn't clone, doesn't destroy the sandbox at the end, and records `startState.repos` from `cwd`'s `HEAD`. Studio's provider answers for runs with `studio.app` metadata: the App sandbox, plus a new worktree for a child run.
+2. **Report to the parent.** `spawn` takes `report?: boolean`. When the child finishes (`succeeded`, `failed`, `blocked` after an interrupt, or a budget stop) or asks a question, Kiln delivers `{ name, title, summary, branch, reason, question? }` to the parent with `followup`. That steers the parent if it's live, or starts its next run if it finished. This replaces polling and mirrors how `run_finished` wakes the foreman (ADR-011).
+3. **Fork.** `spawn` takes `fork?: boolean`: the child's prompt starts with the parent's conversation, taken from its transcript; by default it gets only the brief.
+4. **Name.** `spawn` takes `name?`, unique among the runs of one root tree, and `followups` accept a name within the caller's tree as well as an id.
+
+**Open decisions (need an answer before building):**
+
+- **App runs and factories.** `Run.factory` and `definitionSha` resolve through `kiln.defs`. Either App definition trees are stored in the same content-addressed definition store with an App id in place of a factory id, or runs get an `app` field and `RunService` resolves App definitions through `AppDefinitions`. Recommended: the second, because App definitions are layered (team → Kiln Project → App).
+- **Reading App runs.** `/runs` access is decided in `canReadRun` in `apps/api/src/app.ts` (protected). Either App runs are readable only through Studio's routes (no protected change), or `canReadRun` learns App team access (needs approval). Recommended: Studio's routes first.
+- **Run tokens for App runs.** They are scoped to the App's run tree, may spawn, follow up, interrupt and call the Studio tools for that App only, and never decide gates, merge or approve (ADR-008). The cowboy push credential is a separate, ship-mode-scoped grant (ADR-012).
 
 ## Events (`packages/events`, added to `KilnEventMap`)
 
@@ -328,45 +367,45 @@ export type ToolResult = { ok: true; data: unknown; client?: ClientAction } | { 
 export type ClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" };
 ```
 
-| Name       | Kind   | Input (zod)                                                                                                                                  |
-| ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`   | server | `{ app?: string }`                                                                                                                           |
-| `open_app` | server | `{ app: string } \| { name: string; source?: AppSource; shipMode?: ShipMode; projectId?: string }`; returns the App plus `client: { focus }` |
-| `new_chat` | server | `{ app: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string; title?: string }`; returns `client: { focus }`      |
-| `send`     | server | `{ chat: string; text: string; mode?: ChatMode }`                                                                                            |
-| `apply`    | server | `{ chat: string }`                                                                                                                           |
-| `restore`  | server | `{ version: string }`                                                                                                                        |
-| `bookmark` | server | `{ version: string; on: boolean }`                                                                                                           |
-| `look`     | server | `{ chat: string }`; returns the `Preview` (a screenshot is a follow-up)                                                                      |
-| `focus`    | client | `{ app: string; chat?: string }`                                                                                                             |
-| `show`     | client | `{ view: "preview" \| "code" \| "history" }`                                                                                                 |
+| Name       | Kind   | Input (zod)                                                                                                                             |
+| ---------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`   | server | `{ app?: string }`                                                                                                                      |
+| `open_app` | server | `{ app: string } \| { name: string; source?: AppSource; projectId?: string }`; returns the App plus `client: { focus }`                 |
+| `new_chat` | server | `{ app: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string; title?: string }`; returns `client: { focus }` |
+| `send`     | server | `{ chat: string; text: string; mode?: ChatMode }`                                                                                       |
+| `apply`    | server | `{ chat: string }`                                                                                                                      |
+| `restore`  | server | `{ version: string }`                                                                                                                   |
+| `bookmark` | server | `{ version: string; on: boolean }`                                                                                                      |
+| `look`     | server | `{ chat: string }`; returns the `Preview` (a screenshot is a follow-up)                                                                 |
+| `focus`    | client | `{ app: string; chat?: string }`                                                                                                        |
+| `show`     | client | `{ view: "preview" \| "code" \| "history" }`                                                                                            |
 
 Client tools return `{ ok: true, data: null, client }` and change nothing on the server. Every server tool acts only on the caller's team's Apps; another team's App answers "unknown app".
 
 ## API (`apps/api/src/routes/studio.ts`)
 
-Every route needs a signed-in caller (`ctx.user`). Apps belong to `ctx.team(c)`; an App of another team answers 404. Bodies are validated with the zod schemas above. A `StudioError` maps `not_found` → 404, `invalid` → 400, `busy` and `conflict` → 409, `unavailable` → 503.
+Every route needs a signed-in caller (`ctx.user`) and a token scope: reads need `read` and changes need `send`, both team-wide (`ctx.need(c, scope, "*")`). Apps belong to `ctx.team(c)`; an App of another team answers 404. Bodies are validated with the zod schemas above. A `StudioError` maps `not_found` → 404, `invalid` → 400, `busy` and `conflict` → 409, `unavailable` → 503.
 
-| Method and path                              | Body                                                         | Response                                                              |
-| -------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------- |
-| `GET /api/v1/studio/apps`                    |                                                              | `{ apps: App[] }`                                                     |
-| `POST /api/v1/studio/apps`                   | `{ name, projectId?, source?, shipMode?, harness?, model? }` | `App` (status `creating`; poll until `ready`)                         |
-| `GET /api/v1/studio/apps/{id}`               |                                                              | `{ app, chats: Chat[], versions: Version[] }` (versions newest first) |
-| `PATCH /api/v1/studio/apps/{id}`             | `{ name?, projectId?, shipMode?, devCommand? }`              | `App`                                                                 |
-| `POST /api/v1/studio/apps/{id}/pause`        |                                                              | `App`                                                                 |
-| `POST /api/v1/studio/apps/{id}/chats`        | `{ prompt?, mode?, harness?, model?, title? }`               | `{ chat: Chat, turn?: Turn }`                                         |
-| `GET /api/v1/studio/chats/{id}`              |                                                              | `{ chat, turns: Turn[] }` (oldest first)                              |
-| `POST /api/v1/studio/chats/{id}/messages`    | `{ text, mode? }`                                            | `{ turn: Turn, steered: boolean }`                                    |
-| `POST /api/v1/studio/chats/{id}/apply`       |                                                              | `ApplyResult`                                                         |
-| `GET /api/v1/studio/chats/{id}/diff`         |                                                              | `{ diff: string }` (since the chat branched or was last applied)      |
-| `GET /api/v1/studio/chats/{id}/preview`      |                                                              | `Preview` (starts the dev server if needed)                           |
-| `GET /api/v1/studio/chats/{id}/events`       |                                                              | SSE: `turn` (a `Turn`, on every change) and `chat` (a `Chat`)         |
-| `POST /api/v1/studio/versions/{id}/restore`  |                                                              | `Version`                                                             |
-| `POST /api/v1/studio/versions/{id}/bookmark` | `{ on: boolean }`                                            | `Version`                                                             |
-| `GET /api/v1/studio/versions/{id}/diff`      |                                                              | `{ diff: string }` (against its parent version)                       |
-| `GET /api/v1/studio/versions/{id}/preview`   |                                                              | `Preview` (checks the version out in `version`)                       |
-| `GET /api/v1/studio/status`                  |                                                              | `StatusReport`                                                        |
-| `POST /api/v1/studio/tools/{name}`           | the tool's input                                             | `ToolResult`                                                          |
+| Method and path                              | Body                                              | Response                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/studio/apps`                    |                                                   | `{ apps: App[] }`                                                                                          |
+| `POST /api/v1/studio/apps`                   | `{ name, projectId?, source?, harness?, model? }` | `App` (status `creating`; poll until `ready`)                                                              |
+| `GET /api/v1/studio/apps/{id}`               |                                                   | `{ app, chats: Chat[], versions: Version[] }` (versions newest first)                                      |
+| `PATCH /api/v1/studio/apps/{id}`             | `{ name?, projectId?, devCommand? }`              | `App`                                                                                                      |
+| `POST /api/v1/studio/apps/{id}/pause`        |                                                   | `App`                                                                                                      |
+| `POST /api/v1/studio/apps/{id}/chats`        | `{ prompt?, mode?, harness?, model?, title? }`    | `{ chat: Chat, turn?: Turn }`                                                                              |
+| `GET /api/v1/studio/chats/{id}`              |                                                   | `{ chat, turns: Turn[] }` (oldest first)                                                                   |
+| `POST /api/v1/studio/chats/{id}/messages`    | `{ text, mode? }`                                 | `{ turn: Turn, steered: boolean }`                                                                         |
+| `POST /api/v1/studio/chats/{id}/apply`       |                                                   | `ApplyResult`                                                                                              |
+| `GET /api/v1/studio/chats/{id}/diff`         |                                                   | `{ diff: string }` (since the chat branched or was last applied)                                           |
+| `GET /api/v1/studio/chats/{id}/preview`      |                                                   | `Preview` (starts the dev server if needed)                                                                |
+| `GET /api/v1/studio/chats/{id}/events`       |                                                   | SSE, driven by the chat's `studio.*` bus events: `chat` (a `Chat`) and `turn` (the `Turn` the event names) |
+| `POST /api/v1/studio/versions/{id}/restore`  |                                                   | `Version`                                                                                                  |
+| `POST /api/v1/studio/versions/{id}/bookmark` | `{ on: boolean }`                                 | `Version`                                                                                                  |
+| `GET /api/v1/studio/versions/{id}/diff`      |                                                   | `{ diff: string }` (against its parent version)                                                            |
+| `GET /api/v1/studio/versions/{id}/preview`   |                                                   | `Preview` (checks the version out in `version`)                                                            |
+| `GET /api/v1/studio/status`                  |                                                   | `StatusReport`                                                                                             |
+| `POST /api/v1/studio/tools/{name}`           | the tool's input                                  | `ToolResult`                                                                                               |
 
 ### Preview proxy (`apps/api/src/routes/studio-preview.ts`, a `PUBLIC_MODULES` entry)
 
@@ -444,12 +483,28 @@ export type ShipModeChoice = { id: string /* app id */; mode: ShipMode; by: stri
 
 `maxShipMode(app, policy, actor)` is the highest mode `actor` (`{ by, role }`) may pick: the lower of the App policy's cap (`maxShipMode`, lowered by `roles[role]`) and ADR-012's default for the actor: owners and admins `cowboy`; the App's creator `cowboy` on a template App; other members `review`; a caller without a team role `safe`. `Shipper.setShipMode(appId, mode, actor)` refuses a mode above the cap (`StudioError("invalid")`), then updates the App and records the choice in `studio_ship_choices`. Every ship-mode change goes through it: the `open_app` tool and the API's PATCH (`shipMode`) included. This is a small check, replaced by the roles plan later.
 
+**Policies are the only truth for caps and the gate.** Ship-mode caps and the merge-gate switch come from the App definition's policies through the `app-definitions` resolver (ADR-012, ADR-014). There are no Store copies (`studio_ship_policies` and `merge_gate_settings` are not built). Neither `PATCH /apps/{id}` nor `open_app` accepts `shipMode`; a ship-mode change goes through `Shipper.setShipMode`.
+
 ### The App's pull request
 
+**Ship flow (one contract for ship, the merge gate and the web).** A `ship` tool (server) opens or updates the App's pull request from its main line. Its state:
+
+```text
+uat ──ready──▶ ready_for_review ──gate──▶ merged
+ │                    │               └──▶ waiting_for_review ──person merges──▶ merged
+ └──cancel──▶ cancelled ◀──cancel─────────────┘
+```
+
+- **UAT**: the author tests it; new turns update the same pull request.
+- **ready_for_review**: the author is done. Ship calls the merge gate (ADR-014) once: `readyForReview(pr: AppPullRequest): Promise<{ outcome: "merged" } | { outcome: "review"; reasons: string[] }>`. `merged` sets the state to `merged`; `review` sets it to `waiting_for_review` with the reasons.
+- **waiting_for_review**: a person reviews and merges on the forge. The merge gate, not ship, creates the reviewers' Inbox item and raises the single `needs_you` event (`merge_gate.review_updated`). Ship maps that event onto its pull request record and emits nothing for the same transition.
+- **merged** (by the gate, or a person on the forge, seen through the forge webhook) and **cancelled** (the pull request is closed) are final. The gate's `pullRequestClosed(pr)` removes its Inbox item.
+- The merge gate is **off by default** (ADR-014): with it off, `readyForReview` always answers `review`.
+
 ```ts
-export const PullRequestState = z.enum(["uat", "ready_for_review", "merged", "waiting_for_review", "cancelled"]);
+export const PullRequestState = z.enum(["uat", "ready_for_review", "waiting_for_review", "merged", "cancelled"]);
 export type AppPullRequest = {
-  id: string; // "sp_…"
+  id: string; // "spr_…"
   appId: string;
   forge: string;
   repo: string; // "owner/name"
@@ -460,9 +515,8 @@ export type AppPullRequest = {
   state: PullRequestState;
   versionId: string; // the App version its head is
   builtInPreview?: string; // Studio's preview of that version (ShipperOptions.versionPreviewUrl)
-  previewUrl?: string; // the deployment preview, when a PreviewProvider is configured
-  reviewId?: string; // the merge gate's review
-  reasons?: string[]; // the merge gate's, when waiting_for_review
+  reviewReasons?: string[]; // set with waiting_for_review
+  previewUrl?: string; // the deployment preview, when a preview provider is configured
   createdBy: string; // the author
   createdAt: string;
   updatedAt: string;
@@ -470,12 +524,18 @@ export type AppPullRequest = {
 // store: studio_pull_requests
 ```
 
-- One open pull request per App. `ship` or a `review` push opens it in `uat`; later pushes update it (same branch) and set `versionId` and the previews again. A push to an App in `ready_for_review` or `waiting_for_review` moves it back to `uat`.
-- `ready_for_review` is set only by a person, the author (`createdBy`); actors `studio` and `agent:*` are refused. Then Studio calls the merge gate's `readyForReview` and maps its answer: `merged` → `merged`; `needs_review` → `waiting_for_review` with its reasons; `deciding` → stays `ready_for_review` until `merge_gate.review_updated` (`Shipper.reviewUpdated`); `closed` → `cancelled`. The gate, not ship, adds the Inbox item and raises the needs-you event; ship publishes nothing for the gate's outcomes.
-- `cancelled` (the author or a team admin) closes the pull request on the forge (`Forge.closePullRequest`) and, when it was past `uat`, calls the gate's `pullRequestClosed({ repo, number, merged: false, by })`.
-- `merged` and `cancelled` are final; the next `ship` opens a new pull request. `Shipper.forgeMerged(repo, number)` records a person's merge from the forge webhook.
+- One open pull request per App. `ship` or a `review` push opens it in `uat`; later pushes update it (same branch) and set `versionId` and the previews again. A push to an App in `ready_for_review` or `waiting_for_review` moves it back to `uat` (and calls the gate's `pullRequestClosed`, so its Inbox item clears until the author is ready again).
+- `ready_for_review` is set only by a person, the author (`createdBy`); actors `studio` and `agent:*` are refused.
+- `cancelled` (the author or a team admin) closes the pull request on the forge (`Forge.closePullRequest`) and, when it was past `uat`, calls the gate's `pullRequestClosed(pr)`.
+- `merged` and `cancelled` are final; the next `ship` opens a new pull request. `Shipper.reviewUpdated` maps `merge_gate.review_updated` (`merged` → `merged`, `closed` → `cancelled`); `Shipper.forgeMerged(repo, number)` records a merge seen through the forge webhook while the gate wasn't involved.
 
-**Merge gate.** Studio uses the merge gate's `StudioMergeGate` (`readyForReview`, `pullRequestClosed`; see "Merge gate (ADR-014)" and [merge-gate.md](merge-gate.md)), redeclared in `ship/merge-gate.ts` with `FakeStudioMergeGate` for tests. The API passes `kiln.mergeGate` as `ShipperOptions.mergeGate` and forwards `merge_gate.review_updated` to `Shipper.reviewUpdated`.
+```ts
+// ship/merge-gate.ts, redeclared structurally; the API passes kiln.mergeGate as ShipperOptions.mergeGate
+export interface StudioMergeGate {
+  readyForReview(pr: AppPullRequest): Promise<{ outcome: "merged" } | { outcome: "review"; reasons: string[] }>;
+  pullRequestClosed(pr: AppPullRequest): unknown;
+}
+```
 
 ### Forge additions (`packages/integrations`)
 
@@ -498,9 +558,9 @@ Both have `FakeForge` and `GitHubForge` implementations and one contract suite. 
 No `state` (or `uat`) pushes and opens or updates the pull request; returns the `AppPullRequest`. `runTool` takes the `Shipper` as an optional fifth argument; without it `ship` answers "shipping isn't configured on this server".
 
 ```ts
-"studio.pull_request_state_changed": { appId: string; pullRequestId: string; state: PullRequestState; url: string; priority: "finished" | "progress" };
-// for the transitions ship makes: uat, cancelled and a forge merge → "finished"; ready_for_review → "progress".
-// Never needs_you: the merge gate's merge_gate.review_updated is the one notification for its outcomes.
+"studio.pull_request_state_changed": { appId: string; pullRequestId: string; state: PullRequestState; url: string; priority: "finished" };
+// for the transitions ship makes itself (uat, ready_for_review, cancelled, a forge merge). Never needs_you:
+// the merge gate's merge_gate.review_updated is the one needs-you event for a review.
 ```
 
 ### Service (`packages/studio/src/ship/shipper.ts`)
@@ -545,7 +605,27 @@ export class Shipper {
 
 ## Later (not built in phases 1–4)
 
-**Coupling to a factory** (optional per App) and **Kiln Project environments** inherited by previews.
+**Coupling to a factory** (optional per App).
+
+## Spec change: environments
+
+Kiln Projects hold environments (see [project-environments.md](project-environments.md)). The resolver lives in `packages/engine` (`kiln.variables`), not in `packages/studio`; Studio only receives the result:
+
+```ts
+// packages/engine/src/platform/variables.ts
+kiln.variables.forApp(app: { id: string; team: string; projectId?: string }, environment = "preview"): {
+  env: Record<string, string>; // team → project → App, later layers override
+  secretValues: string[]; // for redaction from turn output and logs
+  sources: Record<string, { scope: "team" | "project" | "factory" | "app"; owner: string; secret: boolean }>;
+};
+```
+
+- `forApp` returns only values people assigned in the team, project and App layers. It never falls back to server secrets, the admin secret store or `KILN_SECRET_<NAME>`. A harness credential comes from `StudioOptions.credentials`, not from here.
+- This is the one environment resolver: factory runs (`kiln.variables.forFactory`) and PR previews use the same layers. Don't add another.
+- `routes/studio.ts` builds `Studio` with `env: (app) => kiln.variables.forApp(app).env` and redacts `secretValues` from turn events and dev server logs it stores.
+- App-level overrides are a variable layer with `scope: "app"`, `owner: <app id>` (`PUT /api/v1/variables/app/{appId}/preview`). The App's settings can link to it; Studio does not store variables itself.
+- `setup.envMissing` is computed against this map, so a key set on the project clears it for every App in that project.
+- Dev servers, installs and harness runs all get `preview`. `production` is for shipping, later.
 
 ## Acceptance
 

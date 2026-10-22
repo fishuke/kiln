@@ -56,7 +56,7 @@ Kiln applies one namespace per pull request with `kubectl apply`:
 | Image | How to name the image for a repository and branch. Your CI must build and push that image. |
 | Port | The container port. Default 3000. |
 
-The preview URL is `https://pr-<number>.<repo>.<domain>`. Destroying a preview deletes its namespace.
+The preview URL is `https://pr-<number>.<repo>.<domain>`. When the factory is in a project with `preview` variables, Kiln also applies a Secret `app-env` with them and loads it into the container with `envFrom`. See [Project environments](../management/secrets-mcps-environments.md#project-environments). Destroying a preview deletes its namespace.
 
 ## Studio live previews
 

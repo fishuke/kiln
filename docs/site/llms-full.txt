@@ -1702,6 +1702,10 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/environments/{id}` | — | One environment |
 | PATCH | `/api/v1/environments/{id}` | — | Change an environment |
 | DELETE | `/api/v1/environments/{id}` | — | Delete an environment |
+| GET | `/api/v1/variables` | — | Variable layers of a team, project, factory or App, one per environment (no secret values) |
+| GET | `/api/v1/variables/resolve` | — | The variables an environment resolves to for a project, factory or App, and where each comes from |
+| PUT | `/api/v1/variables/{scope}/{owner}/{environment}` | — | Replace a layer's variables (a secret sent without a value keeps its value) |
+| DELETE | `/api/v1/variables/{scope}/{owner}/{environment}` | — | Delete a layer |
 
 ## Usage
 
@@ -1992,6 +1996,29 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/workers/{instance}/runs/{runId}/complete` | `worker` | Report a run's result, artifacts and pushed branches |
 | DELETE | `/api/v1/workers/{instance}` | `worker` | Disconnect; its running runs fail and are retried |
 
+## Studio
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/studio/apps` | — | Your team's Studio Apps |
+| POST | `/api/v1/studio/apps` | — | Create an App from a template or an existing repository; it starts as creating |
+| GET | `/api/v1/studio/apps/{id}` | — | An App with its chats and versions (newest first) |
+| PATCH | `/api/v1/studio/apps/{id}` | — | Rename an App, change its ship mode, Kiln Project or dev command |
+| POST | `/api/v1/studio/apps/{id}/pause` | — | Snapshot an App's workspace and free its sandbox; the next use resumes it |
+| POST | `/api/v1/studio/apps/{id}/chats` | — | Start a chat (its own worktree and preview), optionally with a first message |
+| GET | `/api/v1/studio/chats/{id}` | — | A chat with its turns (oldest first) |
+| POST | `/api/v1/studio/chats/{id}/messages` | — | Send a message: starts a turn, or steers the running one |
+| POST | `/api/v1/studio/chats/{id}/apply` | — | Apply a chat's checkpoints to the App's main line as a version |
+| GET | `/api/v1/studio/chats/{id}/diff` | — | The chat's changes since it branched or was last applied |
+| GET | `/api/v1/studio/chats/{id}/preview` | — | The chat's live preview (starts its dev server) |
+| GET | `/api/v1/studio/chats/{id}/events` | — | Server-sent events: the chat and its latest turn whenever they change |
+| POST | `/api/v1/studio/versions/{id}/restore` | — | Restore a version as a new version |
+| POST | `/api/v1/studio/versions/{id}/bookmark` | — | Pin or unpin a version |
+| GET | `/api/v1/studio/versions/{id}/diff` | — | A version's changes against its parent |
+| GET | `/api/v1/studio/versions/{id}/preview` | — | Preview an earlier version |
+| GET | `/api/v1/studio/status` | — | What is working and what needs you, across your team's Apps |
+| POST | `/api/v1/studio/tools/{name}` | — | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, focus, show) |
+
 ## Errors
 
 Errors are JSON: `{ "error": "message" }` with status 400 (invalid request; `issues` lists the fields), 401 (missing or invalid token), 402 (`{ "error": "budget_exceeded", "message": ... }`: the team's spend limit is reached and auto-stop is on), 403 (token lacks the scope), 404 (unknown resource), 409 (wrong state or already exists), 410 (expired invite) or 413 (upload too large).
@@ -2126,6 +2153,16 @@ List my factories, then help me send a task to the right one and follow it throu
 | `send_task` | Send new work to a factory's foreman (factory, title, note), or hand a task you worked on locally back (task_id, branch or pr_url, note). |
 | `spawn_agent` | Start a subagent of your factory for part of the work. Returns at once with the child run; follow it with get_run. Only agents whose spawnableBy allows you can be started. |
 | `steer_run` | Send a steering message to a running agent. |
+| `studio_apply` | Studio: Apply a chat's changes to the app's main line as a new version. |
+| `studio_bookmark` | Studio: Pin or unpin a version. |
+| `studio_focus` | Studio: Move the person's screen to an app and, optionally, a chat. (Moves the caller's screen; changes nothing on the server.) |
+| `studio_look` | Studio: The live preview of a chat (its URL). |
+| `studio_new_chat` | Studio: Start a new chat (a parallel line of work) in an app, optionally with a first message. |
+| `studio_open_app` | Studio: Open an app by id, or create one from a name and a source (a template or a repository). |
+| `studio_restore` | Studio: Restore an earlier version as a new version; nothing is lost. |
+| `studio_send` | Studio: Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them. |
+| `studio_show` | Studio: Show the preview, the code or the history in the person's screen. (Moves the caller's screen; changes nothing on the server.) |
+| `studio_status` | Studio: What is running and what needs the person, for one app or all of them. |
 | `validate_factory_files` | Validate a whole definition tree without saving it: diagnostics with file and line, plus what is resolved only when applied. With apply=true and a factory, applies it (definitions:write). |
 
 ## Related pages
@@ -2161,25 +2198,25 @@ deduplication: { enabled: true, windowHours: 24, threshold: 0.5 }
 
 ## Task stages
 
-| Stage | Kiln states |
-| --- | --- |
-| `TRIAGE` | received, triaging |
-| `SPEC` | planning, awaiting_spec |
+| Stage       | Kiln states                |
+| ----------- | -------------------------- |
+| `TRIAGE`    | received, triaging         |
+| `SPEC`      | planning, awaiting_spec    |
 | `IMPLEMENT` | building, awaiting_preview |
-| `REVIEW` | reviewing, handed_off |
-| `COMPLETE` | complete |
-| `CANCELLED` | cancelled, failed |
+| `REVIEW`    | reviewing, handed_off      |
+| `COMPLETE`  | complete                   |
+| `CANCELLED` | cancelled, failed          |
 
 `PATCH …/tasks/{id}` may set any stage. `COMPLETE` needs `decide:merge` and closes the task as a person's confirmation; `CANCELLED` cancels it and every run and subagent still going. `DELETE` is a soft delete. Task outputs (`PLAN`, `PULL_REQUEST`, `SCREENSHOT`, `FILE`, `EXTERNAL_REFERENCE`) come newest first.
 
 ## Run states and sources
 
-| State | Meaning |
-| --- | --- |
-| `QUEUED` | Waiting for a [self-hosted worker](../infrastructure/self-hosted-workers.md). |
-| `CLAIMED` | A worker took it and is preparing the sandbox. |
-| `INPROGRESS` | The agent is working. |
-| `BLOCKED` | Waiting on a person: a command approval, an interrupt, or a paused run. |
+| State                                       | Meaning                                                                                          |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `QUEUED`                                    | Waiting for a [self-hosted worker](../infrastructure/self-hosted-workers.md).                    |
+| `CLAIMED`                                   | A worker took it and is preparing the sandbox.                                                   |
+| `INPROGRESS`                                | The agent is working.                                                                            |
+| `BLOCKED`                                   | Waiting on a person: a command approval, an interrupt, or a paused run.                          |
 | `SUCCEEDED`, `FAILED`, `ERROR`, `CANCELLED` | Finished. `FAILED` means the task could not be done as asked; `ERROR` means the platform failed. |
 
 The coarse `task_status` filter groups them: `running`, `blocked`, `failed`, `cancelled`, `complete`. Each run also has a `source` (`LINEAR`, `SLACK`, `GITHUB_WEBHOOK`, `API`, `CLI`, `MCP`, `WEB_APP`, `SCHEDULED_AGENT`, `ORCHESTRATION`, `SELF_IMPROVEMENT`, `BENCHMARK_TRIAL`, `CUSTOM_WEBHOOK`, …), a `title`, `creator` and `executor`, `rootRunId`, and up to 20 immutable `metadata` keys you can filter on with `metadata[key]=value`.
@@ -2203,7 +2240,10 @@ Errors carry a `code` from the catalog (`GET /api/v1/errors`): for example `budg
 A running agent gets `KILN_RUN_TOKEN` and the Kiln MCP server. With it, it may:
 
 - read its own task and the runs of its task or run tree, message its task, and upload files;
-- start subagents: `POST /runs/{id}/spawn` (MCP `spawn_agent`) or several at once with `run-agents` (`run_agents`). The child's `spawnableBy` decides who may start it; nesting stops at five levels;
+- start subagents: `POST /runs/{id}/spawn` (MCP `spawn_agent`) or several at once with `run-agents` (`run_agents`). The child's `spawnableBy` decides who may start it; nesting stops at five levels. Three options shape a subagent:
+  - `name`: lowercase letters, digits and dashes, unique among the runs of the tree. The agent can then use the name instead of the run id in `followups`, `interrupt` and the other run calls. A continuation keeps the name, so it always means the latest run of that line of work.
+  - `fork: true`: the child's prompt starts with the parent's conversation so far (its request, its messages and people's steering), then the brief. Without it the child gets only the brief.
+  - `report: true`: when the child finishes, fails, is stopped or runs out of budget, or asks a question, the parent gets a follow-up with a report: the child's name, title, summary, branch, the reason (`finished`, `failed`, `stopped`, `out_of_budget` or `needs_input`) and the question. A live parent is steered with it; a parent that finished continues in a new run. No polling is needed;
 - ask the requester a question (`POST /runs/{id}/questions`, MCP `ask_user`) with single- or multi-select options and a recommended option, and read the answer from the gate;
 - propose a definition change (`propose_definition_change`) that people review in the inbox;
 - call `complete_task`, which closes the task only after its pull request merged.
@@ -4301,7 +4341,7 @@ Kiln applies one namespace per pull request with `kubectl apply`:
 | Image | How to name the image for a repository and branch. Your CI must build and push that image. |
 | Port | The container port. Default 3000. |
 
-The preview URL is `https://pr-<number>.<repo>.<domain>`. Destroying a preview deletes its namespace.
+The preview URL is `https://pr-<number>.<repo>.<domain>`. When the factory is in a project with `preview` variables, Kiln also applies a Secret `app-env` with them and loads it into the container with `envFrom`. See [Project environments](../management/secrets-mcps-environments.md#project-environments). Destroying a preview deletes its namespace.
 
 ## Studio live previews
 
@@ -4696,6 +4736,8 @@ To create a project through the API, your token needs `send` on every factory in
 
 A work item sent through the API can name a project.
 
+A project can hold environments: variables and secrets its factories and Studio Apps get in runs and previews. See [Project environments](secrets-mcps-environments.md#project-environments).
+
 Each project can hold one roadmap from the [plan agent](../product-owners/planning.md). Making a new plan replaces the project's current roadmap.
 
 ## The portfolio
@@ -4724,6 +4766,7 @@ The digest tells each person which decisions are waiting on them, oldest first, 
 - [Dashboard metrics](../measure-and-improve/metrics.md)
 - [Inbox](inbox.md)
 - [Admin, RBAC and audit](admin-rbac-audit.md)
+- [Secrets, MCP servers and environments](secrets-mcps-environments.md)
 
 ---
 
@@ -4854,6 +4897,52 @@ At run time:
 
 Manage environments with `GET`, `POST`, `PATCH` and `DELETE /api/v1/environments`.
 
+## Project environments
+
+A project environment is a named set of variables and secrets, such as `preview` or `production`, that a project's factories and Studio Apps get. Use it for settings an app needs to run, like the API URL a preview calls.
+
+Variables are set in layers. Each later layer replaces a key from an earlier one:
+
+| Layer | Who changes it | Applies to |
+| --- | --- | --- |
+| Team | Team owners and admins | Every factory in a project and every Studio App in the team |
+| Project | Team owners and admins, and the project's owner | The project's factories and Apps |
+| Factory | Admins of the factory | That factory |
+| App | Team owners and admins, and the App's creator | That Studio App |
+
+A factory that is in no project gets no project environment variables, not even the team's.
+
+### Where variables go
+
+Both use the `preview` environment:
+
+- **Factory runs:** the variables are added to the run's environment. Kiln's own variables (`KILN_*`), harness credentials and MCP server secrets win over a variable with the same name.
+- **PR previews:** the preview provider gets the factory's variables. The Kubernetes provider puts them in a Secret named `app-env` in the preview's namespace and loads it with `envFrom`. Vercel deployments use the variables set on the Vercel project.
+
+### Secrets
+
+Turn on **Secret** for a variable to keep it write-only. Secret values are sealed with `KILN_SECRET_KEY` like team secrets, never returned by the API or shown in the UI, and replaced with `[redacted]` in run output. To change other variables, leave a saved secret's value empty: Kiln keeps it.
+
+### Rules
+
+- Environment names use lowercase letters, digits and dashes, starting with a letter, at most 32 characters.
+- Keys use letters, digits and underscores, and can't start with `KILN_`.
+- A layer holds at most 200 variables. A value can be at most 128 KiB.
+- Every change is in the audit log as `variables.updated` or `variables.deleted`, with the keys and never the values.
+
+### Managing them
+
+Open a project and use **Environments**: one card per environment, with the team's variables it inherits listed underneath.
+
+Through the API:
+
+| Route | Does |
+| --- | --- |
+| `GET /api/v1/variables?scope=<scope>&owner=<id>` | Lists an owner's layers. `scope` is `team`, `project`, `factory` or `app`; for `team`, `owner` is the team id. |
+| `PUT /api/v1/variables/<scope>/<owner>/<environment>` | Replaces a layer: `{ "variables": [{ "key": "API_URL", "value": "https://api.example.com" }, { "key": "TOKEN", "secret": true }] }` |
+| `DELETE /api/v1/variables/<scope>/<owner>/<environment>` | Deletes a layer |
+| `GET /api/v1/variables/resolve?environment=preview&factory=<id>` | Shows what a factory, App (`app=`) or project (`project=`) gets, with the layer each key comes from |
+
 ## Private images
 
 A runner pulls a private image with a team secret of type `docker_registry` or `aws_ecr`:
@@ -4880,6 +4969,7 @@ An environment does the same with `registryCredentialSecretName` next to its `im
 - [Harnesses](../infrastructure/harnesses.md)
 - [Agents](../configuration/agents.md)
 - [Admin, RBAC and audit](admin-rbac-audit.md)
+- [Portfolio and projects](portfolio.md)
 
 ---
 

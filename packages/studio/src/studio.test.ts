@@ -65,6 +65,7 @@ function make(over: Partial<StudioOptions> = {}) {
     sandboxes: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-"))),
     harness: () => harness,
     templates: { test: TEST },
+    image: "kiln-runner-studio:test",
     previewUrl: (target, a) => `http://${a.host}:${a.port}/#${target}`,
     basePort: (basePort += 10),
     ...over,
@@ -126,13 +127,14 @@ describe("apps", () => {
     expect(studio.updateApp(p.id, { devCommand: null }).setup?.dev).toBe("npm run dev");
   });
 
-  it("labels its sandboxes for the preview network policy and keeps ports in the preview range", async () => {
+  it("asks for preview sandboxes and keeps ports in the preview range", async () => {
     const local = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
     const specs: SandboxSpec[] = [];
     const sandboxes = { name: "local", create: (spec: SandboxSpec) => (specs.push(spec), local.create(spec)), resume: local.resume.bind(local) };
     const { studio } = make({ sandboxes, basePort: undefined });
     const p = await app(studio);
-    expect(specs[0]).toMatchObject({ preview: true, labels: { "kiln.dev/preview": "true", "kiln.studio.app": p.id } });
+    // preview: true puts it on the preview network (Docker) or gives it the kiln.dev/preview label (Kubernetes).
+    expect(specs[0]).toMatchObject({ preview: true, labels: { "kiln.studio.app": p.id } });
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     expect(chat.port).toBe(4101);
     expect(chat.id).toMatch(/^sc_[0-9a-f]{32}$/);

@@ -147,6 +147,10 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/environments/{id}` | — | One environment |
 | PATCH | `/api/v1/environments/{id}` | — | Change an environment |
 | DELETE | `/api/v1/environments/{id}` | — | Delete an environment |
+| GET | `/api/v1/variables` | — | Variable layers of a team, project, factory or App, one per environment (no secret values) |
+| GET | `/api/v1/variables/resolve` | — | The variables an environment resolves to for a project, factory or App, and where each comes from |
+| PUT | `/api/v1/variables/{scope}/{owner}/{environment}` | — | Replace a layer's variables (a secret sent without a value keeps its value) |
+| DELETE | `/api/v1/variables/{scope}/{owner}/{environment}` | — | Delete a layer |
 
 ## Usage
 
@@ -436,6 +440,29 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/workers/{instance}/runs/{runId}/events` | `worker` | Stream a run's events back |
 | POST | `/api/v1/workers/{instance}/runs/{runId}/complete` | `worker` | Report a run's result, artifacts and pushed branches |
 | DELETE | `/api/v1/workers/{instance}` | `worker` | Disconnect; its running runs fail and are retried |
+
+## Studio
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| GET | `/api/v1/studio/apps` | — | Your team's Studio Apps |
+| POST | `/api/v1/studio/apps` | — | Create an App from a template or an existing repository; it starts as creating |
+| GET | `/api/v1/studio/apps/{id}` | — | An App with its chats and versions (newest first) |
+| PATCH | `/api/v1/studio/apps/{id}` | — | Rename an App, change its ship mode, Kiln Project or dev command |
+| POST | `/api/v1/studio/apps/{id}/pause` | — | Snapshot an App's workspace and free its sandbox; the next use resumes it |
+| POST | `/api/v1/studio/apps/{id}/chats` | — | Start a chat (its own worktree and preview), optionally with a first message |
+| GET | `/api/v1/studio/chats/{id}` | — | A chat with its turns (oldest first) |
+| POST | `/api/v1/studio/chats/{id}/messages` | — | Send a message: starts a turn, or steers the running one |
+| POST | `/api/v1/studio/chats/{id}/apply` | — | Apply a chat's checkpoints to the App's main line as a version |
+| GET | `/api/v1/studio/chats/{id}/diff` | — | The chat's changes since it branched or was last applied |
+| GET | `/api/v1/studio/chats/{id}/preview` | — | The chat's live preview (starts its dev server) |
+| GET | `/api/v1/studio/chats/{id}/events` | — | Server-sent events: the chat and its latest turn whenever they change |
+| POST | `/api/v1/studio/versions/{id}/restore` | — | Restore a version as a new version |
+| POST | `/api/v1/studio/versions/{id}/bookmark` | — | Pin or unpin a version |
+| GET | `/api/v1/studio/versions/{id}/diff` | — | A version's changes against its parent |
+| GET | `/api/v1/studio/versions/{id}/preview` | — | Preview an earlier version |
+| GET | `/api/v1/studio/status` | — | What is working and what needs you, across your team's Apps |
+| POST | `/api/v1/studio/tools/{name}` | — | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, focus, show) |
 
 ## Errors
 

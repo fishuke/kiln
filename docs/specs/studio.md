@@ -179,6 +179,8 @@ export type Template = {
   install: string[];
   /** Dev server command; {port} is replaced. It must bind 0.0.0.0. */
   dev: string;
+  /** The preview is ready when GET `path` on the dev port answers with any status; give up after `timeoutMs`. */
+  ready?: { path: string; timeoutMs: number };
   /** Runner image with the harness CLIs and the template baked in (defaults to KILN_RUNNER_IMAGE). */
   image?: string;
   egress: string[];
@@ -190,11 +192,13 @@ export const TEMPLATES: Record<string, Template>;
 `nextjs`:
 
 - `scaffold`: `test -d /opt/kiln/templates/nextjs && cp -a /opt/kiln/templates/nextjs/. . || pnpm dlx create-next-app@15 . --ts --tailwind --app --eslint --use-pnpm --yes --skip-install`
-- `install`: `pnpm install --prefer-offline`
-- `dev`: `pnpm next dev --port {port} --hostname 0.0.0.0`
+- `install`: `test -d node_modules || cp -al "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/node_modules" node_modules 2>/dev/null || true`, then `pnpm install --prefer-offline`. A worktree hard-links the project's `node_modules` (0.2 s) instead of importing 400 MB from the image's pnpm store, which overlayfs copies up (20 s).
+- `dev`: `pnpm next dev --turbopack --port {port} --hostname 0.0.0.0` (Turbopack compiles the first page in about 2 s, webpack in about 6 s)
+- `ready`: `{ path: "/", timeoutMs: 60000 }`
+- Studio starts the dev server with `KILN_STUDIO_PREVIEW_DOMAIN` in its environment when the server has one; the template's `next.config.ts` turns it into `allowedDevOrigins: ["*.<domain>"]` (port stripped), so hot reload works through the proxy. Dev ports stay within 4100–4199.
 - `egress`: `registry.npmjs.org`
 
-The template owner provides `/opt/kiln/templates/nextjs`, a ready app with `node_modules` and a pnpm store warmed in the runner image, so the first preview takes about 10 seconds.
+The template owner provides `/opt/kiln/templates/nextjs`, a ready app with `node_modules` and a pnpm store warmed in the runner image (`runners/images/studio`, tagged `kiln-runner-studio:local`), so the first preview takes about 10 seconds. The template data is in `templates/templates.json`; `TEMPLATES` must match it. `StudioOptions.image` comes from `KILN_STUDIO_IMAGE`, else `KILN_RUNNER_IMAGE`.
 
 ## App source and import
 

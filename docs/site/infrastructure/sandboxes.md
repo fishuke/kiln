@@ -108,6 +108,37 @@ A running agent can be paused, for example while it waits at a gate, and resumed
 
 Snapshots hold files only. On Docker, the server can also be set to take a CRIU checkpoint that keeps processes; the snapshot records whether it did. Kubernetes snapshots never keep processes.
 
+## The Studio runner
+
+Studio Apps run in their own image, `kiln-runner-studio`, so a new App needs no install. It is the runner image plus the Next.js template from `templates/nextjs` at `/opt/kiln/templates/nextjs`, with its `node_modules` installed, the pnpm store at `/opt/kiln/pnpm-store` and pnpm itself cached for corepack.
+
+```sh
+docker build -t kiln-runner-node:local runners/images/node
+docker build -t kiln-runner-studio:local -f runners/images/studio/Dockerfile templates/nextjs
+```
+
+Set `KILN_STUDIO_IMAGE=kiln-runner-studio:local` on the API. Without it, Studio uses `KILN_RUNNER_IMAGE` and creates the App with `create-next-app`, which downloads everything and takes minutes. `runners/studio.yaml` is the matching runner file.
+
+The template is App Router, TypeScript, Tailwind CSS 4 and shadcn/ui, with `AGENTS.md` (and a `CLAUDE.md` that imports it) telling agents to keep the dev server running, use the components in `components/ui/` and keep turns small. Its Studio settings are in `templates/templates.json`:
+
+| Step                       | Command                                                                  | Time              |
+| -------------------------- | ------------------------------------------------------------------------ | ----------------- |
+| Create the App             | `cp -a /opt/kiln/templates/nextjs/. .`                                   | 1–3 s             |
+| Install in a chat worktree | hard-link the App's `node_modules`, then `pnpm install --prefer-offline` | about 1 s         |
+| Start the preview          | `pnpm next dev --turbopack --port {port} --hostname 0.0.0.0`             |                   |
+| Ready                      | `GET /` on the port answers                                              | 4–5 s after start |
+
+The first preview is up 7 to 10 seconds after the App is created. A worktree hard-links `node_modules` because importing 400 MB from a store in an image layer makes overlayfs copy every file (about 20 seconds). The template loads its Geist fonts from the `geist` package, so the dev server needs no host but `registry.npmjs.org`. When the server sets `KILN_STUDIO_PREVIEW_DOMAIN`, the template's `next.config.ts` allows `*.<domain>` as a dev origin, so hot reload works through the preview proxy.
+
+To measure the boot on your machine:
+
+```sh
+pnpm tsx scripts/studio-template.ts kiln-runner-studio:local
+KILN_STUDIO_BOOT_IMAGE=kiln-runner-studio:local pnpm vitest run scripts/studio-template.test.ts
+```
+
+The test is skipped unless `KILN_STUDIO_BOOT_IMAGE` is set and Docker answers.
+
 ## Related pages
 
 - [Harnesses](harnesses.md)

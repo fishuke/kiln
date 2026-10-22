@@ -5,13 +5,24 @@ import { dirname, join } from "node:path";
 import { FakeProvider, type DecisionOutcome, type DecisionProvider } from "@kiln/decide";
 import { InMemoryEventBus } from "@kiln/events";
 import { adapterFor, type HarnessAdapter } from "@kiln/harness";
-import type { Chat, ConnectionProvider, ConnectionProviderId, Forge, GitHubAppCredentials, GitHubManifestClient, Mailer, PreviewProvider, RepoRef, Tracker } from "@kiln/integrations";
+import type {
+  Chat,
+  ConnectionProvider,
+  ConnectionProviderId,
+  Forge,
+  GitHubAppCredentials,
+  GitHubManifestClient,
+  Mailer,
+  PreviewProvider,
+  RepoRef,
+  Tracker,
+} from "@kiln/integrations";
 import { isActive } from "./state";
 import { ConnectionService, IdentityService } from "./connections";
 import { ReviewService } from "./reviews";
 import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
 import { WebhookSourceService } from "./webhook-sources";
-import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
+import { LocalSandboxProvider, type Sandbox, type SandboxProvider } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import { MemoryObjectStore, MemoryStore, type ObjectStore, type Store } from "@kiln/store";
 import { AutomationService } from "./automations";
@@ -30,7 +41,23 @@ import { ImprovementService, RuleImprover, type Improver } from "./improvement";
 import { InboxService } from "./inbox";
 import { MemoryService } from "./memories";
 import { MetricsService } from "./metrics";
-import { AccountService, ChatgptSignIn, CredentialPool, EnvironmentService, HttpMcpProbe, McpRegistry, type McpProbe, NotificationService, type EcrTokenProvider, SecretVault, StorageRouter, TeamService, UsageService, UserService, VariableService } from "./platform";
+import {
+  AccountService,
+  ChatgptSignIn,
+  CredentialPool,
+  EnvironmentService,
+  HttpMcpProbe,
+  McpRegistry,
+  type McpProbe,
+  NotificationService,
+  type EcrTokenProvider,
+  SecretVault,
+  StorageRouter,
+  TeamService,
+  UsageService,
+  UserService,
+  VariableService,
+} from "./platform";
 import { PlanningService, type Planner } from "./planning";
 import { RunQuery } from "./run-query";
 import { RunService } from "./runs";
@@ -39,12 +66,23 @@ import { DecisionJudge, ScoringService, type Judge } from "./scoring";
 import { SecretsBroker } from "./secrets";
 import { SkillService } from "./skills";
 import { TaskService } from "./tasks";
-import { C, newId, systemClock, type AuditEntry, type Clock, type DecisionLog, type GateQuestion, type WorkItem } from "./types";
+import { C, newId, systemClock, type AuditEntry, type Clock, type DecisionLog, type GateQuestion, type Run, type WorkItem } from "./types";
 import { WorkerRegistry } from "./workers";
 import { Workflow } from "./workflow";
 import { FactoryWizard } from "./wizard";
 
+/**
+ * Where a run works when it shouldn't get a sandbox of its own: a Studio App's run works in the App's
+ * sandbox, in a chat's worktree. `acquire` answers undefined for runs it doesn't take; `release` is
+ * called once the agent finished, with the workspace still there, instead of destroying the sandbox.
+ */
+export interface WorkspaceProvider {
+  acquire(run: Run, parent?: Run): Promise<{ sandbox: Sandbox; cwd: string } | undefined>;
+  release(run: Run): Promise<void>;
+}
+
 export type KilnOptions = {
+  workspaces?: WorkspaceProvider;
   forge: Forge;
   store?: Store;
   objects?: ObjectStore;
@@ -261,7 +299,11 @@ export class Kiln {
       const { factory, workItemId, from, to } = e.payload;
       const wi = this.workflow.get(workItemId);
       if (!wi || wi.source.automation?.startsWith("stage:")) return;
-      await this.automations.handleFactoryEvent(factory, { provider: "factory", event: "work_item_stage_changed", data: { from, to, workItemId, title: `${wi.title} → ${to}`, body: wi.body } });
+      await this.automations.handleFactoryEvent(factory, {
+        provider: "factory",
+        event: "work_item_stage_changed",
+        data: { from, to, workItemId, title: `${wi.title} → ${to}`, body: wi.body },
+      });
     });
 
     if (options.autoScore !== false) {
@@ -303,7 +345,12 @@ export class Kiln {
       if (wi) return this.teams.factoryTeam(wi.factory);
       const run = target.startsWith("run_") ? this.store.get<{ id: string; factory: string; team?: string }>(C.runs, target) : undefined;
       if (run) return run.team ?? this.teams.factoryTeam(run.factory);
-      const owned = this.store.get<{ id: string; factory?: string; teamId?: string }>(C.gates, target) ?? this.store.get(C.proposals, target) ?? this.store.get(C.memories, target) ?? this.store.get("mcp_servers", target) ?? this.store.get("environments", target);
+      const owned =
+        this.store.get<{ id: string; factory?: string; teamId?: string }>(C.gates, target) ??
+        this.store.get(C.proposals, target) ??
+        this.store.get(C.memories, target) ??
+        this.store.get("mcp_servers", target) ??
+        this.store.get("environments", target);
       if (owned?.teamId) return owned.teamId;
       if (owned?.factory) return this.teams.factoryTeam(owned.factory);
       const token = target.startsWith("tok_") ? this.store.get<{ id: string; teamId?: string; userId?: string }>("api_tokens", target) : undefined;

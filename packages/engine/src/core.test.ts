@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { FakeProvider, heuristicRule, type FakeRule } from "@kiln/decide";
 import { FakeHarness, type HarnessAdapter } from "@kiln/harness";
 import { FakeForge } from "@kiln/integrations";
@@ -290,6 +293,45 @@ describe("runs: sources, metadata, follow-ups, interrupts and subagent trees", (
     expect(timeline).toEqual(expect.arrayContaining(["created", "started", "spawn", "subagent.started", "subagent.finished", "finished"]));
     expect(kiln.runQuery.conversation(first.id).messages[1]).toMatchObject({ role: "user", text: "build it" });
     expect(kiln.runQuery.transcript(first.id)).toContain("## Prompt");
+  });
+});
+
+describe("provided workspaces", () => {
+  it("runs in a workspace someone else owns, under its own guard, and gives it back instead of destroying it", async () => {
+    const shared = await new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-shared-"))).create({
+      runner: { image: "node:22", backend: "local", setupCommands: [], egress: [] },
+      repos: [],
+    });
+    await shared.exec("mkdir -p work && cd work && git init -q -b main && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init", {
+      trusted: true,
+    });
+    const released: string[] = [];
+    const blocked: string[] = [];
+    const harness = new FakeHarness(async ({ opts }) => {
+      await opts.sandbox.exec("echo hi > note.txt", { cwd: opts.cwd });
+      await opts.sandbox.exec("rm -rf /", { cwd: opts.cwd }).catch((err: Error) => blocked.push(err.message));
+      return { summary: "ok" };
+    });
+    const { kiln } = createTestKiln({
+      harness: () => harness,
+      workspaces: {
+        acquire: async (run) => (run.metadata?.workspace === "shared" ? { sandbox: shared, cwd: "work" } : undefined),
+        release: async (run) => void released.push(run.id),
+      },
+    });
+    const sha = kiln.defs.require("webapp").appliedSha!;
+    const run = await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "write a note", push: false, metadata: { workspace: "shared" } });
+    expect(run.status).toBe("succeeded");
+    expect(await shared.readFile("work/note.txt")).toBe("hi\n");
+    expect(blocked).toEqual(["blocked by guardrail: rm -rf /"]);
+    expect(run.startState.repos).toEqual([{ name: "work", url: "", sha: expect.stringMatching(/^[0-9a-f]{40}$/) }]);
+    expect(released).toEqual([run.id]);
+    expect(existsSync(shared.workdir)).toBe(true);
+    // A run the hook doesn't take gets its own sandbox as before.
+    const own = await kiln.runs.execute({ factory: "webapp", sha, agent: "implement", prompt: "x", push: false });
+    expect(own.status).toBe("succeeded");
+    expect(released).toEqual([run.id]);
+    await shared.destroy();
   });
 });
 

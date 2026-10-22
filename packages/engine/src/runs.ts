@@ -4,7 +4,7 @@ import { BUILTIN_DECISIONS, guardCommand, runDecision } from "@kiln/decide";
 import type { DefinitionTree, ResolvedAgent, ResolvedFactory } from "@kiln/definitions";
 import type { HarnessSession } from "@kiln/harness";
 import { repoKey, type RepoRef } from "@kiln/integrations";
-import { hashDir, type RegistryAuth, type Sandbox, type SandboxProvider, type SandboxRunner, type SnapshotRef } from "@kiln/sandbox";
+import { hashDir, withGuard, type RegistryAuth, type Sandbox, type SandboxProvider, type SandboxRunner, type SnapshotRef } from "@kiln/sandbox";
 import type { HarnessType, Runner } from "@kiln/schema";
 import { classifyError, KilnError, retriesAutomatically, runStatusFor } from "./errors";
 import type { Kiln } from "./kiln";
@@ -203,6 +203,8 @@ type Prepared = {
 
 export class RunService {
   private readonly sessions = new Map<string, HarnessSession>();
+  /** Runs working in a workspace the WorkspaceProvider lent them: released, never destroyed. */
+  private readonly borrowed = new Set<string>();
   private readonly remotes = new Map<string, RemoteSession>();
   private readonly sandboxes = new Map<string, Sandbox>();
   /** Forge credentials given to a run's sandbox, redacted from its output. */
@@ -627,7 +629,15 @@ export class RunService {
       this.remotes.delete(run.id);
       this.live.delete(run.id);
       run.finishedAt = this.k.clock.now().toISOString();
-      if (run.status !== "paused") {
+      if (this.borrowed.delete(run.id)) {
+        // The lender keeps the sandbox; the run only gives its workspace back.
+        this.sandboxes.delete(run.id);
+        try {
+          await this.k.options.workspaces!.release(run);
+        } catch (err) {
+          this.record(run, "error", `giving the workspace back failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } else if (run.status !== "paused") {
         this.sandboxes.delete(run.id);
         await sandbox?.destroy().catch(() => {});
       }
@@ -669,26 +679,39 @@ export class RunService {
     // Setup commands target the runner's image; when Kiln falls back to the host they are skipped.
     const effective: SandboxRunner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [], workspaceSetupCommands: [] };
     let sandbox: Sandbox | undefined;
-    sandbox = await provider.create({
-      registryAuth: p.registryAuth,
-      runner: effective,
-      repos: await Promise.all(repos.map(async (r) => ({ name: r.name, url: this.k.forge.cloneUrl(r, await this.cloneToken(run.id, r, token)) }))),
-      env: { KILN_RUN_ID: run.id },
-      labels: { "kiln.dev/run": run.id, "kiln.dev/factory": input.factory },
-      deniedHosts: p.deniedHosts,
-      guard: async (command) => {
-        const { verdict, outcome } = await guardCommand(command, { cwd: sandbox?.workdir, branch: input.branch }, this.k.decide, decisions);
-        this.k.logDecision(outcome, { command }, { workItemId: input.workItem?.id, runId: run.id });
-        if (verdict !== "allow") this.record(run, "guard", `${verdict}: ${command}`);
-        return verdict;
-      },
-      askHuman: (command) => this.k.gates.askCommand({ run, workItem: input.workItem, command }),
-    });
+    const guard = async (command: string) => {
+      const { verdict, outcome } = await guardCommand(command, { cwd: sandbox?.workdir, branch: input.branch }, this.k.decide, decisions);
+      this.k.logDecision(outcome, { command }, { workItemId: input.workItem?.id, runId: run.id });
+      if (verdict !== "allow") this.record(run, "guard", `${verdict}: ${command}`);
+      return verdict;
+    };
+    const askHuman = (command: string) => this.k.gates.askCommand({ run, workItem: input.workItem, command });
+    const provided = await this.k.options.workspaces?.acquire(run, run.parentRunId ? this.get(run.parentRunId) : undefined);
+    if (provided) {
+      // Someone else's sandbox: this run's guard still decides its agent's commands.
+      sandbox = withGuard(provided.sandbox, guard, askHuman);
+      this.borrowed.add(run.id);
+    } else {
+      sandbox = await provider.create({
+        registryAuth: p.registryAuth,
+        runner: effective,
+        repos: await Promise.all(repos.map(async (r) => ({ name: r.name, url: this.k.forge.cloneUrl(r, await this.cloneToken(run.id, r, token)) }))),
+        env: { KILN_RUN_ID: run.id },
+        labels: { "kiln.dev/run": run.id, "kiln.dev/factory": input.factory },
+        deniedHosts: p.deniedHosts,
+        guard,
+        askHuman,
+      });
+    }
     this.sandboxes.set(run.id, sandbox);
     this.specs.set(run.id, runner);
-    const cwd = repos[0]?.name;
+    const cwd = provided ? provided.cwd : repos[0]?.name;
     run.startState.repos = [];
-    for (const r of repos) {
+    if (provided) {
+      const head = await sandbox.exec("git rev-parse HEAD", { cwd: provided.cwd, trusted: true });
+      if (head.code === 0) run.startState.repos.push({ name: provided.cwd, url: "", sha: head.stdout.trim() });
+    }
+    for (const r of provided ? [] : repos) {
       const dir = r.name;
       const sh = (cmd: string) => sandbox!.exec(cmd, { cwd: dir, trusted: true });
       await sh(
@@ -707,7 +730,7 @@ export class RunService {
       const bytes = await this.k.objects.get(a.key);
       if (bytes) await sandbox.writeBytes(`${cwd ? `${cwd}/` : ""}.kiln/attachments/${a.name}`, bytes);
     }
-    if (sandbox.provider === "local") run.startState.workspaceSha = hashDir(sandbox.workdir);
+    if (sandbox.provider === "local" && !provided) run.startState.workspaceSha = hashDir(sandbox.workdir);
     this.save(run);
     this.k.skills.recordUsage(input.factory, agent.skills);
 

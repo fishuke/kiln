@@ -9,6 +9,10 @@ services:
       KILN_PUBLIC_URL: ${KILN_PUBLIC_URL:-http://localhost:4000}
       KILN_WEB_URL: ${KILN_WEB_URL:-http://localhost:3000}
       KILN_SANDBOX: ${KILN_SANDBOX:-docker}
+      # Studio previews: e.g. preview.localhost:4000 (browsers resolve *.localhost to this machine).
+      KILN_STUDIO_PREVIEW_DOMAIN: ${KILN_STUDIO_PREVIEW_DOMAIN:-}
+    # On the sandbox network too, so the preview proxy reaches the sandboxes' dev servers.
+    networks: [default, kiln-egress]
     volumes:
       - kiln-data:/data
       - /var/run/docker.sock:/var/run/docker.sock

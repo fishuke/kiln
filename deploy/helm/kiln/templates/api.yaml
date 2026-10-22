@@ -34,6 +34,7 @@ spec:
             - { name: KILN_WEB_URL, value: {{ .Values.webUrl | quote }} }
             - { name: KILN_SANDBOX, value: kubernetes }
             - { name: KILN_SANDBOX_NAMESPACE, value: {{ .Values.sandboxes.namespace }} }
+            - { name: KILN_STUDIO_PREVIEW_DOMAIN, value: {{ .Values.studio.previewDomain | quote }} }
           readinessProbe: { httpGet: { path: /api/v1/health, port: 4000 }, periodSeconds: 10 }
           volumeMounts: [{ name: data, mountPath: /data }]
           resources: {{- toYaml .Values.resources.api | nindent 12 }}

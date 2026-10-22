@@ -1,21 +1,35 @@
 import { HarnessType } from "@kiln/schema";
 import { z } from "zod";
+import type { Shipper } from "./ship/shipper";
+import type { TeamRole } from "./ship/types";
 import type { Studio } from "./studio";
-import { ChatMode, AppSource, StudioError, type Via } from "./types";
+import { ChatMode, AppSource, ShipMode, StudioError, type Via } from "./types";
 
 export type ToolKind = "server" | "client";
 export type StudioTool<I extends z.ZodType = z.ZodType, N extends string = string> = { name: N; kind: ToolKind; description: string; input: I };
 export type ClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" };
 export type ToolResult = { ok: true; data: unknown; client?: ClientAction } | { ok: false; error: string };
-export type ToolCaller = { team: string; by: string; via: Via };
+/** `role` is the caller's team role; shipping checks it (who may cancel). */
+export type ToolCaller = { team: string; by: string; via: Via; role?: TeamRole };
+const actor = (caller: ToolCaller) => ({ by: caller.by, ...(caller.role ? { role: caller.role } : {}) });
 
-const tool = <N extends string, I extends z.ZodType>(name: N, kind: ToolKind, description: string, input: I): StudioTool<I, N> => ({ name, kind, description, input });
+const tool = <N extends string, I extends z.ZodType>(name: N, kind: ToolKind, description: string, input: I): StudioTool<I, N> => ({
+  name,
+  kind,
+  description,
+  input,
+});
 
 const Status = z.object({ app: z.string().optional() }).strict();
 const OpenApp = z.union([
   z.object({ app: z.string() }).strict(),
+  // No shipMode: a ship-mode change goes through Shipper.setShipMode and its cap check.
   z.object({ name: z.string().min(1).max(100), source: AppSource.optional(), projectId: z.string().optional() }).strict(),
 ]);
+const Ship = z
+  .object({ app: z.string(), title: z.string().min(1).max(200).optional(), state: z.enum(["uat", "ready_for_review", "cancelled"]).optional() })
+  .strict();
+const SetShipMode = z.object({ app: z.string(), mode: ShipMode }).strict();
 const NewChat = z
   .object({
     app: z.string(),
@@ -45,6 +59,18 @@ export const STUDIO_TOOLS = [
   tool("bookmark", "server", "Pin or unpin a version.", Bookmark),
   tool("look", "server", "The live preview of a chat (its URL).", ChatRef),
   tool("stop", "server", "Stop the chat's agent; it waits for the next message.", ChatRef),
+  tool(
+    "ship",
+    "server",
+    "Open or update the App's pull request from its main line; or, as its author, mark it ready for review (the merge gate merges it or sends it to a reviewer); or cancel it.",
+    Ship,
+  ),
+  tool(
+    "set_ship_mode",
+    "server",
+    "Change an App's ship mode (safe, review or cowboy), up to the highest mode the App's policy allows the caller's role. Only a person may.",
+    SetShipMode,
+  ),
   tool("focus", "client", "Move the person's screen to an app and, optionally, a chat.", Focus),
   tool("show", "client", "Show the preview, the code or the history in the person's screen.", Show),
 ] as const satisfies readonly StudioTool[];
@@ -55,20 +81,20 @@ type Tools = (typeof STUDIO_TOOLS)[number];
 type ToolCall = { [T in Tools as T["name"]]: { name: T["name"]; input: z.infer<T["input"]> } }[StudioToolName];
 
 /** Run a tool by name with unvalidated input, as the caller's team. Errors come back as `{ ok: false }`. */
-export async function runTool(studio: Studio, name: string, input: unknown, caller: ToolCaller): Promise<ToolResult> {
+export async function runTool(studio: Studio, name: string, input: unknown, caller: ToolCaller, shipper?: Shipper): Promise<ToolResult> {
   const def = STUDIO_TOOLS.find((t) => t.name === name);
   if (!def) return { ok: false, error: `unknown tool ${name}` };
   const parsed = def.input.safeParse(input ?? {});
   if (!parsed.success) return { ok: false, error: parsed.error.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ") };
   try {
-    return await dispatch(studio, { name: def.name, input: parsed.data } as ToolCall, caller);
+    return await dispatch(studio, { name: def.name, input: parsed.data } as ToolCall, caller, shipper);
   } catch (err) {
     if (err instanceof StudioError) return { ok: false, error: err.message };
     throw err;
   }
 }
 
-async function dispatch(studio: Studio, call: ToolCall, caller: ToolCaller): Promise<ToolResult> {
+async function dispatch(studio: Studio, call: ToolCall, caller: ToolCaller, shipper: Shipper | undefined): Promise<ToolResult> {
   const app = (id: string) => {
     const p = studio.getApp(id);
     if (!p || p.app.team !== caller.team) throw new StudioError("not_found", `unknown app ${id}`);
@@ -118,6 +144,18 @@ async function dispatch(studio: Studio, call: ToolCall, caller: ToolCaller): Pro
       return { ok: true, data: null };
     case "look":
       return { ok: true, data: await studio.preview({ chatId: chat(call.input.chat) }) };
+    case "ship": {
+      const { app: appId, ...input } = call.input;
+      app(appId);
+      if (!shipper) return { ok: false, error: "shipping isn't configured on this server" };
+      return { ok: true, data: await shipper.ship(appId, input, actor(caller)) };
+    }
+    case "set_ship_mode": {
+      const { app: appId, mode } = call.input;
+      app(appId);
+      if (!shipper) return { ok: false, error: "shipping isn't configured on this server" };
+      return { ok: true, data: shipper.setShipMode(appId, mode, actor(caller)) };
+    }
     case "focus": {
       const { app: appId, chat: chatId } = call.input;
       return { ok: true, data: null, client: { focus: chatId ? { app: appId, chat: chatId } : { app: appId } } };

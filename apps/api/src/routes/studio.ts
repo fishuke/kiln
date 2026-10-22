@@ -1,7 +1,21 @@
 import type { Scope } from "@kiln/auth";
 import { DEFAULT_RUNNER_IMAGE, type Kiln } from "@kiln/engine";
 import { HarnessType } from "@kiln/schema";
-import { AppSource, ChatMode, runTool, STUDIO_TOOLS, Studio, StudioError, studioRuns, type StudioErrorCode, type StudioOptions } from "@kiln/studio";
+import {
+  AppSource,
+  ChatMode,
+  runTool,
+  Shipper,
+  ShipMode,
+  STUDIO_TOOLS,
+  Studio,
+  StudioError,
+  studioRuns,
+  targetOf,
+  type StudioErrorCode,
+  type StudioOptions,
+  type TeamRole,
+} from "@kiln/studio";
 import { appDefinitionsFor } from "./studio-definitions";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -38,6 +52,10 @@ export const NewChat = z
   .strict();
 export const SendMessage = z.object({ text: z.string().min(1), mode: ChatMode.optional() }).strict();
 export const Bookmark = z.object({ on: z.boolean() }).strict();
+export const SetShipMode = z.object({ mode: ShipMode }).strict();
+export const Ship = z
+  .object({ title: z.string().trim().min(1).max(200).optional(), state: z.enum(["uat", "ready_for_review", "cancelled"]).optional() })
+  .strict();
 
 const S = "Studio";
 export const routes: Route[] = [
@@ -57,6 +75,22 @@ export const routes: Route[] = [
     summary: "Rename an App, change its Kiln Project or dev command",
     scope: "send",
     body: UpdateApp,
+    tag: S,
+  },
+  {
+    method: "put",
+    path: "/api/v1/studio/apps/{id}/ship-mode",
+    summary: "Change an App's ship mode, up to the highest mode the App's policy allows your team role",
+    scope: "send",
+    body: SetShipMode,
+    tag: S,
+  },
+  {
+    method: "post",
+    path: "/api/v1/studio/apps/{id}/ship",
+    summary: "Open or update the App's pull request; as its author, mark it ready for review; or cancel it",
+    scope: "send",
+    body: Ship,
     tag: S,
   },
   {
@@ -103,7 +137,7 @@ export const routes: Route[] = [
     method: "post",
     path: "/api/v1/studio/tools/{name}",
     summary:
-      "Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, focus, show); status, look, focus and show need read, the rest send",
+      "Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send",
     scope: "send",
     tag: S,
   },
@@ -124,6 +158,7 @@ const overrides = new WeakMap<Kiln, Partial<StudioOptions>>();
 export function configureStudio(kiln: Kiln, options: Partial<StudioOptions>) {
   overrides.set(kiln, options);
   services.delete(kiln);
+  shippers.delete(kiln);
 }
 
 /** The Studio service for a `Kiln`, built on first use; undefined unless KILN_STUDIO=1 and a sandbox backend exists. */
@@ -166,6 +201,55 @@ export function studioFor(kiln: Kiln): Studio | undefined {
   return studio;
 }
 
+const shippers = new WeakMap<Kiln, Shipper>();
+
+/** Whether any factory lists the repository ("owner/name"): Studio never pushes its main branch (ADR-012). */
+function factoryRepository(kiln: Kiln, repo: string): boolean {
+  return kiln.defs
+    .list()
+    .some((f) => f.appliedSha !== undefined && kiln.defs.resolved(f.appliedSha).factory.repositories.some((r) => `${r.owner}/${r.name}` === repo));
+}
+
+/**
+ * Shipping for a `Kiln` (docs/specs/studio.md, "Shipping"): pushes per ship mode, the App's pull
+ * request and the merge gate. Caps and default-branch pushes come only from the App's policy.
+ * Template Apps get a repository under KILN_STUDIO_REPO_OWNER on their first push.
+ */
+export function shipperFor(kiln: Kiln): Shipper | undefined {
+  const existing = shippers.get(kiln);
+  if (existing) return existing;
+  const studio = studioFor(kiln);
+  if (!studio) return undefined;
+  const definitions = appDefinitionsFor(kiln);
+  const owner = process.env.KILN_STUDIO_REPO_OWNER?.trim();
+  const shipper = new Shipper({
+    studio,
+    store: kiln.store,
+    bus: kiln.bus,
+    clock: kiln.clock,
+    forge: () => kiln.forge,
+    ...(owner ? { newRepo: () => ({ owner }) } : {}),
+    linkedToFactory: (repo) => factoryRepository(kiln, repo),
+    policyOf: (app) => definitions.policy(targetOf(app)),
+    mergeGate: kiln.mergeGate,
+    ...(kiln.preview ? { previews: kiln.preview } : {}),
+    audit: (actor, action, target, details) => kiln.audit(actor, action, target, details),
+  });
+  shipper.start();
+  // The gate's later outcome (a person merged, or the review closed) lands on the App's pull request.
+  kiln.bus.subscribe("merge_gate.review_updated", (e) => {
+    if (!e.payload.appId) return;
+    shipper.reviewUpdated({
+      ...(e.payload.pullRequestId ? { pullRequestId: e.payload.pullRequestId } : {}),
+      repo: e.payload.repo,
+      number: e.payload.number,
+      state: e.payload.state,
+    });
+  });
+  shippers.set(kiln, shipper);
+  return shipper;
+}
+
 const STATUS: Record<StudioErrorCode, 400 | 404 | 409 | 503> = { not_found: 404, invalid: 400, busy: 409, conflict: 409, unavailable: 503 };
 
 /** Studio's REST routes (docs/specs/studio.md). Every route acts as a signed-in user in their current team, with a team-wide scope. */
@@ -173,6 +257,8 @@ export function register(ctx: RouteContext) {
   const { app, kiln } = ctx;
   // Built now, so the preview proxy can resolve targets after a restart before any Studio route is called.
   studioFor(kiln);
+  // And shipping, so pushes follow new versions from the start.
+  shipperFor(kiln);
   const studio = () => {
     const s = studioFor(kiln);
     if (!s)
@@ -184,7 +270,14 @@ export function register(ctx: RouteContext) {
   };
   const caller = (c: Context<Env>, scope: Scope) => {
     ctx.need(c, scope, "*");
-    return { team: ctx.team(c).id, by: ctx.user(c).email, via: "api" as const };
+    const access = ctx.access(c);
+    const role: TeamRole | undefined = access.superuser ? "owner" : access.teamRole;
+    return { team: ctx.team(c).id, by: ctx.user(c).email, via: "api" as const, ...(role ? { role } : {}) };
+  };
+  const shipper = () => {
+    const s = shipperFor(kiln);
+    if (!s) throw new StudioError("unavailable", "shipping isn't configured on this server");
+    return s;
   };
   /** Imports only from repositories the caller's team may use, through the server's forge. */
   const checkImport = (c: Context<Env>, source: AppSource | undefined) => {
@@ -239,7 +332,24 @@ export function register(ctx: RouteContext) {
     "/api/v1/studio/apps/:id",
     wrap((c) => {
       const { who: _, ...found } = ownApp(c, id(c), "read");
-      return c.json(found);
+      const pullRequest = shipperFor(kiln)?.pullRequests(id(c))[0];
+      return c.json({ ...found, ...(pullRequest ? { pullRequest } : {}) });
+    }),
+  );
+  app.put(
+    "/api/v1/studio/apps/:id/ship-mode",
+    wrap(async (c) => {
+      const { who } = ownApp(c, id(c), "send");
+      const { mode } = SetShipMode.parse(await c.req.json());
+      return c.json(shipper().setShipMode(id(c), mode, { by: who.by, ...(who.role ? { role: who.role } : {}) }));
+    }),
+  );
+  app.post(
+    "/api/v1/studio/apps/:id/ship",
+    wrap(async (c) => {
+      const { who } = ownApp(c, id(c), "send");
+      const body = Ship.parse(await c.req.json());
+      return c.json(await shipper().ship(id(c), body, { by: who.by, ...(who.role ? { role: who.role } : {}) }));
     }),
   );
   app.patch(
@@ -389,7 +499,7 @@ export function register(ctx: RouteContext) {
         const source = AppSource.safeParse((input as { source?: unknown } | null)?.source);
         if (source.success) checkImport(c, source.data);
       }
-      return c.json(await runTool(studio(), name, input, who));
+      return c.json(await runTool(studio(), name, input, who, shipperFor(kiln)));
     }),
   );
 }

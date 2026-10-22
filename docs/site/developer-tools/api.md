@@ -449,6 +449,8 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/studio/apps` | `send` | Create an App from a template or a repository your team may use; it starts as creating |
 | GET | `/api/v1/studio/apps/{id}` | `read` | An App with its chats and versions (newest first) |
 | PATCH | `/api/v1/studio/apps/{id}` | `send` | Rename an App, change its Kiln Project or dev command |
+| PUT | `/api/v1/studio/apps/{id}/ship-mode` | `send` | Change an App's ship mode, up to the highest mode the App's policy allows your team role |
+| POST | `/api/v1/studio/apps/{id}/ship` | `send` | Open or update the App's pull request; as its author, mark it ready for review; or cancel it |
 | POST | `/api/v1/studio/apps/{id}/pause` | `send` | Snapshot an App's workspace and free its sandbox; the next use resumes it |
 | POST | `/api/v1/studio/apps/{id}/chats` | `send` | Start a chat (its own worktree and preview), optionally with a first message |
 | GET | `/api/v1/studio/chats/{id}` | `read` | A chat with its turns (oldest first) |
@@ -463,7 +465,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/studio/versions/{id}/preview` | `read` | Preview an earlier version |
 | GET | `/api/v1/studio/status` | `read` | What is working and what needs you, across your team's Apps |
 | GET | `/api/v1/studio/events` | `read` | Server-sent events for your team's Apps: Studio events and merge gate reviews |
-| POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, focus, show); status, look, focus and show need read, the rest send |
+| POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send |
 | GET | `/api/v1/studio/apps/{id}/definition` | — | An App's own Studio definition layer: tree, sha and history |
 | PUT | `/api/v1/studio/apps/{id}/definition` | — | Replace an App's own definition layer (kiln/v1 App tree) |
 | PATCH | `/api/v1/studio/apps/{id}/definition` | — | Change an App's own definition layer from settings |

@@ -37,7 +37,23 @@ import { registerOAuthConsent, registerOAuthServer } from "./oauth";
  * `routes` (listed in ../openapi.ts); the platform and integration modules are registration
  * functions whose routes openapi.ts lists directly. Keep app.ts for auth and the core routes.
  */
-export const MODULES = [factoryFiles, files, tasks, reviews, runs, inbox, measure, scorers, benchmarks, definitions, factories, workers, studio, studioDefinitions, mergeGate];
+export const MODULES = [
+  factoryFiles,
+  files,
+  tasks,
+  reviews,
+  runs,
+  inbox,
+  measure,
+  scorers,
+  benchmarks,
+  definitions,
+  factories,
+  workers,
+  studio,
+  studioDefinitions,
+  mergeGate,
+];
 const PLATFORM: ((ctx: RouteContext) => void)[] = [
   authRoutes,
   meRoutes,

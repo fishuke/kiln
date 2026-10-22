@@ -35,6 +35,14 @@ export type KilnEventMap = {
   "studio.turn_finished": { appId: string; chatId: string; turnId: string; title?: string; summary?: string; changed: boolean; priority: "finished" };
   "studio.version_created": { appId: string; versionId: string; title: string; kind: "initial" | "apply" | "restore"; priority: "finished" };
   "studio.needs_you": { appId: string; chatId: string; question: string; reason: "question" | "conflict" | "failed"; priority: "needs_you" };
+  /** An App's pull request changed state; never needs_you (the merge gate's merge_gate.review_updated is the one needs-you event for a review). */
+  "studio.pull_request_state_changed": {
+    appId: string;
+    pullRequestId: string;
+    state: "uat" | "ready_for_review" | "waiting_for_review" | "merged" | "cancelled";
+    url: string;
+    priority: "finished";
+  };
   /** ADR-014: a pull request marked ready for review was merged by the gate, sent to a person, merged later or closed. */
   "merge_gate.review_updated": {
     reviewId: string;

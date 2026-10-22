@@ -463,13 +463,21 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
   // ---- Studio App definitions ----
   server.registerTool(
     "get_app_settings",
-    { description: "A Studio App's definition: its agents (model, MCP servers, skills), shared skills (mandatory ones marked), ship mode cap, merge gate and budget, resolved from team and project defaults, plus what the App sets itself.", inputSchema: { app: z.string() } },
+    {
+      description:
+        "A Studio App's definition: its agents (model, MCP servers, skills), shared skills (mandatory ones marked), ship mode cap, merge gate and budget, resolved from team and project defaults, plus what the App sets itself.",
+      inputSchema: { app: z.string() },
+    },
     async ({ app }) => json(await client.studioSettings({ app })),
   );
 
   server.registerTool(
     "update_app_settings",
-    { description: "Change a Studio App's own definition layer (not its policy, which people change in the App's settings). null removes the App's value so it inherits from its project or team again. Every change is a new version.", inputSchema: { app: z.string(), patch: AppSettingsPatch.omit({ policy: true }) } },
+    {
+      description:
+        "Change a Studio App's own definition layer (not its policy, which people change in the App's settings). null removes the App's value so it inherits from its project or team again. Every change is a new version.",
+      inputSchema: { app: z.string(), patch: AppSettingsPatch.omit({ policy: true }) },
+    },
     async ({ app, patch }) => json(await client.studioEditDefinition({ app }, patch)),
   );
 

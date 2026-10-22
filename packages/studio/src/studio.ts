@@ -795,6 +795,12 @@ export class Studio {
     return (await sandbox.exec(cmd, { cwd: "app", trusted: true })).stdout;
   }
 
+  /** Run `fn` with the App's sandbox under the App's Git lock (shipping pushes from here). */
+  async withWorkspace<T>(appId: string, fn: (sandbox: Sandbox, app: App) => Promise<T>): Promise<T> {
+    const p = this.readyApp(appId);
+    return this.locked(p.id, async () => fn((await this.ensureLive(p)).sandbox, this.app(appId)));
+  }
+
   // ---- previews ----
 
   async preview(target: { chatId: string } | { versionId: string }): Promise<Preview> {

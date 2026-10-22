@@ -103,4 +103,25 @@ export type StudioToolResult = { ok: true; data: unknown; client?: StudioClientA
 /** Ship mode is not set here: ship's setShipMode changes it after the App policy's cap check. */
 export type StudioCreateApp = { name: string; projectId?: string; source?: StudioAppSource; harness?: string; model?: string };
 export type StudioUpdateApp = { name?: string; projectId?: string | null; devCommand?: string | null };
+export type StudioPullRequestState = "uat" | "ready_for_review" | "waiting_for_review" | "merged" | "cancelled";
+/** The App's pull request (docs/specs/studio.md, "Shipping"). */
+export type StudioAppPullRequest = {
+  id: string;
+  appId: string;
+  forge: string;
+  repo: string;
+  number: number;
+  url: string;
+  branch: string;
+  base: string;
+  state: StudioPullRequestState;
+  versionId: string;
+  builtInPreview?: string;
+  reviewReasons?: string[];
+  previewUrl?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type StudioShip = { title?: string; state?: "uat" | "ready_for_review" | "cancelled" };
 export type StudioNewChat = { prompt?: string; mode?: StudioChatMode; harness?: string; model?: string; title?: string };

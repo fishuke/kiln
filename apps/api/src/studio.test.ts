@@ -11,6 +11,7 @@ import { LocalSandboxProvider } from "@kiln/sandbox";
 import {
   KilnClient,
   type StudioApp,
+  type StudioAppPullRequest,
   type StudioApplyResult,
   type StudioChat,
   type StudioPreview,
@@ -19,7 +20,7 @@ import {
   type StudioTurn,
   type StudioVersion,
 } from "@kiln/sdk-ts";
-import type { App, ApplyResult, Chat, Preview, StatusReport, ToolResult, Turn, Version } from "@kiln/studio";
+import type { App, AppPullRequest, ApplyResult, Chat, Preview, StatusReport, ToolResult, Turn, Version } from "@kiln/studio";
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { createApp } from "./app";
 import { ROUTES } from "./openapi";
@@ -101,6 +102,32 @@ describe("Studio API", () => {
     const res = await app.request("/api/v1/studio/apps");
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ error: "Studio is not enabled on this server (KILN_STUDIO=1)" });
+  });
+
+  it("changes the ship mode only through ship-mode, within the App policy's cap", async () => {
+    const { client, kiln } = setup();
+    const created = await client.studioCreateApp({ name: "Daily Done", source: { kind: "template", template: "test" } });
+    await studioFor(kiln)!.ready(created.id);
+    expect(await client.studioSetShipMode(created.id, "safe")).toMatchObject({ shipMode: "safe" });
+    await client.studioEditDefinition({ app: created.id }, { policy: { maxShipMode: "review" } });
+    await expect(client.studioSetShipMode(created.id, "cowboy")).rejects.toThrow(/at most review/);
+    expect(kiln.auditLog().find((a) => a.action === "studio.ship_mode_changed")).toMatchObject({ target: created.id, details: { from: "cowboy", to: "safe" } });
+  });
+
+  it("ships an App's pull request and shows it with the App", async () => {
+    vi.stubEnv("KILN_STUDIO_REPO_OWNER", "acme");
+    const { client, kiln, forge } = setup();
+    const created = await client.studioCreateApp({ name: "Daily Done", source: { kind: "template", template: "test" } });
+    await studioFor(kiln)!.ready(created.id);
+    await client.studioSetShipMode(created.id, "safe");
+    const { chat } = await client.studioNewChat(created.id, { prompt: "write hello" });
+    await studioFor(kiln)!.idle(chat.id);
+    await client.studioApply(chat.id);
+    const pr = await client.studioShip(created.id, { title: "Say hello" });
+    expect(pr).toMatchObject({ state: "uat", branch: `studio/${created.id}`, repo: expect.stringMatching(/^acme\/daily-done-/) });
+    expect(forge.pulls.map((p) => p.title)).toEqual(["Say hello"]);
+    expect((await client.studioApp(created.id)).pullRequest).toMatchObject({ id: pr.id, state: "uat" });
+    expect((await client.studioTool("ship", { app: created.id, state: "cancelled" })) as unknown).toMatchObject({ ok: true, data: { state: "cancelled" } });
   });
 
   it("takes no ship mode from a create or an edit", async () => {
@@ -241,6 +268,7 @@ describe("Studio API", () => {
     expectTypeOf<ApplyResult>().toMatchTypeOf<StudioApplyResult>();
     expectTypeOf<StatusReport>().toMatchTypeOf<StudioStatusReport>();
     expectTypeOf<ToolResult>().toMatchTypeOf<StudioToolResult>();
+    expectTypeOf<AppPullRequest>().toMatchTypeOf<StudioAppPullRequest>();
   });
 
   it("registers the preview resolver and lists its routes in the API reference", () => {

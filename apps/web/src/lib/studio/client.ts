@@ -12,6 +12,7 @@ import type {
   Preview,
   SendResult,
   StatusReport,
+  ShipMode,
   StudioApp,
   UpdateAppInput,
   Version,
@@ -28,6 +29,8 @@ export interface StudioClient {
   createApp(input: CreateAppInput): Promise<StudioApp>;
   app(id: string): Promise<AppDetail>;
   updateApp(id: string, patch: UpdateAppInput): Promise<StudioApp>;
+  /** `PUT /apps/{id}/ship-mode`: the server checks the App policy's cap for the caller's role. */
+  setShipMode(id: string, mode: ShipMode): Promise<StudioApp>;
   newChat(appId: string, input: NewChatInput): Promise<NewChatResult>;
   chat(id: string): Promise<ChatDetail>;
   send(chatId: string, input: { text: string; mode?: ChatMode }): Promise<SendResult>;

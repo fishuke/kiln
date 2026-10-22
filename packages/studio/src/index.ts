@@ -5,3 +5,4 @@ export * from "./studio";
 export * from "./tools";
 export * from "./app-definitions";
 export * from "./engine-port";
+export * from "./ship";

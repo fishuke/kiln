@@ -56,6 +56,8 @@ describe("studio tools", () => {
       "bookmark:server",
       "look:server",
       "stop:server",
+      "ship:server",
+      "set_ship_mode:server",
       "focus:client",
       "show:client",
     ]);
@@ -70,7 +72,10 @@ describe("studio tools", () => {
   it("opens an app, starts a chat that the screen follows, and reports status", async () => {
     const studio = make();
     // Ship mode is not a tool input: ship's setShipMode changes it after its cap check.
-    expect(await runTool(studio, "open_app", { name: "X", shipMode: "cowboy" }, caller)).toMatchObject({ ok: false, error: expect.stringContaining("shipMode") });
+    expect(await runTool(studio, "open_app", { name: "X", shipMode: "cowboy" }, caller)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("shipMode"),
+    });
     const opened = await runTool(studio, "open_app", { name: "Daily Done", source: { kind: "template", template: "test" } }, caller);
     expect(opened).toMatchObject({ ok: true, client: { focus: { app: expect.stringMatching(/^sa_/) } } });
     const appId = (opened as { client: { focus: { app: string } } }).client.focus.app;

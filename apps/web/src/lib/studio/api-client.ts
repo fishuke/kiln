@@ -15,6 +15,7 @@ export class ApiStudioClient implements StudioClient {
   createApp: StudioClient["createApp"] = (input) => unwrap(actions.studioCreateApp(input));
   app = (id: string) => unwrap(actions.studioApp(id));
   updateApp: StudioClient["updateApp"] = (id, patch) => unwrap(actions.studioUpdateApp(id, patch));
+  setShipMode: StudioClient["setShipMode"] = (id, mode) => unwrap(actions.studioSetShipMode(id, mode));
   newChat: StudioClient["newChat"] = (appId, input) => unwrap(actions.studioNewChat(appId, input));
   chat = (id: string) => unwrap(actions.studioChat(id));
   send: StudioClient["send"] = (chatId, input) => unwrap(actions.studioSend(chatId, input));

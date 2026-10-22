@@ -243,7 +243,7 @@ studioExportApp(appId, opts?: { resolved?: boolean }): Promise<{ sha?: string; t
 
 ## Web (`apps/web/src/components/studio-settings/`)
 
-`<AppSettingsView scope settings />` with sections General (name, description), Agents (one card per agent: harness, model, instructions, MCP servers; add and remove), Skills (shared skills; mandatory switch; inherited ones read-only with their layer), Policy (highest ship mode, per-role caps, default-branch pushes, merge gate; owners and admins), Budget (monthly) and Versions (current sha, history with **Use**, export). Its server actions are in `actions.ts` in the same folder. The `/studio` pages mount it (for example at `/studio/[app]/settings`); this work doesn't edit `/studio` routes.
+`<AppSettingsView scope settings canEditPolicy />` (`app-settings.tsx`) renders the sections inside a `SettingsColumn` the page provides (`APP_SETTINGS_NAV` lists them for its anchor list): General (name, description), Agents (one card per agent: description, harness, model, MCP servers, spawnable by, instructions; add, remove), Skills (mandatory switch, add, edit, remove; inherited ones show their layer, and an inherited mandatory skill can't be switched off), Policy (highest ship mode, per-role caps, default-branch pushes, merge gate, with who changed each; disabled unless `canEditPolicy`) and Budget (monthly limit), then Versions (history with **Use**). The page passes `settings` from `api.studioSettings(scope)` and `canEditPolicy` from the caller's team role. The server actions are in `actions.ts` next to it. The `/studio` pages mount it (for example at `/studio/[app]/settings`, and the team and project defaults pages with `"team"` and `{ project }`); this work doesn't edit `/studio` routes.
 
 ## Acceptance
 

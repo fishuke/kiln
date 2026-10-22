@@ -417,7 +417,7 @@ Specified in [App definitions](app-definitions.md). What other Studio work build
 
   The turn runner calls it before `harness.start` for the chat's agent (`new_chat({ agent? })`, default `general`) and for each agent it spawns as a subagent run. It appends `instructions` (the agent's instructions plus every mandatory skill) to the mode instructions, passes `skills` as `StartOptions.skills`, records `definitionSha` on the turn, and resolves `mcpServers` through a `StudioOptions` hook the API provides. A chat's explicit harness or model overrides the definition's. An unknown agent throws `StudioError("invalid")`. Ship mode caps (overall and per team role), the imported-App default-branch opt-in and the merge gate switch live only in the App definition's policies: read them with `appDefinitions.policy(targetOf(app))` (`AppPolicySummary`, with who changed each and when) and `maxShipMode(policy, role)`. Both switches are off by default.
 - API: `apps/api/src/routes/studio-definitions.ts` (`/api/v1/studio/{apps/{id},projects/{id},team}/definition` and `/settings`, `/api/v1/studio/apps/{id}/definition/export`); `appDefinitionsFor(kiln)` returns the instance `routes/studio.ts` should pass to `Studio`.
-- Web: `apps/web/src/components/studio-settings/` exports `AppSettingsView`, which the `/studio` pages mount (for example at `/studio/[app]/settings`).
+- Web: `apps/web/src/components/studio-settings/` exports `AppSettingsView({ scope, settings, canEditPolicy })` and `APP_SETTINGS_NAV`, which the `/studio` pages mount inside a `SettingsColumn` (for example at `/studio/[app]/settings`, with `settings = await api.studioSettings({ app })`).
 
 ## Later (not built in phases 1–4)
 

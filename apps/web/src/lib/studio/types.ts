@@ -186,7 +186,7 @@ export type AppPullRequest = z.infer<typeof AppPullRequest>;
 
 export type CreateAppInput = { name: string; source?: AppSource; harness?: string; model?: string };
 /** `devCommand: null` clears an override. */
-export type UpdateAppInput = { name?: string; shipMode?: ShipMode; devCommand?: string | null };
+export type UpdateAppInput = { name?: string; devCommand?: string | null };
 export type NewChatInput = { prompt?: string; mode?: ChatMode; harness?: string; model?: string; title?: string };
 export type ForgeRepository = { owner: string; name: string; forge: string };
 

@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Shipper } from "./ship/shipper";
 import type { TeamRole } from "./ship/types";
 import type { Studio } from "./studio";
-import { ChatMode, AppSource, StudioError, type Via } from "./types";
+import { ChatMode, AppSource, ShipMode, StudioError, type Via } from "./types";
 
 export type ToolKind = "server" | "client";
 export type StudioTool<I extends z.ZodType = z.ZodType, N extends string = string> = { name: N; kind: ToolKind; description: string; input: I };
@@ -11,6 +11,7 @@ export type ClientAction = { focus: { app: string; chat?: string } } | { show: "
 export type ToolResult = { ok: true; data: unknown; client?: ClientAction } | { ok: false; error: string };
 /** `role` is the caller's team role; shipping checks it (who may cancel). */
 export type ToolCaller = { team: string; by: string; via: Via; role?: TeamRole };
+const actor = (caller: ToolCaller) => ({ by: caller.by, ...(caller.role ? { role: caller.role } : {}) });
 
 const tool = <N extends string, I extends z.ZodType>(name: N, kind: ToolKind, description: string, input: I): StudioTool<I, N> => ({
   name,
@@ -28,6 +29,7 @@ const OpenApp = z.union([
 const Ship = z
   .object({ app: z.string(), title: z.string().min(1).max(200).optional(), state: z.enum(["uat", "ready_for_review", "cancelled"]).optional() })
   .strict();
+const SetShipMode = z.object({ app: z.string(), mode: ShipMode }).strict();
 const NewChat = z
   .object({
     app: z.string(),
@@ -60,6 +62,12 @@ export const STUDIO_TOOLS = [
     "server",
     "Open or update the App's pull request from its main line; or, as its author, mark it ready for review (the merge gate merges it or sends it to a reviewer); or cancel it.",
     Ship,
+  ),
+  tool(
+    "set_ship_mode",
+    "server",
+    "Change an App's ship mode (safe, review or cowboy), up to the highest mode the App's policy allows the caller's role. Only a person may.",
+    SetShipMode,
   ),
   tool("focus", "client", "Move the person's screen to an app and, optionally, a chat.", Focus),
   tool("show", "client", "Show the preview, the code or the history in the person's screen.", Show),
@@ -135,7 +143,13 @@ async function dispatch(studio: Studio, call: ToolCall, caller: ToolCaller, ship
       const { app: appId, ...input } = call.input;
       app(appId);
       if (!shipper) return { ok: false, error: "shipping isn't configured on this server" };
-      return { ok: true, data: await shipper.ship(appId, input, { by: caller.by, ...(caller.role ? { role: caller.role } : {}) }) };
+      return { ok: true, data: await shipper.ship(appId, input, actor(caller)) };
+    }
+    case "set_ship_mode": {
+      const { app: appId, mode } = call.input;
+      app(appId);
+      if (!shipper) return { ok: false, error: "shipping isn't configured on this server" };
+      return { ok: true, data: shipper.setShipMode(appId, mode, actor(caller)) };
     }
     case "focus": {
       const { app: appId, chat: chatId } = call.input;

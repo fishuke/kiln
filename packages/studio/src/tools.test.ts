@@ -49,6 +49,7 @@ describe("studio tools", () => {
       "bookmark:server",
       "look:server",
       "ship:server",
+      "set_ship_mode:server",
       "focus:client",
       "show:client",
     ]);

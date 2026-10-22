@@ -38,7 +38,7 @@ export function AppSettingsPage({ appId, settings, canEditPolicy }: { appId: str
         const r = await saveStudioSettings({ app: appId }, { policy: { pushDefaultBranch: true } });
         if (!r.ok) throw new Error(r.error);
       }
-      await client.updateApp(appId, { shipMode: mode });
+      await client.setShipMode(appId, mode);
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));

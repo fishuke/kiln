@@ -45,7 +45,6 @@ const CreateInput = z.object({
 });
 const PatchInput = z.object({
   name: z.string().trim().min(1).max(80).optional(),
-  shipMode: ShipMode.optional(),
   devCommand: z.string().max(200).nullable().optional(),
 });
 const ChatInput = z.object({
@@ -70,6 +69,10 @@ export async function studioApp(appId: string) {
 }
 export async function studioUpdateApp(appId: string, patch: z.input<typeof PatchInput>) {
   return call(StudioApp, () => api.studioUpdateApp(Id.parse(appId), PatchInput.parse(patch)));
+}
+/** The ship mode changes only here: the server checks the App policy's cap for the caller's role. */
+export async function studioSetShipMode(appId: string, mode: z.input<typeof ShipMode>) {
+  return call(StudioApp, () => api.studioSetShipMode(Id.parse(appId), ShipMode.parse(mode)));
 }
 export async function studioNewChat(appId: string, input: z.input<typeof ChatInput>) {
   return call(NewChatResult, () => api.studioNewChat(Id.parse(appId), ChatInput.parse(input)));

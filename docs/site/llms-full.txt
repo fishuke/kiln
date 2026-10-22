@@ -2197,6 +2197,8 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/studio/apps` | `send` | Create an App from a template or a repository your team may use; it starts as creating |
 | GET | `/api/v1/studio/apps/{id}` | `read` | An App with its chats and versions (newest first) |
 | PATCH | `/api/v1/studio/apps/{id}` | `send` | Rename an App, change its Kiln Project or dev command |
+| PUT | `/api/v1/studio/apps/{id}/ship-mode` | `send` | Change an App's ship mode, up to the highest mode the App's policy allows your team role |
+| POST | `/api/v1/studio/apps/{id}/ship` | `send` | Open or update the App's pull request; as its author, mark it ready for review; or cancel it |
 | POST | `/api/v1/studio/apps/{id}/pause` | `send` | Snapshot an App's workspace and free its sandbox; the next use resumes it |
 | POST | `/api/v1/studio/apps/{id}/chats` | `send` | Start a chat (its own worktree and preview), optionally with a first message |
 | GET | `/api/v1/studio/chats/{id}` | `read` | A chat with its turns (oldest first) |
@@ -2210,7 +2212,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/studio/versions/{id}/diff` | `read` | A version's changes against its parent |
 | GET | `/api/v1/studio/versions/{id}/preview` | `read` | Preview an earlier version |
 | GET | `/api/v1/studio/status` | `read` | What is working and what needs you, across your team's Apps |
-| POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, focus, show); status, look, focus and show need read, the rest send |
+| POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send |
 | GET | `/api/v1/studio/apps/{id}/definition` | — | An App's own Studio definition layer: tree, sha and history |
 | PUT | `/api/v1/studio/apps/{id}/definition` | — | Replace an App's own definition layer (kiln/v1 App tree) |
 | PATCH | `/api/v1/studio/apps/{id}/definition` | — | Change an App's own definition layer from settings |
@@ -2378,6 +2380,7 @@ List my factories, then help me send a task to the right one and follow it throu
 | `studio_open_app` | Studio: Open an app by id, or create one from a name and a source (a template or a repository). |
 | `studio_restore` | Studio: Restore an earlier version as a new version; nothing is lost. |
 | `studio_send` | Studio: Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them. |
+| `studio_set_ship_mode` | Studio: Change an App's ship mode (safe, review or cowboy), up to the highest mode the App's policy allows the caller's role. Only a person may. |
 | `studio_ship` | Studio: Open or update the App's pull request from its main line; or, as its author, mark it ready for review (the merge gate merges it or sends it to a reviewer); or cancel it. |
 | `studio_show` | Studio: Show the preview, the code or the history in the person's screen. (Moves the caller's screen; changes nothing on the server.) |
 | `studio_status` | Studio: What is running and what needs the person, for one app or all of them. |

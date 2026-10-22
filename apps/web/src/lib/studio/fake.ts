@@ -14,6 +14,7 @@ import type {
   NewChatInput,
   NewChatResult,
   Preview,
+  ShipMode,
   StudioApp,
   SendResult,
   StatusReport,
@@ -116,7 +117,15 @@ export class FakeStudioClient implements StudioClient {
       this.schedule(() => {
         const envRequired = ["DATABASE_URL", "NEXTAUTH_SECRET"];
         this.patchApp(app.id, {
-          setup: { mainBranch: source.branch ?? "main", packageManager: "pnpm", install: ["pnpm install --prefer-offline"], dev: "pnpm run dev", devDetected: "pnpm run dev", envRequired, envMissing: envRequired },
+          setup: {
+            mainBranch: source.branch ?? "main",
+            packageManager: "pnpm",
+            install: ["pnpm install --prefer-offline"],
+            dev: "pnpm run dev",
+            devDetected: "pnpm run dev",
+            envRequired,
+            envMissing: envRequired,
+          },
         });
         this.schedule(() => {
           this.patchApp(app.id, { status: "ready" });
@@ -147,11 +156,16 @@ export class FakeStudioClient implements StudioClient {
     return { app, chats, versions, pullRequest: this.pullRequests.get(id) };
   }
 
+  async setShipMode(id: string, mode: ShipMode): Promise<StudioApp> {
+    this.must(this.appsById.get(id), "App");
+    this.patchApp(id, { shipMode: mode });
+    return this.appsById.get(id)!;
+  }
+
   async updateApp(id: string, patch: UpdateAppInput): Promise<StudioApp> {
     const p = this.must(this.appsById.get(id), "App");
     const next: Partial<StudioApp> = {};
     if (patch.name) next.name = patch.name;
-    if (patch.shipMode) next.shipMode = patch.shipMode;
     if (p.setup && patch.devCommand !== undefined) {
       const devOverride = patch.devCommand ?? undefined;
       next.setup = { ...p.setup, devOverride, dev: devOverride ?? p.setup.devDetected };
@@ -378,7 +392,12 @@ export class FakeStudioClient implements StudioClient {
           // The merge gate: an imported repository goes to review, a template App merges.
           const decided: AppPullRequest =
             app.source.kind === "repo"
-              ? { ...next, state: "waiting_for_review", reasons: ["Changes authentication code in app/api/auth", "Adds a dependency: stripe"], updatedAt: this.iso() }
+              ? {
+                  ...next,
+                  state: "waiting_for_review",
+                  reasons: ["Changes authentication code in app/api/auth", "Adds a dependency: stripe"],
+                  updatedAt: this.iso(),
+                }
               : { ...next, state: "merged", updatedAt: this.iso() };
           this.pullRequests.set(appId, decided);
           this.emit();
@@ -413,27 +432,25 @@ export class FakeStudioClient implements StudioClient {
   async mergeReviews(state?: MergeReview["state"]): Promise<MergeReview[]> {
     const reviews = [...this.pullRequests.values()]
       .filter((p) => p.state === "waiting_for_review" || p.state === "merged")
-      .map(
-        (p): MergeReview => ({
-          id: `mrv_${p.id}`,
-          scope: { kind: "app", appId: p.appId, team: "team" },
-          repo: p.repo,
-          number: p.number,
-          url: p.url,
-          title: this.versions.get(p.versionId)?.title ?? "Changes",
-          author: p.createdBy,
-          by: p.createdBy,
-          state: p.state === "merged" ? "merged" : "needs_review",
-          reasons: p.reasons ?? [],
-          decision: { action: p.state === "merged" ? "merge" : "review" },
-          mergedBy: p.state === "merged" ? "kiln-merge-gate" : undefined,
-          previewUrl: p.previewUrl,
-          link: `/studio/${p.appId}`,
-          pullRequestId: p.id,
-          createdAt: p.createdAt,
-          updatedAt: p.updatedAt,
-        }),
-      );
+      .map((p): MergeReview => ({
+        id: `mrv_${p.id}`,
+        scope: { kind: "app", appId: p.appId, team: "team" },
+        repo: p.repo,
+        number: p.number,
+        url: p.url,
+        title: this.versions.get(p.versionId)?.title ?? "Changes",
+        author: p.createdBy,
+        by: p.createdBy,
+        state: p.state === "merged" ? "merged" : "needs_review",
+        reasons: p.reasons ?? [],
+        decision: { action: p.state === "merged" ? "merge" : "review" },
+        mergedBy: p.state === "merged" ? "kiln-merge-gate" : undefined,
+        previewUrl: p.previewUrl,
+        link: `/studio/${p.appId}`,
+        pullRequestId: p.id,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      }));
     return state ? reviews.filter((r) => r.state === state) : reviews;
   }
 
@@ -507,7 +524,12 @@ export class FakeStudioClient implements StudioClient {
     });
     this.chats.set("sc_main", { ...chat("sc_main", "Daily habits with streaks", 170, 4101), runId: "run_main" });
     this.chats.set("sc_pricing", { ...chat("sc_pricing", "Pricing page", 40, 4102), runId: "run_pricing" });
-    this.chats.set("sc_a11y", { ...chat("sc_a11y", "Contrast check", 18, 4103), runId: "run_a11y", status: "needs_you", question: "Darken the badge, or lighten its text?" });
+    this.chats.set("sc_a11y", {
+      ...chat("sc_a11y", "Contrast check", 18, 4103),
+      runId: "run_a11y",
+      status: "needs_you",
+      question: "Darken the badge, or lighten its text?",
+    });
     const turn = (id: string, chatId: string, minAgo: number, prompt: string, mode: ChatMode = "build"): Turn => {
       const o = outcomeFor(prompt, mode);
       return {
@@ -573,17 +595,29 @@ type Outcome = { title: string; reply: string; changes: boolean; question?: stri
 
 /** What the fake agent says it did, by what was asked. */
 const REPLIES: [RegExp, string][] = [
-  [/flame|heatmap/i, "The streak count is now a badge on each habit, and a two-week heatmap sits under the list in `components/heatmap.tsx`. Darker cells are days with more habits done."],
-  [/habit|streak/i, "Built the habit list in `app/page.tsx` with a `HabitCard` per habit. Ticking one saves to localStorage and adds a day to its streak; a missed day resets it."],
+  [
+    /flame|heatmap/i,
+    "The streak count is now a badge on each habit, and a two-week heatmap sits under the list in `components/heatmap.tsx`. Darker cells are days with more habits done.",
+  ],
+  [
+    /habit|streak/i,
+    "Built the habit list in `app/page.tsx` with a `HabitCard` per habit. Ticking one saves to localStorage and adds a day to its streak; a missed day resets it.",
+  ],
   [/dark mode|theme/i, "Added a `ThemeToggle` to the header. It follows the system theme until you pick one, then remembers your choice."],
-  [/search|filter|tag/i, "Added a search field above the recipes that matches titles and ingredients as you type, plus tag chips (Quick, Vegetarian, Dessert, Batch cook) that combine."],
+  [
+    /search|filter|tag/i,
+    "Added a search field above the recipes that matches titles and ingredients as you type, plus tag chips (Quick, Vegetarian, Dessert, Batch cook) that combine.",
+  ],
   [/pricing/i, "Added `/pricing` with three `PriceCard`s and a monthly/yearly switch. The middle tier is highlighted and the header links to it."],
   [/footer/i, "Added a footer with links to Today, History and Settings."],
   [/test/i, "Added three tests in `components/theme-toggle.test.tsx` for the default, toggling and the saved choice. All pass."],
 ];
 
 const QUESTIONS: [RegExp, { reply: string; question: string }][] = [
-  [/contrast|colou?r/i, { reply: "The streak badge is 2.8:1 against the dark card, below the 4.5:1 it needs.", question: "Darken the badge, or lighten its text?" }],
+  [
+    /contrast|colou?r/i,
+    { reply: "The streak badge is 2.8:1 against the dark card, below the 4.5:1 it needs.", question: "Darken the badge, or lighten its text?" },
+  ],
 ];
 
 function outcomeFor(prompt: string, mode: ChatMode): Outcome {
@@ -596,7 +630,10 @@ function outcomeFor(prompt: string, mode: ChatMode): Outcome {
       plan: "1. Add a `/pricing` route with a three-column layout.\n2. Make a `PriceCard` component: name, price, features, call to action.\n3. Highlight the middle tier and add a monthly/yearly switch.\n4. Link it from the header and the footer.",
     };
   if (/\bask me\b|\bnot sure\b/i.test(prompt)) {
-    const q = QUESTIONS.find(([re]) => re.test(prompt))?.[1] ?? { reply: "There are two reasonable defaults here.", question: "Should the toggle follow the system theme, or start in light mode?" };
+    const q = QUESTIONS.find(([re]) => re.test(prompt))?.[1] ?? {
+      reply: "There are two reasonable defaults here.",
+      question: "Should the toggle follow the system theme, or start in light mode?",
+    };
     return { title, changes: false, ...q };
   }
   if (/\?\s*$/.test(prompt) || mode === "chat")
@@ -607,7 +644,11 @@ function outcomeFor(prompt: string, mode: ChatMode): Outcome {
         ? "Yes. The heatmap wraps to seven columns under 640px and each cell keeps a 32px tap target. It fits at 390px wide."
         : "The page renders on the server and hydrates the habit list; nothing else needs to change for that.",
     };
-  return { title, changes: true, reply: REPLIES.find(([re]) => re.test(prompt))?.[1] ?? "Made the change in `app/page.tsx` and kept the existing components. The type check passes." };
+  return {
+    title,
+    changes: true,
+    reply: REPLIES.find(([re]) => re.test(prompt))?.[1] ?? "Made the change in `app/page.tsx` and kept the existing components. The type check passes.",
+  };
 }
 
 function script(prompt: string, mode: ChatMode): Activity[] {
@@ -620,7 +661,16 @@ function script(prompt: string, mode: ChatMode): Activity[] {
     steps.push(
       { kind: "subagent", name: "Explore", text: "Found 4 components under components/ and the theme in app/globals.css", at },
       { kind: "tool", name: "Edit", text: "app/page.tsx", at },
-      { kind: "tool", name: "Write", text: /search|filter|tag|recipe/i.test(prompt) ? "components/recipe-search.tsx" : /dark|theme/i.test(prompt) ? "components/theme-toggle.tsx" : "components/habit-card.tsx", at },
+      {
+        kind: "tool",
+        name: "Write",
+        text: /search|filter|tag|recipe/i.test(prompt)
+          ? "components/recipe-search.tsx"
+          : /dark|theme/i.test(prompt)
+            ? "components/theme-toggle.tsx"
+            : "components/habit-card.tsx",
+        at,
+      },
       { kind: "tool", name: "Bash", text: "pnpm tsc --noEmit", at },
     );
   }
@@ -668,7 +718,7 @@ const RECIPE_SEARCH_DIFF = [
   '+  const [query, setQuery] = useState("");',
   "+  const [tags, setTags] = useState<string[]>([]);",
   "+  const q = query.toLowerCase();",
-  "+  const found = recipes.filter((r) => (r.title + r.ingredients.join(\" \")).toLowerCase().includes(q) && tags.every((t) => r.tags.includes(t)));",
+  '+  const found = recipes.filter((r) => (r.title + r.ingredients.join(" ")).toLowerCase().includes(q) && tags.every((t) => r.tags.includes(t)));',
   "+  return <>{/* search field and TAGS chips */}{children(found)}</>;",
   "+}",
   "+",
@@ -683,43 +733,43 @@ const RECIPE_SEARCH_DIFF = [
 ].join("\n");
 
 const THEME_TOGGLE_DIFF = [
-    "diff --git a/app/page.tsx b/app/page.tsx",
-    "--- a/app/page.tsx",
-    "+++ b/app/page.tsx",
-    "@@ -1,8 +1,12 @@",
-    ' import { HabitList } from "@/components/habit-list";',
-    '+import { ThemeToggle } from "@/components/theme-toggle";',
-    " ",
-    " export default function Home() {",
-    "   return (",
-    '     <main className="mx-auto max-w-2xl p-6">',
-    '-      <h1 className="text-2xl font-semibold">Habits</h1>',
-    '+      <header className="flex items-center justify-between">',
-    `+        <h1 className="text-2xl font-semibold">Habits</h1>`,
-    "+        <ThemeToggle />",
-    "+      </header>",
-    "       <HabitList />",
-    "     </main>",
-    "   );",
-    "diff --git a/components/theme-toggle.tsx b/components/theme-toggle.tsx",
-    "new file mode 100644",
-    "--- /dev/null",
-    "+++ b/components/theme-toggle.tsx",
-    "@@ -0,0 +1,9 @@",
-    '+"use client";',
-    '+import { Moon, Sun } from "lucide-react";',
-    "+",
-    "+export function ThemeToggle() {",
-    '+  const toggle = () => document.documentElement.classList.toggle("dark");',
-    '+  return <button onClick={toggle} aria-label="Toggle theme"><Sun /><Moon /></button>;',
-    "+}",
-    "+",
-    "diff --git a/components/habit-card.tsx b/components/habit-card.tsx",
-    "--- a/components/habit-card.tsx",
-    "+++ b/components/habit-card.tsx",
-    "@@ -12,3 +12,3 @@ export function HabitCard({ habit }: Props) {",
-    "   return (",
-    '-    <div className="rounded border p-4">',
-    '+    <div className="rounded-xl border bg-card p-4 shadow-sm">',
-    "       {habit.name}",
-  ].join("\n");
+  "diff --git a/app/page.tsx b/app/page.tsx",
+  "--- a/app/page.tsx",
+  "+++ b/app/page.tsx",
+  "@@ -1,8 +1,12 @@",
+  ' import { HabitList } from "@/components/habit-list";',
+  '+import { ThemeToggle } from "@/components/theme-toggle";',
+  " ",
+  " export default function Home() {",
+  "   return (",
+  '     <main className="mx-auto max-w-2xl p-6">',
+  '-      <h1 className="text-2xl font-semibold">Habits</h1>',
+  '+      <header className="flex items-center justify-between">',
+  `+        <h1 className="text-2xl font-semibold">Habits</h1>`,
+  "+        <ThemeToggle />",
+  "+      </header>",
+  "       <HabitList />",
+  "     </main>",
+  "   );",
+  "diff --git a/components/theme-toggle.tsx b/components/theme-toggle.tsx",
+  "new file mode 100644",
+  "--- /dev/null",
+  "+++ b/components/theme-toggle.tsx",
+  "@@ -0,0 +1,9 @@",
+  '+"use client";',
+  '+import { Moon, Sun } from "lucide-react";',
+  "+",
+  "+export function ThemeToggle() {",
+  '+  const toggle = () => document.documentElement.classList.toggle("dark");',
+  '+  return <button onClick={toggle} aria-label="Toggle theme"><Sun /><Moon /></button>;',
+  "+}",
+  "+",
+  "diff --git a/components/habit-card.tsx b/components/habit-card.tsx",
+  "--- a/components/habit-card.tsx",
+  "+++ b/components/habit-card.tsx",
+  "@@ -12,3 +12,3 @@ export function HabitCard({ habit }: Props) {",
+  "   return (",
+  '-    <div className="rounded border p-4">',
+  '+    <div className="rounded-xl border bg-card p-4 shadow-sm">',
+  "       {habit.name}",
+].join("\n");

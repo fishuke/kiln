@@ -89,8 +89,31 @@ import type {
 
 export type * from "./platform";
 export type * from "./studio";
-import type { StudioApp, StudioApplyResult, StudioChat, StudioChatMode, StudioCreateApp, StudioNewChat, StudioPreview, StudioStatusReport, StudioToolResult, StudioTurn, StudioUpdateApp, StudioVersion } from "./studio";
-import { studioScopePath, type StudioAppSettings, type StudioDefinitionLayer, type StudioDefinitionSaved, type StudioDefinitionScope, type StudioSettingsPatch } from "./studio-definitions";
+import type {
+  StudioApp,
+  StudioAppPullRequest,
+  StudioShip,
+  StudioShipMode,
+  StudioApplyResult,
+  StudioChat,
+  StudioChatMode,
+  StudioCreateApp,
+  StudioNewChat,
+  StudioPreview,
+  StudioStatusReport,
+  StudioToolResult,
+  StudioTurn,
+  StudioUpdateApp,
+  StudioVersion,
+} from "./studio";
+import {
+  studioScopePath,
+  type StudioAppSettings,
+  type StudioDefinitionLayer,
+  type StudioDefinitionSaved,
+  type StudioDefinitionScope,
+  type StudioSettingsPatch,
+} from "./studio-definitions";
 export * from "./studio-definitions";
 
 export type {
@@ -330,7 +353,18 @@ export class KilnClient {
     return this.request<StudioApp>("POST", "/api/v1/studio/apps", input);
   }
   studioApp(id: string) {
-    return this.request<{ app: StudioApp; chats: StudioChat[]; versions: StudioVersion[] }>("GET", `/api/v1/studio/apps/${encodeURIComponent(id)}`);
+    return this.request<{ app: StudioApp; chats: StudioChat[]; versions: StudioVersion[]; pullRequest?: StudioAppPullRequest }>(
+      "GET",
+      `/api/v1/studio/apps/${encodeURIComponent(id)}`,
+    );
+  }
+  /** Change the App's ship mode, up to the highest mode its policy allows your team role. */
+  studioSetShipMode(id: string, mode: StudioShipMode) {
+    return this.request<StudioApp>("PUT", `/api/v1/studio/apps/${encodeURIComponent(id)}/ship-mode`, { mode });
+  }
+  /** Open or update the App's pull request; as its author, mark it ready for review; or cancel it. */
+  studioShip(id: string, input: StudioShip = {}) {
+    return this.request<StudioAppPullRequest>("POST", `/api/v1/studio/apps/${encodeURIComponent(id)}/ship`, input);
   }
   studioUpdateApp(id: string, patch: StudioUpdateApp) {
     return this.request<StudioApp>("PATCH", `/api/v1/studio/apps/${encodeURIComponent(id)}`, patch);
@@ -1168,8 +1202,10 @@ export class KilnClient {
       `/api/v1/studio/apps/${encodeURIComponent(appId)}/definition/export${this.q({ resolved: opts.resolved === false ? false : undefined })}`,
     );
 
-  webhookDeliveries = (uid: string) => this.request<(Omit<WebhookDelivery, "payload"> & { hasPayload: boolean })[]>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries`);
-  webhookDelivery = (uid: string, id: string) => this.request<WebhookDelivery>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries/${encodeURIComponent(id)}`);
+  webhookDeliveries = (uid: string) =>
+    this.request<(Omit<WebhookDelivery, "payload"> & { hasPayload: boolean })[]>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries`);
+  webhookDelivery = (uid: string, id: string) =>
+    this.request<WebhookDelivery>("GET", `/api/v1/webhooks/${encodeURIComponent(uid)}/deliveries/${encodeURIComponent(id)}`);
 }
 
 export type ConnectionRow = {

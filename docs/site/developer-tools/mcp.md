@@ -70,6 +70,7 @@ List my factories, then help me send a task to the right one and follow it throu
 | `studio_open_app` | Studio: Open an app by id, or create one from a name and a source (a template or a repository). |
 | `studio_restore` | Studio: Restore an earlier version as a new version; nothing is lost. |
 | `studio_send` | Studio: Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them. |
+| `studio_set_ship_mode` | Studio: Change an App's ship mode (safe, review or cowboy), up to the highest mode the App's policy allows the caller's role. Only a person may. |
 | `studio_ship` | Studio: Open or update the App's pull request from its main line; or, as its author, mark it ready for review (the merge gate merges it or sends it to a reviewer); or cancel it. |
 | `studio_show` | Studio: Show the preview, the code or the history in the person's screen. (Moves the caller's screen; changes nothing on the server.) |
 | `studio_status` | Studio: What is running and what needs the person, for one app or all of them. |

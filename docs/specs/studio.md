@@ -392,6 +392,8 @@ Every route needs a signed-in caller (`ctx.user`) and a token scope: reads need 
 | `POST /api/v1/studio/apps`                   | `{ name, projectId?, source?, harness?, model? }` | `App` (status `creating`; poll until `ready`)                                                                                      |
 | `GET /api/v1/studio/apps/{id}`               |                                                   | `{ app, chats: Chat[], versions: Version[], pullRequest?: AppPullRequest }` (versions newest first; the App's latest pull request) |
 | `PATCH /api/v1/studio/apps/{id}`             | `{ name?, projectId?, devCommand? }`              | `App`                                                                                                                              |
+| `PUT /api/v1/studio/apps/{id}/ship-mode`     | `{ mode }`                                        | `App` (`Shipper.setShipMode`: the App policy's cap for the caller's team role; 400 above it)                                       |
+| `POST /api/v1/studio/apps/{id}/ship`         | `{ title?, state? }`                              | `AppPullRequest` (the `ship` tool)                                                                                                 |
 | `POST /api/v1/studio/apps/{id}/pause`        |                                                   | `App`                                                                                                                              |
 | `POST /api/v1/studio/apps/{id}/chats`        | `{ prompt?, mode?, harness?, model?, title? }`    | `{ chat: Chat, turn?: Turn }`                                                                                                      |
 | `GET /api/v1/studio/chats/{id}`              |                                                   | `{ chat, turns: Turn[] }` (oldest first)                                                                                           |
@@ -419,8 +421,10 @@ Every route needs a signed-in caller (`ctx.user`) and a token scope: reads need 
 ```ts
 studioApps(): Promise<{ apps: App[] }>;
 studioCreateApp(input): Promise<App>;
-studioApp(id): Promise<{ app: App; chats: Chat[]; versions: Version[] }>;
+studioApp(id): Promise<{ app: App; chats: Chat[]; versions: Version[]; pullRequest?: AppPullRequest }>;
 studioUpdateApp(id, patch): Promise<App>;
+studioSetShipMode(id, mode): Promise<App>; // PUT …/ship-mode
+studioShip(id, { title?, state? }): Promise<AppPullRequest>; // POST …/ship
 studioPauseApp(id): Promise<App>;
 studioNewChat(appId, input): Promise<{ chat: Chat; turn?: Turn }>;
 studioChat(id): Promise<{ chat: Chat; turns: Turn[] }>;
@@ -585,9 +589,10 @@ Both have `FakeForge` and `GitHubForge` implementations and one contract suite. 
 
 ### Tool and event
 
-| Name   | Kind   | Input (zod)                                                                           |
-| ------ | ------ | ------------------------------------------------------------------------------------- |
-| `ship` | server | `{ app: string; title?: string; state?: "uat" \| "ready_for_review" \| "cancelled" }` |
+| Name            | Kind   | Input (zod)                                                                                  |
+| --------------- | ------ | -------------------------------------------------------------------------------------------- |
+| `ship`          | server | `{ app: string; title?: string; state?: "uat" \| "ready_for_review" \| "cancelled" }`        |
+| `set_ship_mode` | server | `{ app: string; mode: ShipMode }`: `Shipper.setShipMode` as the caller, with their team role |
 
 No `state` (or `uat`) pushes and opens or updates the pull request; returns the `AppPullRequest`. `runTool` takes the `Shipper` as an optional fifth argument; without it `ship` answers "shipping isn't configured on this server".
 

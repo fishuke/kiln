@@ -463,6 +463,22 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/studio/versions/{id}/preview` | `read` | Preview an earlier version |
 | GET | `/api/v1/studio/status` | `read` | What is working and what needs you, across your team's Apps |
 | POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, focus, show); status, look, focus and show need read, the rest send |
+| GET | `/api/v1/studio/apps/{id}/definition` | — | An App's own Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/apps/{id}/definition` | — | Replace an App's own definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/apps/{id}/definition` | — | Change an App's own definition layer from settings |
+| POST | `/api/v1/studio/apps/{id}/definition/use` | — | Point an App's own definition layer at an earlier sha |
+| GET | `/api/v1/studio/projects/{id}/definition` | — | A Kiln Project's Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/projects/{id}/definition` | — | Replace a Kiln Project's definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/projects/{id}/definition` | — | Change a Kiln Project's definition layer from settings |
+| POST | `/api/v1/studio/projects/{id}/definition/use` | — | Point a Kiln Project's definition layer at an earlier sha |
+| GET | `/api/v1/studio/team/definition` | — | The team's Studio definition layer: tree, sha and history |
+| PUT | `/api/v1/studio/team/definition` | — | Replace the team's definition layer (kiln/v1 App tree) |
+| PATCH | `/api/v1/studio/team/definition` | — | Change the team's definition layer from settings |
+| POST | `/api/v1/studio/team/definition/use` | — | Point the team's definition layer at an earlier sha |
+| GET | `/api/v1/studio/apps/{id}/settings` | — | An App's resolved settings and its own values |
+| GET | `/api/v1/studio/team/settings` | — | The team's Studio defaults, resolved |
+| GET | `/api/v1/studio/projects/{id}/settings` | — | A Kiln Project's Studio defaults, resolved |
+| GET | `/api/v1/studio/apps/{id}/definition/export` | — | An App's definition in kiln/v1 layout (?resolved=false for its own layer) |
 
 ## Errors
 

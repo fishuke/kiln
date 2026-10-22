@@ -2,7 +2,7 @@
  * Studio (ADR-012) as the API serves it. These mirror packages/studio's types; the SDK doesn't depend on
  * that package, and a test in apps/api checks they stay assignable.
  */
-export type StudioShipMode = "safe" | "review" | "cowboy";
+import type { StudioShipMode } from "./studio-definitions";
 export type StudioChatMode = "build" | "chat" | "plan";
 export type StudioVia = "web" | "mcp" | "api" | "voice";
 export type StudioAppSource = { kind: "template"; template: string } | { kind: "repo"; connection?: string; repo: string; branch?: string };

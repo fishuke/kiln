@@ -22,7 +22,7 @@ import type { App, ApplyResult, Chat, Preview, StatusReport, ToolResult, Turn, V
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { createApp } from "./app";
 import { ROUTES } from "./openapi";
-import { configureStudio, studioFor } from "./routes/studio";
+import { configureStudio, routes as studioRoutes, studioFor } from "./routes/studio";
 import { getPreviewResolver } from "./routes/studio-preview";
 
 const kilns: object[] = [];
@@ -117,7 +117,7 @@ describe("Studio API", () => {
   });
 
   it("declares a scope on every route: read to look, send to change", () => {
-    const studio = ROUTES.filter((r) => r.path.startsWith("/api/v1/studio/"));
+    const studio = studioRoutes;
     expect(studio.every((r) => r.scope === (r.method === "get" ? "read" : "send"))).toBe(true);
   });
 

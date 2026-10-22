@@ -1,6 +1,6 @@
 # Studio: phases 1–4 (contract)
 
-Decision: [ADR-012](../adr/0012-studio.md) · Idea: [Studio](../ideas/studio.md). Voice ([ADR-013](../adr/0013-voice.md)), coupling an App to a factory, and forge sync and shipping are later phases. Dictation in the composer is optional and may be skipped.
+Decision: [ADR-012](../adr/0012-studio.md) · Idea: [Studio](../ideas/studio.md). Voice ([ADR-013](../adr/0013-voice.md)) and coupling an App to a factory are later phases; shipping is in [Shipping](#shipping). Dictation in the composer is optional and may be skipped.
 
 This spec is the contract that parallel work builds against. Change it here first, then in code.
 
@@ -213,7 +213,7 @@ Import (`source.kind: "repo"`):
 5. **Port.** The dev server gets `PORT={port}` and `HOST=0.0.0.0`. For `next dev` and `vite` without an explicit port, Studio appends `--port {port}` (and `--hostname`/`--host 0.0.0.0`). If the server prints a different `localhost:<n>` / `0.0.0.0:<n>` URL in its first output, Studio records that port for the target.
 6. **Environment.** Required keys come from `.env.example`, `.env.sample` or `.env.local.example`. `StudioOptions.env(app)` (the API resolves the team's Kiln secrets and environment templates, and later its Kiln Project's) provides values. They're passed to installs, dev servers and harness runs and never written to the repository. Missing keys are listed in `setup.envMissing`. The App is still `ready`, and the UI shows them with a link to Secrets.
 
-**Ship mode on imported repositories (decided).** An imported App defaults to `review`: its forge sync opens a pull request and never pushes to the default branch. `cowboy` is allowed, but on an imported repository it pushes only to a `studio/<app id>` branch, never the default branch. Template Apps keep the `cowboy` default. Inside the sandbox the modes behave as in the ship mode table (cowboy auto-applies to the App's main line). Nothing in phases 1–4 pushes.
+**Ship mode on imported repositories (decided).** An imported App defaults to `review`. Inside the sandbox the modes behave as in the ship mode table (cowboy auto-applies to the App's main line). What reaches the forge is in [Shipping](#shipping).
 
 ## Workspace layout (inside the App's sandbox)
 
@@ -295,7 +295,7 @@ export class StudioError extends Error {
 - **Checkpoint.** `git add -A`; when there's a diff from `HEAD`, commit on the chat branch with the turn's title. When the agent committed itself, the new `HEAD` is the checkpoint. No change, no checkpoint, in every mode.
 - **Modes.** In `chat` and `plan` mode, any change at the end of the turn is reverted (`git reset --hard <start> && git clean -fd`) and `discarded: true` is set. `plan` stores the reply as `plan`. "Build it" is `send({ text: plan, mode: "build" })`.
 - **Apply.** In `app`: `git merge --no-ff -m <title> chat/<id>`. The title is the subjects of the chat's non-merge commits not yet on the main line, joined with "; " and cut to 80 characters. On a conflict it runs `git merge --abort`, sets the chat to `conflict` and returns the files. `{ nothing: true }` when the chat has no new commits.
-- **Ship mode.** `cowboy`: after every turn with a checkpoint, apply. On a conflict, start a resolve turn (`resolve: true`) that tells the agent to run `git merge <main>`, fix the conflicts and commit, then apply again. If that conflicts too, the chat becomes `needs_you` with the conflicting files as the question. `safe` and `review`: the person applies. Nothing pushes, opens a PR or merges outside the sandbox in phases 1–4.
+- **Ship mode.** `cowboy`: after every turn with a checkpoint, apply. On a conflict, start a resolve turn (`resolve: true`) that tells the agent to run `git merge <main>`, fix the conflicts and commit, then apply again. If that conflicts too, the chat becomes `needs_you` with the conflicting files as the question. `safe` and `review`: the person applies. What reaches the forge is in [Shipping](#shipping).
 - **Restore.** `git read-tree -u --reset <sha>`, then commit "Restore: <title>". This records a `restore` version; history is never rewritten.
 - **Preview.** A dev server per chat worktree on `chat.port`, and one for `version` on `basePort`, started with `setup.dev` through `sandbox.spawn`. `url` is `previewUrl(target, await sandbox.expose(port))`. An App has at most 99 chats, so ports stay within 4100–4199.
 - **Limits.** If `maxRunningChats` turns are already running in the App, `send` throws `StudioError("busy")`.
@@ -403,14 +403,45 @@ The SDK re-declares these types (it doesn't depend on `packages/studio`), and a 
 - **Preview pane.** Preview and Code tabs (Code shows the chat diff), a route field, reload, and open in a new tab. It reloads on `turn_finished`.
 - **Server actions** call `api.studio*` (the `lib/kiln.ts` proxy); the page polls `studioChat` every 2 s while a turn runs, or uses the SSE route once it exists.
 
-## Later (not built in phases 1–4)
+## Shipping
 
-These types are recorded so later work and the UI agree on them. None of this is built yet, and no forge pushing exists.
+What reaches the App's forge repository, per ship mode (ADR-012), and the App's pull request. Code in `packages/studio/src/ship/`; the API wires it.
 
-**Ship flow.** A `ship` tool (server) opens or updates the App's pull request from its main line, and its state moves through **UAT** → **ready for review** → **merged** or **cancelled** (ADR-012). Ready for review adds an Inbox item for the App's reviewers.
+### Where a push may go
+
+An App pushes its main line (`setup.mainBranch` in the sandbox) to exactly one of two branches of its repository:
+
+- `studio/<app id>`: always allowed.
+- **The main branch** (`main` for a template App, `setup.mainBranch` for an imported one), only when both hold:
+  - (a template App **and** the repository is one Kiln created for it through `Forge.createRepository`) **or** (an imported App whose ship mode a person set to `cowboy` through `Shipper.setShipMode`, which records who and when), **and**
+  - the repository is not linked to a factory (`ShipperOptions.linkedToFactory(repo)`: any factory that names the repository).
+
+`assertPushAllowed` checks this right before every push and refuses any other branch. An imported App whose ship mode became `cowboy` some other way (no recorded choice) pushes only `studio/<app id>`.
+
+| Ship mode | When it pushes                                            | Where                                                      | Pull request                           |
+| --------- | --------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------- |
+| `safe`    | Only on `ship`                                            | `studio/<app id>`                                          | `ship` opens or updates it             |
+| `review`  | After every new version (apply or restore), and on `ship` | `studio/<app id>`                                          | Opened on the first push, then updated |
+| `cowboy`  | After every new version                                   | The main branch when allowed above, else `studio/<app id>` | None (`ship` still opens one)          |
+
+The initial version pushes nothing. A template App's repository is created on its first push: `ShipperOptions.newRepo(app)` names the owner, the name is the App's name as a slug plus six characters of its id, private, empty. Without `newRepo` a template App can't be pushed (`StudioError("unavailable")`).
+
+**Credentials.** Each push asks the forge for a fresh credential scoped to that one repository (`Forge.sandboxToken(repo)`; GitHub: an installation token for that repository with `contents: write`), runs `git push "$KILN_PUSH_URL" <main>:refs/heads/<branch>` as a trusted command with the URL only in that command's environment, never adds a remote and never forces. Errors are returned with the token removed. **Audit.** Every push is in the audit log (`studio.push`: actor, repository, branch, sha, ship mode); a refused push is logged as `studio.push_refused`; repository creation as `studio.repo_created`; every pull request state change and ship-mode change too. The actor is the person who asked, or `agent:studio` for pushes after a turn.
+
+### Ship-mode caps
 
 ```ts
-export const PullRequestState = z.enum(["uat", "ready_for_review", "merged", "cancelled"]);
+export const TeamRole = z.enum(["owner", "admin", "member"]); // the team roles in packages/auth
+export type ShipPolicy = { id: string /* app id */; caps: Partial<Record<TeamRole, ShipMode>>; updatedBy: string; updatedAt: string };
+export type ShipModeChoice = { id: string /* app id */; mode: ShipMode; by: string; at: string }; // the latest person's choice
+```
+
+`maxShipMode(app, policy, actor)` is the highest mode `actor` (`{ by, role }`) may pick: `policy.caps[role]` when set, else the default: owners and admins `cowboy`; the App's creator `cowboy` on a template App; everyone else `review`. `Shipper.setShipMode(appId, mode, actor)` refuses a mode above the cap (`StudioError("invalid")`), then updates the App and records the choice. Only team owners and admins may change a policy (`Shipper.setPolicy`). Policies are kept in the store collection `studio_ship_policies` behind a `ShipPolicies` interface, so App definitions (`kiln/v1` policies) can replace it; choices in `studio_ship_choices`. This is a small check, replaced by the roles plan later.
+
+### The App's pull request
+
+```ts
+export const PullRequestState = z.enum(["uat", "ready_for_review", "merged", "waiting_for_review", "cancelled"]);
 export type AppPullRequest = {
   id: string; // "sp_…"
   appId: string;
@@ -418,19 +449,63 @@ export type AppPullRequest = {
   repo: string; // "owner/name"
   number: number;
   url: string;
-  branch: string; // "studio/<app id>" on imported repositories
+  branch: string; // "studio/<app id>"
+  base: string; // the main branch
   state: PullRequestState;
-  previewUrl?: string; // the deployment preview, when a preview provider is configured
-  createdBy: string;
+  versionId: string; // the App version its head is
+  builtInPreview?: string; // Studio's preview of that version (ShipperOptions.versionPreviewUrl)
+  previewUrl?: string; // the deployment preview, when a PreviewProvider is configured
+  reasons?: string[]; // the merge gate's, when waiting_for_review
+  createdBy: string; // the author
   createdAt: string;
   updatedAt: string;
 };
-// tool:  ship  { app: string; title?: string; state?: "uat" | "ready_for_review" | "cancelled" }
-// event: "studio.pull_request_state_changed": { appId; pullRequestId; state: PullRequestState; priority: "needs_you" (ready_for_review, for reviewers) | "finished" }
 // store: studio_pull_requests
 ```
 
-**Forge sync per ship mode.** `review` opens the pull request above. `cowboy` pushes `main` for a template App, or the `studio/<app id>` branch for an imported one. ADR-012's guards apply: a push credential scoped to the one repository, the exception ending when the repository is coupled to a factory, and every agent push in the audit log.
+- One open pull request per App. `ship` or a `review` push opens it in `uat`; later pushes update it (same branch) and set `versionId` and the previews again. A push to an App in `ready_for_review` or `waiting_for_review` moves it back to `uat`.
+- `ready_for_review` is set only by a person, the author (`createdBy`); actors `studio` and `agent:*` are refused. Then Studio calls the merge gate: `merged` when it merged, else `waiting_for_review` with its reasons (it appears in the reviewers' Inbox).
+- `cancelled` (the author or a team admin) closes the pull request on the forge (`Forge.closePullRequest`).
+- `merged` and `cancelled` are final; the next `ship` opens a new pull request. `Shipper.forgeMerged(repo, number)` records a person's merge from the forge webhook.
+
+**Merge gate interface** (ADR-014; defined by the merge-gate work, built against `FakeMergeGate` until it lands):
+
+```ts
+export interface MergeGate {
+  check(input: { app: App; pullRequest: AppPullRequest; by: string }): Promise<{ merged: true } | { merged: false; reasons: string[] }>;
+}
+```
+
+### Forge additions (`packages/integrations`)
+
+```ts
+interface Forge {
+  /** An empty repository; throws RepositoryExistsError when the name is taken. GitHub: POST /orgs/{owner}/repos (or /user/repos for the token's own account). */
+  createRepository?(input: { owner: string; name: string; private: boolean; description?: string }): Promise<{ repo: RepoRef; url: string }>;
+  closePullRequest?(repo: RepoRef, number: number): Promise<PullRequest>;
+}
+```
+
+Both have `FakeForge` and `GitHubForge` implementations and one contract suite. A GitHub App needs `administration: write` on the organization to create repositories.
+
+### Tool and event
+
+| Name   | Kind   | Input (zod)                                                                           |
+| ------ | ------ | ------------------------------------------------------------------------------------- |
+| `ship` | server | `{ app: string; title?: string; state?: "uat" \| "ready_for_review" \| "cancelled" }` |
+
+No `state` (or `uat`) pushes and opens or updates the pull request; returns the `AppPullRequest`. `runTool` takes the `Shipper` as an optional fifth argument; without it `ship` answers "shipping isn't configured on this server".
+
+```ts
+"studio.pull_request_state_changed": { appId: string; pullRequestId: string; state: PullRequestState; url: string; priority: Priority };
+// priority: waiting_for_review → "needs_you"; ready_for_review → "progress"; uat, merged, cancelled → "finished"
+```
+
+### Hook in the Studio service
+
+`Studio.withWorkspace(appId, fn: (sandbox, app) => Promise<T>)` runs `fn` with the App's sandbox under the App's Git lock. The `Shipper` pushes from there and follows `studio.version_created` on the bus.
+
+## Later (not built in phases 1–4)
 
 **Coupling to a factory** (optional per App) and **Kiln Project environments** inherited by previews.
 
@@ -443,7 +518,8 @@ export type AppPullRequest = {
 5. Restore makes a new version whose tree equals the old one, and the earlier versions stay.
 6. Tools validate input with zod and act through `Studio`; client tools change nothing.
 7. Studio events carry their priority.
-8. The API serves the routes for the caller's team only, the MCP tools call them, and `/studio` shows chats, preview, version cards, History and Bookmarks.
+8. Shipping: no path pushes a main branch except a template App's Kiln-created repository or an imported App whose person chose `cowboy`, and never a repository linked to a factory (tested for each case); every push is audited; the pull request moves uat → ready_for_review (author only) → merged or waiting_for_review, or cancelled (closed on the forge).
+9. The API serves the routes for the caller's team only, the MCP tools call them, and `/studio` shows chats, preview, version cards, History and Bookmarks.
 
 ## Follow-ups
 

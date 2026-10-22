@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowUp,
   Award,
   ChevronsUpDown,
   EllipsisVertical,
@@ -16,7 +15,6 @@ import {
   PanelRight,
   Pause,
   Play,
-  Plus,
   Repeat,
   RotateCw,
   Settings,
@@ -24,10 +22,11 @@ import {
   TriangleAlert,
   Undo2,
 } from "lucide-react";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { confirmLanded, handBack, pauseRun, replayRun, resumeRun, retryTask, saveAsBenchmark, scoreThisRun, sendFollowup, stopRun, takeLocal } from "@/app/runs/actions";
-import { AttachmentChips, useAttachments } from "@/components/kiln/attachments";
+import { useAttachments } from "@/components/kiln/attachments";
+import { PromptInput } from "@/components/kiln/prompt-input";
 import { AgentIcon, StatusSquare } from "@/components/kiln/run-visuals";
 import { PageHeader } from "@/components/kiln/ui";
 import { Button } from "@/components/ui/button";
@@ -43,6 +42,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MessageScroller, MessageScrollerButton, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport } from "@/components/ui/message-scroller";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -100,7 +100,6 @@ export function RunDetailView({ model }: { model: RunDetailModel }) {
   const [panelOpen, setPanelOpen] = useState(Boolean(sp.get("tab")));
   const [showThinking, setShowThinking] = useState(true);
   const [showTools, setShowTools] = useState(true);
-  const scrollRef = useRef<HTMLDivElement>(null);
   useLiveRun(model.streamRunId, model.live);
 
   useEffect(() => {
@@ -114,13 +113,6 @@ export function RunDetailView({ model }: { model: RunDetailModel }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Keep the newest messages in view.
-  const count = model.transcript.length;
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [count]);
 
   const savePrefs = (thinking: boolean, tools: boolean) => {
     try {
@@ -191,27 +183,33 @@ export function RunDetailView({ model }: { model: RunDetailModel }) {
               </Tooltip>
             </div>
           </div>
-          <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-[976px] px-6 pt-2 pb-8">
-              <Transcript
-                items={model.transcript}
-                showThinking={showThinking}
-                showTools={showTools}
-                live={!model.isWorkItem && model.live}
-                prUrl={model.workItem?.prUrl}
-                previewUrl={model.workItem?.previewUrl}
-              />
-              {model.live && (
-                <div className="mt-5 flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="relative flex size-2">
-                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-violet-500 opacity-60" />
-                    <span className="relative inline-flex size-2 rounded-full bg-violet-500" />
-                  </span>
-                  Working…
-                </div>
-              )}
-            </div>
-          </div>
+          <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+            <MessageScroller className="min-h-0 flex-1">
+              <MessageScrollerViewport>
+                <MessageScrollerContent className="mx-auto w-full max-w-[976px] gap-5 px-6 pt-2 pb-8">
+                  <Transcript
+                    items={model.transcript}
+                    showThinking={showThinking}
+                    showTools={showTools}
+                    live={!model.isWorkItem && model.live}
+                    prUrl={model.workItem?.prUrl}
+                    previewUrl={model.workItem?.previewUrl}
+                    scroller
+                  />
+                  {model.live && (
+                    <MessageScrollerItem className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="relative flex size-2">
+                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-violet-500 opacity-60" />
+                        <span className="relative inline-flex size-2 rounded-full bg-violet-500" />
+                      </span>
+                      Working…
+                    </MessageScrollerItem>
+                  )}
+                </MessageScrollerContent>
+              </MessageScrollerViewport>
+              <MessageScrollerButton />
+            </MessageScroller>
+          </MessageScrollerProvider>
           <div className="shrink-0 border-t px-6 pt-4 pb-4">
             <StoppedBanner model={model} />
             <FollowupComposer model={model} />
@@ -640,61 +638,25 @@ function FollowupComposer({ model }: { model: RunDetailModel }) {
     });
   };
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        submit();
-      }}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault();
-        if (e.dataTransfer.files.length) void files.add(e.dataTransfer.files);
-      }}
-      className="mx-auto w-full max-w-[928px] rounded-xl border bg-background p-3 shadow-sm dark:bg-muted/20"
-    >
-      <AttachmentChips items={files.items} onRemove={files.remove} className="mb-2" />
-      <textarea
-        aria-label="Follow up"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-        rows={1}
-        placeholder={placeholder}
-        className="block max-h-48 min-h-8 w-full resize-none bg-transparent px-1 text-sm leading-6 outline-none placeholder:text-muted-foreground [field-sizing:content]"
-      />
-      <div className="mt-1 flex items-center">
-        {files.input}
-        <button
-          type="button"
-          aria-label="Add attachment"
-          onClick={files.open}
-          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <Plus className="size-4" />
-        </button>
-        {model.plan && (
-          <span title="Tasks done" className="ml-1 flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs text-muted-foreground">
+    <PromptInput
+      value={text}
+      onChange={setText}
+      onSubmit={submit}
+      canSend={canSend}
+      files={files}
+      label="Follow up"
+      sendLabel="Send (Enter)"
+      placeholder={placeholder}
+      className="mx-auto w-full max-w-[928px]"
+      textareaClassName="max-h-48 min-h-10 [field-sizing:content]"
+      tools={
+        model.plan && (
+          <span title="Tasks done" className="flex h-6 items-center gap-1.5 rounded-md bg-muted px-2 text-xs text-muted-foreground">
             <ListChecks className="size-3.5" />
             {model.plan.done}/{model.plan.total}
           </span>
-        )}
-        <button
-          type="submit"
-          aria-label="Send (Enter)"
-          disabled={!canSend}
-          className={cn(
-            "ml-auto flex size-7 items-center justify-center rounded-md",
-            canSend ? "bg-primary text-primary-foreground hover:bg-primary/85" : "bg-foreground/5 text-muted-foreground",
-          )}
-        >
-          <ArrowUp className="size-4" />
-        </button>
-      </div>
-    </form>
+        )
+      }
+    />
   );
 }

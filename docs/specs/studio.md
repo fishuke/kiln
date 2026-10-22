@@ -316,35 +316,39 @@ export class StudioError extends Error {
 - **Durability.** Every step persists before and after it runs. After each turn the sandbox is snapshotted to `objects`, and an App whose sandbox isn't in memory resumes from `snapshot` (worktrees are repaired, because their paths may change). Dev servers start again lazily. Time comes only from `clock`.
 - **Sandboxes** carry the label `kiln.studio.app: <id>` and `preview: true`, which puts them on the preview network (Docker) or gives them `kiln.dev/preview: "true"` (Kubernetes).
 
-## Chats reuse runs and subagents (next; supersedes the direct harness turn above)
+## Chats reuse runs and subagents
 
-ADR-012: every agent execution in a chat is a **run**, and parallel work is **subagent runs**, exactly as in factories ([Tasks, runs and subagents](../site/developer-tools/tasks-and-runs.md)). Studio builds no lead/child mechanism of its own. Built today: a turn calls `harness.start` directly. This section replaces that; nothing below is built yet.
+ADR-012: every agent execution in a chat is a **run**, and parallel work is **subagent runs**, exactly as in factories ([Tasks, runs and subagents](../site/developer-tools/tasks-and-runs.md)). Studio builds no lead/child mechanism of its own; it adds a worktree and preview per run, Apply into versions, and chat views over the run tree.
 
 **What maps to what**
 
-| Studio                            | Runs                                                                                                                                                                                                                    |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A turn                            | One run of the App's lead agent (from the App definition), `source: "WEB_APP"` (or `MCP`), `metadata: { "studio.app": <appId>, "studio.chat": <chatId> }`                                                               |
-| A person's next message in a chat | `RunService.followup(chat.runId, …)`: steers the live run, or continues the finished one in a new run (`continuationOf`)                                                                                                |
-| A chat started by an agent        | `spawn_agent` / `run_agents` from the chat's run with its run token; `spawnableBy` and the five-level limit apply. The child run gets its own worktree, branch and preview (below), and Studio shows it as a child chat |
-| Stop                              | `RunService.interrupt` (the run is `blocked` until a follow-up)                                                                                                                                                         |
-| Agent types                       | The agents of the App definition (`app-definitions` branch), with their `spawnableBy`                                                                                                                                   |
-| Status                            | The App's run trees (`ancestor_run_id`), read through Studio's routes                                                                                                                                                   |
+| Studio                     | Runs                                                                                                                                                                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A turn                     | One run of an App agent (`Chat.agent`, default `general`): `factory: "app:<id>"`, `app: <id>`, `source: WEB_APP` (or `MCP`), `metadata: { "studio.chat": <chatId> }`                                                                        |
+| A person's next message    | `followup(chat.runId)`: steers the live run, or continues the finished one in a new run (`continuationOf`), which is the chat's next turn                                                                                                   |
+| A chat started by an agent | `spawn_agent` / `run_agents` from a chat's run with its run token; the App agents' `spawnableBy` and the five-level limit apply. Studio gives the child run its own worktree, branch and preview, and shows it as a chat with `parentRunId` |
+| Reports                    | `spawn` with `report: true`: the child's report continues or steers the parent's run, which is the parent chat's next turn                                                                                                                  |
+| Stop                       | `interrupt(chat.runId)` (the `stop` tool)                                                                                                                                                                                                   |
+| Mode                       | Chat and plan mode put a read-only line in the message; Studio reverts any change at the end of the turn, as before                                                                                                                         |
 
-`Turn` becomes Studio's record of a run: `Turn.runId` is added, and `checkpoint`, `discarded`, `plan`, `title` and `summary` stay Studio's. `Chat.runId` is the latest run of that line of work. The parent/child relation comes from `Run.parentRunId`; Chat gets no parent field of its own.
+**Engine hooks** (shared run machinery; `packages/engine` never imports Studio):
 
-**Additions to the shared run machinery** (for factories too; not in `gates.ts` or `state.ts`):
+- `KilnOptions.apps: AppRunHost`: `definition(appId) → { sha, team, agents, skill(agent, name), monthlyUsd?, env, secretValues }`. Studio builds it from `AppDefinitions`: each agent's instructions are `chatConfig(...).instructions` (its own, then the mandatory skills) followed by Studio's turn instructions; its MCP server names resolve through the team's MCP registry like a factory agent's. App runs check the team spend limit and the App's `monthlyUsd` with the same month-spend check as factories (`RunService.assertMonthlyBudget`).
+- `KilnOptions.workspaces: WorkspaceProvider`: `acquire(run, parent)` gives an App run the App's sandbox and its chat's worktree (a new chat and worktree for a spawned child), seen through the run's own command guard; `release(run)` checkpoints, enforces the mode, records the turn, auto-applies in cowboy mode and snapshots.
+- `RunService.decisionsFor(run)` resolves a run's decisions for factories and Apps alike.
 
-1. **Workspace hook.** `KilnOptions.workspaces?: { acquire(run: Run, parent?: Run): Promise<{ sandbox: Sandbox; cwd: string } | undefined>; release(run: Run): Promise<void> }`. When `acquire` returns a workspace, the run executes there instead of creating its own sandbox. It doesn't clone, doesn't destroy the sandbox at the end, and records `startState.repos` from `cwd`'s `HEAD`. Studio's provider answers for runs with `studio.app` metadata: the App sandbox, plus a new worktree for a child run.
-2. **Report to the parent.** `spawn` takes `report?: boolean`. When the child finishes (`succeeded`, `failed`, `blocked` after an interrupt, or a budget stop) or asks a question, Kiln delivers `{ name, title, summary, branch, reason, question? }` to the parent with `followup`. That steers the parent if it's live, or starts its next run if it finished. This replaces polling and mirrors how `run_finished` wakes the foreman (ADR-011).
-3. **Fork.** `spawn` takes `fork?: boolean`: the child's prompt starts with the parent's conversation, taken from its transcript; by default it gets only the brief.
-4. **Name.** `spawn` takes `name?`, unique among the runs of one root tree, and `followups` accept a name within the caller's tree as well as an id.
+**Needs approval (protected path).** The guard endpoint in `apps/api/src/app.ts` resolves a run's command guard with `kiln.defs.resolved(run.definitionSha)`, which fails for an App run. The change:
 
-**Open decisions (need an answer before building):**
+```diff
+-    const def = run ? kiln.defs.resolved(run.definitionSha).parsed.decisions["command-guard"] : undefined;
++    const def = run ? kiln.runs.decisionsFor(run)["command-guard"] : undefined;
+```
 
-- **App runs and factories.** `Run.factory` and `definitionSha` resolve through `kiln.defs`. Either App definition trees are stored in the same content-addressed definition store with an App id in place of a factory id, or runs get an `app` field and `RunService` resolves App definitions through `AppDefinitions`. Recommended: the second, because App definitions are layered (team → Kiln Project → App).
-- **Reading App runs.** `/runs` access is decided in `canReadRun` in `apps/api/src/app.ts` (protected). Either App runs are readable only through Studio's routes (no protected change), or `canReadRun` learns App team access (needs approval). Recommended: Studio's routes first.
-- **Run tokens for App runs.** They are scoped to the App's run tree, may spawn, follow up, interrupt and call the Studio tools for that App only, and never decide gates, merge or approve (ADR-008). The cowboy push credential is a separate, ship-mode-scoped grant (ADR-012).
+Until it lands, Claude Code's guard hook can't check an App run's commands; commands that go through the sandbox (`withGuard`) are checked.
+
+**Contract changes.** `StudioOptions` loses `harness` and `credentials` and gains `definitions: AppDefinitions` and `runs: { start, followup, interrupt }` (the API wires them to `kiln.runs`). `Chat` gains `agent`, `runId?` and `parentRunId?`; `Turn` gains `runId?`. `new_chat` takes `agent?`. A `stop` tool `{ chat }` interrupts the chat's run.
+
+**Reading App runs.** Only through Studio's routes; `canReadRun` is unchanged.
 
 ## Events (`packages/events`, added to `KilnEventMap`)
 

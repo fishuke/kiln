@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { CornerDownRight, Eye, GitMerge, History, ListTree, LoaderCircle, MessageSquare, Plus } from "lucide-react";
+import { Eye, GitMerge, History, ListTree, LoaderCircle, MessageSquare, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { StudioClient } from "@/lib/studio/client";
 import {
   chatRunStatus,
-  chatTree,
   chatUsage,
   importSteps,
   nextMode,
@@ -37,7 +36,7 @@ import { HistoryPanel } from "./history-panel";
 import { EmptyPreview, PreviewingBanner, PreviewPane, type PreviewView } from "./preview-pane";
 import { SetupPanel } from "./setup-panel";
 import { AppSettings, AppSwitcher, NeedsYouMenu } from "./top-bar";
-import { ReportCard, TasksPanel } from "./child-chats";
+import { TasksPanel } from "./child-chats";
 import { ShipControl } from "./ship";
 import { ConflictNote, TurnView } from "./turn-view";
 import { usePreview, useStudioApp, type PreviewTarget } from "./use-studio";
@@ -59,9 +58,7 @@ function ChatTabs({ chats, active, onPick, onNew }: { chats: Chat[]; active?: st
   }, [active, chats.length]);
   return (
     <div ref={list} role="tablist" aria-label="Chats" className="flex scroll-fade-x scrollbar-none items-center gap-1 overflow-x-auto px-3 py-2">
-      {chatTree(chats)
-        .flatMap((n) => [n.chat, ...n.children])
-        .map((c, i) => (
+      {chats.map((c, i) => (
           <Tooltip key={c.id}>
             <TooltipTrigger
               render={
@@ -77,7 +74,6 @@ function ChatTabs({ chats, active, onPick, onNew }: { chats: Chat[]; active?: st
                 />
               }
             >
-              {c.parentChatId && <CornerDownRight className="-ml-1 size-3 shrink-0 opacity-60" />}
               <span className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[c.status])} />
               <span className="truncate">{c.title}</span>
             </TooltipTrigger>
@@ -158,6 +154,14 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
   useEffect(() => {
     if (chatId) void loadChat(chatId);
   }, [chatId, loadChat]);
+  // Live updates for the open chat over SSE; the App itself is polled slowly.
+  useEffect(() => {
+    if (!chatId || !client.watchChat) return;
+    return client.watchChat(chatId, () => {
+      void loadChat(chatId);
+      void refresh();
+    });
+  }, [client, chatId, loadChat, refresh]);
   useEffect(() => {
     if (chat) setDraftMode(chat.mode);
     // A chat's mode is the composer's starting mode; switching chats resets it.
@@ -217,11 +221,6 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
     async (text: string, m: ChatMode = mode) => {
       if (!chatId || !turns.length) return newChat(text, m);
       try {
-        if (chat?.runId) {
-          await client.followup(chat.runId, text);
-          await loadChat(chatId);
-          return true;
-        }
         const r = await client.send(chatId, { text, mode: m });
         if (r.steered) toast("Sent to the running turn");
         await loadChat(chatId);
@@ -232,7 +231,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
         return false;
       }
     },
-    [client, chatId, chat?.runId, turns.length, mode, newChat, loadChat, refresh],
+    [client, chatId, turns.length, mode, newChat, loadChat, refresh],
   );
 
   // Keyboard: ⌥P mode, ⌥H history, ⌥K tasks, ⌥N new chat, ⌥1–9 chats, Esc leaves an old version.
@@ -245,7 +244,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
       else if (e.code === "KeyK") setPanel((p) => (p === "tasks" ? undefined : "tasks"));
       else if (e.code === "KeyN") void newChat();
       else if (/^Digit[1-9]$/.test(e.code)) {
-        const c = chatTree(chatList).flatMap((n) => [n.chat, ...n.children])[Number(e.code.slice(5)) - 1];
+        const c = chatList[Number(e.code.slice(5)) - 1];
         if (c) selectChat(c.id);
       } else return;
       e.preventDefault();
@@ -334,18 +333,6 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
                           <TurnView
                             turn={t}
                             busy={working}
-                            renderReport={(r) => {
-                              const child = chatList.find((c) => c.id === r.chatId);
-                              return (
-                                <ReportCard
-                                  report={r}
-                                  chat={child}
-                                  status={child ? chatRunStatus(child, chats[child.id]?.turns.at(-1)) : "complete"}
-                                  onOpen={() => selectChat(r.chatId)}
-                                  onApply={child ? () => apply(child.id) : undefined}
-                                />
-                              );
-                            }}
                             onBuildPlan={(plan, inNew) => {
                               setDraftMode("build");
                               void (inNew ? newChat(plan, "build") : send(plan, "build"));
@@ -525,10 +512,6 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
                 steps={steps}
                 onDevCommand={async (devCommand) => {
                   await client.updateApp(app.id, { devCommand });
-                  await refresh();
-                }}
-                onSecrets={async (values) => {
-                  await client.saveSecrets(values);
                   await refresh();
                 }}
               />

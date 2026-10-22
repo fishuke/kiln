@@ -1,7 +1,7 @@
 /** What the Studio page shows, computed from the API's shapes. Pure functions, tested in model.test.ts. */
 import { parsePatch, type DiffLine } from "@/lib/diff";
 import type { RunStatus } from "@/lib/run-tree";
-import type { AppSource, Chat, ChatMode, Preview, PullRequestState, ReportReason, ShipMode, StatusReport, StudioApp, Turn, Version } from "./types";
+import type { AppSource, Chat, ChatMode, Preview, PullRequestState, ShipMode, StatusReport, StudioApp, Turn, Version } from "./types";
 
 export const MODES: { id: ChatMode; label: string; hint: string }[] = [
   { id: "build", label: "Build", hint: "Reads, edits and runs the app" },
@@ -234,14 +234,6 @@ export function chatRunStatus(c: Chat, lastTurn?: Turn): RunStatus {
   return "complete";
 }
 
-export const REPORT_REASON_LABEL: Record<ReportReason, string> = { finished: "Finished", needs_input: "Needs input", failed: "Failed", stopped: "Stopped", out_of_budget: "Out of budget" };
-
-/** Lead chats in creation order, each with its children (a child whose lead is gone is a lead). */
-export function chatTree(chats: Chat[]): { chat: Chat; children: Chat[] }[] {
-  const ids = new Set(chats.map((c) => c.id));
-  const sorted = [...chats].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  return sorted.filter((c) => !c.parentChatId || !ids.has(c.parentChatId)).map((chat) => ({ chat, children: sorted.filter((c) => c.parentChatId === chat.id) }));
-}
 
 export const PULL_REQUEST_LABEL: Record<PullRequestState, string> = {
   uat: "UAT",

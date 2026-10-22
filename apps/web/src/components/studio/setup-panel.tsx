@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { Circle, CircleCheck, CircleX, GitBranch, KeyRound, LoaderCircle, Package, SquareTerminal } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 import { GitHubIcon } from "@/components/kiln/brand-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,62 +97,26 @@ export function DevCommand({ app, onSave }: { app: StudioApp; onSave: (cmd: stri
   );
 }
 
-/** Missing env: one field per key, saved as team secrets. Values never go into the repository. */
-export function MissingEnv({ keys, onSave }: { keys: string[]; onSave: (values: Record<string, string>) => Promise<void> }) {
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
+/** Missing env: the keys the repository needs that no environment provides, with a link to set them. */
+export function MissingEnv({ keys }: { keys: string[] }) {
   if (!keys.length) return null;
-  const filled = Object.fromEntries(Object.entries(values).filter(([, v]) => v.trim()));
   return (
-    <form
-      className="flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setBusy(true);
-        try {
-          await onSave(filled);
-          setValues({});
-          toast.success("Secrets saved");
-        } catch (err) {
-          toast.error(err instanceof Error ? err.message : String(err));
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <div className="flex items-start gap-2 text-sm">
-        <KeyRound className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-        <div>
-          <div className="font-medium">
-            Missing environment {keys.length === 1 ? "variable" : "variables"}
-          </div>
-          <div className="text-xs text-muted-foreground">
-            From .env.example. Saved as team{" "}
-            <Link href="/secrets" className="underline underline-offset-2 hover:text-foreground">
-              secrets
-            </Link>
-            .
-          </div>
-        </div>
+    <div className="flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <KeyRound className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        Missing environment {keys.length === 1 ? "variable" : "variables"}
       </div>
-      {keys.map((k) => (
-        <div key={k} className="grid gap-1">
-          <Label htmlFor={`env-${k}`} className="font-mono text-xs">
+      <ul className="flex flex-wrap gap-1.5">
+        {keys.map((k) => (
+          <li key={k} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs">
             {k}
-          </Label>
-          <Input
-            id={`env-${k}`}
-            type="password"
-            autoComplete="off"
-            value={values[k] ?? ""}
-            onChange={(e) => setValues((v) => ({ ...v, [k]: e.target.value }))}
-          />
-        </div>
-      ))}
-      <Button type="submit" size="sm" className="self-end" disabled={busy || !Object.keys(filled).length}>
-        Save secrets
-      </Button>
-    </form>
+          </li>
+        ))}
+      </ul>
+      <Link href="/secrets" className="self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+        Set them in Secrets
+      </Link>
+    </div>
   );
 }
 
@@ -162,12 +125,10 @@ export function SetupPanel({
   app,
   steps,
   onDevCommand,
-  onSecrets,
 }: {
   app: StudioApp;
   steps: SetupStep[];
   onDevCommand: (cmd: string | null) => Promise<void>;
-  onSecrets: (values: Record<string, string>) => Promise<void>;
 }) {
   const source = app.source.kind === "repo" ? app.source : undefined;
   return (
@@ -194,7 +155,7 @@ export function SetupPanel({
         <ImportSteps steps={steps} />
         {app.error && <p className="text-sm text-destructive">{app.error}</p>}
         {app.setup && <DevCommand app={app} onSave={onDevCommand} />}
-        {app.setup && <MissingEnv keys={app.setup.envMissing} onSave={onSecrets} />}
+        {app.setup && <MissingEnv keys={app.setup.envMissing} />}
       </div>
     </div>
   );

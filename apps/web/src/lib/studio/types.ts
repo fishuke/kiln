@@ -72,21 +72,13 @@ export const Chat = z.object({
   status: ChatStatus,
   question: z.string().optional(),
   appliedSha: z.string().optional(),
-  /**
-   * Lead and child chats (provisional until the spec lands): a child is a subagent run of its lead's
-   * run, so it has the run's id (followups and interrupt go there) and agent type.
-   */
-  parentChatId: z.string().optional(),
+  /** The latest run of this chat (docs/specs/studio.md, "Chats reuse runs"): Stop interrupts it. */
   runId: z.string().optional(),
-  agentType: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 export type Chat = z.infer<typeof Chat>;
 
-/** Why a child chat reported back (provisional). */
-export const ReportReason = z.enum(["finished", "needs_input", "failed", "stopped", "out_of_budget"]);
-export type ReportReason = z.infer<typeof ReportReason>;
 
 export const Activity = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("message"), text: z.string(), at: z.string() }),
@@ -94,8 +86,6 @@ export const Activity = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("tool"), name: z.string(), text: z.string().optional(), at: z.string() }),
   z.object({ kind: z.literal("subagent"), name: z.string(), text: z.string(), at: z.string() }),
   z.object({ kind: z.literal("error"), text: z.string(), at: z.string() }),
-  /** A child chat reported back to its lead (provisional until the spec defines report messages). */
-  z.object({ kind: z.literal("report"), chatId: z.string(), reason: ReportReason, title: z.string(), summary: z.string().optional(), at: z.string() }),
 ]);
 export type Activity = z.infer<typeof Activity>;
 
@@ -120,6 +110,8 @@ export const Turn = z.object({
   costUsd: z.number(),
   startedAt: z.string(),
   finishedAt: z.string().optional(),
+  /** The run this turn is (docs/specs/studio.md, "Chats reuse runs"). */
+  runId: z.string().optional(),
 });
 export type Turn = z.infer<typeof Turn>;
 
@@ -191,9 +183,6 @@ export const AppPullRequest = z.object({
   updatedAt: z.string(),
 });
 export type AppPullRequest = z.infer<typeof AppPullRequest>;
-export const ToolResult = z.union([z.object({ ok: z.literal(true), data: z.unknown() }).passthrough(), z.object({ ok: z.literal(false), error: z.string() })]);
-/** A Studio pull request the merge gate sent to review, for the Inbox. */
-export type StudioReview = { pullRequest: AppPullRequest; app: { id: string; name: string }; title: string };
 
 export type CreateAppInput = { name: string; source?: AppSource; shipMode?: ShipMode; harness?: string; model?: string };
 /** `devCommand: null` clears an override. */

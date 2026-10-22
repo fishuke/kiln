@@ -111,7 +111,7 @@ describe("FakeStudioClient", () => {
     expect((await studio.app(id)).versions).toHaveLength(2);
   });
 
-  it("imports a repository, detects the setup and lists missing env", async () => {
+  it("imports a repository, detects the setup, lists missing env and overrides the dev command", async () => {
     const { studio, run } = setup();
     const p = await studio.createApp({ name: "Store", source: { kind: "repo", repo: "acme/storefront", branch: "main" } });
     expect(p.shipMode).toBe("review");
@@ -119,9 +119,8 @@ describe("FakeStudioClient", () => {
     const { app } = await studio.app(p.id);
     expect(app.status).toBe("ready");
     expect(app.setup?.envMissing).toEqual(["DATABASE_URL", "NEXTAUTH_SECRET"]);
-    await studio.saveSecrets({ DATABASE_URL: "postgres://x" });
     const updated = await studio.updateApp(p.id, { devCommand: "npm run dev" });
-    expect(updated.setup?.envMissing).toEqual(["NEXTAUTH_SECRET"]);
+    expect(updated.setup?.envMissing).toEqual(["DATABASE_URL", "NEXTAUTH_SECRET"]);
     expect(updated.setup?.dev).toBe("npm run dev");
     expect((await studio.updateApp(p.id, { devCommand: null })).setup?.dev).toBe("pnpm run dev");
   });

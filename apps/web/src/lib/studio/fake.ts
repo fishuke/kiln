@@ -9,7 +9,6 @@ import type {
   CreateAppInput,
   AppDetail,
   AppPullRequest,
-  StudioReview,
   ForgeRepository,
   NewChatInput,
   NewChatResult,
@@ -50,7 +49,6 @@ export class FakeStudioClient implements StudioClient {
   /** Chat id → checkpoints not yet applied, oldest first. */
   private unapplied = new Map<string, { sha: string; title: string }[]>();
   private started = new Map<string, number>();
-  private secrets = new Set<string>();
   private listeners = new Set<() => void>();
   private seq = 0;
   private readonly now: () => Date;
@@ -117,7 +115,7 @@ export class FakeStudioClient implements StudioClient {
       this.schedule(() => {
         const envRequired = ["DATABASE_URL", "NEXTAUTH_SECRET"];
         this.patchApp(app.id, {
-          setup: { mainBranch: source.branch ?? "main", packageManager: "pnpm", install: ["pnpm install --prefer-offline"], dev: "pnpm run dev", devDetected: "pnpm run dev", envRequired, envMissing: envRequired.filter((k) => !this.secrets.has(k)) },
+          setup: { mainBranch: source.branch ?? "main", packageManager: "pnpm", install: ["pnpm install --prefer-offline"], dev: "pnpm run dev", devDetected: "pnpm run dev", envRequired, envMissing: envRequired },
         });
         this.schedule(() => {
           this.patchApp(app.id, { status: "ready" });
@@ -159,12 +157,6 @@ export class FakeStudioClient implements StudioClient {
     }
     this.patchApp(id, next);
     return this.appsById.get(id)!;
-  }
-
-  async saveSecrets(values: Record<string, string>): Promise<void> {
-    for (const k of Object.keys(values)) this.secrets.add(k);
-    for (const a of this.appsById.values())
-      if (a.setup) this.patchApp(a.id, { setup: { ...a.setup, envMissing: a.setup.envMissing.filter((k) => !this.secrets.has(k)) } });
   }
 
   async newChat(appId: string, input: NewChatInput): Promise<NewChatResult> {
@@ -231,9 +223,10 @@ export class FakeStudioClient implements StudioClient {
       activity: [],
       costUsd: 0,
       startedAt: this.iso(),
+      runId: this.id("run"),
     };
     this.turns.set(turn.id, turn);
-    this.patchChat(chatId, { status: "working", mode, question: undefined });
+    this.patchChat(chatId, { status: "working", mode, question: undefined, runId: turn.runId });
     this.emit();
     this.play(turn.id, script(input.text, mode), 0);
     return { turn, steered: false };
@@ -410,18 +403,6 @@ export class FakeStudioClient implements StudioClient {
     return pr;
   }
 
-  async reviews(): Promise<StudioReview[]> {
-    return [...this.pullRequests.values()]
-      .filter((p) => p.state === "waiting_for_review")
-      .map((p) => ({ pullRequest: p, app: { id: p.appId, name: this.appsById.get(p.appId)?.name ?? p.appId }, title: this.versions.get(p.versionId)?.title ?? "Changes" }));
-  }
-
-  async followup(runId: string, text: string): Promise<void> {
-    const chat = [...this.chats.values()].find((c) => c.runId === runId);
-    if (!chat) throw new StudioClientError("Run not found", 404);
-    await this.send(chat.id, { text, mode: "build" });
-  }
-
   async interrupt(runId: string): Promise<void> {
     const chat = [...this.chats.values()].find((c) => c.runId === runId);
     if (!chat) throw new StudioClientError("Run not found", 404);
@@ -489,10 +470,9 @@ export class FakeStudioClient implements StudioClient {
       createdAt: at(minAgo),
       updatedAt: at(minAgo),
     });
-    this.chats.set("sc_main", chat("sc_main", "Habit tracker", 170, 4101));
-    this.chats.set("sc_pricing", chat("sc_pricing", "Pricing page", 40, 4102));
-    this.chats.set("sc_tests", { ...chat("sc_tests", "Toggle tests", 19, 4103), parentChatId: "sc_main", runId: "run_tests", agentType: "IMPLEMENT" });
-    this.chats.set("sc_a11y", { ...chat("sc_a11y", "Contrast check", 18, 4104), parentChatId: "sc_main", runId: "run_a11y", agentType: "REVIEW", status: "needs_you", question: "The flame badge is 2.8:1 on the dark card. Darken the badge, or lighten the text?" });
+    this.chats.set("sc_main", { ...chat("sc_main", "Habit tracker", 170, 4101), runId: "run_main" });
+    this.chats.set("sc_pricing", { ...chat("sc_pricing", "Pricing page", 40, 4102), runId: "run_pricing" });
+    this.chats.set("sc_a11y", { ...chat("sc_a11y", "Contrast check", 18, 4103), runId: "run_a11y", status: "needs_you", question: "The flame badge is 2.8:1 on the dark card. Darken the badge, or lighten the text?" });
     const turn = (id: string, chatId: string, minAgo: number, prompt: string, mode: ChatMode = "build"): Turn => {
       const o = outcomeFor(prompt, mode);
       return {
@@ -537,18 +517,7 @@ export class FakeStudioClient implements StudioClient {
     });
     for (const x of [v("sv_1", turns[0]!), v("sv_2", turns[1]!, true), v("sv_4", turns[3]!)]) this.versions.set(x.id, x);
     this.patchChat("sc_main", { appliedSha: turns[3]!.checkpoint });
-    const lead = this.turns.get("st_4")!;
-    this.turns.set("st_4", {
-      ...lead,
-      activity: [
-        ...lead.activity,
-        { kind: "report", chatId: "sc_tests", reason: "finished", title: "Tests for the dark mode toggle", summary: "Three tests cover the default, the toggle and the saved preference. All pass.", at: at(15) },
-        { kind: "report", chatId: "sc_a11y", reason: "needs_input", title: "Contrast check", summary: "The flame badge fails contrast on the dark card.", at: at(14) },
-      ],
-    });
-    const kid = (id: string, chatId: string, minAgo: number, prompt: string, reply: string): Turn => ({ ...turn(id, chatId, minAgo, prompt), reply, checkpoint: undefined, title: undefined });
-    this.turns.set("st_6", { ...kid("st_6", "sc_tests", 19, "Write tests for the dark mode toggle", "Added three tests in components/theme-toggle.test.tsx. All pass."), checkpoint: this.sha(), title: "Tests for the dark mode toggle" });
-    this.turns.set("st_7", { ...kid("st_7", "sc_a11y", 18, "Check colour contrast in dark mode", "The flame badge is 2.8:1 on the dark card."), question: "The flame badge is 2.8:1 on the dark card. Darken the badge, or lighten the text?" });
+    this.turns.set("st_7", { ...turn("st_7", "sc_a11y", 18, "Check colour contrast in dark mode, ask me before changing colours"), reply: "The flame badge is 2.8:1 on the dark card.", question: "The flame badge is 2.8:1 on the dark card. Darken the badge, or lighten the text?" });
     return project.id;
   }
 }

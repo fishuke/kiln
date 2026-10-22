@@ -16,7 +16,6 @@ import {
   versionNumber,
   workTitle,
   importSteps,
-  chatTree,
   chatRunStatus,
   prSteps,
 } from "./model";
@@ -232,16 +231,7 @@ describe("diffs", () => {
   });
 });
 
-describe("chat tree", () => {
-  it("nests children under their lead and keeps orphans as leads", () => {
-    const lead = chat({ id: "a", createdAt: "1" });
-    const kid = chat({ id: "b", parentChatId: "a", createdAt: "2" });
-    const orphan = chat({ id: "c", parentChatId: "gone", createdAt: "3" });
-    expect(chatTree([orphan, kid, lead]).map((n) => [n.chat.id, n.children.map((c) => c.id)])).toEqual([
-      ["a", ["b"]],
-      ["c", []],
-    ]);
-  });
+describe("chat run status", () => {
   it("maps a chat to a run status", () => {
     expect([chat({ status: "working" }), chat({ status: "conflict" }), chat({ status: "idle" })].map((c) => chatRunStatus(c))).toEqual(["running", "blocked", "complete"]);
     expect(chatRunStatus(chat({ status: "idle" }), turn({ status: "cancelled" }))).toBe("cancelled");

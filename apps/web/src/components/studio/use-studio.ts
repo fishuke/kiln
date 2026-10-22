@@ -54,7 +54,7 @@ export function useStudioApp(client: StudioClient, appId: string) {
   useEffect(() => {
     void refresh();
     const unsubscribe = client.subscribe?.(() => void refresh());
-    const timer = setInterval(() => void refresh(), busy ? FAST_MS : SLOW_MS);
+    const timer = setInterval(() => void refresh(), busy && !client.watchChat ? FAST_MS : SLOW_MS);
     return () => {
       clearInterval(timer);
       unsubscribe?.();

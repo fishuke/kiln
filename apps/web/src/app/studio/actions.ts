@@ -1,60 +1,40 @@
 "use server";
 
+import { KilnApiError } from "@kiln/sdk-ts";
 import { z } from "zod";
-import { api } from "@/lib/kiln";
-import { API_BASE, apiHeaders } from "@/lib/proxy";
+import { api, errorMessage } from "@/lib/kiln";
 import {
-  ApplyResult,
   AppPullRequest,
-  ToolResult,
+  ApplyResult,
+  AppSource,
   Chat,
   ChatDetail,
   ChatMode,
   Diff,
   NewChatResult,
   Preview,
-  AppSource,
-  StudioApp,
   SendResult,
   ShipMode,
   StatusReport,
+  StudioApp,
   Version,
 } from "@/lib/studio/types";
 
 /** What every Studio action returns: the parsed response, or the API's message and status. */
 export type StudioResult<T> = { ok: true; data: T } | { ok: false; error: string; status?: number };
 
-const Id = z.string().regex(/^s[apcvt]_[A-Za-z0-9_-]+$/);
-
-/** Calls one Studio route as the signed-in user and parses the response with its schema. */
-async function call<S extends z.ZodType>(schema: S, method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<StudioResult<z.infer<S>>> {
+/** Runs one SDK call as the signed-in user and parses the response with its schema. */
+async function call<S extends z.ZodType>(schema: S, fn: () => Promise<unknown>): Promise<StudioResult<z.infer<S>>> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/studio${path}`, {
-      method,
-      headers: await apiHeaders(body === undefined ? {} : { "content-type": "application/json" }),
-      body: body === undefined ? undefined : JSON.stringify(body),
-      cache: "no-store",
-    });
-    const text = await res.text();
-    const json: unknown = text ? JSON.parse(text) : undefined;
-    if (!res.ok) {
-      const msg =
-        (json as { message?: string; error?: string } | undefined)?.message ??
-        (json as { error?: string } | undefined)?.error ??
-        `Studio API answered ${res.status}`;
-      return { ok: false, error: msg, status: res.status };
-    }
-    const parsed = schema.safeParse(json);
+    const parsed = schema.safeParse(await fn());
     if (!parsed.success) return { ok: false, error: `Unexpected Studio response: ${parsed.error.issues[0]?.message ?? "invalid"}` };
     return { ok: true, data: parsed.data };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err), status: 503 };
+    return { ok: false, error: errorMessage(err), status: err instanceof KilnApiError ? err.status : undefined };
   }
 }
 
-function id(v: string): string {
-  return Id.parse(v);
-}
+const Id = z.string().regex(/^s[acvt]_[A-Za-z0-9_-]+$/);
 
 const CreateInput = z.object({
   name: z.string().trim().min(1).max(80),
@@ -76,107 +56,71 @@ const ChatInput = z.object({
   title: z.string().optional(),
 });
 const SendInput = z.object({ text: z.string().trim().min(1), mode: ChatMode.optional() });
+const ShipInput = z.object({ title: z.string().max(200).optional(), state: z.enum(["uat", "ready_for_review", "cancelled"]).optional() });
+const AppDetailWire = z.object({ app: StudioApp, chats: z.array(Chat), versions: z.array(Version), pullRequest: AppPullRequest.optional() });
 
 export async function studioApps() {
-  return call(z.object({ apps: z.array(StudioApp) }), "GET", "/apps");
+  return call(z.object({ apps: z.array(StudioApp) }), () => api.studioApps());
 }
 export async function studioCreateApp(input: z.input<typeof CreateInput>) {
-  return call(StudioApp, "POST", "/apps", CreateInput.parse(input));
+  return call(StudioApp, () => api.studioCreateApp(CreateInput.parse(input)));
 }
 export async function studioApp(appId: string) {
-  return call(z.object({ app: StudioApp, chats: z.array(Chat), versions: z.array(Version), pullRequest: AppPullRequest.optional() }), "GET", `/apps/${id(appId)}`);
+  return call(AppDetailWire, () => api.studioApp(Id.parse(appId)));
 }
 export async function studioUpdateApp(appId: string, patch: z.input<typeof PatchInput>) {
-  return call(StudioApp, "PATCH", `/apps/${id(appId)}`, PatchInput.parse(patch));
+  return call(StudioApp, () => api.studioUpdateApp(Id.parse(appId), PatchInput.parse(patch)));
 }
 export async function studioNewChat(appId: string, input: z.input<typeof ChatInput>) {
-  return call(NewChatResult, "POST", `/apps/${id(appId)}/chats`, ChatInput.parse(input));
+  return call(NewChatResult, () => api.studioNewChat(Id.parse(appId), ChatInput.parse(input)));
 }
 export async function studioChat(chatId: string) {
-  return call(ChatDetail, "GET", `/chats/${id(chatId)}`);
+  return call(ChatDetail, () => api.studioChat(Id.parse(chatId)));
 }
 export async function studioSend(chatId: string, input: z.input<typeof SendInput>) {
-  return call(SendResult, "POST", `/chats/${id(chatId)}/messages`, SendInput.parse(input));
+  return call(SendResult, () => api.studioSend(Id.parse(chatId), SendInput.parse(input)));
 }
 export async function studioApply(chatId: string) {
-  return call(ApplyResult, "POST", `/chats/${id(chatId)}/apply`);
+  return call(ApplyResult, () => api.studioApply(Id.parse(chatId)));
 }
 export async function studioChatDiff(chatId: string) {
-  return call(Diff, "GET", `/chats/${id(chatId)}/diff`);
+  return call(Diff, () => api.studioChatDiff(Id.parse(chatId)));
 }
 export async function studioChatPreview(chatId: string) {
-  return call(Preview, "GET", `/chats/${id(chatId)}/preview`);
+  return call(Preview, () => api.studioChatPreview(Id.parse(chatId)));
 }
 export async function studioRestore(versionId: string) {
-  return call(Version, "POST", `/versions/${id(versionId)}/restore`);
+  return call(Version, () => api.studioRestore(Id.parse(versionId)));
 }
 export async function studioBookmark(versionId: string, on: boolean) {
-  return call(Version, "POST", `/versions/${id(versionId)}/bookmark`, { on: z.boolean().parse(on) });
+  return call(Version, () => api.studioBookmark(Id.parse(versionId), z.boolean().parse(on)));
 }
 export async function studioVersionDiff(versionId: string) {
-  return call(Diff, "GET", `/versions/${id(versionId)}/diff`);
+  return call(Diff, () => api.studioVersionDiff(Id.parse(versionId)));
 }
 export async function studioVersionPreview(versionId: string) {
-  return call(Preview, "GET", `/versions/${id(versionId)}/preview`);
+  return call(Preview, () => api.studioVersionPreview(Id.parse(versionId)));
 }
 export async function studioStatus() {
-  return call(StatusReport, "GET", "/status");
+  return call(StatusReport, () => api.studioStatus());
 }
-export async function studioRepositories(): Promise<StudioResult<{ owner: string; name: string; forge: string }[]>> {
-  try {
-    return { ok: true, data: (await api.forgeRepositories()).repositories };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
+export async function studioRepositories() {
+  return call(z.array(z.object({ owner: z.string(), name: z.string(), forge: z.string() })), async () => (await api.forgeRepositories()).repositories);
 }
 
-const SecretName = z.string().regex(/^[A-Z_][A-Z0-9_]*$/);
+const ShipResult = z.union([z.object({ ok: z.literal(true), data: AppPullRequest }).passthrough(), z.object({ ok: z.literal(false), error: z.string() })]);
 
-/** An imported app's missing env, saved as team secrets (the existing secrets API). */
-export async function studioSaveSecrets(values: Record<string, string>): Promise<StudioResult<null>> {
-  try {
-    const pairs = z.record(SecretName, z.string().min(1)).parse(values);
-    for (const [name, value] of Object.entries(pairs)) await api.createManagedSecret({ scope: "team", name, value });
-    return { ok: true, data: null };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-const ShipInput = z.object({ title: z.string().max(200).optional(), state: z.enum(["uat", "ready_for_review", "cancelled"]).optional() });
-
-/** The `ship` tool through `POST /tools/ship`: its data is the App's pull request. */
+/** The `ship` tool: its data is the App's pull request. */
 export async function studioShip(appId: string, input: z.input<typeof ShipInput>): Promise<StudioResult<AppPullRequest>> {
-  const r = await call(ToolResult, "POST", "/tools/ship", { app: id(appId), ...ShipInput.parse(input) });
+  const r = await call(ShipResult, () => api.studioTool("ship", { app: Id.parse(appId), ...ShipInput.parse(input) }));
   if (!r.ok) return r;
-  if (!r.data.ok) return { ok: false, error: r.data.error };
-  const pr = AppPullRequest.safeParse(r.data.data);
-  return pr.success ? { ok: true, data: pr.data } : { ok: false, error: "Unexpected ship response" };
+  return r.data.ok ? { ok: true, data: r.data.data } : { ok: false, error: r.data.error };
 }
 
-/** A child chat is a subagent run: Message is a followup to it. */
-export async function studioFollowup(runId: string, text: string): Promise<StudioResult<null>> {
-  try {
-    await api.followup(z.string().min(1).parse(runId), z.string().trim().min(1).parse(text));
-    return { ok: true, data: null };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-/** Stop is the run's interrupt. */
+/** Stop: the chat's run is interrupted (docs/specs/studio.md, "Chats reuse runs"). */
 export async function studioInterrupt(runId: string): Promise<StudioResult<null>> {
-  try {
-    await api.interrupt(z.string().min(1).parse(runId));
-    return { ok: true, data: null };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-const Review = z.object({ pullRequest: AppPullRequest, app: z.object({ id: z.string(), name: z.string() }), title: z.string() });
-
-/** Studio pull requests waiting for review, for the Inbox. */
-export async function studioReviews() {
-  return call(z.object({ reviews: z.array(Review) }), "GET", "/reviews");
+  return call(
+    z.unknown().transform(() => null),
+    () => api.interrupt(z.string().min(1).parse(runId)),
+  );
 }

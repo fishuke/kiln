@@ -206,13 +206,7 @@ export function AppSettings({ client, app, onChanged }: { client: StudioClient; 
         </div>
         {app.setup && <DevCommand app={app} onSave={(devCommand) => update({ devCommand })} />}
         {app.setup && (
-          <MissingEnv
-            keys={app.setup.envMissing}
-            onSave={async (values) => {
-              await client.saveSecrets(values);
-              onChanged();
-            }}
-          />
+<MissingEnv keys={app.setup.envMissing} />
         )}
       </DialogContent>
     </Dialog>

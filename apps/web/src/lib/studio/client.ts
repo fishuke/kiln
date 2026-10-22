@@ -11,17 +11,15 @@ import type {
   Preview,
   SendResult,
   StatusReport,
-  StudioReview,
   StudioApp,
   UpdateAppInput,
   Version,
 } from "./types";
 
 /**
- * What the Studio page needs from the API, one method per route in docs/specs/studio.md (named like
- * the SDK's `studio*` methods, with "app" for the spec's "project"). `ApiStudioClient` calls the
- * routes through server actions; `FakeStudioClient` keeps everything in memory so the page runs
- * without a backend.
+ * What the Studio page needs from the API, one method per route in docs/specs/studio.md (the SDK's
+ * `studio*` methods). `ApiStudioClient` calls them through server actions; `FakeStudioClient` keeps
+ * everything in memory so the page runs without a backend (development only).
  */
 export interface StudioClient {
   readonly kind: "api" | "fake";
@@ -42,16 +40,13 @@ export interface StudioClient {
   status(): Promise<StatusReport>;
   /** Connected forge repositories, for "Import from GitHub". */
   repositories(): Promise<ForgeRepository[]>;
-  /** Saves team secrets (an imported app's missing env); Studio reads them the next time the app opens. */
-  saveSecrets(values: Record<string, string>): Promise<void>;
   /** The `ship` tool: push and open or update the App's pull request, or move it to Ready for review or Cancelled. */
   ship(appId: string, input: { title?: string; state?: "uat" | "ready_for_review" | "cancelled" }): Promise<AppPullRequest>;
-  /** Studio pull requests the merge gate sent to review, for the Inbox. */
-  reviews(): Promise<StudioReview[]>;
-  /** A child chat's run: a followup message (it steers or resumes the run) and interrupt (Stop). */
-  followup(runId: string, text: string): Promise<void>;
+  /** Stop: interrupts a chat's run. */
   interrupt(runId: string): Promise<void>;
-  /** Push updates (the fake); the API client polls instead. */
+  /** Calls `onChange` when the chat changes (the SSE route); returns a function that stops watching. */
+  watchChat?(chatId: string, onChange: () => void): () => void;
+  /** Push updates for everything (the fake). */
   subscribe?(listener: () => void): () => void;
 }
 

@@ -22,13 +22,14 @@ const SHIP_TONE = {
 } as const;
 
 /** /studio: the apps, in a table like the Projects page, with New app. */
-export function AppsList({ fake, startNew }: { fake: boolean; startNew: boolean }) {
-  const client = useStudioClient(fake);
+export function AppsList({ startNew }: { startNew: boolean }) {
+  const client = useStudioClient();
   const [apps, setApps] = useState<StudioApp[]>();
   const [status, setStatus] = useState<StatusReport>();
   const [error, setError] = useState<string>();
 
   useEffect(() => {
+    if (!client) return;
     const load = () => {
       client.apps().then(setApps, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
       client.status().then(setStatus, () => undefined);
@@ -45,7 +46,7 @@ export function AppsList({ fake, startNew }: { fake: boolean; startNew: boolean 
   const byId = new Map(status?.apps.map((p) => [p.id, p]));
   return (
     <>
-      <PageHeader crumbs={[{ label: "Studio" }]} actions={<NewAppDialog client={client} defaultOpen={startNew} />} />
+      <PageHeader crumbs={[{ label: "Studio" }]} actions={client && <NewAppDialog client={client} defaultOpen={startNew} />} />
       <Page>
         {error && !apps ? (
           <Empty title="Studio isn't available">{error}</Empty>

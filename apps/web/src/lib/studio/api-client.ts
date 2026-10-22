@@ -8,7 +8,7 @@ async function unwrap<T>(p: Promise<StudioResult<T>>): Promise<T> {
   return r.data;
 }
 
-/** The Studio routes through server actions, as the signed-in user. The page polls; there is no push. */
+/** The Studio routes through server actions (the SDK, as the signed-in user); chats update over SSE. */
 export class ApiStudioClient implements StudioClient {
   readonly kind = "api" as const;
   apps = async () => (await unwrap(actions.studioApps())).apps;
@@ -28,18 +28,16 @@ export class ApiStudioClient implements StudioClient {
   status = () => unwrap(actions.studioStatus());
   repositories = () => unwrap(actions.studioRepositories());
   ship: StudioClient["ship"] = (appId, input) => unwrap(actions.studioShip(appId, input));
-  /** An API without the reviews route shows no Studio reviews in the Inbox. */
-  reviews = async () => {
-    const r = await actions.studioReviews();
-    return r.ok ? r.data.reviews : [];
-  };
-  followup = async (runId: string, text: string) => {
-    await unwrap(actions.studioFollowup(runId, text));
-  };
   interrupt = async (runId: string) => {
     await unwrap(actions.studioInterrupt(runId));
   };
-  saveSecrets = async (values: Record<string, string>) => {
-    await unwrap(actions.studioSaveSecrets(values));
-  };
+
+  /** `GET /studio/chats/{id}/events` through the web's streaming proxy; `turn` and `chat` events mean "changed". */
+  watchChat(chatId: string, onChange: () => void): () => void {
+    if (typeof EventSource === "undefined") return () => undefined;
+    const source = new EventSource(`/api/studio/chats/${encodeURIComponent(chatId)}/events`);
+    source.addEventListener("turn", onChange);
+    source.addEventListener("chat", onChange);
+    return () => source.close();
+  }
 }

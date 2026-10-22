@@ -15,9 +15,9 @@ import {
   type Chat,
   type ChatMode,
   type Preview,
-  type Project,
-  type ProjectSetup,
-  type ProjectSource,
+  type App,
+  type AppSetup,
+  type AppSource,
   type RepoSource,
   type ShipMode,
   type StatusReport,
@@ -36,19 +36,19 @@ export type StudioOptions = {
   objects: ObjectStore;
   bus: EventBus;
   clock: Clock;
-  /** The one sandbox backend Studio projects run on. */
+  /** The one sandbox backend Studio apps run on. */
   sandboxes: SandboxProvider;
   harness: (type: HarnessType) => HarnessAdapter;
   /** Model keys for a harness run (BYOK). */
-  credentials?: (project: Project, type: HarnessType) => Record<string, string>;
+  credentials?: (app: App, type: HarnessType) => Record<string, string>;
   templates?: Record<string, Template>;
   /** Runner image when the template names none. */
   image?: string;
   previewUrl: (target: string, address: SandboxAddress) => string;
-  /** Imported projects: a clone URL with a short-lived repo-scoped token, and the branch to use. */
+  /** Imported apps: a clone URL with a short-lived repo-scoped token, and the branch to use. */
   clone?: (source: RepoSource) => Promise<{ url: string; branch?: string }>;
   /** Environment for installs, dev servers and runs (Kiln secrets and environment templates). */
-  env?: (project: Project) => Record<string, string>;
+  env?: (app: App) => Record<string, string>;
   maxRunningChats?: number;
   /** The version preview listens here, chats on the ports after it. Default 4100. */
   basePort?: number;
@@ -76,7 +76,7 @@ const oneLine = (s: string, max = 80) => {
 /** Read-only modes and what every turn is told (ADR-012: modes are permissions). */
 export function instructionsFor(mode: ChatMode): string {
   const base = [
-    "You are the coding agent in a Kiln Studio project. Your working directory is a Git worktree of the app; a person watches a live preview of it.",
+    "You are the coding agent in a Kiln Studio app. Your working directory is a Git worktree of the app; a person watches a live preview of it.",
     `When you finish, write ${STUDIO_FILE} with {"title": "<what changed, past tense, at most 60 characters>", "summary": "<two short sentences for the person>"}, and add "question" only when you need the person to decide something.`,
     "Studio commits your changes and merges them; don't push.",
   ];
@@ -89,8 +89,8 @@ export function instructionsFor(mode: ChatMode): string {
 }
 
 /**
- * Studio (ADR-012): projects in a sandbox, chats on Git worktrees, turns that make a checkpoint only
- * when files change, versions on the project's main line, and dev server previews.
+ * Studio (ADR-012): apps in a sandbox, chats on Git worktrees, turns that make a checkpoint only
+ * when files change, versions on the app's main line, and dev server previews.
  */
 export class Studio {
   private readonly live = new Map<string, Live>();
@@ -105,15 +105,15 @@ export class Studio {
 
   // ---- reads ----
 
-  listProjects(team: string): Project[] {
-    return this.opts.store.list<Project>(C.projects, (p) => p.team === team).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  listApps(team: string): App[] {
+    return this.opts.store.list<App>(C.apps, (p) => p.team === team).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  getProject(projectId: string): { project: Project; chats: Chat[]; versions: Version[] } | undefined {
-    const project = this.opts.store.get<Project>(C.projects, projectId);
-    if (!project) return undefined;
-    const chats = this.opts.store.list<Chat>(C.chats, (c) => c.projectId === projectId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return { project, chats, versions: this.versions(projectId) };
+  getApp(appId: string): { app: App; chats: Chat[]; versions: Version[] } | undefined {
+    const app = this.opts.store.get<App>(C.apps, appId);
+    if (!app) return undefined;
+    const chats = this.opts.store.list<Chat>(C.chats, (c) => c.appId === appId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { app, chats, versions: this.versions(appId) };
   }
 
   getChat(chatId: string): { chat: Chat; turns: Turn[] } | undefined {
@@ -122,11 +122,11 @@ export class Studio {
     return { chat, turns: this.opts.store.list<Turn>(C.turns, (t) => t.chatId === chatId).sort((a, b) => a.startedAt.localeCompare(b.startedAt)) };
   }
 
-  status(input: { team: string; project?: string }): StatusReport {
-    const projects = this.listProjects(input.team).filter((p) => !input.project || p.id === input.project);
+  status(input: { team: string; app?: string }): StatusReport {
+    const apps = this.listApps(input.team).filter((p) => !input.app || p.id === input.app);
     return {
-      projects: projects.map((p) => {
-        const chats = this.getProject(p.id)!.chats;
+      apps: apps.map((p) => {
+        const chats = this.getApp(p.id)!.chats;
         const latest = this.versions(p.id)[0];
         return {
           id: p.id,
@@ -141,24 +141,26 @@ export class Studio {
     };
   }
 
-  // ---- projects ----
+  // ---- apps ----
 
-  async createProject(input: {
+  async createApp(input: {
     team: string;
     by: string;
     name: string;
-    source?: ProjectSource;
+    projectId?: string;
+    source?: AppSource;
     shipMode?: ShipMode;
     harness?: HarnessType;
     model?: string;
-  }): Promise<Project> {
+  }): Promise<App> {
     const source = input.source ?? { kind: "template", template: "nextjs" };
     if (source.kind === "template" && !this.templates[source.template]) throw new StudioError("invalid", `unknown template ${source.template}`);
     if (source.kind === "repo" && !this.opts.clone) throw new StudioError("unavailable", "this server can't import repositories (no forge connection)");
     const now = this.now();
-    const project: Project = {
-      id: id("sp"),
+    const app: App = {
+      id: id("sa"),
       team: input.team,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
       name: input.name,
       source,
       // Imported repositories ship by pull request; templates are experiments (ADR-012).
@@ -170,47 +172,49 @@ export class Studio {
       createdAt: now,
       updatedAt: now,
     };
-    this.save(C.projects, project);
+    this.save(C.apps, app);
     this.provisioning.set(
-      project.id,
-      this.provision(project).finally(() => this.provisioning.delete(project.id)),
+      app.id,
+      this.provision(app).finally(() => this.provisioning.delete(app.id)),
     );
-    return project;
+    return app;
   }
 
-  /** Resolves when a new project is ready or has failed. */
-  async ready(projectId: string): Promise<void> {
-    await this.provisioning.get(projectId);
+  /** Resolves when a new app is ready or has failed. */
+  async ready(appId: string): Promise<void> {
+    await this.provisioning.get(appId);
   }
 
-  updateProject(projectId: string, patch: { name?: string; shipMode?: ShipMode; devCommand?: string | null }): Project {
-    const p = this.project(projectId);
+  updateApp(appId: string, patch: { name?: string; projectId?: string | null; shipMode?: ShipMode; devCommand?: string | null }): App {
+    const p = this.app(appId);
     if (patch.name !== undefined) p.name = patch.name;
+    if (patch.projectId === null) delete p.projectId;
+    else if (patch.projectId !== undefined) p.projectId = patch.projectId;
     if (patch.shipMode !== undefined) p.shipMode = patch.shipMode;
     if (patch.devCommand !== undefined) {
-      if (!p.setup) throw new StudioError("invalid", "the project is still being created");
+      if (!p.setup) throw new StudioError("invalid", "the app is still being created");
       const { devOverride: _, ...rest } = p.setup;
       p.setup = patch.devCommand === null ? rest : { ...rest, devOverride: patch.devCommand };
       p.setup.dev = devCommand(p.setup);
       if (!p.setup.dev) delete p.setup.dev;
     }
-    return this.touch(C.projects, p);
+    return this.touch(C.apps, p);
   }
 
   /** Snapshot the workspace and free the sandbox; the next use resumes it. */
-  async pause(projectId: string): Promise<Project> {
-    return this.locked(projectId, async () => {
-      const p = this.project(projectId);
-      const live = this.live.get(projectId);
+  async pause(appId: string): Promise<App> {
+    return this.locked(appId, async () => {
+      const p = this.app(appId);
+      const live = this.live.get(appId);
       if (live) {
-        for (const chat of this.getProject(projectId)!.chats) if (this.running.has(chat.id)) throw new StudioError("busy", "a chat is still working");
+        for (const chat of this.getApp(appId)!.chats) if (this.running.has(chat.id)) throw new StudioError("busy", "a chat is still working");
         this.stopDevs(live);
         p.snapshot = await live.sandbox.snapshot(this.opts.objects);
         await live.sandbox.destroy();
-        this.live.delete(projectId);
+        this.live.delete(appId);
       }
       p.status = "paused";
-      return this.touch(C.projects, p);
+      return this.touch(C.apps, p);
     });
   }
 
@@ -224,59 +228,59 @@ export class Studio {
     this.live.clear();
   }
 
-  private async provision(project: Project) {
+  private async provision(app: App) {
     try {
-      const template = project.source.kind === "template" ? this.templates[project.source.template]! : undefined;
-      const sandbox = await this.opts.sandboxes.create(this.spec(project));
-      this.live.set(project.id, { sandbox, devs: new Map() });
-      const env = this.env(project);
-      await must(sandbox, ".", "mkdir -p project chats");
+      const template = app.source.kind === "template" ? this.templates[app.source.template]! : undefined;
+      const sandbox = await this.opts.sandboxes.create(this.spec(app));
+      this.live.set(app.id, { sandbox, devs: new Map() });
+      const env = this.env(app);
+      await must(sandbox, ".", "mkdir -p app chats");
       let mainBranch = "main";
       let title: string;
-      if (project.source.kind === "template") {
-        for (const cmd of template!.scaffold) await must(sandbox, "project", cmd, env);
-        await must(sandbox, "project", "git init -q -b main");
-        title = `Created ${project.name}`;
+      if (app.source.kind === "template") {
+        for (const cmd of template!.scaffold) await must(sandbox, "app", cmd, env);
+        await must(sandbox, "app", "git init -q -b main");
+        title = `Created ${app.name}`;
       } else {
-        const { url, branch } = await this.opts.clone!(project.source);
-        await must(sandbox, ".", `git clone -q ${shellQuote(url)} project`);
-        const want = project.source.branch ?? branch;
-        if (want) await must(sandbox, "project", `git checkout -q ${shellQuote(want)}`);
-        mainBranch = await must(sandbox, "project", "git rev-parse --abbrev-ref HEAD");
+        const { url, branch } = await this.opts.clone!(app.source);
+        await must(sandbox, ".", `git clone -q ${shellQuote(url)} app`);
+        const want = app.source.branch ?? branch;
+        if (want) await must(sandbox, "app", `git checkout -q ${shellQuote(want)}`);
+        mainBranch = await must(sandbox, "app", "git rev-parse --abbrev-ref HEAD");
         // Forget the credential in the clone URL; Studio never pushes in phases 1–4.
-        await must(sandbox, "project", "git remote remove origin");
-        title = `Imported ${project.source.repo}`;
+        await must(sandbox, "app", "git remote remove origin");
+        title = `Imported ${app.source.repo}`;
       }
       await must(
         sandbox,
-        "project",
+        "app",
         `git config user.email studio@kiln.local && git config user.name 'Kiln Studio' && mkdir -p .git/info && printf '.kiln/\\n' >> .git/info/exclude`,
       );
-      const setup = await this.detect(sandbox, project, mainBranch, template);
-      if (template) await must(sandbox, "project", "git add -A && git commit -q -m " + shellQuote(title));
-      else for (const cmd of setup.install) await must(sandbox, "project", cmd, env);
-      const sha = await must(sandbox, "project", "git rev-parse HEAD");
-      const p = this.project(project.id);
+      const setup = await this.detect(sandbox, app, mainBranch, template);
+      if (template) await must(sandbox, "app", "git add -A && git commit -q -m " + shellQuote(title));
+      else for (const cmd of setup.install) await must(sandbox, "app", cmd, env);
+      const sha = await must(sandbox, "app", "git rev-parse HEAD");
+      const p = this.app(app.id);
       p.setup = setup;
       p.status = "ready";
-      this.touch(C.projects, p);
+      this.touch(C.apps, p);
       this.addVersion(p, { sha, title, kind: "initial" });
       await this.snapshot(p.id);
     } catch (err) {
-      const p = this.project(project.id);
+      const p = this.app(app.id);
       p.status = "failed";
       p.error = err instanceof Error ? err.message : String(err);
-      this.touch(C.projects, p);
+      this.touch(C.apps, p);
     }
   }
 
-  private async detect(sandbox: Sandbox, project: Project, mainBranch: string, template?: Template): Promise<ProjectSetup> {
-    const files = (await must(sandbox, "project", "ls -A")).split("\n");
-    const detected = detectSetup({ files, packageJson: await sandbox.readFile("project/package.json") });
+  private async detect(sandbox: Sandbox, app: App, mainBranch: string, template?: Template): Promise<AppSetup> {
+    const files = (await must(sandbox, "app", "ls -A")).split("\n");
+    const detected = detectSetup({ files, packageJson: await sandbox.readFile("app/package.json") });
     const example = ENV_EXAMPLES.find((f) => files.includes(f));
-    const envRequired = example ? envKeys((await sandbox.readFile(`project/${example}`)) ?? "") : [];
-    const provided = this.env(project);
-    const setup: ProjectSetup = {
+    const envRequired = example ? envKeys((await sandbox.readFile(`app/${example}`)) ?? "") : [];
+    const provided = this.env(app);
+    const setup: AppSetup = {
       mainBranch,
       packageManager: detected.packageManager,
       install: template ? template.install : detected.install,
@@ -291,19 +295,19 @@ export class Studio {
   // ---- chats and turns ----
 
   async newChat(
-    projectId: string,
+    appId: string,
     input: { by: string; via: Via; title?: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string },
   ): Promise<{ chat: Chat; turn?: Turn }> {
-    await this.ready(projectId);
-    const p = this.readyProject(projectId);
+    await this.ready(appId);
+    const p = this.readyApp(appId);
     const { sandbox } = await this.ensureLive(p);
     const chatId = id("sc");
-    const existing = this.getProject(projectId)!.chats.length;
-    if (existing >= MAX_CHATS) throw new StudioError("invalid", `a project can have at most ${MAX_CHATS} chats`);
+    const existing = this.getApp(appId)!.chats.length;
+    if (existing >= MAX_CHATS) throw new StudioError("invalid", `a app can have at most ${MAX_CHATS} chats`);
     const now = this.now();
     const chat: Chat = {
       id: chatId,
-      projectId,
+      appId,
       title: input.title ?? (input.prompt ? oneLine(input.prompt, 40) : `Chat ${existing + 1}`),
       mode: input.mode ?? "build",
       harness: input.harness ?? p.harness,
@@ -315,7 +319,7 @@ export class Studio {
       createdAt: now,
       updatedAt: now,
     };
-    await this.locked(projectId, () => must(sandbox, "project", `git worktree add -q -b ${chat.branch} ../${chat.path} ${shellQuote(p.setup!.mainBranch)}`));
+    await this.locked(appId, () => must(sandbox, "app", `git worktree add -q -b ${chat.branch} ../${chat.path} ${shellQuote(p.setup!.mainBranch)}`));
     for (const cmd of p.setup!.install) await must(sandbox, chat.path, cmd, this.env(p));
     this.save(C.chats, chat);
     if (!input.prompt) return { chat };
@@ -333,13 +337,13 @@ export class Studio {
     }
     if (current) throw new StudioError("busy", "the chat's turn is starting; try again in a moment");
     const max = this.opts.maxRunningChats ?? 3;
-    const busy = this.getProject(chat.projectId)!.chats.filter((c) => c.id !== chatId && this.running.has(c.id)).length;
-    if (busy >= max) throw new StudioError("busy", `${max} chats are already working in this project`);
-    const p = this.readyProject(chat.projectId);
+    const busy = this.getApp(chat.appId)!.chats.filter((c) => c.id !== chatId && this.running.has(c.id)).length;
+    if (busy >= max) throw new StudioError("busy", `${max} chats are already working in this app`);
+    const p = this.readyApp(chat.appId);
     const mode = input.mode ?? chat.mode;
     const turn: Turn = {
       id: id("st"),
-      projectId: p.id,
+      appId: p.id,
       chatId,
       prompt: input.text,
       mode,
@@ -360,7 +364,7 @@ export class Studio {
     this.running.set(chatId, entry);
     this.save(C.turns, turn);
     this.touch(C.chats, { ...chat, mode, status: "working", question: undefined });
-    this.opts.bus.publish("studio.turn_started", { projectId: p.id, chatId, turnId: turn.id, priority: "progress" });
+    this.opts.bus.publish("studio.turn_started", { appId: p.id, chatId, turnId: turn.id, priority: "progress" });
     entry.done = this.runTurn(p, chatId, turn, entry, started, failed);
     await ready;
     return { turn: this.opts.store.get<Turn>(C.turns, turn.id)!, steered: false };
@@ -371,7 +375,7 @@ export class Studio {
     for (let r = this.running.get(chatId); r; r = this.running.get(chatId)) await r.done;
   }
 
-  private async runTurn(p: Project, chatId: string, turn: Turn, entry: Running, started: () => void, failed: (err: unknown) => void) {
+  private async runTurn(p: App, chatId: string, turn: Turn, entry: Running, started: () => void, failed: (err: unknown) => void) {
     let startHead = "";
     let result: HarnessResult;
     let live: Live;
@@ -409,8 +413,8 @@ export class Studio {
       if (this.running.get(chatId) === entry) this.running.delete(chatId);
     }
     const after = this.opts.store.get<Turn>(C.turns, turn.id)!;
-    const project = this.project(p.id);
-    if (project.shipMode === "cowboy" && after.checkpoint && !this.running.has(chatId)) await this.autoApply(project, chatId, after);
+    const app = this.app(p.id);
+    if (app.shipMode === "cowboy" && after.checkpoint && !this.running.has(chatId)) await this.autoApply(app, chatId, after);
     await this.snapshot(p.id).catch(() => {});
   }
 
@@ -432,7 +436,7 @@ export class Studio {
     this.save(C.turns, turn);
   }
 
-  private async finishTurn(p: Project, chatId: string, turn: Turn, result: HarnessResult, startHead: string, live: Live) {
+  private async finishTurn(p: App, chatId: string, turn: Turn, result: HarnessResult, startHead: string, live: Live) {
     const chat = this.chat(chatId);
     const sbx = live.sandbox;
     const meta = parseStudioFile(await sbx.readFile(`${chat.path}/${STUDIO_FILE}`));
@@ -461,7 +465,7 @@ export class Studio {
     const needs = turn.question ?? (result.outcome === "failed" ? `The agent failed: ${oneLine(result.summary, 200)}` : undefined);
     this.touch(C.chats, { ...chat, status: needs ? "needs_you" : "idle", ...(needs ? { question: needs } : { question: undefined }) });
     this.opts.bus.publish("studio.turn_finished", {
-      projectId: p.id,
+      appId: p.id,
       chatId,
       turnId: turn.id,
       title,
@@ -471,7 +475,7 @@ export class Studio {
     });
     if (needs)
       this.opts.bus.publish("studio.needs_you", {
-        projectId: p.id,
+        appId: p.id,
         chatId,
         question: needs,
         reason: turn.question ? "question" : "failed",
@@ -479,7 +483,7 @@ export class Studio {
       });
   }
 
-  private finishFailed(p: Project, chatId: string, turn: Turn, message: string) {
+  private finishFailed(p: App, chatId: string, turn: Turn, message: string) {
     turn.status = "failed";
     turn.reply ||= message;
     turn.activity.push({ kind: "error", text: message, at: this.now() });
@@ -487,18 +491,18 @@ export class Studio {
     this.save(C.turns, turn);
     const question = `The agent failed: ${oneLine(message, 200)}`;
     this.touch(C.chats, { ...this.chat(chatId), status: "needs_you", question });
-    this.opts.bus.publish("studio.needs_you", { projectId: p.id, chatId, question, reason: "failed", priority: "needs_you" });
+    this.opts.bus.publish("studio.needs_you", { appId: p.id, chatId, question, reason: "failed", priority: "needs_you" });
   }
 
   /** Cowboy mode: apply after every changed turn; on a conflict, the chat's agent resolves it once. */
-  private async autoApply(p: Project, chatId: string, turn: Turn) {
+  private async autoApply(p: App, chatId: string, turn: Turn) {
     const r = await this.apply(chatId, "studio");
     if (r.ok || !("conflict" in r)) return;
     const main = p.setup!.mainBranch;
     if (turn.resolve) {
       const question = `Applying this chat conflicts in ${r.conflict.join(", ")}, and the agent couldn't resolve it.`;
       this.touch(C.chats, { ...this.chat(chatId), status: "needs_you", question });
-      this.opts.bus.publish("studio.needs_you", { projectId: p.id, chatId, question, reason: "conflict", priority: "needs_you" });
+      this.opts.bus.publish("studio.needs_you", { appId: p.id, chatId, question, reason: "conflict", priority: "needs_you" });
       return;
     }
     const prompt = `Run \`git merge ${main}\` in this worktree: applying this chat to ${main} conflicts in ${r.conflict.join(", ")}. Resolve every conflict so both sides' changes still work, then commit the merge.`;
@@ -509,23 +513,23 @@ export class Studio {
 
   async apply(chatId: string, by: string): Promise<ApplyResult> {
     const chat = this.chat(chatId);
-    const p = this.readyProject(chat.projectId);
+    const p = this.readyApp(chat.appId);
     return this.locked(p.id, async () => {
       const { sandbox } = await this.ensureLive(p);
       const main = shellQuote(p.setup!.mainBranch);
-      const ahead = Number(await must(sandbox, "project", `git rev-list --count ${main}..${chat.branch}`));
+      const ahead = Number(await must(sandbox, "app", `git rev-list --count ${main}..${chat.branch}`));
       if (!ahead) return { ok: false, nothing: true } as const;
-      const subjects = (await must(sandbox, "project", `git log --no-merges --reverse --format=%s ${main}..${chat.branch}`)).split("\n").filter(Boolean);
+      const subjects = (await must(sandbox, "app", `git log --no-merges --reverse --format=%s ${main}..${chat.branch}`)).split("\n").filter(Boolean);
       const title = oneLine(subjects.join("; ") || chat.title);
-      const merged = await sandbox.exec(`git merge --no-ff -q -m ${shellQuote(title)} ${chat.branch}`, { cwd: "project", trusted: true });
+      const merged = await sandbox.exec(`git merge --no-ff -q -m ${shellQuote(title)} ${chat.branch}`, { cwd: "app", trusted: true });
       if (merged.code !== 0) {
-        const files = (await must(sandbox, "project", "git diff --name-only --diff-filter=U")).split("\n").filter(Boolean);
-        await sandbox.exec("git merge --abort", { cwd: "project", trusted: true });
+        const files = (await must(sandbox, "app", "git diff --name-only --diff-filter=U")).split("\n").filter(Boolean);
+        await sandbox.exec("git merge --abort", { cwd: "app", trusted: true });
         this.touch(C.chats, { ...this.chat(chatId), status: "conflict", question: `Applying conflicts in ${files.join(", ")}` });
         return { ok: false, conflict: files } as const;
       }
-      const sha = await must(sandbox, "project", "git rev-parse HEAD");
-      const appliedSha = await must(sandbox, "project", `git rev-parse ${chat.branch}`);
+      const sha = await must(sandbox, "app", "git rev-parse HEAD");
+      const appliedSha = await must(sandbox, "app", `git rev-parse ${chat.branch}`);
       const current = this.chat(chatId);
       this.touch(C.chats, { ...current, appliedSha, ...(current.status === "conflict" ? { status: "idle" as const, question: undefined } : {}) });
       void by;
@@ -535,13 +539,13 @@ export class Studio {
 
   async restore(versionId: string, by: string): Promise<Version> {
     const v = this.version(versionId);
-    const p = this.readyProject(v.projectId);
+    const p = this.readyApp(v.appId);
     void by;
     return this.locked(p.id, async () => {
       const { sandbox } = await this.ensureLive(p);
       const title = oneLine(`Restore: ${v.title}`);
-      await must(sandbox, "project", `git read-tree -u --reset ${v.sha} && git commit -q --allow-empty -m ${shellQuote(title)}`);
-      const sha = await must(sandbox, "project", "git rev-parse HEAD");
+      await must(sandbox, "app", `git read-tree -u --reset ${v.sha} && git commit -q --allow-empty -m ${shellQuote(title)}`);
+      const sha = await must(sandbox, "app", "git rev-parse HEAD");
       return this.addVersion(p, { sha, title, kind: "restore", restoredFrom: v.id });
     });
   }
@@ -553,15 +557,15 @@ export class Studio {
   async diff(target: { chatId: string } | { versionId: string }): Promise<string> {
     if ("chatId" in target) {
       const chat = this.chat(target.chatId);
-      const p = this.readyProject(chat.projectId);
+      const p = this.readyApp(chat.appId);
       const { sandbox } = await this.ensureLive(p);
-      return (await sandbox.exec(`git diff ${shellQuote(p.setup!.mainBranch)}...${chat.branch}`, { cwd: "project", trusted: true })).stdout;
+      return (await sandbox.exec(`git diff ${shellQuote(p.setup!.mainBranch)}...${chat.branch}`, { cwd: "app", trusted: true })).stdout;
     }
     const v = this.version(target.versionId);
-    const { sandbox } = await this.ensureLive(this.readyProject(v.projectId));
-    const parent = await sandbox.exec(`git rev-parse -q --verify ${v.sha}^1`, { cwd: "project", trusted: true });
+    const { sandbox } = await this.ensureLive(this.readyApp(v.appId));
+    const parent = await sandbox.exec(`git rev-parse -q --verify ${v.sha}^1`, { cwd: "app", trusted: true });
     const cmd = parent.code === 0 ? `git diff ${v.sha}^1 ${v.sha}` : `git show --format= ${v.sha}`;
-    return (await sandbox.exec(cmd, { cwd: "project", trusted: true })).stdout;
+    return (await sandbox.exec(cmd, { cwd: "app", trusted: true })).stdout;
   }
 
   // ---- previews ----
@@ -569,18 +573,18 @@ export class Studio {
   async preview(target: { chatId: string } | { versionId: string }): Promise<Preview> {
     if ("chatId" in target) {
       const chat = this.chat(target.chatId);
-      const p = this.readyProject(chat.projectId);
+      const p = this.readyApp(chat.appId);
       const live = await this.ensureLive(p);
       return this.serve(p, live, chat.id, chat.path, chat.port);
     }
     const v = this.version(target.versionId);
-    const p = this.readyProject(v.projectId);
+    const p = this.readyApp(v.appId);
     const live = await this.ensureLive(p);
     await this.locked(p.id, async () => {
       const exists = (await live.sandbox.exec("test -e version", { trusted: true })).code === 0;
       if (exists) await must(live.sandbox, "version", `git checkout -q --detach ${v.sha}`);
       else {
-        await must(live.sandbox, "project", `git worktree add -q --detach ../version ${v.sha}`);
+        await must(live.sandbox, "app", `git worktree add -q --detach ../version ${v.sha}`);
         for (const cmd of p.setup!.install) await must(live.sandbox, "version", cmd, this.env(p));
       }
       live.shownVersion = v.id;
@@ -598,10 +602,10 @@ export class Studio {
     return undefined;
   }
 
-  private async serve(p: Project, live: Live, key: string, cwd: string, port: number, target = key): Promise<Preview> {
+  private async serve(p: App, live: Live, key: string, cwd: string, port: number, target = key): Promise<Preview> {
     if (!live.sandbox.expose) throw new StudioError("unavailable", `the ${live.sandbox.provider} sandbox backend can't serve previews`);
     const dev = p.setup?.dev;
-    if (!dev) throw new StudioError("invalid", "no dev command: set one in the project settings");
+    if (!dev) throw new StudioError("invalid", "no dev command: set one in the app settings");
     let running = live.devs.get(key);
     const status = running ? "ready" : "starting";
     if (!running) {
@@ -639,48 +643,50 @@ export class Studio {
     return this.opts.basePort ?? 4100;
   }
 
-  private spec(p: Project): SandboxSpec {
+  private spec(p: App): SandboxSpec {
     const template = p.source.kind === "template" ? this.templates[p.source.template] : undefined;
     const backend = this.opts.sandboxes.name as SandboxSpec["runner"]["backend"];
     return {
       runner: { image: template?.image ?? this.opts.image ?? "node:22", backend, setupCommands: [], egress: template?.egress ?? ["registry.npmjs.org"] },
       repos: [],
+      // Joins the preview network (Docker) and gets the kiln.dev/preview label (Kubernetes), so the API can reach dev servers.
+      preview: true,
       env: this.env(p),
       // The Helm chart's kiln-preview-ingress policy admits the API to ports 4100–4199 of pods with this label.
-      labels: { "kiln.studio.project": p.id, "kiln.dev/preview": "true" },
+      labels: { "kiln.studio.app": p.id, "kiln.dev/preview": "true" },
     };
   }
 
-  /** The project's sandbox, resumed from its latest snapshot when this process doesn't hold it. */
-  private async ensureLive(p: Project): Promise<Live> {
+  /** The app's sandbox, resumed from its latest snapshot when this process doesn't hold it. */
+  private async ensureLive(p: App): Promise<Live> {
     const held = this.live.get(p.id);
     if (held) return held;
     return this.locked(`live:${p.id}`, async () => {
       const again = this.live.get(p.id);
       if (again) return again;
-      const current = this.project(p.id);
-      if (!current.snapshot) throw new StudioError("unavailable", "the project's workspace is gone and has no snapshot");
+      const current = this.app(p.id);
+      if (!current.snapshot) throw new StudioError("unavailable", "the app's workspace is gone and has no snapshot");
       const sandbox = await this.opts.sandboxes.resume(current.snapshot, this.spec(current), this.opts.objects);
       // Worktrees record absolute paths; a resumed workspace may live elsewhere.
-      await sandbox.exec('for d in ../chats/* ../version; do [ -e "$d" ] && git worktree repair "$d"; done; true', { cwd: "project", trusted: true });
+      await sandbox.exec('for d in ../chats/* ../version; do [ -e "$d" ] && git worktree repair "$d"; done; true', { cwd: "app", trusted: true });
       const live: Live = { sandbox, devs: new Map() };
       this.live.set(p.id, live);
-      if (current.status === "paused") this.touch(C.projects, { ...current, status: "ready" });
+      if (current.status === "paused") this.touch(C.apps, { ...current, status: "ready" });
       return live;
     });
   }
 
-  private async snapshot(projectId: string) {
-    const live = this.live.get(projectId);
+  private async snapshot(appId: string) {
+    const live = this.live.get(appId);
     if (!live) return;
     const snapshot = await live.sandbox.snapshot(this.opts.objects);
-    this.touch(C.projects, { ...this.project(projectId), snapshot });
+    this.touch(C.apps, { ...this.app(appId), snapshot });
   }
 
-  private addVersion(p: Project, v: Pick<Version, "sha" | "title" | "kind" | "chatId" | "restoredFrom">): Version {
+  private addVersion(p: App, v: Pick<Version, "sha" | "title" | "kind" | "chatId" | "restoredFrom">): Version {
     const version: Version = {
       id: id("sv"),
-      projectId: p.id,
+      appId: p.id,
       sha: v.sha,
       title: v.title,
       kind: v.kind,
@@ -690,15 +696,15 @@ export class Studio {
       createdAt: this.now(),
     };
     this.save(C.versions, version);
-    this.opts.bus.publish("studio.version_created", { projectId: p.id, versionId: version.id, title: version.title, kind: version.kind, priority: "finished" });
+    this.opts.bus.publish("studio.version_created", { appId: p.id, versionId: version.id, title: version.title, kind: version.kind, priority: "finished" });
     return version;
   }
 
-  private versions(projectId: string): Version[] {
-    return this.opts.store.list<Version>(C.versions, (v) => v.projectId === projectId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  private versions(appId: string): Version[] {
+    return this.opts.store.list<Version>(C.versions, (v) => v.appId === appId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  private env(p: Project): Record<string, string> {
+  private env(p: App): Record<string, string> {
     return this.opts.env?.(p) ?? {};
   }
 
@@ -725,16 +731,16 @@ export class Studio {
     return this.save(collection, { ...doc, updatedAt: this.now() });
   }
 
-  private project(projectId: string): Project {
-    const p = this.opts.store.get<Project>(C.projects, projectId);
-    if (!p) throw new StudioError("not_found", `unknown project ${projectId}`);
+  private app(appId: string): App {
+    const p = this.opts.store.get<App>(C.apps, appId);
+    if (!p) throw new StudioError("not_found", `unknown app ${appId}`);
     return p;
   }
 
-  private readyProject(projectId: string): Project {
-    const p = this.project(projectId);
-    if (p.status === "creating") throw new StudioError("unavailable", "the project is still being created");
-    if (p.status === "failed" || !p.setup) throw new StudioError("unavailable", `the project failed to start: ${p.error ?? "unknown error"}`);
+  private readyApp(appId: string): App {
+    const p = this.app(appId);
+    if (p.status === "creating") throw new StudioError("unavailable", "the app is still being created");
+    if (p.status === "failed" || !p.setup) throw new StudioError("unavailable", `the app failed to start: ${p.error ?? "unknown error"}`);
     return p;
   }
 

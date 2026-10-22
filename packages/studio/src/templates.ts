@@ -1,8 +1,8 @@
-/** How a Studio project starts and how its dev server runs. */
+/** How a Studio app starts and how its dev server runs. */
 export type Template = {
   id: string;
   name: string;
-  /** Run in <workdir>/project, an empty directory, to create the app. Trusted commands. */
+  /** Run in <workdir>/app, an empty directory, to create the app. Trusted commands. */
   scaffold: string[];
   /** Run in each worktree before its dev server starts. */
   install: string[];

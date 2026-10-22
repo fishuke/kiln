@@ -31,10 +31,10 @@ export type KilnEventMap = {
   "decision.made": { decision: string; action: string; provider: string; workItemId?: string };
   "self_improvement.proposed": { factory: string; agent: string; url: string };
   "message.posted": { channel: string; thread?: string; text: string };
-  "studio.turn_started": { projectId: string; chatId: string; turnId: string; priority: "progress" };
-  "studio.turn_finished": { projectId: string; chatId: string; turnId: string; title?: string; summary?: string; changed: boolean; priority: "finished" };
-  "studio.version_created": { projectId: string; versionId: string; title: string; kind: "initial" | "apply" | "restore"; priority: "finished" };
-  "studio.needs_you": { projectId: string; chatId: string; question: string; reason: "question" | "conflict" | "failed"; priority: "needs_you" };
+  "studio.turn_started": { appId: string; chatId: string; turnId: string; priority: "progress" };
+  "studio.turn_finished": { appId: string; chatId: string; turnId: string; title?: string; summary?: string; changed: boolean; priority: "finished" };
+  "studio.version_created": { appId: string; versionId: string; title: string; kind: "initial" | "apply" | "restore"; priority: "finished" };
+  "studio.needs_you": { appId: string; chatId: string; question: string; reason: "question" | "conflict" | "failed"; priority: "needs_you" };
 };
 
 /** How urgently a Studio event should reach the person (ADR-012): spoken, a badge, or silent. */

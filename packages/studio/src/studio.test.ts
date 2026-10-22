@@ -76,10 +76,10 @@ afterEach(async () => {
   for (const s of studios.splice(0)) await s.shutdown();
 });
 
-async function project(studio: Studio, shipMode: "safe" | "review" | "cowboy" = "cowboy") {
-  const p = await studio.createProject({ team: "t1", by: "me@x.test", name: "Daily Done", source: { kind: "template", template: "test" }, shipMode });
+async function app(studio: Studio, shipMode: "safe" | "review" | "cowboy" = "cowboy") {
+  const p = await studio.createApp({ team: "t1", by: "me@x.test", name: "Daily Done", source: { kind: "template", template: "test" }, shipMode });
   await studio.ready(p.id);
-  return studio.getProject(p.id)!.project;
+  return studio.getApp(p.id)!.app;
 }
 
 async function say(studio: Studio, chatId: string, text: string, mode?: "build" | "chat" | "plan") {
@@ -88,13 +88,13 @@ async function say(studio: Studio, chatId: string, text: string, mode?: "build" 
   return studio.getChat(chatId)!.turns.find((t) => t.id === r.turn.id)!;
 }
 
-describe("projects", () => {
-  it("scaffolds a template project with an initial version on main", async () => {
+describe("apps", () => {
+  it("scaffolds a template app with an initial version on main", async () => {
     const { studio } = make();
-    const p = await project(studio);
+    const p = await app(studio);
     expect(p).toMatchObject({ status: "ready", shipMode: "cowboy" });
     expect(p.setup).toMatchObject({ mainBranch: "main", envMissing: [] });
-    const { versions } = studio.getProject(p.id)!;
+    const { versions } = studio.getApp(p.id)!;
     expect(versions.map((v) => [v.kind, v.title])).toEqual([["initial", "Created Daily Done"]]);
   });
 
@@ -108,9 +108,9 @@ describe("projects", () => {
     git("add", "-A");
     git("-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-q", "-m", "app");
     const { studio } = make({ clone: async () => ({ url: origin }), env: () => ({ API_URL: "https://api.test" }) });
-    const created = await studio.createProject({ team: "t1", by: "me", name: "Imported", source: { kind: "repo", repo: "acme/app" } });
+    const created = await studio.createApp({ team: "t1", by: "me", name: "Imported", source: { kind: "repo", repo: "acme/app" } });
     await studio.ready(created.id);
-    const p = studio.getProject(created.id)!.project;
+    const p = studio.getApp(created.id)!.app;
     // Imported repositories ship by pull request unless the person picks otherwise.
     expect(p).toMatchObject({ status: "ready", shipMode: "review" });
     expect(p.setup).toMatchObject({
@@ -121,39 +121,48 @@ describe("projects", () => {
       envRequired: ["API_URL", "SECRET_KEY"],
       envMissing: ["SECRET_KEY"],
     });
-    expect(studio.updateProject(p.id, { devCommand: "node other.js" }).setup?.dev).toBe("node other.js");
-    expect(studio.updateProject(p.id, { devCommand: null }).setup?.dev).toBe("npm run dev");
+    expect(studio.updateApp(p.id, { devCommand: "node other.js" }).setup?.dev).toBe("node other.js");
+    expect(studio.updateApp(p.id, { devCommand: null }).setup?.dev).toBe("npm run dev");
   });
 
   it("labels its sandboxes for the preview network policy and keeps ports in the preview range", async () => {
     const local = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
-    const labels: Record<string, string>[] = [];
-    const sandboxes = { name: "local", create: (spec: SandboxSpec) => (labels.push(spec.labels ?? {}), local.create(spec)), resume: local.resume.bind(local) };
+    const specs: SandboxSpec[] = [];
+    const sandboxes = { name: "local", create: (spec: SandboxSpec) => (specs.push(spec), local.create(spec)), resume: local.resume.bind(local) };
     const { studio } = make({ sandboxes, basePort: undefined });
-    const p = await project(studio);
-    expect(labels[0]).toMatchObject({ "kiln.dev/preview": "true", "kiln.studio.project": p.id });
+    const p = await app(studio);
+    expect(specs[0]).toMatchObject({ preview: true, labels: { "kiln.dev/preview": "true", "kiln.studio.app": p.id } });
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     expect(chat.port).toBe(4101);
     expect(chat.id).toMatch(/^sc_[0-9a-f]{32}$/);
+  });
+
+  it("may belong to a Kiln Project, and needs no factory", async () => {
+    const { studio } = make();
+    const created = await studio.createApp({ team: "t1", by: "me", name: "Frontend", projectId: "prj_shop", source: { kind: "template", template: "test" } });
+    expect(created).toMatchObject({ id: expect.stringMatching(/^sa_[0-9a-f]{32}$/), projectId: "prj_shop" });
+    expect(studio.updateApp(created.id, { projectId: null }).projectId).toBeUndefined();
+    expect(studio.updateApp(created.id, { projectId: "prj_other" }).projectId).toBe("prj_other");
+    await studio.ready(created.id);
   });
 });
 
 describe("turns and versions", () => {
   it("makes a checkpoint only when a turn changes files, and a question makes nothing", async () => {
     const { studio } = make();
-    const p = await project(studio, "safe");
+    const p = await app(studio, "safe");
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     const built = await say(studio, chat.id, "write todo.ts export const todo = [];");
     expect(built).toMatchObject({ status: "succeeded", title: "Changed todo.ts", discarded: false });
     expect(built.checkpoint).toMatch(/^[0-9a-f]{40}$/);
     const asked = await say(studio, chat.id, "how does it work?");
     expect(asked.checkpoint).toBeUndefined();
-    expect(studio.getProject(p.id)!.versions).toHaveLength(1);
+    expect(studio.getApp(p.id)!.versions).toHaveLength(1);
   });
 
   it("reverts edits in chat and plan mode", async () => {
     const { studio } = make();
-    const p = await project(studio, "safe");
+    const p = await app(studio, "safe");
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     const t = await say(studio, chat.id, "write sneaky.ts nope", "chat");
     expect(t.discarded).toBe(true);
@@ -165,7 +174,7 @@ describe("turns and versions", () => {
 
   it("records subagents and a question that needs the person", async () => {
     const { studio, bus } = make();
-    const p = await project(studio, "safe");
+    const p = await app(studio, "safe");
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     const t = await say(studio, chat.id, "delegate\nask");
     expect(t.activity.find((a) => a.kind === "subagent")).toMatchObject({ name: "Task", text: "look around" });
@@ -178,37 +187,37 @@ describe("turns and versions", () => {
 
   it("applies on a click in safe mode and restores an old version as a new one", async () => {
     const { studio } = make();
-    const p = await project(studio, "safe");
+    const p = await app(studio, "safe");
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     await say(studio, chat.id, "write a.ts one");
-    expect(studio.getProject(p.id)!.versions).toHaveLength(1);
+    expect(studio.getApp(p.id)!.versions).toHaveLength(1);
     const applied = await studio.apply(chat.id, "me");
     expect(applied).toMatchObject({ ok: true, version: { kind: "apply", title: "Changed a.ts", chatId: chat.id } });
     expect(await studio.apply(chat.id, "me")).toEqual({ ok: false, nothing: true });
-    const initial = studio.getProject(p.id)!.versions.find((v) => v.kind === "initial")!;
+    const initial = studio.getApp(p.id)!.versions.find((v) => v.kind === "initial")!;
     const restored = await studio.restore(initial.id, "me");
     expect(restored).toMatchObject({ kind: "restore", restoredFrom: initial.id, title: "Restore: Created Daily Done" });
-    expect(studio.getProject(p.id)!.versions).toHaveLength(3);
+    expect(studio.getApp(p.id)!.versions).toHaveLength(3);
     expect(await studio.diff({ versionId: restored.id })).toContain("-one");
     expect(studio.bookmark(initial.id, true).bookmarked).toBe(true);
   });
 
   it("applies every changed turn in cowboy mode, across two chats", async () => {
     const { studio, bus } = make();
-    const p = await project(studio, "cowboy");
+    const p = await app(studio, "cowboy");
     const a = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
     const b = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
     await say(studio, a.id, "write a.ts from a");
     await say(studio, b.id, "write b.ts from b");
     await say(studio, b.id, "just a question");
-    const versions = studio.getProject(p.id)!.versions;
+    const versions = studio.getApp(p.id)!.versions;
     expect(versions.map((v) => v.title)).toEqual(["Changed b.ts", "Changed a.ts", "Created Daily Done"]);
     expect(bus.outbox.filter((e) => e.type === "studio.version_created")).toHaveLength(3);
   });
 
   it("resolves a conflict with a resolve turn in cowboy mode", async () => {
     const { studio } = make();
-    const p = await project(studio, "cowboy");
+    const p = await app(studio, "cowboy");
     const a = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
     const b = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
     await say(studio, a.id, "write app.ts export const n = 2;");
@@ -217,12 +226,12 @@ describe("turns and versions", () => {
     const turns = studio.getChat(b.id)!.turns;
     expect(turns.some((t) => t.resolve)).toBe(true);
     expect(studio.getChat(b.id)!.chat.status).toBe("idle");
-    expect(studio.getProject(p.id)!.versions[0]).toMatchObject({ kind: "apply", chatId: b.id });
+    expect(studio.getApp(p.id)!.versions[0]).toMatchObject({ kind: "apply", chatId: b.id });
   });
 
   it("reports a conflict in safe mode instead of merging", async () => {
     const { studio } = make();
-    const p = await project(studio, "safe");
+    const p = await app(studio, "safe");
     const a = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
     const b = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
     await say(studio, a.id, "write app.ts export const n = 2;");
@@ -235,7 +244,7 @@ describe("turns and versions", () => {
   it("refuses a turn beyond the running-chat limit", async () => {
     const slow = new FakeHarness(async ({ nextSteer }) => void (await nextSteer(500)));
     const { studio } = make({ harness: () => slow, maxRunningChats: 1 });
-    const p = await project(studio, "safe");
+    const p = await app(studio, "safe");
     const a = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
     const b = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
     await studio.send(a.id, { by: "me", via: "web", text: "work" });
@@ -248,7 +257,7 @@ describe("turns and versions", () => {
 describe("previews and pausing", () => {
   it("serves a chat's dev server and a version's, and resumes after a pause", async () => {
     const { studio } = make();
-    const p = await project(studio, "cowboy");
+    const p = await app(studio, "cowboy");
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     await say(studio, chat.id, "write a.ts one");
     const preview = await studio.preview({ chatId: chat.id });
@@ -256,7 +265,7 @@ describe("previews and pausing", () => {
     expect(await studio.resolvePreview(chat.id)).toEqual({ host: "127.0.0.1", port: chat.port });
     const body = await waitFor(() => fetch(`http://127.0.0.1:${chat.port}/`).then((r) => r.text()));
     expect(body).toContain(`chats/${chat.id}`);
-    const v = studio.getProject(p.id)!.versions.at(-1)!;
+    const v = studio.getApp(p.id)!.versions.at(-1)!;
     expect((await studio.preview({ versionId: v.id })).target).toBe(v.id);
     expect(await studio.resolvePreview("sc_unknown")).toBeUndefined();
 
@@ -264,8 +273,8 @@ describe("previews and pausing", () => {
     expect(await studio.resolvePreview(chat.id)).toBeUndefined();
     const again = await say(studio, chat.id, "write b.ts two");
     expect(again.checkpoint).toBeDefined();
-    expect(studio.getProject(p.id)!.project.status).toBe("ready");
-    expect(studio.getProject(p.id)!.versions[0]!.title).toBe("Changed b.ts");
+    expect(studio.getApp(p.id)!.app.status).toBe("ready");
+    expect(studio.getApp(p.id)!.versions[0]!.title).toBe("Changed b.ts");
   });
 });
 

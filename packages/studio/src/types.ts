@@ -1,7 +1,7 @@
 import { HarnessType } from "@kiln/schema";
 import { z } from "zod";
 
-/** When a chat's work reaches the project's main line (ADR-012). Forge behavior per mode is not built yet. */
+/** When a chat's work reaches the app's main line (ADR-012). Forge behavior per mode is not built yet. */
 export const ShipMode = z.enum(["safe", "review", "cowboy"]);
 export type ShipMode = z.infer<typeof ShipMode>;
 
@@ -12,8 +12,8 @@ export type ChatMode = z.infer<typeof ChatMode>;
 export const Priority = z.enum(["needs_you", "finished", "progress"]);
 export type Priority = z.infer<typeof Priority>;
 
-export const ProjectStatus = z.enum(["creating", "ready", "paused", "failed"]);
-export type ProjectStatus = z.infer<typeof ProjectStatus>;
+export const AppStatus = z.enum(["creating", "ready", "paused", "failed"]);
+export type AppStatus = z.infer<typeof AppStatus>;
 
 export const ChatStatus = z.enum(["idle", "working", "needs_you", "conflict", "failed"]);
 export type ChatStatus = z.infer<typeof ChatStatus>;
@@ -45,14 +45,14 @@ export const RepoSource = z.object({
   branch: z.string().min(1).optional(),
 });
 export type RepoSource = z.infer<typeof RepoSource>;
-export const ProjectSource = z.discriminatedUnion("kind", [TemplateSource, RepoSource]);
-export type ProjectSource = z.infer<typeof ProjectSource>;
+export const AppSource = z.discriminatedUnion("kind", [TemplateSource, RepoSource]);
+export type AppSource = z.infer<typeof AppSource>;
 
 export const PackageManager = z.enum(["pnpm", "npm", "yarn", "bun"]);
 export type PackageManager = z.infer<typeof PackageManager>;
 
 /** What Studio detected when it created the workspace. */
-export const ProjectSetup = z.object({
+export const AppSetup = z.object({
   mainBranch: z.string(),
   packageManager: PackageManager,
   install: z.array(z.string()),
@@ -62,29 +62,31 @@ export const ProjectSetup = z.object({
   envRequired: z.array(z.string()),
   envMissing: z.array(z.string()),
 });
-export type ProjectSetup = z.infer<typeof ProjectSetup>;
+export type AppSetup = z.infer<typeof AppSetup>;
 
-export const Project = z.object({
+export const App = z.object({
   id: z.string(),
   team: z.string(),
+  /** The Kiln Project this App belongs to, if any. An App needs no factory. */
+  projectId: z.string().optional(),
   name: z.string(),
-  source: ProjectSource,
-  setup: ProjectSetup.optional(),
+  source: AppSource,
+  setup: AppSetup.optional(),
   shipMode: ShipMode,
   harness: HarnessType,
   model: z.string().optional(),
-  status: ProjectStatus,
+  status: AppStatus,
   error: z.string().optional(),
   snapshot: SnapshotRefSchema.optional(),
   createdBy: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-export type Project = z.infer<typeof Project>;
+export type App = z.infer<typeof App>;
 
 export const Chat = z.object({
   id: z.string(),
-  projectId: z.string(),
+  appId: z.string(),
   title: z.string(),
   mode: ChatMode,
   harness: HarnessType,
@@ -111,7 +113,7 @@ export type Activity = z.infer<typeof Activity>;
 
 export const Turn = z.object({
   id: z.string(),
-  projectId: z.string(),
+  appId: z.string(),
   chatId: z.string(),
   prompt: z.string(),
   mode: ChatMode,
@@ -135,7 +137,7 @@ export type Turn = z.infer<typeof Turn>;
 
 export const Version = z.object({
   id: z.string(),
-  projectId: z.string(),
+  appId: z.string(),
   sha: z.string(),
   title: z.string(),
   kind: VersionKind,
@@ -150,13 +152,13 @@ export const Preview = z.object({ target: z.string(), url: z.string(), status: z
 export type Preview = z.infer<typeof Preview>;
 
 export type StatusReport = {
-  projects: { id: string; name: string; working: string[]; needsYou: { chatId: string; question: string }[]; latest?: { title: string; at: string } }[];
+  apps: { id: string; name: string; working: string[]; needsYou: { chatId: string; question: string }[]; latest?: { title: string; at: string } }[];
 };
 
 export type ApplyResult = { ok: true; version: Version } | { ok: false; conflict: string[] } | { ok: false; nothing: true };
 
-/** Store collections; runtime state only. Code lives in the project's Git repository. */
-export const COLLECTIONS = { projects: "studio_projects", chats: "studio_chats", turns: "studio_turns", versions: "studio_versions" } as const;
+/** Store collections; runtime state only. Code lives in the app's Git repository. */
+export const COLLECTIONS = { apps: "studio_apps", chats: "studio_chats", turns: "studio_turns", versions: "studio_versions" } as const;
 
 export type StudioErrorCode = "not_found" | "invalid" | "busy" | "conflict" | "unavailable";
 

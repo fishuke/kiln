@@ -1,4 +1,4 @@
-import type { PackageManager, ProjectSetup } from "./types";
+import type { PackageManager, AppSetup } from "./types";
 
 /** Files Studio looks for in an imported repository. */
 export const ENV_EXAMPLES = [".env.example", ".env.sample", ".env.local.example"];
@@ -12,7 +12,7 @@ const LOCKFILES: [string, PackageManager][] = [
 ];
 
 /** Package manager, install and dev command for an imported repository, from its files. */
-export function detectSetup(input: { files: string[]; packageJson?: string }): Pick<ProjectSetup, "packageManager" | "install" | "devDetected"> {
+export function detectSetup(input: { files: string[]; packageJson?: string }): Pick<AppSetup, "packageManager" | "install" | "devDetected"> {
   const lock = LOCKFILES.find(([file]) => input.files.includes(file));
   const pm = lock?.[1] ?? "npm";
   const install =
@@ -55,7 +55,7 @@ export function envKeys(text: string): string[] {
   return keys;
 }
 
-export function devCommand(setup: Pick<ProjectSetup, "devDetected" | "devOverride">): string | undefined {
+export function devCommand(setup: Pick<AppSetup, "devDetected" | "devOverride">): string | undefined {
   return setup.devOverride ?? setup.devDetected;
 }
 

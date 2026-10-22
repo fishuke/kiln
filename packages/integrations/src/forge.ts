@@ -27,7 +27,14 @@ export type PullRequest = {
 export type ForgeIssue = { repo: string; number: number; url: string; title: string; body: string; labels: string[]; state: "open" | "closed" };
 
 /** One changed file of a pull request; `patch` is the unified diff from the first hunk on. */
-export type PullRequestFile = { path: string; previousPath?: string; status: "added" | "modified" | "removed" | "renamed"; additions: number; deletions: number; patch?: string };
+export type PullRequestFile = {
+  path: string;
+  previousPath?: string;
+  status: "added" | "modified" | "removed" | "renamed";
+  additions: number;
+  deletions: number;
+  patch?: string;
+};
 
 export type ReviewComment = { path: string; line: number; side?: "LEFT" | "RIGHT"; body: string };
 export type ReviewInput = { event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"; body?: string; comments?: ReviewComment[] };
@@ -40,6 +47,25 @@ export interface PersonForge {
   login(): Promise<string>;
   submitReview(repo: RepoRef, number: number, input: ReviewInput): Promise<{ id: string; url: string }>;
   merge(repo: RepoRef, number: number): Promise<PullRequest>;
+}
+
+/** `createRepository` was asked for a name that is taken; Studio never adopts an existing repository as one it created. */
+export class RepositoryExistsError extends Error {
+  constructor(readonly repo: string) {
+    super(`repository ${repo} already exists`);
+    this.name = "RepositoryExistsError";
+  }
+}
+
+/** A forge API call that failed with an HTTP status. */
+export class ForgeHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ForgeHttpError";
+  }
 }
 
 export class AgentIdentityError extends Error {
@@ -57,7 +83,16 @@ export interface Forge {
   cloneUrl(repo: RepoRef, token?: string): string;
   /** A short-lived credential a sandbox clones and pushes this repository with (GitHub: a repo-scoped installation token). */
   sandboxToken?(repo: RepoRef): Promise<string | undefined>;
-  openPullRequest(input: { repo: RepoRef; head: string; base?: string; title: string; body: string; labels?: string[]; draft?: boolean; author?: string }): Promise<PullRequest>;
+  openPullRequest(input: {
+    repo: RepoRef;
+    head: string;
+    base?: string;
+    title: string;
+    body: string;
+    labels?: string[];
+    draft?: boolean;
+    author?: string;
+  }): Promise<PullRequest>;
   updatePullRequest(repo: RepoRef, number: number, patch: { title?: string; body?: string; draft?: boolean }): Promise<PullRequest>;
   getPullRequest(repo: RepoRef, number: number): Promise<PullRequest | undefined>;
   listPullRequests(repo: RepoRef, filter?: { state?: "open" | "closed" | "merged" | "all"; head?: string }): Promise<PullRequest[]>;
@@ -79,6 +114,10 @@ export interface Forge {
   pullRequestFiles?(repo: RepoRef, number: number): Promise<PullRequestFile[]>;
   /** Act as a person with their own token (see PersonForge). */
   asPerson?(token: string): PersonForge;
+  /** An empty repository (Studio: a template App's first push). Throws RepositoryExistsError when the name is taken. */
+  createRepository?(input: { owner: string; name: string; private: boolean; description?: string }): Promise<{ repo: RepoRef; url: string }>;
+  /** Close a pull request without merging it. */
+  closePullRequest?(repo: RepoRef, number: number): Promise<PullRequest>;
 }
 
 export type CheckRunInput = {
@@ -112,11 +151,20 @@ export class FakeForge implements Forge {
   private readonly counters = new Map<string, number>();
   private readonly listeners: ((e: { type: "merged" | "closed"; pr: PullRequest }) => void)[] = [];
 
-  constructor(root?: string, private readonly protectedBranches = ["main"], private readonly persistState = false) {
+  constructor(
+    root?: string,
+    private readonly protectedBranches = ["main"],
+    private readonly persistState = false,
+  ) {
     this.root = root ?? mkdtempSync(join(tmpdir(), "kiln-forge-"));
     const state = join(this.root, "forge.json");
     if (persistState && existsSync(state)) {
-      const saved = JSON.parse(readFileSync(state, "utf8")) as { pulls: PullRequest[]; issues: ForgeIssue[]; comments: FakeForge["comments"]; counters: [string, number][] };
+      const saved = JSON.parse(readFileSync(state, "utf8")) as {
+        pulls: PullRequest[];
+        issues: ForgeIssue[];
+        comments: FakeForge["comments"];
+        counters: [string, number][];
+      };
       this.pulls.push(...saved.pulls);
       this.issues.push(...saved.issues);
       this.comments.push(...saved.comments);
@@ -126,7 +174,10 @@ export class FakeForge implements Forge {
 
   private persist() {
     if (!this.persistState) return;
-    writeFileSync(join(this.root, "forge.json"), JSON.stringify({ pulls: this.pulls, issues: this.issues, comments: this.comments, counters: [...this.counters] }));
+    writeFileSync(
+      join(this.root, "forge.json"),
+      JSON.stringify({ pulls: this.pulls, issues: this.issues, comments: this.comments, counters: [...this.counters] }),
+    );
   }
 
   hasRepo(repo: RepoRef) {
@@ -138,7 +189,9 @@ export class FakeForge implements Forge {
     return readdirSync(this.root).flatMap((owner) => {
       const dir = join(this.root, owner);
       if (!statSync(dir).isDirectory()) return [];
-      return readdirSync(dir).filter((n) => n.endsWith(".git")).map((n) => `${owner}/${n.slice(0, -4)}`);
+      return readdirSync(dir)
+        .filter((n) => n.endsWith(".git"))
+        .map((n) => `${owner}/${n.slice(0, -4)}`);
     });
   }
 
@@ -153,22 +206,7 @@ export class FakeForge implements Forge {
   createRepo(repo: RepoRef, files: Record<string, string> = { "README.md": `# ${repo.name}\n` }): string {
     const bare = this.bare(repo);
     if (this.hasRepo(repo)) return bare;
-    mkdirSync(bare, { recursive: true });
-    git(bare, ["init", "-q", "--bare", "-b", "main"]);
-    const hook = join(bare, "hooks", "pre-receive");
-    writeFileSync(
-      hook,
-      `#!/bin/sh
-# Branch protection: agents may only push kiln/* branches.
-while read old new ref; do
-  case "$KILN_PUSH_AS" in agent*)
-    case "$ref" in refs/heads/kiln/*) ;; *) echo "protected: agents cannot push $ref" >&2; exit 1 ;; esac ;;
-  esac
-  ${this.protectedBranches.map((b) => `if [ "$ref" = "refs/heads/${b}" ] && [ "$KILN_PUSH_AS" != "human" ] && [ "$KILN_PUSH_AS" != "merge" ]; then echo "protected: $ref needs a human merge" >&2; exit 1; fi`).join("\n  ")}
-done
-`,
-    );
-    chmodSync(hook, 0o755);
+    this.initBare(bare, this.protectedBranches);
     const work = mkdtempSync(join(tmpdir(), "kiln-seed-"));
     git(work, ["init", "-q", "-b", "main"]);
     for (const [path, content] of Object.entries(files)) {
@@ -180,6 +218,37 @@ done
     git(work, ["push", "-q", bare, "main"], { KILN_PUSH_AS: "human" });
     rmSync(work, { recursive: true, force: true });
     return bare;
+  }
+
+  private initBare(bare: string, protectedBranches: string[]) {
+    mkdirSync(bare, { recursive: true });
+    git(bare, ["init", "-q", "--bare", "-b", "main"]);
+    const hook = join(bare, "hooks", "pre-receive");
+    writeFileSync(
+      hook,
+      `#!/bin/sh
+# Branch protection: agents may only push kiln/* branches.
+while read old new ref; do
+  case "$KILN_PUSH_AS" in agent*)
+    case "$ref" in refs/heads/kiln/*) ;; *) echo "protected: agents cannot push $ref" >&2; exit 1 ;; esac ;;
+  esac
+  ${protectedBranches.map((b) => `if [ "$ref" = "refs/heads/${b}" ] && [ "$KILN_PUSH_AS" != "human" ] && [ "$KILN_PUSH_AS" != "merge" ]; then echo "protected: $ref needs a human merge" >&2; exit 1; fi`).join("\n  ")}
+done
+`,
+    );
+    chmodSync(hook, 0o755);
+  }
+
+  /** An empty repository with no branch protection, like a new repository on GitHub. */
+  async createRepository(input: { owner: string; name: string; private: boolean; description?: string }) {
+    const repo: RepoRef = { owner: input.owner, name: input.name };
+    if (this.hasRepo(repo)) throw new RepositoryExistsError(repoKey(repo));
+    this.initBare(this.bare(repo), []);
+    return { repo, url: `https://forge.test/${repoKey(repo)}` };
+  }
+
+  async closePullRequest(repo: RepoRef, number: number) {
+    return this.close(repo, number);
   }
 
   cloneUrl(repo: RepoRef): string {
@@ -258,7 +327,8 @@ done
   }
 
   async addLabels(repo: RepoRef, number: number, labels: string[]) {
-    const target = this.pulls.find((p) => p.repo === repoKey(repo) && p.number === number) ?? this.issues.find((i) => i.repo === repoKey(repo) && i.number === number);
+    const target =
+      this.pulls.find((p) => p.repo === repoKey(repo) && p.number === number) ?? this.issues.find((i) => i.repo === repoKey(repo) && i.number === number);
     if (target) target.labels = [...new Set([...target.labels, ...labels])];
     this.persist();
   }
@@ -274,7 +344,15 @@ done
   async createIssue(repo: RepoRef, input: { title: string; body: string; labels?: string[] }) {
     const key = repoKey(repo);
     const number = this.next(key);
-    const issue: ForgeIssue = { repo: key, number, url: `https://forge.test/${key}/issues/${number}`, title: input.title, body: input.body, labels: input.labels ?? [], state: "open" };
+    const issue: ForgeIssue = {
+      repo: key,
+      number,
+      url: `https://forge.test/${key}/issues/${number}`,
+      title: input.title,
+      body: input.body,
+      labels: input.labels ?? [],
+      state: "open",
+    };
     this.issues.push(issue);
     this.persist();
     return issue;
@@ -287,7 +365,9 @@ done
   async readTree(repo: RepoRef, ref = "main", dir = "") {
     const bare = this.bare(repo);
     const prefix = dir ? `${dir.replace(/\/$/, "")}/` : "";
-    const files = git(bare, ["ls-tree", "-r", "--name-only", ref]).split("\n").filter((f) => f && f.startsWith(prefix));
+    const files = git(bare, ["ls-tree", "-r", "--name-only", ref])
+      .split("\n")
+      .filter((f) => f && f.startsWith(prefix));
     return Object.fromEntries(files.map((f) => [f.slice(prefix.length), git(bare, ["show", `${ref}:${f}`])]));
   }
 
@@ -370,7 +450,18 @@ done
     const work = mkdtempSync(join(tmpdir(), "kiln-merge-"));
     git(work, ["clone", "-q", this.bare(repo), "."]);
     git(work, ["checkout", "-q", pr.base]);
-    git(work, ["-c", `user.name=${by}`, "-c", "user.email=merge@kiln.test", "merge", "-q", "--no-ff", `origin/${pr.head}`, "-m", `Merge #${number}: ${pr.title}`]);
+    git(work, [
+      "-c",
+      `user.name=${by}`,
+      "-c",
+      "user.email=merge@kiln.test",
+      "merge",
+      "-q",
+      "--no-ff",
+      `origin/${pr.head}`,
+      "-m",
+      `Merge #${number}: ${pr.title}`,
+    ]);
     git(work, ["push", "-q", "origin", pr.base], { KILN_PUSH_AS: "merge" });
     rmSync(work, { recursive: true, force: true });
     pr.state = "merged";
@@ -401,7 +492,14 @@ export class GitHubForge implements Forge {
    * `token` gets the request path, so an app can answer with the installation of the repository's
    * owner; `sandboxToken` mints what a sandbox clones and pushes with.
    */
-  constructor(private readonly options: { token: string | ((path: string) => Promise<string> | string); sandboxToken?: (repo: RepoRef) => Promise<string>; baseUrl?: string; fetch?: Fetch }) {}
+  constructor(
+    private readonly options: {
+      token: string | ((path: string) => Promise<string> | string);
+      sandboxToken?: (repo: RepoRef) => Promise<string>;
+      baseUrl?: string;
+      fetch?: Fetch;
+    },
+  ) {}
 
   async sandboxToken(repo: RepoRef): Promise<string | undefined> {
     if (this.options.sandboxToken) return this.options.sandboxToken(repo);
@@ -421,7 +519,7 @@ export class GitHubForge implements Forge {
       body: body ? JSON.stringify(body) : undefined,
     });
     if (res.status === 404) return undefined as T;
-    if (!res.ok) throw new Error(`GitHub ${method} ${path} returned ${res.status}: ${await res.text()}`);
+    if (!res.ok) throw new ForgeHttpError(res.status, `GitHub ${method} ${path} returned ${res.status}: ${await res.text()}`);
     return (res.status === 204 ? undefined : await res.json()) as T;
   }
 
@@ -453,7 +551,8 @@ export class GitHubForge implements Forge {
   /** The repository's default branch (main, master, prod …), looked up once. */
   async defaultBranch(repo: RepoRef): Promise<string> {
     const key = repoKey(repo);
-    if (!this.defaultBranches.has(key)) this.defaultBranches.set(key, (await this.api<{ default_branch?: string } | undefined>("GET", `/repos/${key}`))?.default_branch ?? "main");
+    if (!this.defaultBranches.has(key))
+      this.defaultBranches.set(key, (await this.api<{ default_branch?: string } | undefined>("GET", `/repos/${key}`))?.default_branch ?? "main");
     return this.defaultBranches.get(key)!;
   }
 
@@ -521,14 +620,26 @@ export class GitHubForge implements Forge {
   async getIssue(repo: RepoRef, number: number) {
     const i = await this.api<Record<string, any> | undefined>("GET", `/repos/${repoKey(repo)}/issues/${number}`);
     return i
-      ? { repo: repoKey(repo), number: i.number, url: i.html_url, title: i.title, body: i.body ?? "", labels: (i.labels ?? []).map((l: { name: string }) => l.name), state: i.state }
+      ? {
+          repo: repoKey(repo),
+          number: i.number,
+          url: i.html_url,
+          title: i.title,
+          body: i.body ?? "",
+          labels: (i.labels ?? []).map((l: { name: string }) => l.name),
+          state: i.state,
+        }
       : undefined;
   }
 
   async ensureLabel(repo: RepoRef, name: string, opts: { color?: string; description?: string } = {}) {
     const existing = await this.api<{ name: string } | undefined>("GET", `/repos/${repoKey(repo)}/labels/${encodeURIComponent(name)}`);
     if (existing) return;
-    await this.api("POST", `/repos/${repoKey(repo)}/labels`, { name, color: opts.color ?? "5319e7", description: opts.description ?? "Routes mentions to a Kiln factory" });
+    await this.api("POST", `/repos/${repoKey(repo)}/labels`, {
+      name,
+      color: opts.color ?? "5319e7",
+      description: opts.description ?? "Routes mentions to a Kiln factory",
+    });
   }
 
   async deleteLabel(repo: RepoRef, name: string) {
@@ -598,8 +709,34 @@ export class GitHubForge implements Forge {
     };
   }
 
+  /**
+   * An empty repository in the organization, or on the token's own account when `owner` is not an
+   * organization (POST /orgs/{owner}/repos answers 404). A GitHub App needs `administration: write`.
+   */
+  async createRepository(input: { owner: string; name: string; private: boolean; description?: string }) {
+    const body = { name: input.name, private: input.private, auto_init: false, ...(input.description ? { description: input.description } : {}) };
+    type Created = { name: string; owner: { login: string }; html_url: string };
+    try {
+      const r =
+        (await this.api<Created | undefined>("POST", `/orgs/${encodeURIComponent(input.owner)}/repos`, body)) ??
+        (await this.api<Created>("POST", "/user/repos", body));
+      return { repo: { owner: r.owner.login, name: r.name, forge: "github" as const }, url: r.html_url };
+    } catch (err) {
+      if (err instanceof ForgeHttpError && err.status === 422 && /already exists/.test(err.message))
+        throw new RepositoryExistsError(`${input.owner}/${input.name}`);
+      throw err;
+    }
+  }
+
+  async closePullRequest(repo: RepoRef, number: number) {
+    return this.pr(repo, await this.api("PATCH", `/repos/${repoKey(repo)}/pulls/${number}`, { state: "closed" }));
+  }
+
   async readTree(repo: RepoRef, ref = "main", dir = "") {
-    const tree = await this.api<{ tree: { path: string; type: string; sha: string }[] }>("GET", `/repos/${repoKey(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
+    const tree = await this.api<{ tree: { path: string; type: string; sha: string }[] }>(
+      "GET",
+      `/repos/${repoKey(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+    );
     const prefix = dir ? `${dir.replace(/\/$/, "")}/` : "";
     const out: Record<string, string> = {};
     for (const item of tree?.tree ?? []) {

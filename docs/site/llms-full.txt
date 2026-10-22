@@ -4099,14 +4099,14 @@ This needs `KILN_PUBLIC_URL` (GitHub calls it) and `KILN_SECRET_KEY` (the key is
 2. Set its webhook URL to `POST /webhooks/github` with a secret, and subscribe to Issues, Issue comment, Pull request, Pull request review, Pull request review comment, Check suite, Check run, Status, Workflow run and Push.
 3. Give Kiln the app's credentials and install the app on your organization:
 
-| Variable | Notes |
-| --- | --- |
-| `GITHUB_APP_ID` | The app's ID. |
-| `GITHUB_APP_PRIVATE_KEY` | The app's private key, as PEM (`\n` escapes are fine) or base64. |
-| `GITHUB_APP_INSTALLATION_ID` | The installation on your organization. Kiln mints a short-lived installation token for each call. |
-| `GITHUB_APP_SLUG` | Lets Kiln link to the install page and recognize its own `<slug>[bot]` events. |
-| `GITHUB_WEBHOOK_SECRET` | The webhook secret. |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The app's OAuth credentials, for people to link their GitHub accounts. |
+| Variable                                   | Notes                                                                                             |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `GITHUB_APP_ID`                            | The app's ID.                                                                                     |
+| `GITHUB_APP_PRIVATE_KEY`                   | The app's private key, as PEM (`\n` escapes are fine) or base64.                                  |
+| `GITHUB_APP_INSTALLATION_ID`               | The installation on your organization. Kiln mints a short-lived installation token for each call. |
+| `GITHUB_APP_SLUG`                          | Lets Kiln link to the install page and recognize its own `<slug>[bot]` events.                    |
+| `GITHUB_WEBHOOK_SECRET`                    | The webhook secret.                                                                               |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The app's OAuth credentials, for people to link their GitHub accounts.                            |
 
 A plain `GITHUB_TOKEN` still works instead of an app. You can also connect GitHub from the API; see [Connections](connections.md).
 
@@ -4116,6 +4116,8 @@ A plain `GITHUB_TOKEN` still works instead of an app. You can also connect GitHu
 Kiln verifies `X-Hub-Signature-256` on every call and ignores repeated `X-GitHub-Delivery` IDs.
 
 Connect more accounts and organizations with **Add a GitHub account or organization** in the same panel: each gets its own private app, and Kiln uses the app installed on each repository's owner (`GET /api/v1/connections/github/apps` lists them). A public app installed on several accounts works the same way. A sandbox never gets the app's own credentials: it clones and pushes with an installation token limited to that one repository (contents write, metadata read) that expires within the hour. Protect your default branch, because contents write can push to any branch that is not protected.
+
+Studio pushes the same way. Each push asks for a fresh token for the App's one repository, and every push is in the audit log. An imported App pushes only its `studio/<app id>` branch. It pushes the default branch only in Cowboy mode, when a team owner or admin turned on default-branch pushes in the App's policy and no factory uses the repository. To let Studio create a repository for a template App on its first push, give the app **Administration: read and write** on the organization. Without it, template Apps aren't pushed.
 
 ## Mention the factory
 
@@ -4153,6 +4155,7 @@ triggers:
       repos: [acme/web]
       labels: [kiln-ready]
 ---
+
 Take the labeled issue through the factory.
 ```
 

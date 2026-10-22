@@ -16,6 +16,11 @@ sandboxes:
   namespace: kiln-sandboxes
   runtimeClass: gvisor
   egressAllow: github.com,codeload.github.com,registry.npmjs.org,api.anthropic.com,api.openai.com
+studio:
+  # Studio previews are served on <id>.<previewDomain> by the API. Needs wildcard DNS and a wildcard
+  # certificate in the Secret named by previewTlsSecret. Empty turns previews off.
+  previewDomain: ""
+  previewTlsSecret: kiln-preview-tls
 # Name of an existing Secret with the variables from .env.example (keys, tokens, webhook secrets).
 existingSecret: kiln-env
 resources:

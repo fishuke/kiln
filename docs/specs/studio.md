@@ -45,7 +45,7 @@ interface Sandbox {
 
 - Local: `127.0.0.1:<port>`.
 - Docker: the container IP from `docker inspect`. It throws `SandboxNotReachable` when the container has no network (`--network none`, which means a runner with no egress). The API must share the sandbox network; in compose that's `kiln-egress`.
-- Kubernetes: the pod IP. Allowing ingress from the API in the sandbox NetworkPolicy is a follow-up.
+- Kubernetes: the pod IP. The Helm chart's `kiln-preview-ingress` NetworkPolicy admits the API to ports 4100–4199 of sandbox pods labeled `kiln.dev/preview: "true"`, so Studio creates its sandboxes with that label.
 - A port outside 1–65535 throws `RangeError`.
 
 ## Types (`packages/studio/src/types.ts`)
@@ -350,9 +350,10 @@ Every route needs a signed-in caller (`ctx.user`). Projects belong to `ctx.team(
 
 ### Preview proxy (`apps/api/src/routes/studio-preview.ts`, a `PUBLIC_MODULES` entry)
 
-- `KILN_STUDIO_PREVIEW_DOMAIN` set (e.g. `preview.kiln.example.com`): `previewUrl(target) = https://<target>.<domain>`. The proxy matches `Host: <target>.<domain>` only, calls `studio.resolvePreview(target)` and forwards the request (method, path, query, headers minus `cookie` and `authorization`, body) to `http://<host>:<port>`. An unknown target answers 404. Every other host goes to `next()`. The target id carries 128 bits of randomness and is the only credential; Kiln cookies never reach the preview origin.
+- `KILN_STUDIO_PREVIEW_DOMAIN` set (e.g. `preview.kiln.example.com`): `previewUrl(target) = https://<label>.<domain>`, where `<label>` is the target id with `_` replaced by `-` (`sc_3f…` → `sc-3f…`): DNS labels and wildcard certificates don't allow `_`, and browsers lowercase host names, so a target id's random suffix must be lowercase letters and digits (32 hex characters for 128 bits). A domain ending in `.localhost` (optionally with a port, e.g. `preview.localhost:4000`) gives `http://` URLs for local development. The proxy matches `Host: <label>.<domain>` only, calls `studio.resolvePreview(target)` and forwards the request (method, path, query, headers minus `cookie`, `authorization` and `x-kiln-*`, body) to `http://<host>:<port>`; it drops `set-cookie` from the response. An unknown, stopped or malformed target answers the same 404. Every other host goes to `next()`. The target id carries 128 bits of randomness and is the only credential; Kiln cookies never reach the preview origin.
+- The proxy finds Studio through `setPreviewResolver(kiln, studio)` (exported by `routes/studio-preview.ts`), which `routes/studio.ts` calls when it builds the Studio service. `previewUrlFor(env)` from the same file is the `previewUrl` option for `Studio`.
 - Unset (local development): `previewUrl = http://<address.host>:<address.port>`, and nothing is proxied.
-- WebSocket upgrades for hot reload go in `apps/api/src/main.ts` (Node `upgrade`) and are a follow-up. Until then the web page reloads the iframe on `turn_finished`.
+- WebSocket upgrades for hot reload are proxied in `apps/api/src/main.ts` (Node `upgrade`) by the same rules. The web page still reloads the iframe on `turn_finished`.
 
 ## SDK (`packages/sdk-ts`), used by the web page and MCP
 
@@ -399,4 +400,4 @@ The SDK re-declares these types (it doesn't depend on `packages/studio`), and a 
 
 ## Follow-ups
 
-WebSocket proxying for hot reload; a Kubernetes ingress policy for previews; screenshots for `look`; idle pause on a timer; forge sync per ship mode (ADR-012's guards); voice (ADR-013); graduation.
+A Kubernetes ingress policy for previews (written in the Helm chart, pending security review); screenshots for `look`; idle pause on a timer; forge sync per ship mode (ADR-012's guards); voice (ADR-013); graduation.

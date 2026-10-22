@@ -1,32 +1,33 @@
 import type {
+  AppDetail,
   ApplyResult,
   ChatDetail,
-  CreateProjectInput,
+  ChatMode,
+  CreateAppInput,
   ForgeRepository,
   NewChatInput,
+  NewChatResult,
   Preview,
-  Project,
-  ProjectDetail,
   SendResult,
   StatusReport,
-  UpdateProjectInput,
+  StudioApp,
+  UpdateAppInput,
   Version,
-  NewChatResult,
-  ChatMode,
 } from "./types";
 
 /**
  * What the Studio page needs from the API, one method per route in docs/specs/studio.md (named like
- * the SDK's `studio*` methods). `ApiStudioClient` calls the routes through server actions;
- * `FakeStudioClient` keeps everything in memory so the page runs without a backend.
+ * the SDK's `studio*` methods, with "app" for the spec's "project"). `ApiStudioClient` calls the
+ * routes through server actions; `FakeStudioClient` keeps everything in memory so the page runs
+ * without a backend.
  */
 export interface StudioClient {
   readonly kind: "api" | "fake";
-  projects(): Promise<{ projects: Project[] }>;
-  createProject(input: CreateProjectInput): Promise<Project>;
-  project(id: string): Promise<ProjectDetail>;
-  updateProject(id: string, patch: UpdateProjectInput): Promise<Project>;
-  newChat(projectId: string, input: NewChatInput): Promise<NewChatResult>;
+  apps(): Promise<StudioApp[]>;
+  createApp(input: CreateAppInput): Promise<StudioApp>;
+  app(id: string): Promise<AppDetail>;
+  updateApp(id: string, patch: UpdateAppInput): Promise<StudioApp>;
+  newChat(appId: string, input: NewChatInput): Promise<NewChatResult>;
   chat(id: string): Promise<ChatDetail>;
   send(chatId: string, input: { text: string; mode?: ChatMode }): Promise<SendResult>;
   apply(chatId: string): Promise<ApplyResult>;
@@ -39,7 +40,9 @@ export interface StudioClient {
   status(): Promise<StatusReport>;
   /** Connected forge repositories, for "Import from GitHub". */
   repositories(): Promise<ForgeRepository[]>;
-  /** Push updates (the fake); the API client polls instead and returns undefined. */
+  /** Saves team secrets (an imported app's missing env); Studio reads them the next time the app opens. */
+  saveSecrets(values: Record<string, string>): Promise<void>;
+  /** Push updates (the fake); the API client polls instead. */
   subscribe?(listener: () => void): () => void;
 }
 

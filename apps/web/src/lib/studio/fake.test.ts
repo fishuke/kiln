@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FakeStudioClient, titleFrom } from "./fake";
 import { unappliedTurns } from "./model";
-import { ChatDetail, ProjectDetail } from "./types";
+import { ChatDetail } from "./types";
 
 /** A fake whose timers run when the test says so. */
 function setup() {
@@ -24,7 +24,7 @@ function setup() {
 }
 
 async function readyProject(studio: FakeStudioClient, run: () => void, shipMode?: "safe" | "cowboy") {
-  const p = await studio.createProject({ name: "Shop", shipMode });
+  const p = await studio.createApp({ name: "Shop", shipMode });
   run();
   return p.id;
 }
@@ -32,12 +32,12 @@ async function readyProject(studio: FakeStudioClient, run: () => void, shipMode?
 describe("FakeStudioClient", () => {
   it("creates a project that becomes ready with an initial version", async () => {
     const { studio, run } = setup();
-    const p = await studio.createProject({ name: "Shop" });
+    const p = await studio.createApp({ name: "Shop" });
     expect(p.status).toBe("creating");
     expect(p.shipMode).toBe("cowboy");
     run();
-    const detail = ProjectDetail.parse(await studio.project(p.id));
-    expect(detail.project.status).toBe("ready");
+    const detail = await studio.app(p.id);
+    expect(detail.app.status).toBe("ready");
     expect(detail.versions.map((v) => v.kind)).toEqual(["initial"]);
   });
 
@@ -50,7 +50,7 @@ describe("FakeStudioClient", () => {
     const detail = ChatDetail.parse(await studio.chat(chat.id));
     expect(detail.turns[0]!.checkpoint).toBeTruthy();
     expect(detail.turns[0]!.activity.length).toBeGreaterThan(2);
-    const { versions } = await studio.project(id);
+    const { versions } = await studio.app(id);
     expect(versions[0]!.title).toBe("Add a pricing page");
   });
 
@@ -61,7 +61,7 @@ describe("FakeStudioClient", () => {
     run();
     const { turns } = await studio.chat(chat.id);
     expect(turns[0]!.checkpoint).toBeUndefined();
-    expect((await studio.project(id)).versions).toHaveLength(1);
+    expect((await studio.app(id)).versions).toHaveLength(1);
   });
 
   it("waits for Apply in safe mode", async () => {
@@ -104,25 +104,26 @@ describe("FakeStudioClient", () => {
   it("restores as a new version and bookmarks", async () => {
     const { studio, run } = setup();
     const id = await readyProject(studio, run);
-    const [initial] = (await studio.project(id)).versions;
+    const [initial] = (await studio.app(id)).versions;
     const restored = await studio.restore(initial!.id);
     expect(restored.kind).toBe("restore");
     expect((await studio.bookmark(initial!.id, true)).bookmarked).toBe(true);
-    expect((await studio.project(id)).versions).toHaveLength(2);
+    expect((await studio.app(id)).versions).toHaveLength(2);
   });
 
-  it("imports a repository step by step and asks for missing env", async () => {
+  it("imports a repository, detects the setup and lists missing env", async () => {
     const { studio, run } = setup();
-    const p = await studio.createProject({ name: "Store", source: { kind: "repo", repo: "acme/storefront", branch: "main" } });
-    expect(p.setup?.steps[0]).toEqual({ id: "clone", status: "running" });
+    const p = await studio.createApp({ name: "Store", source: { kind: "repo", repo: "acme/storefront", branch: "main" } });
     expect(p.shipMode).toBe("review");
     run();
-    const { project } = await studio.project(p.id);
-    expect(project.setup?.steps.every((s) => s.status === "done")).toBe(true);
-    expect(project.setup?.missingEnv).toEqual(["DATABASE_URL", "NEXTAUTH_SECRET"]);
-    const updated = await studio.updateProject(p.id, { env: { DATABASE_URL: "postgres://x" }, devCommand: "npm run dev" });
-    expect(updated.setup?.missingEnv).toEqual(["NEXTAUTH_SECRET"]);
-    expect(updated.setup?.devCommand).toBe("npm run dev");
+    const { app } = await studio.app(p.id);
+    expect(app.status).toBe("ready");
+    expect(app.setup?.envMissing).toEqual(["DATABASE_URL", "NEXTAUTH_SECRET"]);
+    await studio.saveSecrets({ DATABASE_URL: "postgres://x" });
+    const updated = await studio.updateApp(p.id, { devCommand: "npm run dev" });
+    expect(updated.setup?.envMissing).toEqual(["NEXTAUTH_SECRET"]);
+    expect(updated.setup?.dev).toBe("npm run dev");
+    expect((await studio.updateApp(p.id, { devCommand: null })).setup?.dev).toBe("pnpm run dev");
   });
 
   it("titles from the first clause", () => {

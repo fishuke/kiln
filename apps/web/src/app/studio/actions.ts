@@ -5,14 +5,14 @@ import { api } from "@/lib/kiln";
 import { API_BASE, apiHeaders } from "@/lib/proxy";
 import {
   ApplyResult,
+  Chat,
   ChatDetail,
   ChatMode,
   Diff,
   NewChatResult,
   Preview,
-  Project,
-  ProjectDetail,
-  ProjectSource,
+  AppSource,
+  StudioApp,
   SendResult,
   ShipMode,
   StatusReport,
@@ -56,8 +56,7 @@ function id(v: string): string {
 
 const CreateInput = z.object({
   name: z.string().trim().min(1).max(80),
-  template: z.string().optional(),
-  source: ProjectSource.optional(),
+  source: AppSource.optional(),
   shipMode: ShipMode.optional(),
   harness: z.string().optional(),
   model: z.string().optional(),
@@ -65,8 +64,7 @@ const CreateInput = z.object({
 const PatchInput = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   shipMode: ShipMode.optional(),
-  devCommand: z.string().max(200).optional(),
-  env: z.record(z.string(), z.string()).optional(),
+  devCommand: z.string().max(200).nullable().optional(),
 });
 const ChatInput = z.object({
   prompt: z.string().optional(),
@@ -78,16 +76,16 @@ const ChatInput = z.object({
 const SendInput = z.object({ text: z.string().trim().min(1), mode: ChatMode.optional() });
 
 export async function studioProjects() {
-  return call(z.object({ projects: z.array(Project) }), "GET", "/projects");
+  return call(z.object({ projects: z.array(StudioApp) }), "GET", "/projects");
 }
 export async function studioCreateProject(input: z.input<typeof CreateInput>) {
-  return call(Project, "POST", "/projects", CreateInput.parse(input));
+  return call(StudioApp, "POST", "/projects", CreateInput.parse(input));
 }
 export async function studioProject(projectId: string) {
-  return call(ProjectDetail, "GET", `/projects/${id(projectId)}`);
+  return call(z.object({ project: StudioApp, chats: z.array(Chat), versions: z.array(Version) }), "GET", `/projects/${id(projectId)}`);
 }
 export async function studioUpdateProject(projectId: string, patch: z.input<typeof PatchInput>) {
-  return call(Project, "PATCH", `/projects/${id(projectId)}`, PatchInput.parse(patch));
+  return call(StudioApp, "PATCH", `/projects/${id(projectId)}`, PatchInput.parse(patch));
 }
 export async function studioNewChat(projectId: string, input: z.input<typeof ChatInput>) {
   return call(NewChatResult, "POST", `/projects/${id(projectId)}/chats`, ChatInput.parse(input));
@@ -125,6 +123,19 @@ export async function studioStatus() {
 export async function studioRepositories(): Promise<StudioResult<{ owner: string; name: string; forge: string }[]>> {
   try {
     return { ok: true, data: (await api.forgeRepositories()).repositories };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+const SecretName = z.string().regex(/^[A-Z_][A-Z0-9_]*$/);
+
+/** An imported app's missing env, saved as team secrets (the existing secrets API). */
+export async function studioSaveSecrets(values: Record<string, string>): Promise<StudioResult<null>> {
+  try {
+    const pairs = z.record(SecretName, z.string().min(1)).parse(values);
+    for (const [name, value] of Object.entries(pairs)) await api.createManagedSecret({ scope: "team", name, value });
+    return { ok: true, data: null };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

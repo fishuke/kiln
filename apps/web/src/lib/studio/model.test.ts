@@ -111,7 +111,7 @@ describe("modes and ship modes", () => {
   });
   it("says Cowboy pushes a studio branch for an imported repository", () => {
     expect(shipModeCopy("cowboy").line).toMatch(/pushes main/);
-    expect(shipModeCopy("cowboy", { kind: "repo", repo: "acme/shop", branch: "main" }, "Acme Shop").line).toMatch(/studio\/acme-shop branch/);
+    expect(shipModeCopy("cowboy", { kind: "repo", repo: "acme/shop", branch: "main" }, "sp_1").line).toMatch(/studio\/sp_1 branch/);
   });
 });
 

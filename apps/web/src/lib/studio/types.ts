@@ -8,8 +8,8 @@ export const ShipMode = z.enum(["safe", "review", "cowboy"]);
 export type ShipMode = z.infer<typeof ShipMode>;
 export const ChatMode = z.enum(["build", "chat", "plan"]);
 export type ChatMode = z.infer<typeof ChatMode>;
-export const ProjectStatus = z.enum(["creating", "ready", "paused", "failed"]);
-export type ProjectStatus = z.infer<typeof ProjectStatus>;
+export const AppStatus = z.enum(["creating", "ready", "paused", "failed"]);
+export type AppStatus = z.infer<typeof AppStatus>;
 export const ChatStatus = z.enum(["idle", "working", "needs_you", "conflict", "failed"]);
 export type ChatStatus = z.infer<typeof ChatStatus>;
 export const TurnStatus = z.enum(["running", "succeeded", "failed", "cancelled"]);
@@ -20,41 +20,46 @@ export const Via = z.enum(["web", "mcp", "api", "voice"]);
 export type Via = z.infer<typeof Via>;
 export const HarnessType = z.string();
 
-/** Where a project's code came from: a template, or an existing repository on a connected forge. */
-export const ProjectSource = z.discriminatedUnion("kind", [
+/** Where an app's code came from: a template, or an existing repository on a connected forge. */
+export const AppSource = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("template"), template: z.string() }),
-  z.object({ kind: z.literal("repo"), repo: z.string(), branch: z.string(), forge: z.string().optional() }),
+  z.object({ kind: z.literal("repo"), connection: z.string().optional(), repo: z.string(), branch: z.string().optional() }),
 ]);
-export type ProjectSource = z.infer<typeof ProjectSource>;
+export type AppSource = z.infer<typeof AppSource>;
 
-export const SetupStepId = z.enum(["clone", "install", "dev", "preview"]);
-export type SetupStepId = z.infer<typeof SetupStepId>;
-/** How far an imported project got: steps, what was detected, and what it still needs. */
-export const ProjectSetup = z.object({
-  steps: z.array(z.object({ id: SetupStepId, status: z.enum(["pending", "running", "done", "failed"]), detail: z.string().optional() })),
-  packageManager: z.string().optional(),
-  devCommand: z.string().optional(),
-  missingEnv: z.array(z.string()).default([]),
+/** What Studio detected when it created the workspace (the spec's `ProjectSetup`). */
+export const AppSetup = z.object({
+  mainBranch: z.string(),
+  packageManager: z.enum(["pnpm", "npm", "yarn", "bun"]),
+  install: z.array(z.string()),
+  dev: z.string().optional(),
+  devDetected: z.string().optional(),
+  devOverride: z.string().optional(),
+  envRequired: z.array(z.string()),
+  envMissing: z.array(z.string()),
 });
-export type ProjectSetup = z.infer<typeof ProjectSetup>;
+export type AppSetup = z.infer<typeof AppSetup>;
 
-export const Project = z.object({
+/**
+ * A Studio app: one repository in one sandbox. The spec still calls it a `Project` on the wire
+ * (`/studio/projects`, `projectId`); the page says "app" because Kiln Projects group factories.
+ */
+export const StudioApp = z.object({
   id: z.string(),
   team: z.string(),
   name: z.string(),
-  template: z.string(),
-  source: ProjectSource.optional(),
-  setup: ProjectSetup.optional(),
+  source: AppSource,
+  setup: AppSetup.optional(),
   shipMode: ShipMode,
   harness: HarnessType,
   model: z.string().optional(),
-  status: ProjectStatus,
+  status: AppStatus,
   error: z.string().optional(),
   createdBy: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-export type Project = z.infer<typeof Project>;
+export type StudioApp = z.infer<typeof StudioApp>;
 
 export const Chat = z.object({
   id: z.string(),
@@ -143,8 +148,8 @@ export const ApplyResult = z.union([
 ]);
 export type ApplyResult = z.infer<typeof ApplyResult>;
 
-export const ProjectDetail = z.object({ project: Project, chats: z.array(Chat), versions: z.array(Version) });
-export type ProjectDetail = z.infer<typeof ProjectDetail>;
+/** An app with its chats and versions (versions newest first). */
+export type AppDetail = { app: StudioApp; chats: Chat[]; versions: Version[] };
 export const ChatDetail = z.object({ chat: Chat, turns: z.array(Turn) });
 export type ChatDetail = z.infer<typeof ChatDetail>;
 export const NewChatResult = z.object({ chat: Chat, turn: Turn.optional() });
@@ -153,14 +158,8 @@ export const SendResult = z.object({ turn: Turn, steered: z.boolean() });
 export type SendResult = z.infer<typeof SendResult>;
 export const Diff = z.object({ diff: z.string() });
 
-export type CreateProjectInput = {
-  name: string;
-  template?: string;
-  source?: ProjectSource;
-  shipMode?: ShipMode;
-  harness?: string;
-  model?: string;
-};
-export type UpdateProjectInput = { name?: string; shipMode?: ShipMode; devCommand?: string; env?: Record<string, string> };
+export type CreateAppInput = { name: string; source?: AppSource; shipMode?: ShipMode; harness?: string; model?: string };
+/** `devCommand: null` clears an override. */
+export type UpdateAppInput = { name?: string; shipMode?: ShipMode; devCommand?: string | null };
 export type NewChatInput = { prompt?: string; mode?: ChatMode; harness?: string; model?: string; title?: string };
 export type ForgeRepository = { owner: string; name: string; forge: string };

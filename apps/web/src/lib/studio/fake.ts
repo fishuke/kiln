@@ -6,17 +6,17 @@ import type {
   Chat,
   ChatDetail,
   ChatMode,
-  CreateProjectInput,
+  CreateAppInput,
+  AppDetail,
   ForgeRepository,
   NewChatInput,
   NewChatResult,
   Preview,
-  Project,
-  ProjectDetail,
+  StudioApp,
   SendResult,
   StatusReport,
   Turn,
-  UpdateProjectInput,
+  UpdateAppInput,
   Version,
 } from "./types";
 
@@ -40,14 +40,14 @@ const ME = "you@example.com";
  */
 export class FakeStudioClient implements StudioClient {
   readonly kind = "fake" as const;
-  private projectsById = new Map<string, Project>();
+  private appsById = new Map<string, StudioApp>();
   private chats = new Map<string, Chat>();
   private turns = new Map<string, Turn>();
   private versions = new Map<string, Version>();
   /** Chat id → checkpoints not yet applied, oldest first. */
   private unapplied = new Map<string, { sha: string; title: string }[]>();
   private started = new Map<string, number>();
-  private env = new Map<string, Record<string, string>>();
+  private secrets = new Set<string>();
   private listeners = new Set<() => void>();
   private seq = 0;
   private readonly now: () => Date;
@@ -89,17 +89,16 @@ export class FakeStudioClient implements StudioClient {
     return v;
   }
 
-  async projects() {
-    return { projects: [...this.projectsById.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) };
+  async apps() {
+    return [...this.appsById.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  async createProject(input: CreateProjectInput): Promise<Project> {
-    const source = input.source ?? { kind: "template" as const, template: input.template ?? "nextjs" };
-    const p: Project = {
+  async createApp(input: CreateAppInput): Promise<StudioApp> {
+    const source = input.source ?? { kind: "template" as const, template: "nextjs" };
+    const app: StudioApp = {
       id: this.id("sp"),
       team: "team",
       name: input.name,
-      template: source.kind === "template" ? source.template : "imported",
       source,
       shipMode: input.shipMode ?? defaultShipMode(source),
       harness: input.harness ?? "claude-code",
@@ -109,75 +108,64 @@ export class FakeStudioClient implements StudioClient {
       createdAt: this.iso(),
       updatedAt: this.iso(),
     };
+    this.appsById.set(app.id, app);
     if (source.kind === "repo") {
-      p.setup = {
-        steps: [
-          { id: "clone", status: "running" },
-          { id: "install", status: "pending" },
-          { id: "dev", status: "pending" },
-          { id: "preview", status: "pending" },
-        ],
-        missingEnv: [],
-      };
-      this.runSetup(p.id, 0);
+      // Clone, then detect the package manager, dev command and env; then install.
+      this.schedule(() => {
+        const envRequired = ["DATABASE_URL", "NEXTAUTH_SECRET"];
+        this.patchApp(app.id, {
+          setup: { mainBranch: source.branch ?? "main", packageManager: "pnpm", install: ["pnpm install --prefer-offline"], dev: "pnpm run dev", devDetected: "pnpm run dev", envRequired, envMissing: envRequired.filter((k) => !this.secrets.has(k)) },
+        });
+        this.schedule(() => {
+          this.patchApp(app.id, { status: "ready" });
+          this.addVersion(app.id, { title: `Imported ${source.repo}`, kind: "initial" });
+        }, this.stepMs * 2);
+      }, this.stepMs * 2);
     } else {
       this.schedule(() => {
-        this.patchProject(p.id, { status: "ready" });
-        this.addVersion(p.id, { title: "Started from the Next.js template", kind: "initial" });
+        this.patchApp(app.id, { status: "ready" });
+        this.addVersion(app.id, { title: "Started from the Next.js template", kind: "initial" });
       }, this.stepMs * 2);
     }
-    this.projectsById.set(p.id, p);
     this.emit();
-    return p;
+    return app;
   }
 
-  private runSetup(projectId: string, step: number) {
-    this.schedule(() => {
-      const p = this.projectsById.get(projectId);
-      if (!p?.setup) return;
-      const steps = p.setup.steps.map((s, i) =>
-        i === step ? { ...s, status: "done" as const, detail: SETUP_DETAIL[s.id] } : i === step + 1 ? { ...s, status: "running" as const } : s,
-      );
-      const setup = { ...p.setup, steps };
-      if (step === 0) Object.assign(setup, { packageManager: "pnpm", devCommand: "pnpm dev" });
-      if (step === 1) setup.missingEnv = ["DATABASE_URL", "NEXTAUTH_SECRET"];
-      const done = step === steps.length - 1;
-      this.patchProject(projectId, { setup, ...(done ? { status: "ready" as const } : {}) });
-      if (done) this.addVersion(projectId, { title: `Imported ${p.source?.kind === "repo" ? p.source.repo : p.name}`, kind: "initial" });
-      else this.runSetup(projectId, step + 1);
-    }, this.stepMs * 1.5);
-  }
-
-  private patchProject(id: string, patch: Partial<Project>) {
-    const p = this.projectsById.get(id);
+  private patchApp(id: string, patch: Partial<StudioApp>) {
+    const p = this.appsById.get(id);
     if (!p) return;
-    this.projectsById.set(id, { ...p, ...patch, updatedAt: this.iso() });
+    this.appsById.set(id, { ...p, ...patch, updatedAt: this.iso() });
     this.emit();
   }
 
-  async project(id: string): Promise<ProjectDetail> {
-    const project = this.must(this.projectsById.get(id), "Project");
+  async app(id: string): Promise<AppDetail> {
+    const app = this.must(this.appsById.get(id), "App");
     const chats = [...this.chats.values()].filter((c) => c.projectId === id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const versions = [...this.versions.values()].filter((v) => v.projectId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return { project, chats, versions };
+    return { app, chats, versions };
   }
 
-  async updateProject(id: string, patch: UpdateProjectInput): Promise<Project> {
-    const p = this.must(this.projectsById.get(id), "Project");
-    const next: Partial<Project> = {};
+  async updateApp(id: string, patch: UpdateAppInput): Promise<StudioApp> {
+    const p = this.must(this.appsById.get(id), "App");
+    const next: Partial<StudioApp> = {};
     if (patch.name) next.name = patch.name;
     if (patch.shipMode) next.shipMode = patch.shipMode;
-    if (p.setup && (patch.devCommand || patch.env)) {
-      const env = { ...this.env.get(id), ...patch.env };
-      this.env.set(id, env);
-      next.setup = { ...p.setup, devCommand: patch.devCommand ?? p.setup.devCommand, missingEnv: p.setup.missingEnv.filter((k) => !env[k]) };
+    if (p.setup && patch.devCommand !== undefined) {
+      const devOverride = patch.devCommand ?? undefined;
+      next.setup = { ...p.setup, devOverride, dev: devOverride ?? p.setup.devDetected };
     }
-    this.patchProject(id, next);
-    return this.projectsById.get(id)!;
+    this.patchApp(id, next);
+    return this.appsById.get(id)!;
+  }
+
+  async saveSecrets(values: Record<string, string>): Promise<void> {
+    for (const k of Object.keys(values)) this.secrets.add(k);
+    for (const a of this.appsById.values())
+      if (a.setup) this.patchApp(a.id, { setup: { ...a.setup, envMissing: a.setup.envMissing.filter((k) => !this.secrets.has(k)) } });
   }
 
   async newChat(projectId: string, input: NewChatInput): Promise<NewChatResult> {
-    this.must(this.projectsById.get(projectId), "Project");
+    this.must(this.appsById.get(projectId), "App");
     const n = [...this.chats.values()].filter((c) => c.projectId === projectId).length;
     const id = this.id("sc");
     const chat: Chat = {
@@ -275,7 +263,7 @@ export class FakeStudioClient implements StudioClient {
     if (outcome.changes && t.mode === "build") finished.checkpoint = this.sha();
     if (outcome.changes && t.mode !== "build") finished.discarded = true;
     this.patchTurn(turnId, finished);
-    const project = this.projectsById.get(t.projectId)!;
+    const project = this.appsById.get(t.projectId)!;
     if (finished.checkpoint) {
       const list = this.unapplied.get(t.chatId) ?? [];
       this.unapplied.set(t.chatId, [...list, { sha: finished.checkpoint, title: outcome.title }]);
@@ -303,7 +291,7 @@ export class FakeStudioClient implements StudioClient {
   private addVersion(projectId: string, v: Pick<Version, "title" | "kind"> & Partial<Version>): Version {
     const version: Version = { id: this.id("sv"), projectId, sha: this.sha(), bookmarked: false, createdAt: this.iso(), ...v };
     this.versions.set(version.id, version);
-    this.patchProject(projectId, {});
+    this.patchApp(projectId, {});
     return version;
   }
 
@@ -331,7 +319,7 @@ export class FakeStudioClient implements StudioClient {
     const chat = this.must(this.chats.get(chatId), "Chat");
     const turns = [...this.turns.values()].filter((t) => t.chatId === chatId && t.checkpoint);
     const latest = [...this.versions.values()].filter((v) => v.projectId === chat.projectId).length;
-    return this.preview(chatId, turns.at(-1)?.title ?? this.projectsById.get(chat.projectId)?.name ?? "New app", latest + turns.length);
+    return this.preview(chatId, turns.at(-1)?.title ?? this.appsById.get(chat.projectId)?.name ?? "New app", latest + turns.length);
   }
 
   async versionPreview(versionId: string): Promise<Preview> {
@@ -357,7 +345,7 @@ export class FakeStudioClient implements StudioClient {
 
   async status(): Promise<StatusReport> {
     return {
-      projects: [...this.projectsById.values()].map((p) => {
+      projects: [...this.appsById.values()].map((p) => {
         const chats = [...this.chats.values()].filter((c) => c.projectId === p.id);
         const latest = [...this.versions.values()].filter((v) => v.projectId === p.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
         return {
@@ -381,16 +369,15 @@ export class FakeStudioClient implements StudioClient {
     ];
   }
 
-  /** Fills the fake with a project so the page has something to show. Returns the project id. */
+  /** Fills the fake with an app so the page has something to show. Returns the app id. */
   seed(scenario: FakeScenario): string | undefined {
     if (scenario === "none") return undefined;
     const now = this.now().getTime();
     const at = (minAgo: number) => new Date(now - minAgo * 60_000).toISOString();
-    const project: Project = {
+    const project: StudioApp = {
       id: "sp_demo",
       team: "team",
       name: scenario === "empty" ? "Recipe box" : "Habit tracker",
-      template: "nextjs",
       source: { kind: "template", template: "nextjs" },
       shipMode: "cowboy",
       harness: "claude-code",
@@ -399,7 +386,7 @@ export class FakeStudioClient implements StudioClient {
       createdAt: at(180),
       updatedAt: at(3),
     };
-    this.projectsById.set(project.id, project);
+    this.appsById.set(project.id, project);
     this.versions.set("sv_initial", {
       id: "sv_initial",
       projectId: project.id,
@@ -409,7 +396,7 @@ export class FakeStudioClient implements StudioClient {
       bookmarked: false,
       createdAt: at(180),
     });
-    this.projectsById.set("sp_portfolio", {
+    this.appsById.set("sp_portfolio", {
       ...project,
       id: "sp_portfolio",
       name: "Portfolio site",
@@ -481,13 +468,6 @@ export class FakeStudioClient implements StudioClient {
     return project.id;
   }
 }
-
-const SETUP_DETAIL: Record<string, string> = {
-  clone: "Cloned in 3s",
-  install: "pnpm install, 412 packages",
-  dev: "pnpm dev on port 4101",
-  preview: "Ready",
-};
 
 /** A short title from a prompt: its first clause, capitalised, without the polite opener. */
 export function titleFrom(prompt: string): string {

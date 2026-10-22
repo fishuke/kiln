@@ -11,11 +11,14 @@ async function unwrap<T>(p: Promise<StudioResult<T>>): Promise<T> {
 /** The Studio routes through server actions, as the signed-in user. The page polls; there is no push. */
 export class ApiStudioClient implements StudioClient {
   readonly kind = "api" as const;
-  projects = () => unwrap(actions.studioProjects());
-  createProject: StudioClient["createProject"] = (input) => unwrap(actions.studioCreateProject(input));
-  project = (id: string) => unwrap(actions.studioProject(id));
-  updateProject: StudioClient["updateProject"] = (id, patch) => unwrap(actions.studioUpdateProject(id, patch));
-  newChat: StudioClient["newChat"] = (projectId, input) => unwrap(actions.studioNewChat(projectId, input));
+  apps = async () => (await unwrap(actions.studioProjects())).projects;
+  createApp: StudioClient["createApp"] = (input) => unwrap(actions.studioCreateProject(input));
+  app = async (id: string) => {
+    const { project, chats, versions } = await unwrap(actions.studioProject(id));
+    return { app: project, chats, versions };
+  };
+  updateApp: StudioClient["updateApp"] = (id, patch) => unwrap(actions.studioUpdateProject(id, patch));
+  newChat: StudioClient["newChat"] = (appId, input) => unwrap(actions.studioNewChat(appId, input));
   chat = (id: string) => unwrap(actions.studioChat(id));
   send: StudioClient["send"] = (chatId, input) => unwrap(actions.studioSend(chatId, input));
   apply = (chatId: string) => unwrap(actions.studioApply(chatId));
@@ -27,4 +30,7 @@ export class ApiStudioClient implements StudioClient {
   versionPreview = (versionId: string) => unwrap(actions.studioVersionPreview(versionId));
   status = () => unwrap(actions.studioStatus());
   repositories = () => unwrap(actions.studioRepositories());
+  saveSecrets = async (values: Record<string, string>) => {
+    await unwrap(actions.studioSaveSecrets(values));
+  };
 }

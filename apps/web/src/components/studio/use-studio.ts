@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StudioClient } from "@/lib/studio/client";
-import type { ChatDetail, Preview, ProjectDetail, StatusReport } from "@/lib/studio/types";
+import type { ChatDetail, Preview, AppDetail, StatusReport } from "@/lib/studio/types";
 
 /** How often the page polls the API: fast while something runs, slow otherwise. */
 const FAST_MS = 2000;
@@ -11,11 +11,11 @@ const SLOW_MS = 8000;
 export type PreviewTarget = { chatId: string } | { versionId: string };
 
 /**
- * A project's live state: the project with its chats and versions, every loaded chat's turns, the
+ * An app's live state: the app with its chats and versions, every loaded chat's turns, the
  * attention report, and a counter that bumps when a turn finishes (the preview reloads on it).
  */
-export function useStudioProject(client: StudioClient, projectId: string) {
-  const [detail, setDetail] = useState<ProjectDetail>();
+export function useStudioApp(client: StudioClient, appId: string) {
+  const [detail, setDetail] = useState<AppDetail>();
   const [chats, setChats] = useState<Record<string, ChatDetail>>({});
   const [status, setStatus] = useState<StatusReport>();
   const [error, setError] = useState<string>();
@@ -39,7 +39,7 @@ export function useStudioProject(client: StudioClient, projectId: string) {
 
   const refresh = useCallback(async () => {
     try {
-      const [d, s] = await Promise.all([client.project(projectId), client.status().catch(() => undefined)]);
+      const [d, s] = await Promise.all([client.app(appId), client.status().catch(() => undefined)]);
       setDetail(d);
       if (s) setStatus(s);
       setError(undefined);
@@ -47,9 +47,9 @@ export function useStudioProject(client: StudioClient, projectId: string) {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [client, projectId, loadChat]);
+  }, [client, appId, loadChat]);
 
-  const busy = Boolean(detail && (detail.project.status === "creating" || detail.chats.some((c) => c.status === "working")));
+  const busy = Boolean(detail && (detail.app.status === "creating" || detail.chats.some((c) => c.status === "working")));
 
   useEffect(() => {
     void refresh();

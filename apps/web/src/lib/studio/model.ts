@@ -1,6 +1,6 @@
 /** What the Studio page shows, computed from the API's shapes. Pure functions, tested in model.test.ts. */
 import { parsePatch, type DiffLine } from "@/lib/diff";
-import type { Chat, ChatMode, ProjectSource, ShipMode, StatusReport, Turn, Version } from "./types";
+import type { Chat, ChatMode, AppSource, ShipMode, StatusReport, Turn, Version } from "./types";
 
 export const MODES: { id: ChatMode; label: string; hint: string }[] = [
   { id: "build", label: "Build", hint: "Reads, edits and runs your app." },
@@ -17,16 +17,16 @@ export function nextMode(mode: ChatMode): ChatMode {
 export const SHIP_MODES: ShipMode[] = ["safe", "review", "cowboy"];
 
 /** A template project starts in Cowboy; an imported repository is real code, so it starts in Review. */
-export function defaultShipMode(source?: ProjectSource): ShipMode {
+export function defaultShipMode(source?: AppSource): ShipMode {
   return source?.kind === "repo" ? "review" : "cowboy";
 }
 
 /**
  * The ship mode labels and one-line explanations, in one place. An imported repository is someone's
- * real code, so Cowboy pushes a `studio/<project>` branch there instead of main.
+ * real code, so Cowboy pushes only a `studio/<app id>` branch there, never the default branch.
  */
-export function shipModeCopy(mode: ShipMode, source?: ProjectSource, projectName = "project"): { label: string; line: string } {
-  const branch = `studio/${slug(projectName)}`;
+export function shipModeCopy(mode: ShipMode, source?: AppSource, appId = "<app id>"): { label: string; line: string } {
+  const branch = `studio/${appId}`;
   switch (mode) {
     case "safe":
       return { label: "Safe", line: "You apply each change. Nothing is pushed until you ask." };

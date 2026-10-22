@@ -432,6 +432,36 @@ export type AppPullRequest = {
 
 **Forge sync per ship mode.** `review` opens the pull request above. `cowboy` pushes `main` for a template App, or the `studio/<app id>` branch for an imported one. ADR-012's guards apply: a push credential scoped to the one repository, the exception ending when the repository is coupled to a factory, and every agent push in the audit log.
 
+### Merge gate (ADR-014)
+
+Contract: [merge-gate.md](merge-gate.md). Ship calls the gate when the author moves a pull request to `ready_for_review`, never when it is only opened. `packages/studio` redeclares these types structurally (no `@kiln/engine` import); `apps/api/src/routes/studio.ts` passes `kiln.mergeGate` as `StudioOptions.mergeGate`.
+
+```ts
+export type StudioMergeOutcome = { reviewId: string; state: "merged" | "needs_review"; reasons: string[] };
+export interface StudioMergeGate {
+  readyForReview(input: {
+    scope: { kind: "app"; appId: string; team: string };
+    repo: string; // "owner/name"
+    number: number;
+    by: string; // the person who marked it ready
+    areas?: string[]; // the parts of the app it touches, if Studio knows them
+    tests?: "passed" | "failed" | "none";
+    preview?: { url?: string; status: "ready" | "failed" | "none" };
+    link?: string; // the App in Studio, where a reviewer opens it
+    pullRequestId: string; // AppPullRequest.id
+  }): Promise<{ id: string; state: "deciding" | "merged" | "needs_review" | "closed"; reasons: string[] }>;
+  pullRequestClosed(input: { repo: string; number: number; merged: boolean; by?: string }): unknown;
+}
+// StudioOptions
+mergeGate?: StudioMergeGate; // without it, ready_for_review only adds the Inbox item as before
+```
+
+- Result `merged`: set the `AppPullRequest` to `merged`. Result `needs_review`: keep `ready_for_review` and show `reasons` to the author ("Waiting for review").
+- Event `"merge_gate.review_updated"` (`{ reviewId; appId?; pullRequestId?; repo; number; state; priority }`): when a person merges later, `state` is `merged`; set the `AppPullRequest` to `merged`.
+- Cancelling a pull request that is `ready_for_review`: call `pullRequestClosed({ repo, number, merged: false })` so the Inbox item clears.
+- The Inbox item for an App is kind `studio_pr_review` and goes to the team's owners and admins; ship doesn't add one itself.
+- The gate is off per App until a team owner or admin turns it on (`PUT /api/v1/merge-gate/apps/{appId}` `{ enabled }`). Studio never turns it on.
+
 **Coupling to a factory** (optional per App) and **Kiln Project environments** inherited by previews.
 
 ## Acceptance

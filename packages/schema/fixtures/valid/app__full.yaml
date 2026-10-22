@@ -1,0 +1,7 @@
+schemaVersion: kiln/v1
+name: Pricing site
+description: Marketing site
+skills:
+  mandatory: [house-style]
+budgets:
+  monthlyUsd: 200

@@ -1,0 +1,5 @@
+description: Customers ship through review
+shipMode:
+  max: review
+  roles: { customer: safe }
+mergeGate: true

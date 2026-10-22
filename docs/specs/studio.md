@@ -41,11 +41,17 @@ interface Sandbox {
   /** Where the API can reach a server listening on `port` inside the sandbox. */
   expose?(port: number): Promise<SandboxAddress>;
 }
+type SandboxSpec = {
+  // …
+  /** A Studio sandbox: the API's preview proxy reaches its dev servers. Studio sets this on every sandbox it creates or resumes. */
+  preview?: boolean;
+};
+new DockerSandboxProvider(runner, { previewNetwork: "kiln-preview" /* KILN_PREVIEW_NETWORK */ });
 ```
 
 - Local: `127.0.0.1:<port>`.
-- Docker: the container IP from `docker inspect`. It throws `SandboxNotReachable` when the container has no network (`--network none`, which means a runner with no egress). The API must share the sandbox network; in compose that's `kiln-egress`.
-- Kubernetes: the pod IP. The Helm chart's `kiln-preview-ingress` NetworkPolicy admits the API to ports 4100–4199 of sandbox pods labeled `kiln.dev/preview: "true"`, so Studio creates its sandboxes with that label.
+- Docker: the container IP from `docker inspect`. It throws `SandboxNotReachable` when the container has no network (`--network none`, which means a runner with no egress). A sandbox with `preview: true` also joins the provider's `previewNetwork` (internal; only the API and Studio sandboxes are on it), and `expose` returns its address there. The API is on the preview network, never on `kiln-egress`, and drops every connection and egress-log datagram from the preview subnet (`KILN_PREVIEW_SUBNET`), so sandboxes can't call it.
+- Kubernetes: the pod IP. A sandbox with `preview: true` gets the label `kiln.dev/preview: "true"`, and the Helm chart's `kiln-preview-ingress` NetworkPolicy admits the API to ports 4100–4199 of those pods.
 - A port outside 1–65535 throws `RangeError`.
 
 ## Types (`packages/studio/src/types.ts`)

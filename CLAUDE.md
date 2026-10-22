@@ -22,7 +22,8 @@ Ideas not yet scheduled: docs/ideas/.
 - Every external system goes through an interface in packages/ with a Fake.
 - Definitions live in Git (or the store by content hash); runtime state lives in the Store. Never treat both as truth.
 - No agent identity may hold merge or approve permission. Never add one. The only exception is
-  a Studio project in cowboy ship mode, on its own Studio repository and only until it graduates (ADR-012).
+  a Studio App started from a template, in cowboy ship mode, pushing to the repository Kiln created
+  for it, until it is coupled to a factory (ADR-012). Never to an imported repository's default branch.
 - Workflow steps persist the work item before and after they run; time comes from the injected Clock.
 
 ## Protected paths (ask before editing)

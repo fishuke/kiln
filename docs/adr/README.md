@@ -11,5 +11,5 @@
 - [0009](./0009-claude-agent-sdk.md) Claude Code through the Claude Agent SDK
 - [0010](./0010-triage-picks-the-repository.md) Triage picks the repository in a multi-repository factory
 - [0011](./0011-agent-foreman.md) The agent foreman: turns that answer with actions, woken by events
-- [0012](./0012-studio.md) Studio: vibe coding with live previews and ship modes, graduating into a factory (proposed)
+- [0012](./0012-studio.md) Studio: Apps with live previews, versions and ship modes, optionally coupled to a factory (proposed)
 - [0013](./0013-voice.md) One voice session whose scope widens on demand (proposed)

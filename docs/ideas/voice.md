@@ -4,7 +4,7 @@ Status: idea, not scheduled · Raised 2026-10-22 · Decision record: [ADR-013](.
 
 ## The idea
 
-You can talk to Studio at whatever depth you want, and there is no mode to switch into. Start by talking to the chat you're in. When you ask for more, the same voice reaches further: another chat, another project, and later your factories.
+You can talk to Studio at whatever depth you want, and there is no mode to switch into. Start by talking to the chat you're in. When you ask for more, the same voice reaches further: another chat, another App, and later your factories.
 
 ## Three levels, one session
 
@@ -12,14 +12,14 @@ You can talk to Studio at whatever depth you want, and there is no mode to switc
 | ----------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | Dictation         | Tap the mic in the composer | Speech becomes text in the box                                                                             |
 | Talk to this chat | The talk button in a chat   | A spoken conversation with that chat: your words go to its agent, and you hear its summaries and questions |
-| Wider scope       | Nothing; just ask           | The same session reaches other chats and projects, and says so ("opening Daily Done")                      |
+| Wider scope       | Nothing; just ask           | The same session reaches other chats and Apps, and says so ("opening Daily Done")                      |
 
-The hands-free screen (a big preview, the transcript, the needs-you list) is a view, not a mode. It opens when you ask for it, or when the voice starts moving you between projects.
+The hands-free screen (a big preview, the transcript, the needs-you list) is a view, not a mode. It opens when you ask for it, or when the voice starts moving you between Apps.
 
 ## What it feels like
 
 > You're talking to the logo chat: "Make it a bit bigger." — it goes to that chat.
-> "How's it going with Daily Done?" — it summarizes and opens the project with its preview.
+> "How's it going with Daily Done?" — it summarizes and opens the App with its preview.
 > "Spawn another chat and add due dates there." — a new chat starts and your screen follows; the first chat keeps working.
 > _(later, at a pause)_ "By the way, the checkout chat has a question." — "Who needs me?" — it reads the question and switches there.
 
@@ -28,7 +28,7 @@ The hands-free screen (a big preview, the transcript, the needs-you list) is a v
 - **A conductor, not a coder.** The voice model never edits code. It calls the same Studio tools as the web UI and Claude Code.
 - **Relay, don't paraphrase.** Your words reach the coding agent as you said them, plus routing context.
 - **When to speak.** "Needs you" at the next pause, never over you. "Finished" is a badge, spoken only when you're idle or it's the chat you're in. Progress stays silent. Quiet mode turns everything into badges.
-- **It confirms out loud** before Apply, Restore or Graduate.
+- **It confirms out loud** before Apply, Restore or Ship.
 - **Sessions resume.** The conversation and the focus are stored on the server.
 - **Uploads** need the screen: it shows a drop zone.
 - **Factories are read-only by voice** until a separate decision allows more.

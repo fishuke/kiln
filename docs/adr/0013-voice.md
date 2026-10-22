@@ -4,7 +4,7 @@ Status: Proposed · Date: 2026-10-22
 
 ## Context
 
-People want to talk to Studio (ADR-012): sometimes just to dictate a message, sometimes to have a spoken conversation with the chat they're in, and sometimes to work without touching anything, moving between projects and chats while agents work. A separate "hands-free mode" you must switch into puts a wall between talking to one chat and working across everything, and people won't find the bigger abilities. Coding turns take minutes, so a voice model has to be told when things happen rather than poll, and it must not talk over the person.
+People want to talk to Studio (ADR-012): sometimes just to dictate a message, sometimes to have a spoken conversation with the chat they're in, and sometimes to work without touching anything, moving between Apps and chats while agents work. A separate "hands-free mode" you must switch into puts a wall between talking to one chat and working across everything, and people won't find the bigger abilities. Coding turns take minutes, so a voice model has to be told when things happen rather than poll, and it must not talk over the person.
 
 ## Decision
 
@@ -12,15 +12,15 @@ People want to talk to Studio (ADR-012): sometimes just to dictate a message, so
 
 - **Dictation.** The mic in a chat composer turns speech into text in the box. It uses speech-to-text only, no realtime model, and belongs to Studio.
 - **Talk to this chat.** The talk button starts a realtime voice session focused on the current chat. The person's words go to that chat's agent; the session reads back turn summaries and the agent's questions.
-- **Wider scope on demand.** There is no hands-free mode to switch into. When the person asks about another chat or project ("how's Daily Done?", "start another chat for this"), the same session reaches there and says briefly that it did ("opening Daily Done"). Later, the same session can read factory status and the Inbox.
+- **Wider scope on demand.** There is no hands-free mode to switch into. When the person asks about another chat or App ("how's Daily Done?", "start another chat for this"), the same session reaches there and says briefly that it did ("opening Daily Done"). Later, the same session can read factory status and the Inbox.
 
-**The hands-free screen is a view, not a mode.** A layout with a big preview of the focus, the transcript and the needs-you list. It opens when the person asks for it or when the session starts moving between projects; the person can also stay on the normal Studio screen.
+**The hands-free screen is a view, not a mode.** A layout with a big preview of the focus, the transcript and the needs-you list. It opens when the person asks for it or when the session starts moving between Apps; the person can also stay on the normal Studio screen.
 
 **A conductor, not a coder.** The voice model never edits code. It calls the Studio tools from ADR-012 (server tools such as `send`, `new_chat`, `apply`; client tools `focus` and `show` that move the screen), like every other client.
 
 - **Relay, don't paraphrase.** The person's words reach the chat as they said them, with routing context only (which chat, which element they pointed at).
 - **Interruptions follow event priority.** _Needs you_ is spoken at the next pause, never over the person. _Finished_ is a badge, spoken only when the person is idle or the event is in the focused chat. _Progress_ is never spoken. Quiet mode turns everything into badges.
-- **Spoken confirmation** before Apply, Restore or Graduate.
+- **Spoken confirmation** before Apply, Restore or Ship.
 - **Reading, not diffs.** The session reads each turn's title and short summary, which Studio writes anyway, and can `look` at a preview screenshot.
 
 **Provider and plumbing.** A `VoiceProvider` interface in `packages/voice`, with a fake; OpenAI Realtime is the first adapter. The browser connects over WebRTC with a short-lived token the API mints from the team's key (ADR-007). The session's conversation and focus are runtime state in the Store, so a dropped connection or an expired session resumes where it was.

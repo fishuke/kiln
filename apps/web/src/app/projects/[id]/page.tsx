@@ -6,11 +6,18 @@ import { Page, PageHeader, Section, StateBadge } from "@/components/kiln/ui";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, safe } from "@/lib/kiln";
+import { ProjectEnvironments } from "./environments";
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const p = await safe(() => api.project(id), null);
   if (!p) notFound();
+  const [layers, team, me] = await Promise.all([
+    safe(() => api.variables("project", p.id), []),
+    p.team ? safe(() => api.variables("team", p.team!), []) : Promise.resolve([]),
+    safe(() => api.me(), null),
+  ]);
+  const canEdit = me?.role === "owner" || me?.role === "admin" || me?.subject === p.owner;
   return (
     <>
       <PageHeader crumbs={[{ label: "Projects", href: "/projects" }, { label: p.name }]} />
@@ -26,6 +33,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             <textarea name="prd" rows={8} placeholder={"## Returns\n### Start a return from the order page\n  - AC: a Return button appears on delivered orders [shop]"} className="w-full rounded-md border bg-background p-3 font-mono text-xs" />
             <SubmitButton>Create roadmap and issues</SubmitButton>
           </form>
+        </Section>
+        <Section title="Environments" description="Variables and secrets for this project's factories and Studio apps. They override the team's variables; a factory or app can override them.">
+          <ProjectEnvironments projectId={p.id} layers={layers} team={team} canEdit={canEdit} />
         </Section>
         {p.roadmap && (
           <Section title={`Roadmap: ${p.roadmap.goal}`}>

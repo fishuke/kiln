@@ -3,6 +3,7 @@
 import { FileIcon, ImageIcon, Loader2, VideoIcon, X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentMedia, AttachmentTitle } from "@/components/ui/attachment";
 import { cn } from "@/lib/utils";
 
 export type UploadedAttachment = { key: string; name: string; contentType: string; size: number };
@@ -77,12 +78,18 @@ export function AttachmentChips({ items, onRemove, className }: { items: Pending
       {items.map((a) => {
         const Icon = kindIcon(a.contentType);
         return (
-          <li key={a.id} className="flex h-7 max-w-60 items-center gap-1.5 rounded-md border bg-muted/50 pr-1 pl-2 text-xs">
-            {a.status === "uploading" ? <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" /> : <Icon className="size-3.5 shrink-0 text-muted-foreground" />}
-            <span className="truncate">{a.name}</span>
-            <button type="button" aria-label={`Remove ${a.name}`} onClick={() => onRemove(a.id)} className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground">
-              <X className="size-3" />
-            </button>
+          <li key={a.id} className="max-w-60">
+            <Attachment size="xs" state={a.status === "uploading" ? "uploading" : "done"} className="min-w-0">
+              <AttachmentMedia>{a.status === "uploading" ? <Loader2 className="animate-spin" /> : <Icon />}</AttachmentMedia>
+              <AttachmentContent>
+                <AttachmentTitle className="font-normal">{a.name}</AttachmentTitle>
+              </AttachmentContent>
+              <AttachmentActions>
+                <AttachmentAction aria-label={`Remove ${a.name}`} onClick={() => onRemove(a.id)}>
+                  <X />
+                </AttachmentAction>
+              </AttachmentActions>
+            </Attachment>
           </li>
         );
       })}

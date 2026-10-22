@@ -18,7 +18,7 @@ This spec is the contract that parallel work builds against. Change it here firs
 
 ## Boundaries
 
-- `packages/studio` depends on `@kiln/sandbox`, `@kiln/harness`, `@kiln/store`, `@kiln/events` and `@kiln/schema`, never on `@kiln/engine` or `apps/*`. `Clock` is redeclared structurally (`{ now(): Date }`).
+- `packages/studio` depends on `@kiln/sandbox`, `@kiln/harness`, `@kiln/store`, `@kiln/events`, `@kiln/schema` and (for shipping) the forge interface in `@kiln/integrations`, never on `@kiln/engine` or `apps/*`. `Clock` is redeclared structurally (`{ now(): Date }`).
 - No change to `apps/api/src/app.ts`. The routes register through `routes/index.ts` (the `MODULES`, `PLATFORM` and `PUBLIC_MODULES` lists), which app.ts already calls. The Studio service is built from `ctx.kiln` (store, objects, bus, clock, sandboxes, `options.harness`) in a per-`Kiln` `WeakMap` in `routes/studio.ts`. If we later want it on `RouteContext` instead, the diff is:
 
 ```diff
@@ -431,7 +431,7 @@ An App pushes its main line (`setup.mainBranch` in the sandbox) to exactly one o
 
 The initial version pushes nothing. A template App's repository is created on its first push: `ShipperOptions.newRepo(app)` names the owner, the name is the App's name as a slug plus six characters of its id, private, empty. Without `newRepo` a template App can't be pushed (`StudioError("unavailable")`).
 
-**Credentials.** Each push asks the forge for a fresh credential scoped to that one repository (`Forge.sandboxToken(repo)`; GitHub: an installation token for that repository with `contents: write`), runs `git push "$KILN_PUSH_URL" <main>:refs/heads/<branch>` as a trusted command with the URL only in that command's environment, never adds a remote and never forces. Errors are returned with the token removed. **Audit.** Every push is in the audit log (`studio.push`: actor, repository, branch, sha, ship mode); a refused push is logged as `studio.push_refused`; repository creation as `studio.repo_created`; every pull request state change and ship-mode change too. The actor is the person who asked, or `agent:studio` for pushes after a turn.
+**Credentials.** Each push asks the forge for a fresh credential scoped to that one repository (`Forge.sandboxToken(repo)`; GitHub: an installation token for that repository with `contents: write`), runs `git push "$KILN_PUSH_URL" <main>:refs/heads/<branch>` as a trusted command with the URL only in that command's environment, never adds a remote and never forces. Errors are returned with the token removed. **Audit.** Every push is in the audit log (`studio.push`: actor, repository, branch, sha, ship mode); a refused push is logged as `studio.push_refused`, a push after a turn that failed as `studio.push_failed` (with the error); repository creation as `studio.repo_created`; every pull request state change and ship-mode change too. The actor is the person who asked, or `agent:studio` for pushes after a turn.
 
 ### Ship-mode caps
 
@@ -506,9 +506,32 @@ No `state` (or `uat`) pushes and opens or updates the pull request; returns the 
 // priority: waiting_for_review → "needs_you"; ready_for_review → "progress"; uat, merged, cancelled → "finished"
 ```
 
-### Hook in the Studio service
+### Service (`packages/studio/src/ship/shipper.ts`)
 
-`Studio.withWorkspace(appId, fn: (sandbox, app) => Promise<T>)` runs `fn` with the App's sandbox under the App's Git lock. The `Shipper` pushes from there and follows `studio.version_created` on the bus.
+```ts
+export type ShipperOptions = {
+  studio: Studio;
+  store: Store;
+  bus: EventBus;
+  clock: Clock;
+  forge: (app: App) => Forge | undefined; // the App's forge connection
+  newRepo?: (app: App) => { owner: string } | undefined; // where template Apps' repositories are created
+  linkedToFactory: (repo: string) => boolean;
+  audit: (actor: string, action: string, target: string, details?: unknown) => void; // kiln.audit
+};
+export class Shipper {
+  start(): () => void; // follow studio.version_created
+  idle(appId: string): Promise<void>; // queued pushes done
+  push(appId: string, actor: Actor): Promise<{ repo: AppRepo; branch: string; sha: string }>;
+  setShipMode(appId: string, mode: ShipMode, actor: Actor): App; // the API's PATCH shipMode goes here
+  setPolicy(appId: string, caps: ShipPolicy["caps"], actor: Actor): ShipPolicy;
+  repo(appId: string): AppRepo | undefined;
+  policy(appId: string): ShipPolicy | undefined;
+  choice(appId: string): ShipModeChoice | undefined;
+}
+```
+
+**Hook in the Studio service.** `Studio.withWorkspace(appId, fn: (sandbox, app) => Promise<T>)` runs `fn` with the App's sandbox under the App's Git lock. The `Shipper` pushes from there.
 
 ## Later (not built in phases 1–4)
 

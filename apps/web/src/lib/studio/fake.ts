@@ -102,7 +102,7 @@ export class FakeStudioClient implements StudioClient {
       team: "team",
       name: input.name,
       source,
-      shipMode: input.shipMode ?? defaultShipMode(source),
+      shipMode: defaultShipMode(source),
       harness: input.harness ?? "claude-code",
       model: input.model ?? "claude-opus-5-5",
       status: "creating",

@@ -24,7 +24,8 @@ function setup() {
 }
 
 async function readyProject(studio: FakeStudioClient, run: () => void, shipMode?: "safe" | "cowboy") {
-  const p = await studio.createApp({ name: "Shop", shipMode });
+  const p = await studio.createApp({ name: "Shop" });
+  if (shipMode) await studio.updateApp(p.id, { shipMode });
   run();
   return p.id;
 }

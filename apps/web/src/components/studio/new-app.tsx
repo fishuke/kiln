@@ -12,10 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { StudioClient } from "@/lib/studio/client";
-import { defaultShipMode } from "@/lib/studio/model";
-import type { AppSource, ForgeRepository, ShipMode } from "@/lib/studio/types";
+import type { AppSource, ForgeRepository } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
-import { ShipModePicker } from "./top-bar";
 
 type Path = "template" | "repo";
 
@@ -30,12 +28,10 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
   const [repo, setRepo] = useState<string>();
   const [branch, setBranch] = useState("");
   const [filter, setFilter] = useState("");
-  const [shipMode, setShipMode] = useState<ShipMode>();
   const [busy, setBusy] = useState(false);
 
   const source: AppSource =
     path === "repo" && repo ? { kind: "repo", repo, ...(branch.trim() ? { branch: branch.trim() } : {}) } : { kind: "template", template: "nextjs" };
-  const mode = shipMode ?? defaultShipMode(path === "repo" ? { kind: "repo", repo: repo ?? "" } : undefined);
   const appName = name.trim() || (path === "repo" && repo ? repo.split("/")[1]! : "");
 
   useEffect(() => {
@@ -50,7 +46,7 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
     if (!appName || (path === "repo" && !repo)) return;
     setBusy(true);
     try {
-      const app = await client.createApp({ name: appName, source, shipMode: mode });
+      const app = await client.createApp({ name: appName, source });
       if (path === "template" && prompt.trim()) await client.newChat(app.id, { prompt: prompt.trim() });
       setOpen(false);
       router.push(`/studio/${app.id}`);
@@ -85,7 +81,6 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
             value={path}
             onValueChange={(v) => {
               setPath(v as Path);
-              setShipMode(undefined);
             }}
           >
             <TabsList className="w-full">
@@ -160,10 +155,6 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
               onChange={(e) => setName(e.target.value)}
               placeholder={path === "repo" && repo ? repo.split("/")[1] : "Habit tracker"}
             />
-          </div>
-          <div className="grid gap-1.5">
-            <span className="text-sm font-medium">Ship mode</span>
-            <ShipModePicker value={mode} onChange={setShipMode} source={source} />
           </div>
         </form>
         <DialogFooter>

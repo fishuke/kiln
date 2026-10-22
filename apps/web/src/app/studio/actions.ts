@@ -40,7 +40,6 @@ const Id = z.string().regex(/^s[acvt]_[A-Za-z0-9_-]+$/);
 const CreateInput = z.object({
   name: z.string().trim().min(1).max(80),
   source: AppSource.optional(),
-  shipMode: ShipMode.optional(),
   harness: z.string().optional(),
   model: z.string().optional(),
 });

@@ -30,12 +30,14 @@ import {
   reviewFor,
 } from "@/lib/studio/model";
 import type { Chat, ChatMode, MergeReview, Version } from "@/lib/studio/types";
+import { useVoice } from "@/lib/studio/voice";
 import { cn } from "@/lib/utils";
 import { Composer, MODE_ICON } from "./composer";
 import { Confirm } from "./confirm";
 import { HistoryPanel } from "./history-panel";
 import { EmptyPreview, PreviewingBanner, PreviewPane, type PreviewView } from "./preview-pane";
 import { FailedApp, FailedAppActions } from "./failed-app";
+import { HandsFree } from "./hands-free";
 import { SetupPanel } from "./setup-panel";
 import { AppSettingsLink, AppSwitcher, NeedsYouMenu } from "./top-bar";
 import { TasksPanel } from "./child-chats";
@@ -181,6 +183,20 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
       window.history.replaceState(null, "", `?${q.toString()}`);
     },
     [params],
+  );
+
+  // Talk (ADR-013): the voice moves the screen with focus and show; moving by hand tells the session.
+  const voice = useVoice(
+    { app: appId, chat: chatId },
+    {
+      onChat: selectChat,
+      onView: (v) => {
+        if (v === "history") return setPanel("history");
+        setPreviewVersion(undefined);
+        setView(v);
+        setPane("preview");
+      },
+    },
   );
 
   const target: PreviewTarget | undefined = previewVersion
@@ -449,12 +465,59 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
               onSubmit={(text) => send(text)}
               textareaRef={composerRef}
               autoFocus
+              voice={client.kind === "api" ? voice : undefined}
             />
           </div>
         </>
       )}
     </div>
   );
+
+  const previewPane = (
+    <PreviewPane
+      preview={preview}
+      error={previewError}
+      reload={finished}
+      routes={routes}
+      view={view}
+      onViewChange={setView}
+      loadDiff={loadDiff}
+      diffKey={previewVersion ?? chatId ?? ""}
+      banner={
+        previewing ? (
+          <PreviewingBanner
+            version={previewing}
+            number={versionNumber(versions, previewing.id)}
+            onRestore={() => restore(previewing)}
+            onBack={() => setPreviewVersion(undefined)}
+          />
+        ) : undefined
+      }
+    >
+      {!app ? (
+        <EmptyPreview starting />
+      ) : importing ? (
+        <SetupPanel
+          app={app}
+          steps={steps}
+          onDevCommand={async (devCommand) => {
+            await client.updateApp(app.id, { devCommand });
+            await refresh();
+          }}
+          failedActions={app.status === "failed" ? <FailedAppActions app={app} onRetry={retryApp} onDelete={deleteApp} /> : undefined}
+        />
+      ) : app.status === "failed" ? (
+        <FailedApp app={app} onRetry={retryApp} onDelete={deleteApp} />
+      ) : app.status === "creating" ? (
+        <EmptyPreview starting />
+      ) : !target ? (
+        <EmptyPreview />
+      ) : undefined}
+    </PreviewPane>
+  );
+
+  if (voice.state.handsFree && voice.state.phase !== "idle" && voice.state.phase !== "error")
+    return <HandsFree voice={voice} preview={previewPane} status={status} />;
 
   const ModeIcon = MODE_ICON[mode];
   return (
@@ -543,46 +606,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
       <div className="flex min-h-0 flex-1">
         <aside className={cn("min-h-0 w-full shrink-0 border-r lg:block lg:w-[400px] xl:w-[440px]", pane === "chat" ? "block" : "hidden")}>{rail}</aside>
         <section aria-label="Preview" className={cn("min-h-0 min-w-0 flex-1 lg:block", pane === "preview" ? "block" : "hidden")}>
-          <PreviewPane
-            preview={preview}
-            error={previewError}
-            reload={finished}
-            routes={routes}
-            view={view}
-            onViewChange={setView}
-            loadDiff={loadDiff}
-            diffKey={previewVersion ?? chatId ?? ""}
-            banner={
-              previewing ? (
-                <PreviewingBanner
-                  version={previewing}
-                  number={versionNumber(versions, previewing.id)}
-                  onRestore={() => restore(previewing)}
-                  onBack={() => setPreviewVersion(undefined)}
-                />
-              ) : undefined
-            }
-          >
-            {!app ? (
-              <EmptyPreview starting />
-            ) : importing ? (
-              <SetupPanel
-                app={app}
-                steps={steps}
-                onDevCommand={async (devCommand) => {
-                  await client.updateApp(app.id, { devCommand });
-                  await refresh();
-                }}
-                failedActions={app.status === "failed" ? <FailedAppActions app={app} onRetry={retryApp} onDelete={deleteApp} /> : undefined}
-              />
-            ) : app.status === "failed" ? (
-              <FailedApp app={app} onRetry={retryApp} onDelete={deleteApp} />
-            ) : app.status === "creating" ? (
-              <EmptyPreview starting />
-            ) : !target ? (
-              <EmptyPreview />
-            ) : undefined}
-          </PreviewPane>
+          {previewPane}
         </section>
       </div>
     </div>

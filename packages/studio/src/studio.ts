@@ -6,7 +6,7 @@ import type { HarnessType } from "@kiln/schema";
 import type { ObjectStore, Store } from "@kiln/store";
 import { z } from "zod";
 import { DEFAULT_AGENT, targetOf, type AppDefinitions } from "./app-definitions";
-import { detectSetup, devCommand, ENV_EXAMPLES, envKeys, listenPort, plainLine } from "./setup";
+import { detectSetup, devCommand, devScript, ENV_EXAMPLES, envKeys, listenPort, plainLine } from "./setup";
 import { DEFAULT_READY, TEMPLATES, type Template } from "./templates";
 import { NOOP_TRACER, type StudioSpanAttributes, type StudioTracer } from "./tracer";
 import {
@@ -1112,6 +1112,19 @@ export class Studio {
     return this.preview({ versionId });
   }
 
+  /**
+   * Apps imported before a fixed port (`next dev -p 4000`) was rewritten to `{port}` kept the script itself, so
+   * every preview listened on that one port. Detect the dev command again for them; one the person set stays theirs.
+   */
+  private async portableDev(p: App, live: Live): Promise<string | undefined> {
+    const setup = p.setup;
+    if (p.source.kind !== "repo" || !setup || setup.devOverride || setup.devDetected?.includes("{port}")) return undefined;
+    const detected = devScript(setup.packageManager, await live.sandbox.readFile("app/package.json"));
+    if (!detected?.includes("{port}")) return undefined;
+    this.touch(C.apps, { ...this.app(p.id), setup: { ...setup, devDetected: detected, dev: detected } });
+    return detected;
+  }
+
   /** Where the preview proxy sends a target's requests; undefined when it isn't being served. */
   async resolvePreview(target: string): Promise<SandboxAddress | undefined> {
     for (const live of this.live.values()) {
@@ -1124,7 +1137,7 @@ export class Studio {
 
   private async serve(p: App, live: Live, key: string, cwd: string, port: number, target = key): Promise<Preview> {
     if (!live.sandbox.expose) throw new StudioError("unavailable", `the ${live.sandbox.provider} sandbox backend can't serve previews`);
-    const dev = p.setup?.dev;
+    const dev = (await this.portableDev(p, live)) ?? p.setup?.dev;
     if (!dev) throw new StudioError("invalid", "no dev command: set one in the app settings");
     const attrs = { "kiln.studio.app.id": p.id, "kiln.studio.preview.target": target, "kiln.studio.preview.port": port };
     let running = live.devs.get(key);

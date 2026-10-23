@@ -56,6 +56,7 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 - [Writing acceptance criteria](product-owners/acceptance-criteria.md): Write acceptance criteria the factory can test and prove with a video, and understand how Kiln checks them before and after the build.
 - [Approving specs and previews](product-owners/approving-specs-and-previews.md): Review a factory's spec and preview, approve or reject them from Slack, the issue, the inbox or MCP, and know what happens next.
 - [Planning with the plan agent](product-owners/planning.md): Turn a goal, a PRD or meeting notes into a roadmap of epics and tracker issues with acceptance criteria, each tagged with the factory that should build it.
+- [Talking to Studio](product-owners/talking-to-studio.md): Press Talk in a Studio chat to have a spoken conversation with its agent through OpenAI's GPT-Live, reach other chats and Apps by asking, and work hands-free.
 - [Working as a product owner](product-owners/workspace.md): How a product owner works with a Kiln factory, from sending an idea to approving the spec, accepting the preview and planning a roadmap.
 
 ## Measure and improve

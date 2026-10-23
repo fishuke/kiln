@@ -1,6 +1,6 @@
 # Idea: talk to Studio
 
-Status: idea, not scheduled · Raised 2026-10-22 · Decision record: [ADR-013](../adr/0013-voice.md) (proposed) · Builds on [Studio](studio.md)
+Status: phases 2 and 3 being built in #107 · Raised 2026-10-22 · Decision record: [ADR-013](../adr/0013-voice.md) (accepted) · Builds on [Studio](studio.md)
 
 ## The idea
 

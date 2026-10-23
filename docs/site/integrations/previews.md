@@ -97,3 +97,4 @@ The card's criteria table comes from the verify stage. The verify agent runs Pla
 - [GitHub](github.md)
 - [Self-hosting](../infrastructure/self-hosting.md)
 - [Sandboxes](../infrastructure/sandboxes.md)
+- [Talking to Studio](../product-owners/talking-to-studio.md)

@@ -1,6 +1,6 @@
 # Studio sandbox (ADR-012): the runner image with the Next.js template at /opt/kiln/templates/nextjs,
 # its node_modules installed and the pnpm store warm. Build it with
-#   docker build -t kiln-runner-studio:local -f runners/images/studio/Dockerfile templates/nextjs
+#   docker build --target studio --build-context template=templates/nextjs -t kiln-runner-studio:local runners/images/node
 description: Studio sandbox with the Next.js template and a warm pnpm store
 image: kiln-runner-studio:local
 backend: docker

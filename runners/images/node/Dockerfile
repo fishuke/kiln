@@ -1,7 +1,7 @@
 # Sandbox base image: Node 22, pnpm, git, Playwright browsers, the three harness CLIs and the
 # browser MCP server for computer use (with the Chromium build it expects), and the SigNoz MCP server.
 # Pin CLI versions here so adapter contract tests and real runs agree.
-FROM mcr.microsoft.com/playwright:v1.56.0-noble
+FROM mcr.microsoft.com/playwright:v1.56.0-noble AS runner
 ARG CLAUDE_CODE_VERSION=2.1.290
 ARG CODEX_VERSION=0.163.0
 ARG OPENCODE_VERSION=0.15.0
@@ -38,3 +38,26 @@ RUN npm install -g corepack@${COREPACK_VERSION} && corepack enable \
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 USER 1000
 WORKDIR /workspace
+
+# Studio's sandbox image (target "studio"): the runner plus Studio's Next.js template at
+# /opt/kiln/templates/nextjs with node_modules installed and a warm pnpm store, so a new Studio App is
+# a copy and a chat worktree's `pnpm install --prefer-offline` needs no network. The template comes in
+# as the named context "template" (templates/nextjs), so this stage needs no runner image from a registry:
+#   docker build --target studio --build-context template=templates/nextjs -t kiln-runner-studio:local runners/images/node
+FROM runner AS studio
+# The store and corepack's pnpm live outside $HOME, so a sandbox that runs with another HOME
+# (Kubernetes, a different user) still finds them.
+ENV npm_config_store_dir=/opt/kiln/pnpm-store \
+  COREPACK_HOME=/opt/kiln/corepack \
+  NEXT_TELEMETRY_DISABLED=1
+USER root
+RUN mkdir -p /opt/kiln/templates/nextjs /opt/kiln/pnpm-store /opt/kiln/corepack && chown -R 1000:1000 /opt/kiln
+USER 1000
+WORKDIR /opt/kiln/templates/nextjs
+COPY --from=template --chown=1000:1000 . .
+# Install from the lockfile, then type-check so a broken template fails the build, not an App.
+RUN pnpm install --frozen-lockfile && pnpm typecheck && rm -f tsconfig.tsbuildinfo
+WORKDIR /workspace
+
+# The default target stays the runner image.
+FROM runner

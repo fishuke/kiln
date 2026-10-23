@@ -9,7 +9,7 @@ import { z } from "zod";
 
 const run = promisify(execFile);
 
-/** Where the Studio runner image keeps the Next.js template (runners/images/studio/Dockerfile). */
+/** Where the Studio runner image keeps the Next.js template (the "studio" stage of runners/images/node/Dockerfile). */
 export const TEMPLATES_DIR = "/opt/kiln/templates";
 export const TEMPLATE_DIR = `${TEMPLATES_DIR}/nextjs`;
 

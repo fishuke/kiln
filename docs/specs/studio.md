@@ -198,7 +198,7 @@ export const TEMPLATES: Record<string, Template>;
 - Studio starts the dev server with `KILN_STUDIO_PREVIEW_DOMAIN` in its environment when the server has one; the template's `next.config.ts` turns it into `allowedDevOrigins: ["*.<domain>"]` (port stripped), so hot reload works through the proxy. Dev ports stay within 4100–4199.
 - `egress`: `registry.npmjs.org`
 
-The template owner provides `/opt/kiln/templates/nextjs`, a ready app with `node_modules` and a pnpm store warmed in the runner image (`runners/images/studio`, tagged `kiln-runner-studio:local`), so the first preview takes about 10 seconds. The template data is in `templates/templates.json`; `TEMPLATES` must match it. `StudioOptions.image` comes from `KILN_STUDIO_IMAGE`, else `KILN_RUNNER_IMAGE`, else the engine's `DEFAULT_RUNNER_IMAGE` (`node:22-bookworm`), the same fallback agent runs use.
+The template owner provides `/opt/kiln/templates/nextjs`, a ready app with `node_modules` and a pnpm store warmed in the runner image (the `studio` stage of `runners/images/node/Dockerfile`, tagged `kiln-runner-studio:local`), so the first preview takes about 10 seconds. The template data is in `templates/templates.json`; `TEMPLATES` must match it. `StudioOptions.image` comes from `KILN_STUDIO_IMAGE`, else `KILN_RUNNER_IMAGE`, else the engine's `DEFAULT_RUNNER_IMAGE` (`node:22-bookworm`), the same fallback agent runs use.
 
 ## App source and import
 

@@ -8,6 +8,7 @@ import { openApiDocument } from "./openapi";
 import { agentMayCall, inOwnTree, isPublicPath, runTokenAuth, type RunPrincipal } from "./run-auth";
 import { registerModules, registerPublicRoutes } from "./routes";
 import * as S from "./schemas";
+import { reportError, traceErrorResponses } from "./trace-context";
 
 export type Env = { Variables: { token: ApiToken; access: Access; run?: RunPrincipal } };
 
@@ -62,13 +63,15 @@ export type RouteContext = {
 
 export function createApp(kiln: Kiln, options: AppOptions = {}) {
   const app = new Hono<Env>();
+  // Every error response carries traceId (JSON body) and x-trace-id. Registered first, so it also wraps auth failures.
+  app.use("/api/*", traceErrorResponses);
   // Factories created before teams existed move into the default team.
   kiln.teams.ensureDefaultTeam();
   const devToken: ApiToken | undefined = options.devAuth
     ? { id: "tok_dev", name: "dev", subject: "dev@kiln.local", hash: "", grants: [{ scope: "admin", factory: "*" }], createdAt: new Date(0).toISOString(), type: "session", userId: kiln.users.ensureDevUser().id }
     : undefined;
 
-  app.onError((err, c) => {
+  const errorResponse = (err: Error, c: Context<Env>): Response => {
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status);
     if (err instanceof KilnError) {
       const s = err.spec;
@@ -81,6 +84,12 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const message = err instanceof Error ? err.message : String(err);
     if (/^unknown |not found|has no /.test(message)) return c.json({ error: message }, 404);
     return c.json({ error: message }, 500);
+  };
+  app.onError((err, c) => {
+    const res = errorResponse(err, c);
+    // On the request span; a 5xx also sets error status and is logged at ERROR in the request's trace.
+    reportError(err, res.status);
+    return res;
   });
 
   app.get("/api/v1/health", (c) => c.json({ ok: true, factories: kiln.defs.list().length, time: kiln.clock.now().toISOString() }));

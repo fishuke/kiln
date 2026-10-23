@@ -5,6 +5,8 @@ import { InMemoryLogRecordExporter, LoggerProvider, SimpleLogRecordProcessor } f
 import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { StudioError } from "@kiln/studio";
 import { Hono } from "hono";
+import { createTestKiln } from "@kiln/engine";
+import { createApp } from "./app";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bridgeConsole } from "./console-logs";
 import { activeTraceId, otelStudioTracer, reportError, traceErrorResponses } from "./trace-context";
@@ -44,6 +46,21 @@ function app() {
   a.get("/api/ok", (c) => c.json({ ok: true }));
   return a;
 }
+
+describe("every API route's errors carry the trace id", () => {
+  it("adds traceId to an auth failure from the real app and records it on the request span", async () => {
+    const kilnApp = createApp(createTestKiln({ preview: false }).kiln);
+    const res = await tracer().startActiveSpan("GET", async (span) => {
+      const r = await kilnApp.request("/api/v1/work-items");
+      span.end();
+      return r;
+    });
+    const traceId = spans.getFinishedSpans()[0]!.spanContext().traceId;
+    expect(res.status).toBe(401);
+    expect(res.headers.get("x-trace-id")).toBe(traceId);
+    expect(((await res.json()) as { traceId: string }).traceId).toBe(traceId);
+  });
+});
 
 describe("error responses carry the trace id", () => {
   it("adds traceId to a JSON error body and the x-trace-id header", async () => {

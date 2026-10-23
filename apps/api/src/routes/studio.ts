@@ -23,7 +23,7 @@ import { z } from "zod";
 import { HttpError, type Env, type RouteContext } from "../app";
 import type { Route } from "../openapi";
 import { previewConfig, previewUrlFor, setPreviewResolver } from "./studio-preview";
-import { otelStudioTracer, reportError, traceErrorResponses } from "../trace-context";
+import { otelStudioTracer, reportError } from "../trace-context";
 
 // Ship mode is not set here: ship's setShipMode changes it after the App policy's cap check.
 export const CreateApp = z
@@ -340,7 +340,6 @@ export function register(ctx: RouteContext) {
     };
   const id = (c: Context<Env>) => c.req.param("id")!;
 
-  app.use("/api/v1/studio/*", traceErrorResponses);
 
   app.get(
     "/api/v1/studio/apps",

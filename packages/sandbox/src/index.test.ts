@@ -9,6 +9,8 @@ import {
   dockerRunArgs,
   DockerSandboxProvider,
   FakeCommandRunner,
+  NodeCommandRunner,
+  SNAPSHOT_TAR,
   hashDir,
   kubernetesManifests,
   KubernetesSandboxProvider,
@@ -215,6 +217,20 @@ describe("docker sandbox", () => {
     const setup = fake.calls.find((c) => c.args.includes("corepack enable"))!;
     expect(setup.args.slice(0, 3)).toEqual(["exec", "-w", "/workspace/app"]);
     expect(fake.calls.at(-1)?.args.slice(0, 2)).toEqual(["rm", "-f"]);
+  });
+
+  it("snapshots a workspace a dev server is still writing to", async () => {
+    const fake = new FakeCommandRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    const sbx = await new DockerSandboxProvider(fake).create(spec);
+    await sbx.snapshot(new MemoryObjectStore());
+    const tar = fake.calls.find((c) => c.args.includes(SNAPSHOT_TAR))!;
+    expect(tar.args.slice(0, 4)).toEqual(["exec", tar.args[1], "sh", "-c"]);
+  });
+
+  it("treats tar's 'file changed as we read it' (exit 1) as success and anything else as failure", async () => {
+    const sh = (code: number) => new NodeCommandRunner().run("sh", ["-c", SNAPSHOT_TAR.replace(/^tar .* \|\|/, `(exit ${code}) ||`)]);
+    expect((await sh(1)).code).toBe(0);
+    expect((await sh(2)).code).not.toBe(0);
   });
 });
 

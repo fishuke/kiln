@@ -1,9 +1,9 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, GitMerge, History, ListTree, LoaderCircle, MessageSquare, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import {
@@ -35,6 +35,7 @@ import { Composer, MODE_ICON } from "./composer";
 import { Confirm } from "./confirm";
 import { HistoryPanel } from "./history-panel";
 import { EmptyPreview, PreviewingBanner, PreviewPane, type PreviewView } from "./preview-pane";
+import { FailedApp, FailedAppActions } from "./failed-app";
 import { SetupPanel } from "./setup-panel";
 import { AppSettingsLink, AppSwitcher, NeedsYouMenu } from "./top-bar";
 import { TasksPanel } from "./child-chats";
@@ -60,30 +61,30 @@ function ChatTabs({ chats, active, onPick, onNew }: { chats: Chat[]; active?: st
   return (
     <div ref={list} role="tablist" aria-label="Chats" className="flex scroll-fade-x scrollbar-none items-center gap-1 overflow-x-auto px-3 py-2">
       {chats.map((c, i) => (
-          <Tooltip key={c.id}>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={c.id === active}
-                  onClick={() => onPick(c.id)}
-                  className={cn(
-                    "flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-full border border-transparent px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                    c.id === active && "border-border bg-background font-medium text-foreground shadow-xs",
-                  )}
-                />
-              }
-            >
-              <span className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[c.status])} />
-              <span className="truncate">{c.title}</span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {c.status === "needs_you" ? "Needs you" : c.status === "working" ? "Working" : c.status === "conflict" ? "Conflict" : c.title}
-              {i < 9 && <Kbd>⌥{i + 1}</Kbd>}
-            </TooltipContent>
-          </Tooltip>
-        ))}
+        <Tooltip key={c.id}>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                role="tab"
+                aria-selected={c.id === active}
+                onClick={() => onPick(c.id)}
+                className={cn(
+                  "flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-full border border-transparent px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                  c.id === active && "border-border bg-background font-medium text-foreground shadow-xs",
+                )}
+              />
+            }
+          >
+            <span className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[c.status])} />
+            <span className="truncate">{c.title}</span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {c.status === "needs_you" ? "Needs you" : c.status === "working" ? "Working" : c.status === "conflict" ? "Conflict" : c.title}
+            {i < 9 && <Kbd>⌥{i + 1}</Kbd>}
+          </TooltipContent>
+        </Tooltip>
+      ))}
       <Tooltip>
         <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="New chat" onClick={onNew} className="shrink-0 rounded-full" />}>
           <Plus />
@@ -126,6 +127,7 @@ function EmptyChat() {
  */
 export function Workspace({ client, appId }: { client: StudioClient; appId: string }) {
   const params = useSearchParams();
+  const router = useRouter();
   const { detail, chats, status, error, finished, refresh, loadChat } = useStudioApp(client, appId);
   const [activeChat, setActiveChat] = useState<string | undefined>(params.get("chat") ?? undefined);
   const [panel, setPanel] = useState<"history" | "tasks">();
@@ -196,7 +198,11 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
   useEffect(() => {
     if (!pr || pr.state === "uat" || pr.state === "cancelled") return setReview(undefined);
     let stop = false;
-    const load = () => client.mergeReviews().then((rs) => !stop && setReview(reviewFor(rs, pr)), () => undefined);
+    const load = () =>
+      client.mergeReviews().then(
+        (rs) => !stop && setReview(reviewFor(rs, pr)),
+        () => undefined,
+      );
     void load();
     const t = pr.state === "merged" ? undefined : setInterval(load, 3000);
     return () => {
@@ -286,6 +292,15 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
     !chatList.length &&
     (app.status !== "ready" || steps.some((s) => s.status !== "done") || (app.setup?.envMissing.length ?? 0) > 0);
 
+  const retryApp = async () => {
+    await client.retryApp(appId);
+    await refresh();
+  };
+  const deleteApp = async () => {
+    await client.deleteApp(appId);
+    toast.success("App deleted");
+    router.push("/studio");
+  };
   const bookmark = async (v: Version, on: boolean) => {
     await client.bookmark(v.id, on);
     await refresh();
@@ -532,7 +547,10 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
                   await client.updateApp(app.id, { devCommand });
                   await refresh();
                 }}
+                failedActions={app.status === "failed" ? <FailedAppActions app={app} onRetry={retryApp} onDelete={deleteApp} /> : undefined}
               />
+            ) : app.status === "failed" ? (
+              <FailedApp app={app} onRetry={retryApp} onDelete={deleteApp} />
             ) : app.status === "creating" ? (
               <EmptyPreview starting />
             ) : !target ? (

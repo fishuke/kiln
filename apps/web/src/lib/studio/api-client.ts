@@ -22,6 +22,9 @@ export class ApiStudioClient implements StudioClient {
   };
   newChat: StudioClient["newChat"] = (appId, input) => unwrap(actions.studioNewChat(appId, input));
   chat = (id: string) => unwrap(actions.studioChat(id));
+  deleteChat = async (id: string) => {
+    await unwrap(actions.studioDeleteChat(id));
+  };
   send: StudioClient["send"] = (chatId, input) => unwrap(actions.studioSend(chatId, input));
   apply = (chatId: string) => unwrap(actions.studioApply(chatId));
   chatDiff = (chatId: string) => unwrap(actions.studioChatDiff(chatId));

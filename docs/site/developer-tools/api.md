@@ -456,6 +456,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | DELETE | `/api/v1/studio/apps/{id}` | `send` | Delete a failed App: its sandbox, chats, turns and versions |
 | POST | `/api/v1/studio/apps/{id}/chats` | `send` | Start a chat (its own worktree and preview), optionally with a first message |
 | GET | `/api/v1/studio/chats/{id}` | `read` | A chat with its turns (oldest first) |
+| DELETE | `/api/v1/studio/chats/{id}` | `send` | Delete a chat that isn't working: its worktree, branch, preview and turns |
 | POST | `/api/v1/studio/chats/{id}/messages` | `send` | Send a message: starts a turn, or steers the running one |
 | POST | `/api/v1/studio/chats/{id}/apply` | `send` | Apply a chat's checkpoints to the App's main line as a version |
 | GET | `/api/v1/studio/chats/{id}/diff` | `read` | The chat's changes since it branched or was last applied |

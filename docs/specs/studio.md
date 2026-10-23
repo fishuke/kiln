@@ -285,6 +285,8 @@ export class Studio {
 
   newChat(appId: string, input: { by: string; via: Via; title?: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string }): Promise<{ chat: Chat; turn?: Turn }>;
   getChat(id: string): { chat: Chat; turns: Turn[] } | undefined; // turns oldest first
+  /** A chat that isn't working: stops its dev server, removes its worktree, branch, turns and record; versions it applied stay. Its preview port is free for the next chat. */
+  deleteChat(chatId: string): Promise<void>;
   getVersion(id: string): Version | undefined;
   /** Starts a turn, or steers the running one. Resolves when the turn has started, not finished. */
   send(chatId: string, input: { by: string; via: Via; text: string; mode?: ChatMode }): Promise<{ turn: Turn; steered: boolean }>;
@@ -418,6 +420,7 @@ Every route needs a signed-in caller (`ctx.user`) and a token scope: reads need 
 | `DELETE /api/v1/studio/apps/{id}`            |                                                   | 204; 400 unless the App failed                                                                                                                                                                                                                                                                                  |
 | `POST /api/v1/studio/apps/{id}/chats`        | `{ prompt?, mode?, harness?, model?, title? }`    | `{ chat: Chat, turn?: Turn }`                                                                                                                                                                                                                                                                                   |
 | `GET /api/v1/studio/chats/{id}`              |                                                   | `{ chat, turns: Turn[] }` (oldest first)                                                                                                                                                                                                                                                                        |
+| `DELETE /api/v1/studio/chats/{id}`           |                                                   | 204; 400 while the chat is working                                                                                                                                                                                                                                                                              |
 | `POST /api/v1/studio/chats/{id}/messages`    | `{ text, mode? }`                                 | `{ turn: Turn, steered: boolean }`                                                                                                                                                                                                                                                                              |
 | `POST /api/v1/studio/chats/{id}/apply`       |                                                   | `ApplyResult`                                                                                                                                                                                                                                                                                                   |
 | `GET /api/v1/studio/chats/{id}/diff`         |                                                   | `{ diff: string }` (since the chat branched or was last applied)                                                                                                                                                                                                                                                |
@@ -452,6 +455,7 @@ studioRetryApp(id): Promise<App>; // POST …/retry
 studioDeleteApp(id): Promise<void>; // DELETE …/apps/{id}
 studioNewChat(appId, input): Promise<{ chat: Chat; turn?: Turn }>;
 studioChat(id): Promise<{ chat: Chat; turns: Turn[] }>;
+studioDeleteChat(id): Promise<void>; // DELETE …/chats/{id}
 studioSend(chatId, { text, mode? }): Promise<{ turn: Turn; steered: boolean }>;
 studioApply(chatId): Promise<ApplyResult>;
 studioChatDiff(chatId): Promise<{ diff: string }>;

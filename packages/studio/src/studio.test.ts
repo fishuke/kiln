@@ -331,6 +331,44 @@ describe("previews and pausing", () => {
   });
 });
 
+describe("deleting chats", () => {
+  it("removes a chat's preview, worktree, branch and turns, keeps its versions, and reuses its port", async () => {
+    const { studio, kiln } = make();
+    const p = await app(studio, "cowboy");
+    const a = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    const b = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    await say(studio, a.id, "write a.ts one");
+    await studio.preview({ chatId: a.id });
+    expect(await studio.resolvePreview(a.id)).toBeDefined();
+
+    await studio.deleteChat(a.id);
+    expect(studio.getChat(a.id)).toBeUndefined();
+    expect(studio.getApp(p.id)!.chats.map((c) => c.id)).toEqual([b.id]);
+    expect(kiln.store.list<{ id: string; chatId: string }>("studio_turns", (t) => t.chatId === a.id)).toEqual([]);
+    expect(studio.getApp(p.id)!.versions[0]!.title).toBe("Changed a.ts");
+    expect(await studio.resolvePreview(a.id)).toBeUndefined();
+    const git = await studio.withWorkspace(p.id, async (s) => (await s.exec("git worktree list; git branch --list", { cwd: "app", trusted: true })).stdout);
+    expect(git).not.toContain(a.id);
+    expect(git).toContain(b.id);
+
+    const c = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    expect(c.port).toBe(a.port);
+    await expect(studio.deleteChat(a.id)).rejects.toThrow(`unknown chat ${a.id}`);
+  });
+
+  it("refuses a chat that is working", async () => {
+    const slow: FakeScript = async ({ nextSteer }) => void (await nextSteer(2000));
+    const { studio } = make({}, slow);
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.send(chat.id, { by: "me", via: "web", text: "work" });
+    await expect(studio.deleteChat(chat.id)).rejects.toThrow("the chat is working; stop it first");
+    await studio.idle(chat.id);
+    await studio.deleteChat(chat.id);
+    expect(studio.getChat(chat.id)).toBeUndefined();
+  });
+});
+
 describe("subagents", () => {
   it("gives a run an App agent spawns its own chat, worktree and turn", async () => {
     let kiln!: ReturnType<typeof make>["kiln"];

@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, Square, X } from "lucide-react";
+import { ExternalLink, Square, Trash2, X } from "lucide-react";
 import { StatusSquare } from "@/components/kiln/run-visuals";
 import { Button } from "@/components/ui/button";
+import { Confirm } from "./confirm";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { RunStatus } from "@/lib/run-tree";
 import type { Chat } from "@/lib/studio/types";
@@ -17,8 +18,22 @@ export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
   cancelled: "Stopped",
 };
 
-/** One row of the Tasks panel: the run's status square, the chat, Open run and Stop. */
-function TaskRow({ chat, status, active, onOpen, onStop }: { chat: Chat; status: RunStatus; active: boolean; onOpen: () => void; onStop?: () => void }) {
+/** One row of the Tasks panel: the run's status square, the chat, Open run, and Stop while it runs or Delete when it doesn't. */
+function TaskRow({
+  chat,
+  status,
+  active,
+  onOpen,
+  onStop,
+  onDelete,
+}: {
+  chat: Chat;
+  status: RunStatus;
+  active: boolean;
+  onOpen: () => void;
+  onStop?: () => void;
+  onDelete: () => Promise<unknown>;
+}) {
   return (
     <li className={cn("group/task flex items-center gap-1 rounded-lg pr-1 hover:bg-muted", active && "bg-muted")}>
       <button
@@ -60,12 +75,31 @@ function TaskRow({ chat, status, active, onOpen, onStop }: { chat: Chat; status:
           <TooltipContent>Stop</TooltipContent>
         </Tooltip>
       )}
+      {chat.status !== "working" && (
+        <Confirm
+          trigger={
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={`Delete ${chat.title}`}
+              className="opacity-0 group-hover/task:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100"
+            >
+              <Trash2 />
+            </Button>
+          }
+          icon={<Trash2 />}
+          title={`Delete ${chat.title}?`}
+          description="Its messages, preview and any changes not applied to main are removed. Versions it applied stay in History."
+          action="Delete"
+          onConfirm={onDelete}
+        />
+      )}
     </li>
   );
 }
 
 /**
- * Tasks: every chat in the App with its run's status, Open run and Stop (interrupt). Subagent runs
+ * Tasks: every chat in the App with its run's status, Open run, Stop (interrupt) and Delete. Subagent runs
  * nest here once Studio's routes return the App's run trees (docs/specs/studio.md, "Chats reuse runs").
  */
 export function TasksPanel({
@@ -74,6 +108,7 @@ export function TasksPanel({
   active,
   onOpen,
   onStop,
+  onDelete,
   onClose,
 }: {
   chats: Chat[];
@@ -81,6 +116,7 @@ export function TasksPanel({
   active?: string;
   onOpen: (id: string) => void;
   onStop: (c: Chat) => void;
+  onDelete: (c: Chat) => Promise<unknown>;
   onClose: () => void;
 }) {
   return (
@@ -104,6 +140,7 @@ export function TasksPanel({
               active={c.id === active}
               onOpen={() => onOpen(c.id)}
               onStop={c.runId ? () => onStop(c) : undefined}
+              onDelete={() => onDelete(c)}
             />
           ))}
         </ul>

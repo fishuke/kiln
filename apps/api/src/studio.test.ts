@@ -261,6 +261,17 @@ describe("Studio API", () => {
     await expect(client.studioRetryApp(ready.id)).rejects.toMatchObject({ status: 400 });
   });
 
+  it("deletes a chat through the SDK", async () => {
+    const { client, kiln } = setup();
+    const p = await client.studioCreateApp({ name: "Fine", source: { kind: "template", template: "test" } });
+    await studioFor(kiln)!.ready(p.id);
+    const { chat } = await client.studioNewChat(p.id, {});
+    await client.studioDeleteChat(chat.id);
+    expect((await client.studioApp(p.id)).chats).toEqual([]);
+    await expect(client.studioChat(chat.id)).rejects.toMatchObject({ status: 404 });
+    await expect(client.studioDeleteChat(chat.id)).rejects.toMatchObject({ status: 404 });
+  });
+
   it("serves the Studio tools over MCP with the caller's team", async () => {
     const { kiln } = setup();
     const app = createApp(kiln, {

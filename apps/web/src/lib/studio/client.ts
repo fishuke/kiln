@@ -37,6 +37,8 @@ export interface StudioClient {
   deleteApp(id: string): Promise<void>;
   newChat(appId: string, input: NewChatInput): Promise<NewChatResult>;
   chat(id: string): Promise<ChatDetail>;
+  /** `DELETE /chats/{id}`: deletes a chat that isn't working, with its worktree, preview and turns. */
+  deleteChat(id: string): Promise<void>;
   send(chatId: string, input: { text: string; mode?: ChatMode }): Promise<SendResult>;
   apply(chatId: string): Promise<ApplyResult>;
   chatDiff(chatId: string): Promise<{ diff: string }>;

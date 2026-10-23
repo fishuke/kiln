@@ -22,6 +22,10 @@ Only server admins and team owners and admins can issue scoped tokens, list them
 | Server admin: the bootstrap admin token (`admin` on `*`), dev auth, or a user listed in `KILN_ADMIN_EMAILS` | Every team | Every token | The server's secret store | Any grants |
 | Team owner or admin | Their current team only | Tokens of their team and its members | The team's raw secrets | Only on their team's factories, never `*`. The token belongs to the team. |
 
+## Server page
+
+Server admins get a **Server** item in the sidebar (`/admin`, API `GET /api/v1/admin/server`). It shows the host's memory, disk (the data directory and `/`), load, the Kiln API's own memory, running and queued runs, connected workers, and every sandbox on the host with its state, owner, CPU and memory. It refreshes every 5 seconds. Everyone else gets a 403.
+
 Kiln records the team of each audit entry from what it is about: the factory, work item, run, gate, secret, token, team or user. When a factory moves to another team, its history moves with it.
 
 ### Token types

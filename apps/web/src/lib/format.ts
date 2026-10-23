@@ -14,6 +14,25 @@ export function usd(n: number | null | undefined): string {
   return n < 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(n >= 100 ? 0 : 2)}`;
 }
 
+/** 1536 → "1.5 KB", binary units with short labels. */
+export function bytes(n: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+/** 93784 seconds → "1d 2h". */
+export function duration(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+
 export function pct(n: number | null | undefined): string {
   return n === null || n === undefined ? "—" : `${Math.round(n * 100)}%`;
 }

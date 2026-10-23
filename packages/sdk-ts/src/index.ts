@@ -48,6 +48,7 @@ import type {
   WriteResult,
 } from "@kiln/engine";
 import type {
+  ServerStats,
   ApiKeyRow,
   Appearance,
   BuiltinMcpRow,
@@ -938,6 +939,7 @@ export class KilnClient {
   workerDisconnect = (instance: string) => this.request<{ ok: true }>("DELETE", `/api/v1/workers/${instance}`);
   metricsText = () => this.text("/metrics");
 
+  serverStats = () => this.request<ServerStats>("GET", "/api/v1/admin/server");
   audit = (limit = 200) =>
     this.request<{ id: string; at: string; actor: string; action: string; target: string; details?: unknown }[]>("GET", `/api/v1/audit?limit=${limit}`);
   decisions = (workItem?: string) =>

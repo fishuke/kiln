@@ -41,7 +41,19 @@ export type Me = {
   teams: TeamSummary[];
   currentTeam?: { id: string; name: string; slug: string; avatar?: string };
   role?: TeamRole;
+  /** Listed in KILN_ADMIN_EMAILS (or the bootstrap admin): sees the server page. */
+  serverAdmin?: boolean;
   factoryRoles: Record<string, FactoryRole>;
+};
+export type ServerStats = {
+  at: string;
+  host: { hostname: string; cpus: number; loadAverage: number[]; uptimeSeconds: number; totalMemoryBytes: number; freeMemoryBytes: number };
+  disks: { path: string; totalBytes: number; freeBytes: number }[];
+  process: { uptimeSeconds: number; rssBytes: number; heapUsedBytes: number; node: string };
+  sandboxes: { name: string; provider: string; state: string; live: boolean; owner?: string; studioApp?: string; createdAt?: string; cpuPercent?: number; memoryBytes?: number }[];
+  sandboxErrors: { provider: string; error: string }[];
+  runs: { running: number; queued: number };
+  workers: { id: string; workerId: string; backend: string; active: number; maxConcurrent: number; stale: boolean }[];
 };
 export type TeamDetail = TeamSummary & { settings: TeamSettings; members: number; factories: { id: string; name: string; alias: string }[] };
 export type TeamMemberRow = { userId: string; role: TeamRole; joinedAt: string; user?: { id: string; name: string; email: string; avatar?: string } };

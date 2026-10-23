@@ -30,6 +30,7 @@ import {
   Boxes,
   Puzzle,
   ScrollText,
+  Server,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -50,7 +51,7 @@ import { KilnMark } from "./logo";
 import { useTheme, type ThemePreference } from "./theme";
 
 export type ShellFactory = { id: string; name: string; alias: string; canary?: unknown };
-export type ShellUser = { name: string; email: string; avatarUrl?: string; role?: string };
+export type ShellUser = { name: string; email: string; avatarUrl?: string; role?: string; serverAdmin?: boolean };
 export type ShellTeam = { id: string; name: string };
 
 const FACTORY_NAV = [
@@ -410,6 +411,7 @@ export function Sidebar({
         <Item href="/environments" icon={Boxes} label="Environments" />
         <Item href="/skills" icon={Puzzle} label="Skills" />
         <Item href="/audit" icon={ScrollText} label="Audit log" />
+        {user?.serverAdmin && <Item href="/admin" icon={Server} label="Server" />}
         <Item href="/studio" icon={AppWindow} label="Studio" />
 
         <div className="flex h-9 items-center justify-between pt-3 pl-3 pr-1 text-xs font-medium text-muted-foreground">

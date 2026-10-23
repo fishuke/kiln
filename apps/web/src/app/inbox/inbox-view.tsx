@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCheck, CircleAlert, CircleHelp, ExternalLink, FileText, GitPullRequest, ListFilter, Mail, MailOpen, MessageSquareReply, Square, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { FactoryAvatar } from "@/components/kiln/sidebar";
 import { GateCard } from "@/components/kiln/gate-card";
 import { ReviewPanel } from "@/components/kiln/review-panel";

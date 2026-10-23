@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { AlertCircle, AlertTriangle, ChevronDown, ChevronRight, ChevronsDownUp, ExternalLink, File, FileCode2, Folder, FolderOpen, FolderUp, MoreHorizontal, Pencil, Plus, Trash2, Upload, Workflow } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { CodeEditor, type EditorMarker } from "@/components/kiln/code-editor";
 import { PageHeader } from "@/components/kiln/ui";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";

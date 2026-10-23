@@ -1,7 +1,7 @@
 "use client";
 
 import { AtSign, Copy, MessageCircle, Tag, User } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
 type Line = { icon: React.ComponentType<{ className?: string }>; before: string; handle: string; after: string; copyLabel: string };

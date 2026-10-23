@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, CircleSlash, Hash, Link2, SquareArrowOutUpRight } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { GitHubIcon } from "@/components/kiln/brand-icons";
 import { StatusSquare } from "@/components/kiln/run-visuals";
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";

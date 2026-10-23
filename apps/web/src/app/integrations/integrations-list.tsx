@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BookOpen, ExternalLink, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { ConfirmAction, CopyButton } from "@/components/kiln/confirm-action";
 import { PROVIDER_ICONS } from "@/components/kiln/provider-meta";
 import { ConnectedBadge } from "@/components/kiln/settings-blocks";

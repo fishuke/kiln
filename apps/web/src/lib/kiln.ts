@@ -1,6 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { KilnApiError, KilnClient } from "@kiln/sdk-ts";
+import { KilnClient } from "@kiln/sdk-ts";
+export { errorMessage } from "./error-message";
 import { effectiveToken, SESSION_COOKIE, TEAM_COOKIE, validTeam } from "./session";
 
 export const KILN_API_URL = process.env.KILN_API_URL ?? "http://localhost:4000";
@@ -52,15 +53,3 @@ export async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   }
 }
 
-/** Human message for an API error. */
-export function errorMessage(err: unknown): string {
-  if (err instanceof KilnApiError) {
-    const data = err.body as { message?: string; error?: string; issues?: (string | { message: string; path?: (string | number)[] })[] } | undefined;
-    if (data?.issues?.length)
-      return data.issues
-        .map((i) => (typeof i === "string" ? i.replace(/^:\s*/, "") : i.path?.length ? `${i.path.join(".")}: ${i.message}` : i.message))
-        .join("; ");
-    return data?.message ?? err.message;
-  }
-  return err instanceof Error ? err.message : String(err);
-}

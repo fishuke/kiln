@@ -43,7 +43,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { GitHubIcon, LinearIcon } from "./brand-icons";
 import { KilnMark } from "./logo";

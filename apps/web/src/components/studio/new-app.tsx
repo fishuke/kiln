@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { LayoutTemplate, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { GitHubIcon } from "@/components/kiln/brand-icons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";

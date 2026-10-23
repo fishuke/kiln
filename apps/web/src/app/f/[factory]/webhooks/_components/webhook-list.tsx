@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Search, Webhook as WebhookIcon } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { PageHeader } from "@/components/kiln/ui";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";

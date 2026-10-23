@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useMemo, useState, useTransition } from "react";
 import { Award, ChevronRight, Coins, EllipsisVertical, Gauge, Pencil, Play, Plus, Route, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { AgentTypeIcon } from "@/components/kiln/agent-type-icon";
 import { Markdown } from "@/components/kiln/markdown";
 import { PillTabs } from "@/components/kiln/pill-tabs";

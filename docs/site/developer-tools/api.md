@@ -493,6 +493,15 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/merge-gate/reviews` | — | Pull requests the merge gate judged for the current team's Studio Apps (?state=) |
 | GET | `/api/v1/merge-gate/reviews/{id}` | — | One merge gate review: merged or sent to review, the reasons and the merge-safety answers |
 
+## Voice
+
+| Method | Path | Scope | What it does |
+| --- | --- | --- | --- |
+| POST | `/api/v1/voice/sessions` | `send` | Start a voice session (GPT-Live) from the browser's WebRTC offer, or resume one; 409 no_openai_key without an OpenAI key |
+| GET | `/api/v1/voice/sessions/{id}/events` | `read` | Server-sent events of a voice session: client actions, transcript lines, badges and state |
+| PATCH | `/api/v1/voice/sessions/{id}` | `send` | Tell a voice session where the person is now, or turn quiet mode on or off |
+| DELETE | `/api/v1/voice/sessions/{id}` | `send` | End a voice session |
+
 ## Errors
 
 Errors are JSON: `{ "error": "message" }` with status 400 (invalid request; `issues` lists the fields), 401 (missing or invalid token), 402 (`{ "error": "budget_exceeded", "message": ... }`: the team's spend limit is reached and auto-stop is on), 403 (token lacks the scope), 404 (unknown resource), 409 (wrong state or already exists), 410 (expired invite) or 413 (upload too large).

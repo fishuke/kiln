@@ -350,7 +350,13 @@ export function PreviewPane({
 }
 
 /** Before the first build: where the app will appear. */
-export function EmptyPreview({ starting }: { starting?: boolean }) {
+export function EmptyPreview({ starting, loading }: { starting?: boolean; loading?: boolean }) {
+  if (loading)
+    return (
+      <div className="flex h-full items-center justify-center">
+        <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
       <div className="flex size-14 items-center justify-center rounded-2xl border bg-background shadow-xs">

@@ -55,7 +55,7 @@ const STATUS_DOT: Record<Chat["status"], string> = {
 };
 
 /** The chats switcher: one tab per chat (its status as a dot) and "+" for a new one. */
-function ChatTabs({ chats, active, onPick, onNew }: { chats: Chat[]; active?: string; onPick: (id: string) => void; onNew: () => void }) {
+function ChatTabs({ chats, active, creating, onPick, onNew }: { chats: Chat[]; active?: string; creating?: boolean; onPick: (id: string) => void; onNew: () => void }) {
   const list = useRef<HTMLDivElement>(null);
   useEffect(() => {
     list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -87,8 +87,14 @@ function ChatTabs({ chats, active, onPick, onNew }: { chats: Chat[]; active?: st
           </TooltipContent>
         </Tooltip>
       ))}
+      {creating && (
+        <span className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border bg-background px-2.5 text-xs font-medium shadow-xs">
+          <LoaderCircle className="size-3 animate-spin" />
+          <span className="shimmer">Preparing new chat</span>
+        </span>
+      )}
       <Tooltip>
-        <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="New chat" onClick={onNew} className="shrink-0 rounded-full" />}>
+        <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="New chat" disabled={creating} onClick={onNew} className="shrink-0 rounded-full" />}>
           <Plus />
         </TooltipTrigger>
         <TooltipContent>
@@ -143,6 +149,9 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
   const [draftModel, setDraftModel] = useState<string>();
   const [routes, setRoutes] = useState<string[]>(["/"]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // One new chat at a time: it takes a worktree and an install, and repeat clicks would each make one.
+  const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
 
   const app = detail?.app;
   const versions = useMemo(() => detail?.versions ?? [], [detail]);
@@ -249,6 +258,9 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
 
   const newChat = useCallback(
     async (prompt?: string, m: ChatMode = mode) => {
+      if (creatingRef.current) return false;
+      creatingRef.current = true;
+      setCreating(true);
       try {
         const r = await client.newChat(appId, { prompt, mode: m, model: draftModel });
         selectChat(r.chat.id);
@@ -257,6 +269,9 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err));
         return false;
+      } finally {
+        creatingRef.current = false;
+        setCreating(false);
       }
     },
     [client, appId, mode, draftModel, selectChat, refresh],
@@ -390,7 +405,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
         />
       ) : (
         <>
-          <ChatTabs chats={chatList} active={chatId} onPick={selectChat} onNew={() => void newChat()} />
+          <ChatTabs chats={chatList} active={chatId} creating={creating} onPick={selectChat} onNew={() => void newChat()} />
           {!detail || (chatId && !current) ? (
             <RailSkeleton />
           ) : !turns.length && app?.firstPrompt && !chatList.length ? (
@@ -500,7 +515,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
       }
     >
       {!app ? (
-        <EmptyPreview starting />
+        <EmptyPreview loading />
       ) : importing ? (
         <SetupPanel
           app={app}

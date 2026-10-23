@@ -233,7 +233,7 @@ Import (`source.kind: "repo"`):
 <workdir>/version          detached worktree for previewing an old version
 ```
 
-`.kiln/` is listed in `.git/info/exclude`, so `.kiln/studio.json` (`{ title, summary, question? }`, written by the agent at the end of a turn) is never committed.
+`.kiln/` is listed in `.git/info/exclude`, so `.kiln/studio.json` (`{ title, summary, question?, restartPreview? }`, written by the agent at the end of a turn) is never committed. Neither are `.kiln/dev.log` (the last 500 lines of the worktree's dev server output, secrets redacted, rewritten at most once a second, so the agent can troubleshoot the preview) and `.kiln/dev.pid`.
 
 ## Enabling Studio and restarts
 
@@ -292,6 +292,8 @@ export class Studio {
   getChat(id: string): { chat: Chat; turns: Turn[] } | undefined; // turns oldest first
   /** A chat that isn't working: stops its dev server, removes its worktree, branch, turns and record; versions it applied stay. Its preview port is free for the next chat. */
   deleteChat(chatId: string): Promise<void>;
+  /** Stops the chat's dev server (its process tree in the sandbox) and starts it again with the App's current environment. */
+  restartPreview(chatId: string): Promise<Preview>;
   getVersion(id: string): Version | undefined;
   /** Starts a turn, or steers the running one. Resolves when the turn has started, not finished. */
   send(chatId: string, input: { by: string; via: Via; text: string; mode?: ChatMode }): Promise<{ turn: Turn; steered: boolean }>;
@@ -322,7 +324,7 @@ export class StudioError extends Error {
 
 ### Behavior
 
-- **Turn.** It persists the turn as `running`, starts the chat's harness in its worktree (cwd `chats/<id>`) with Studio's instructions for the mode and the prompt, and records activity. When the harness finishes, it reads `.kiln/studio.json`, checkpoints, and persists the turn again. Then comes ship mode (below), then a snapshot. `send` during a running turn steers it (`steered: true`).
+- **Turn.** It persists the turn as `running`, starts the chat's harness in its worktree (cwd `chats/<id>`) with Studio's instructions for the mode and the prompt, and records activity. When the harness finishes, it reads `.kiln/studio.json`, checkpoints, and persists the turn again; with `restartPreview: true` it then restarts the chat's dev server. Then comes ship mode (below), then a snapshot. `send` during a running turn steers it (`steered: true`).
 - **Checkpoint.** `git add -A`; when there's a diff from `HEAD`, commit on the chat branch with the turn's title. When the agent committed itself, the new `HEAD` is the checkpoint. No change, no checkpoint, in every mode.
 - **Modes.** In `chat` and `plan` mode, any change at the end of the turn is reverted (`git reset --hard <start> && git clean -fd`) and `discarded: true` is set. `plan` stores the reply as `plan`. "Build it" is `send({ text: plan, mode: "build" })`.
 - **Apply.** In `app`: `git merge --no-ff -m <title> chat/<id>`. The title is the subjects of the chat's non-merge commits not yet on the main line, joined with "; " and cut to 80 characters. On a conflict it runs `git merge --abort`, sets the chat to `conflict` and returns the files. `{ nothing: true }` when the chat has no new commits.
@@ -402,18 +404,19 @@ export type ToolResult = { ok: true; data: unknown; client?: ClientAction } | { 
 export type ClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" };
 ```
 
-| Name       | Kind   | Input (zod)                                                                                                                             |
-| ---------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`   | server | `{ app?: string }`                                                                                                                      |
-| `open_app` | server | `{ app: string } \| { name: string; source?: AppSource; projectId?: string }`; returns the App plus `client: { focus }`                 |
-| `new_chat` | server | `{ app: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string; title?: string }`; returns `client: { focus }` |
-| `send`     | server | `{ chat: string; text: string; mode?: ChatMode }`                                                                                       |
-| `apply`    | server | `{ chat: string }`                                                                                                                      |
-| `restore`  | server | `{ version: string }`                                                                                                                   |
-| `bookmark` | server | `{ version: string; on: boolean }`                                                                                                      |
-| `look`     | server | `{ chat: string }`; returns the `Preview` (a screenshot is a follow-up)                                                                 |
-| `focus`    | client | `{ app: string; chat?: string }`                                                                                                        |
-| `show`     | client | `{ view: "preview" \| "code" \| "history" }`                                                                                            |
+| Name              | Kind   | Input (zod)                                                                                                                             |
+| ----------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`          | server | `{ app?: string }`                                                                                                                      |
+| `open_app`        | server | `{ app: string } \| { name: string; source?: AppSource; projectId?: string }`; returns the App plus `client: { focus }`                 |
+| `new_chat`        | server | `{ app: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string; title?: string }`; returns `client: { focus }` |
+| `send`            | server | `{ chat: string; text: string; mode?: ChatMode }`                                                                                       |
+| `apply`           | server | `{ chat: string }`                                                                                                                      |
+| `restore`         | server | `{ version: string }`                                                                                                                   |
+| `bookmark`        | server | `{ version: string; on: boolean }`                                                                                                      |
+| `look`            | server | `{ chat: string }`; returns the `Preview` (a screenshot is a follow-up)                                                                 |
+| `restart_preview` | server | `{ chat: string }`; restarts the chat's dev server and returns the `Preview`                                                            |
+| `focus`           | client | `{ app: string; chat?: string }`                                                                                                        |
+| `show`            | client | `{ view: "preview" \| "code" \| "history" }`                                                                                            |
 
 Client tools return `{ ok: true, data: null, client }` and change nothing on the server. Every server tool acts only on the caller's team's Apps; another team's App answers "unknown app".
 
@@ -439,6 +442,7 @@ Every route needs a signed-in caller (`ctx.user`) and a token scope: reads need 
 | `POST /api/v1/studio/chats/{id}/apply`       |                                                   | `ApplyResult`                                                                                                                                                                                                                                                                                                   |
 | `GET /api/v1/studio/chats/{id}/diff`         |                                                   | `{ diff: string }` (since the chat branched or was last applied)                                                                                                                                                                                                                                                |
 | `GET /api/v1/studio/chats/{id}/preview`      |                                                   | `Preview` (starts the dev server if needed)                                                                                                                                                                                                                                                                     |
+| `POST /api/v1/studio/chats/{id}/preview/restart` | | `Preview` (the dev server, stopped and started again with the App's current environment) |
 | `GET /api/v1/studio/chats/{id}/events`       |                                                   | SSE, driven by the chat's `studio.*` bus events: `chat` (a `Chat`) and `turn` (the `Turn` the event names)                                                                                                                                                                                                      |
 | `POST /api/v1/studio/versions/{id}/restore`  |                                                   | `Version`                                                                                                                                                                                                                                                                                                       |
 | `POST /api/v1/studio/versions/{id}/bookmark` | `{ on: boolean }`                                 | `Version`                                                                                                                                                                                                                                                                                                       |

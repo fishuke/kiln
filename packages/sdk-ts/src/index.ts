@@ -408,6 +408,9 @@ export class KilnClient {
   studioChatPreview(chatId: string) {
     return this.request<StudioPreview>("GET", `/api/v1/studio/chats/${encodeURIComponent(chatId)}/preview`);
   }
+  studioRestartChatPreview(chatId: string) {
+    return this.request<StudioPreview>("POST", `/api/v1/studio/chats/${encodeURIComponent(chatId)}/preview/restart`);
+  }
   studioRestore(versionId: string) {
     return this.request<StudioVersion>("POST", `/api/v1/studio/versions/${encodeURIComponent(versionId)}/restore`);
   }

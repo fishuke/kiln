@@ -167,7 +167,7 @@ export type Version = {
   createdAt: string;
 };
 
-export type Preview = { target: string; url: string; status: "starting" | "ready" | "failed" };
+export type Preview = { target: string; url: string; status: "starting" | "ready" | "failed"; reason?: string; output?: string }; // a failed one says why, with its last output lines (redacted)
 ```
 
 Store collections: `studio_apps`, `studio_chats`, `studio_turns` and `studio_versions`, each keyed by `id`; shipping adds `studio_repos` (the App's forge repository and whether Kiln created it), `studio_ship_choices` and `studio_pull_requests`.
@@ -216,8 +216,8 @@ Import (`source.kind: "repo"`):
 3. **Egress.** An imported App's sandbox may reach `registry.npmjs.org` (and the clone host while it's created). A registry the repository's lockfile names elsewhere is not allowed yet (open question).
 4. **Install on first open.** It runs once when the workspace is created; snapshots keep later opens warm. Each new chat worktree installs again (with a warm store, this is fast).
 5. **Dev command.** `package.json` `scripts.dev` → `<pm> run dev`, recorded as `devDetected`. A person can set `devOverride` (`PATCH … { devCommand }`; `null` clears it). With neither, the App is `ready` but previews answer `StudioError("invalid", "no dev command")`.
-6. **Port.** The dev server gets `PORT={port}` and `HOST=0.0.0.0`. For `next dev` and `vite` without an explicit port, Studio appends `--port {port}` (and `--hostname`/`--host 0.0.0.0`). If the server prints a different `localhost:<n>` / `0.0.0.0:<n>` URL in its first output, Studio records that port for the target.
-7. **Environment.** Required keys come from `.env.example`, `.env.sample` or `.env.local.example` and only drive the list of missing keys. `StudioOptions.env(app)` provides values: the API resolves the App's environment variables (team → Kiln Project → App, see [Spec change: environments](#spec-change-environments)), only what people assigned, never the secret vault. They're passed to installs, dev servers and harness runs and never written to the repository; secret values are redacted from turn and dev-server output. Missing keys are listed in `setup.envMissing`. The App is still `ready`, and the UI shows them with a link to its environment.
+6. **Port.** The dev server gets `PORT={port}` and `HOST=0.0.0.0`. For `next dev` and `vite` without an explicit port, Studio appends `--port {port}` (and `--hostname`/`--host 0.0.0.0`). A script that is a single `next dev` or `vite` command with its own port (`next dev -p 4000`) runs through the package manager (`pnpm exec`, `npm exec --`, `yarn`, `bun x`) with `{port}` in place of that port, because every chat and the version preview would otherwise listen on the same one; any other script with a port stays `<pm> run dev`. If the server prints a different `localhost:<n>` / `0.0.0.0:<n>` URL in its first output, Studio records that port for the target.
+7. **Environment.** The keys listed in `.env.example`, `.env.sample` or `.env.local.example` only drive the list of keys not set yet; the file doesn't say which ones an App needs. `StudioOptions.env(app)` provides values: the API resolves the App's environment variables (team → Kiln Project → App, see [Spec change: environments](#spec-change-environments)), only what people assigned, never the secret vault. They're passed to installs, dev servers and harness runs and never written to the repository; secret values are redacted from turn and dev-server output. Keys no variable provides are listed in `setup.envMissing`. The App is still `ready`; the UI shows them as not set yet, with a link to its environment, and doesn't hold the workspace for them.
 
 **Ship mode on imported repositories (decided).** An imported App defaults to `review`. Inside the sandbox the modes behave as in the ship mode table (cowboy auto-applies to the App's main line). What reaches the forge is in [Shipping](#shipping).
 
@@ -233,7 +233,7 @@ Import (`source.kind: "repo"`):
 <workdir>/version          detached worktree for previewing an old version
 ```
 
-`.kiln/` is listed in `.git/info/exclude`, so `.kiln/studio.json` (`{ title, summary, question? }`, written by the agent at the end of a turn) is never committed.
+`.kiln/` is listed in `.git/info/exclude`, so `.kiln/studio.json` (`{ title, summary, question?, restartPreview? }`, written by the agent at the end of a turn) is never committed. Neither are `.kiln/dev.log` (the last 500 lines of the worktree's dev server output, secrets redacted, rewritten at most once a second, so the agent can troubleshoot the preview) and `.kiln/dev.pid`.
 
 ## Enabling Studio and restarts
 
@@ -292,6 +292,10 @@ export class Studio {
   getChat(id: string): { chat: Chat; turns: Turn[] } | undefined; // turns oldest first
   /** A chat that isn't working: stops its dev server, removes its worktree, branch, turns and record; versions it applied stay. Its preview port is free for the next chat. */
   deleteChat(chatId: string): Promise<void>;
+  /** Stops the chat's dev server (its process tree in the sandbox) and starts it again with the App's current environment. */
+  restartPreview(chatId: string): Promise<Preview>;
+  /** Stops the version preview's dev server and starts it again, showing `versionId`. */
+  restartVersionPreview(versionId: string): Promise<Preview>;
   getVersion(id: string): Version | undefined;
   /** Starts a turn, or steers the running one. Resolves when the turn has started, not finished. */
   send(chatId: string, input: { by: string; via: Via; text: string; mode?: ChatMode }): Promise<{ turn: Turn; steered: boolean }>;
@@ -322,13 +326,13 @@ export class StudioError extends Error {
 
 ### Behavior
 
-- **Turn.** It persists the turn as `running`, starts the chat's harness in its worktree (cwd `chats/<id>`) with Studio's instructions for the mode and the prompt, and records activity. When the harness finishes, it reads `.kiln/studio.json`, checkpoints, and persists the turn again. Then comes ship mode (below), then a snapshot. `send` during a running turn steers it (`steered: true`).
+- **Turn.** It persists the turn as `running`, starts the chat's harness in its worktree (cwd `chats/<id>`) with Studio's instructions for the mode and the prompt, and records activity. When the harness finishes, it reads `.kiln/studio.json`, checkpoints, and persists the turn again; with `restartPreview: true` it then restarts the chat's dev server. Then comes ship mode (below), then a snapshot. `send` during a running turn steers it (`steered: true`).
 - **Checkpoint.** `git add -A`; when there's a diff from `HEAD`, commit on the chat branch with the turn's title. When the agent committed itself, the new `HEAD` is the checkpoint. No change, no checkpoint, in every mode.
 - **Modes.** In `chat` and `plan` mode, any change at the end of the turn is reverted (`git reset --hard <start> && git clean -fd`) and `discarded: true` is set. `plan` stores the reply as `plan`. "Build it" is `send({ text: plan, mode: "build" })`.
 - **Apply.** In `app`: `git merge --no-ff -m <title> chat/<id>`. The title is the subjects of the chat's non-merge commits not yet on the main line, joined with "; " and cut to 80 characters. On a conflict it runs `git merge --abort`, sets the chat to `conflict` and returns the files. `{ nothing: true }` when the chat has no new commits.
 - **Ship mode.** `cowboy`: after every turn with a checkpoint, apply. On a conflict, start a resolve turn (`resolve: true`) that tells the agent to run `git merge <main>`, fix the conflicts and commit, then apply again. If that conflicts too, the chat becomes `needs_you` with the conflicting files as the question. `safe` and `review`: the person applies. What reaches the forge is in [Shipping](#shipping).
 - **Restore.** `git read-tree -u --reset <sha>`, then commit "Restore: <title>". This records a `restore` version; history is never rewritten.
-- **Ready check.** A dev server is `starting` until GET `ready.path` on its port answers (any status), polled every 200 ms, and `failed` after `ready.timeoutMs`; a dev server whose process ends is started again by the next preview. Imported Apps use `{ path: "/", timeoutMs: 60000 }`, the same as the Next.js template.
+- **Ready check.** A dev server is `starting` until GET `ready.path` on its port answers (any status), polled every 200 ms, and `failed` after `ready.timeoutMs`. A dev server whose process ends stays `failed`, with `reason` and `output` on its `Preview`, until it is restarted (the page polls the preview, so starting it again on every poll would loop). Output lines are kept without terminal escape codes. Imported Apps use `{ path: "/", timeoutMs: 60000 }`, the same as the Next.js template.
 - **Failures are reported.** A failed setup publishes `studio.app_failed` (the App stays `failed` until `retryApp` or `deleteApp`). A dev server that doesn't answer in time, exits without Studio stopping it, or whose output or address breaks publishes `studio.preview_failed` once, with its last 40 output lines (the dev command runs with stderr joined to stdout). Both are published inside the failing step's span and have the App's secret values redacted, like turn output.
 - **Spans.** `studio.provision` (with `studio.clone` or `studio.scaffold`, and `studio.commit`), `studio.install` (wherever dependencies are installed), `studio.resume`, `studio.snapshot`, `studio.dev_server_start`, `studio.ready_check` and `studio.apply`, each with `kiln.studio.app.id` and the chat, preview target or port where they apply.
 - **Preview.** A dev server per chat worktree on `chat.port`, and one for `version` on `basePort`, started with `setup.dev` through `sandbox.spawn`. `url` is `previewUrl(target, await sandbox.expose(port))`. An App has at most 99 chats, so ports stay within 4100–4199.
@@ -402,18 +406,19 @@ export type ToolResult = { ok: true; data: unknown; client?: ClientAction } | { 
 export type ClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" };
 ```
 
-| Name       | Kind   | Input (zod)                                                                                                                             |
-| ---------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`   | server | `{ app?: string }`                                                                                                                      |
-| `open_app` | server | `{ app: string } \| { name: string; source?: AppSource; projectId?: string }`; returns the App plus `client: { focus }`                 |
-| `new_chat` | server | `{ app: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string; title?: string }`; returns `client: { focus }` |
-| `send`     | server | `{ chat: string; text: string; mode?: ChatMode }`                                                                                       |
-| `apply`    | server | `{ chat: string }`                                                                                                                      |
-| `restore`  | server | `{ version: string }`                                                                                                                   |
-| `bookmark` | server | `{ version: string; on: boolean }`                                                                                                      |
-| `look`     | server | `{ chat: string }`; returns the `Preview` (a screenshot is a follow-up)                                                                 |
-| `focus`    | client | `{ app: string; chat?: string }`                                                                                                        |
-| `show`     | client | `{ view: "preview" \| "code" \| "history" }`                                                                                            |
+| Name              | Kind   | Input (zod)                                                                                                                             |
+| ----------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`          | server | `{ app?: string }`                                                                                                                      |
+| `open_app`        | server | `{ app: string } \| { name: string; source?: AppSource; projectId?: string }`; returns the App plus `client: { focus }`                 |
+| `new_chat`        | server | `{ app: string; prompt?: string; mode?: ChatMode; harness?: HarnessType; model?: string; title?: string }`; returns `client: { focus }` |
+| `send`            | server | `{ chat: string; text: string; mode?: ChatMode }`                                                                                       |
+| `apply`           | server | `{ chat: string }`                                                                                                                      |
+| `restore`         | server | `{ version: string }`                                                                                                                   |
+| `bookmark`        | server | `{ version: string; on: boolean }`                                                                                                      |
+| `look`            | server | `{ chat: string }`; returns the `Preview` (a screenshot is a follow-up)                                                                 |
+| `restart_preview` | server | `{ chat: string }`; restarts the chat's dev server and returns the `Preview`                                                            |
+| `focus`           | client | `{ app: string; chat?: string }`                                                                                                        |
+| `show`            | client | `{ view: "preview" \| "code" \| "history" }`                                                                                            |
 
 Client tools return `{ ok: true, data: null, client }` and change nothing on the server. Every server tool acts only on the caller's team's Apps; another team's App answers "unknown app".
 
@@ -439,11 +444,13 @@ Every route needs a signed-in caller (`ctx.user`) and a token scope: reads need 
 | `POST /api/v1/studio/chats/{id}/apply`       |                                                   | `ApplyResult`                                                                                                                                                                                                                                                                                                   |
 | `GET /api/v1/studio/chats/{id}/diff`         |                                                   | `{ diff: string }` (since the chat branched or was last applied)                                                                                                                                                                                                                                                |
 | `GET /api/v1/studio/chats/{id}/preview`      |                                                   | `Preview` (starts the dev server if needed)                                                                                                                                                                                                                                                                     |
+| `POST /api/v1/studio/chats/{id}/preview/restart` | | `Preview` (the dev server, stopped and started again with the App's current environment) |
 | `GET /api/v1/studio/chats/{id}/events`       |                                                   | SSE, driven by the chat's `studio.*` bus events: `chat` (a `Chat`) and `turn` (the `Turn` the event names)                                                                                                                                                                                                      |
 | `POST /api/v1/studio/versions/{id}/restore`  |                                                   | `Version`                                                                                                                                                                                                                                                                                                       |
 | `POST /api/v1/studio/versions/{id}/bookmark` | `{ on: boolean }`                                 | `Version`                                                                                                                                                                                                                                                                                                       |
 | `GET /api/v1/studio/versions/{id}/diff`      |                                                   | `{ diff: string }` (against its parent version)                                                                                                                                                                                                                                                                 |
 | `GET /api/v1/studio/versions/{id}/preview`   |                                                   | `Preview` (checks the version out in `version`)                                                                                                                                                                                                                                                                 |
+| `POST /api/v1/studio/versions/{id}/preview/restart` | | `Preview` (the version preview's dev server, stopped and started again) |
 | `GET /api/v1/studio/status`                  |                                                   | `StatusReport`                                                                                                                                                                                                                                                                                                  |
 | `GET /api/v1/studio/events`                  |                                                   | SSE for the caller's team: every `studio.*` and `merge_gate.*` event whose `appId` is one of the team's Apps (turns, versions, needs-you, App pull request states, merge gate reviews), as `event: <type>` with `data: { type, at, payload }`. Replaces polling the status, the Apps and the merge gate review. |
 | `POST /api/v1/studio/tools/{name}`           | the tool's input                                  | `ToolResult`                                                                                                                                                                                                                                                                                                    |
@@ -486,7 +493,7 @@ The SDK re-declares these types (it doesn't depend on `packages/studio`), and a 
 
 ## Web page (`apps/web/src/app/studio`)
 
-- `/studio` lists Apps, with a "New app" form: name, ship mode, an optional Kiln Project, and a source that is either a template or an existing repository. Repositories are listed with the existing `api.forgeRepositories()`, plus an optional branch. An App with `setup.envMissing` shows the missing keys with a link to Secrets; the dev command can be overridden in the App's settings.
+- `/studio` lists Apps, with a "New app" form: name, ship mode, an optional Kiln Project, and a source that is either a template or an existing repository. Repositories are listed with the existing `api.forgeRepositories()`, plus an optional branch. An App with `setup.envMissing` shows those keys as not set yet, with a link to its environments; the dev command can be overridden in the App's settings.
 - `/studio/[app]` has the chat rail on the left and the preview on the right.
 - **A failed App** shows its error in the preview pane (an import, under its setup steps) with **Retry** and **Delete**; Delete asks first with the Confirmation pattern and goes back to `/studio`.
 - **Event streams.** The web's SSE proxies (`/api/studio/chats/{id}/events`, `/api/runs/{id}/stream`) fetch through an undici `Agent` with `bodyTimeout: 0` (streams are idle between events) and stop the upstream request when the browser disconnects.

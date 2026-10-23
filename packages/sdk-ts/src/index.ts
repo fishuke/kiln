@@ -48,6 +48,9 @@ import type {
   WriteResult,
 } from "@kiln/engine";
 import type {
+  CleanupRun,
+  CleanupStatus,
+  ServerStats,
   ApiKeyRow,
   Appearance,
   BuiltinMcpRow,
@@ -408,6 +411,9 @@ export class KilnClient {
   studioChatPreview(chatId: string) {
     return this.request<StudioPreview>("GET", `/api/v1/studio/chats/${encodeURIComponent(chatId)}/preview`);
   }
+  studioRestartChatPreview(chatId: string) {
+    return this.request<StudioPreview>("POST", `/api/v1/studio/chats/${encodeURIComponent(chatId)}/preview/restart`);
+  }
   studioRestore(versionId: string) {
     return this.request<StudioVersion>("POST", `/api/v1/studio/versions/${encodeURIComponent(versionId)}/restore`);
   }
@@ -419,6 +425,9 @@ export class KilnClient {
   }
   studioVersionPreview(versionId: string) {
     return this.request<StudioPreview>("GET", `/api/v1/studio/versions/${encodeURIComponent(versionId)}/preview`);
+  }
+  studioRestartVersionPreview(versionId: string) {
+    return this.request<StudioPreview>("POST", `/api/v1/studio/versions/${encodeURIComponent(versionId)}/preview/restart`);
   }
   studioStatus() {
     return this.request<StudioStatusReport>("GET", "/api/v1/studio/status");
@@ -932,6 +941,11 @@ export class KilnClient {
   workerDisconnect = (instance: string) => this.request<{ ok: true }>("DELETE", `/api/v1/workers/${instance}`);
   metricsText = () => this.text("/metrics");
 
+  serverStats = () => this.request<ServerStats>("GET", "/api/v1/admin/server");
+  /** The Docker clean-up's dry run: what it would remove, disk usage, schedule and last run. Read-only. */
+  cleanup = () => this.request<CleanupStatus>("GET", "/api/v1/admin/cleanup");
+  runCleanup = () => this.request<CleanupRun>("POST", "/api/v1/admin/cleanup");
+  setCleanupScheduled = (scheduled: boolean) => this.request<{ scheduled: boolean }>("PUT", "/api/v1/admin/cleanup/schedule", { scheduled });
   audit = (limit = 200) =>
     this.request<{ id: string; at: string; actor: string; action: string; target: string; details?: unknown }[]>("GET", `/api/v1/audit?limit=${limit}`);
   decisions = (workItem?: string) =>

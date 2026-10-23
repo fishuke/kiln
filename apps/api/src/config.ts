@@ -34,9 +34,10 @@ import {
   VercelPreview,
   type Forge,
 } from "@kiln/integrations";
-import { DEFAULT_EGRESS, DockerSandboxProvider, KubernetesSandboxProvider, LocalSandboxProvider } from "@kiln/sandbox";
+import { composeProjectOfSelf, DEFAULT_EGRESS, DockerJanitor, DockerSandboxProvider, KubernetesSandboxProvider, LocalSandboxProvider } from "@kiln/sandbox";
 import { FileObjectStore, FileStore } from "@kiln/store";
 import { AnthropicThinker, GptLiveProvider } from "@kiln/voice";
+import { diskGuard } from "./janitor";
 
 export type ServerConfig = {
   kiln: Kiln;
@@ -102,6 +103,9 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
   // A made-up preview URL only makes sense next to fake agents; with real agents, no provider means no preview.
   const preview = env.VERCEL_TOKEN && env.VERCEL_PROJECT ? new VercelPreview({ token: env.VERCEL_TOKEN, project: env.VERCEL_PROJECT, teamId: env.VERCEL_TEAM_ID }) : realAgents ? undefined : new FakePreview();
   const backend = (env.KILN_SANDBOX ?? "local") as "local" | "docker" | "kubernetes";
+  // The data volume sits on the Docker host's disk, so its free space is the guard's measure.
+  let kilnRef: Kiln | undefined;
+  const guard = diskGuard(() => kilnRef!, dataDir);
   const options: KilnOptions = {
     forge,
     tracker,
@@ -115,10 +119,11 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     harness: realAgents ? undefined : fakeAgents(),
     sandboxes: {
       local: new LocalSandboxProvider(join(dataDir, "sandboxes")),
-      ...(backend === "docker" ? { docker: new DockerSandboxProvider(undefined, { egress: { network: env.KILN_EGRESS_NETWORK || DEFAULT_EGRESS.network, proxy: env.KILN_EGRESS_PROXY || DEFAULT_EGRESS.proxy }, previewNetwork: env.KILN_PREVIEW_NETWORK || undefined }) } : {}),
+      ...(backend === "docker" ? { docker: new DockerSandboxProvider(undefined, { egress: { network: env.KILN_EGRESS_NETWORK || DEFAULT_EGRESS.network, proxy: env.KILN_EGRESS_PROXY || DEFAULT_EGRESS.proxy }, previewNetwork: env.KILN_PREVIEW_NETWORK || undefined, diskGuard: guard }) } : {}),
       ...(backend === "kubernetes" ? { kubernetes: new KubernetesSandboxProvider(undefined, env.KILN_SANDBOX_NAMESPACE) } : {}),
     },
     defaultBackend: backend,
+    ...(backend === "docker" ? { janitor: new DockerJanitor(undefined, { project: () => composeProjectOfSelf() }) } : {}),
     // Computer use: the sandbox image has the browser MCP server installed; elsewhere npx fetches it.
     ...(backend !== "local" ? { browserMcp: { command: "playwright-mcp" } } : {}),
     ...(env.KILN_COMPUTER_USE === "0" ? { browserMcp: false as const } : {}),
@@ -149,6 +154,7 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
   const kiln = new Kiln(options);
   // Talk to Studio (ADR-013): GPT-Live with the team's or the server's OpenAI key (looked up per session).
   configureVoice(kiln, { provider: new GptLiveProvider(), thinker: voiceThinker(env) });
+  kilnRef = kiln;
 
   /** Kiln's own GitHub App (created from the web app) when the environment configures none. */
   function useGitHubApp(app: GitHubAppCredentials) {

@@ -24,7 +24,7 @@ import { ReviewService } from "./reviews";
 import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
 import { WebhookSourceService } from "./webhook-sources";
 import type { AppRunHost } from "./run-definition";
-import { LocalSandboxProvider, type Sandbox, type SandboxProvider } from "@kiln/sandbox";
+import { LocalSandboxProvider, type DockerJanitor, type Sandbox, type SandboxProvider } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import { MemoryObjectStore, MemoryStore, type ObjectStore, type Store } from "@kiln/store";
 import { AutomationService } from "./automations";
@@ -145,6 +145,8 @@ export type KilnOptions = {
   previousSecretKey?: string;
   /** Server admins (KILN_ADMIN_EMAILS): users who see every team's audit log, tokens and server secrets. */
   serverAdmins?: string[];
+  /** Cleans the Docker host Kiln runs on (the Server page); only with Docker sandboxes. */
+  janitor?: Pick<DockerJanitor, "plan" | "run" | "diskUsage">;
   /** Email for notifications (KILN_SMTP_URL). */
   mailer?: Mailer;
   /** Chat adapters for direct-message notifications, by provider key; the main `chat` is used when it is real. */

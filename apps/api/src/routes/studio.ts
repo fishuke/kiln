@@ -145,6 +145,13 @@ export const routes: Route[] = [
   { method: "get", path: "/api/v1/studio/chats/{id}/diff", summary: "The chat's changes since it branched or was last applied", scope: "read", tag: S },
   { method: "get", path: "/api/v1/studio/chats/{id}/preview", summary: "The chat's live preview (starts its dev server)", scope: "read", tag: S },
   {
+    method: "post",
+    path: "/api/v1/studio/chats/{id}/preview/restart",
+    summary: "Restart the chat's dev server with the App's current environment",
+    scope: "send",
+    tag: S,
+  },
+  {
     method: "get",
     path: "/api/v1/studio/chats/{id}/events",
     summary: "Server-sent events from the chat's Studio events: the chat and the turn each event names",
@@ -155,6 +162,7 @@ export const routes: Route[] = [
   { method: "post", path: "/api/v1/studio/versions/{id}/bookmark", summary: "Pin or unpin a version", scope: "send", body: Bookmark, tag: S },
   { method: "get", path: "/api/v1/studio/versions/{id}/diff", summary: "A version's changes against its parent", scope: "read", tag: S },
   { method: "get", path: "/api/v1/studio/versions/{id}/preview", summary: "Preview an earlier version", scope: "read", tag: S },
+  { method: "post", path: "/api/v1/studio/versions/{id}/preview/restart", summary: "Restart the version preview's dev server", scope: "send", tag: S },
   { method: "get", path: "/api/v1/studio/status", summary: "What is working and what needs you, across your team's Apps", scope: "read", tag: S },
   {
     method: "get",
@@ -167,7 +175,7 @@ export const routes: Route[] = [
     method: "post",
     path: "/api/v1/studio/tools/{name}",
     summary:
-      "Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send",
+      "Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, restart_preview, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send",
     scope: "send",
     tag: S,
   },
@@ -470,6 +478,13 @@ export function register(ctx: RouteContext) {
       return c.json(await studio().preview({ chatId: id(c) }));
     }),
   );
+  app.post(
+    "/api/v1/studio/chats/:id/preview/restart",
+    wrap(async (c) => {
+      ownChat(c, id(c), "send");
+      return c.json(await studio().restartPreview(id(c)));
+    }),
+  );
   app.get(
     "/api/v1/studio/chats/:id/events",
     wrap((c) => {
@@ -542,6 +557,13 @@ export function register(ctx: RouteContext) {
     wrap(async (c) => {
       ownVersion(c, id(c), "read");
       return c.json(await studio().preview({ versionId: id(c) }));
+    }),
+  );
+  app.post(
+    "/api/v1/studio/versions/:id/preview/restart",
+    wrap(async (c) => {
+      ownVersion(c, id(c), "send");
+      return c.json(await studio().restartVersionPreview(id(c)));
     }),
   );
   app.get(

@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import type { Runner } from "@kiln/schema";
 import type { ObjectStore } from "@kiln/store";
+import { parseByteSize, parseDockerTime } from "./janitor";
 import { NodeCommandRunner, type CommandRunner, type ExecResult, type Proc } from "./process";
 
 export * from "./process";
+export * from "./janitor";
 
 export type GuardVerdict = "allow" | "ask_human" | "block";
 
@@ -83,7 +85,23 @@ export interface SandboxProvider {
   resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox>;
   /** Remove sandboxes this provider left behind (a restart, a failed destroy): every one it did not create in this process. Returns what it removed. */
   sweep?(): Promise<string[]>;
+  /** Every sandbox on this host, live or left behind, with what it uses where the provider can tell (the admin page). */
+  list?(): Promise<SandboxListing[]>;
 }
+
+/** One sandbox as the admin page shows it. `memoryBytes` and `cpuPercent` are set for running containers only. */
+export type SandboxListing = {
+  name: string;
+  provider: string;
+  state: string;
+  /** Created by this process (false: another owner's, or a leftover the next sweep removes). */
+  live: boolean;
+  owner?: string;
+  studioApp?: string;
+  createdAt?: string;
+  cpuPercent?: number;
+  memoryBytes?: number;
+};
 
 export class CommandBlocked extends Error {
   constructor(
@@ -118,6 +136,19 @@ async function guarded(spec: Pick<SandboxSpec, "guard" | "askHuman">, command: s
 }
 
 /** The sandbox has no address the API can reach, e.g. a Docker container started with `--network none`. */
+/** Too little free disk to start a sandbox, even after cleaning up. */
+export class DiskSpaceLow extends Error {
+  constructor(
+    readonly freeBytes: number,
+    readonly minFreeBytes: number,
+  ) {
+    super(
+      `Not enough disk space to start a sandbox: ${Math.round(freeBytes / 1e9)} GB free, Kiln needs ${Math.round(minFreeBytes / 1e9)} GB. Free space on the Docker host (Server page → Clean up).`,
+    );
+    this.name = "DiskSpaceLow";
+  }
+}
+
 export class SandboxNotReachable extends Error {
   constructor(
     readonly sandboxId: string,
@@ -218,6 +249,21 @@ export class LocalSandboxProvider implements SandboxProvider {
       .map((d) => d.name);
     for (const d of stale) rmSync(join(this.root, d), { recursive: true, force: true });
     return stale;
+  }
+
+  async list(): Promise<SandboxListing[]> {
+    return readdirSync(this.root, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => {
+        const live = this.live.has(d.name);
+        return {
+          name: d.name,
+          provider: this.name,
+          state: live ? "running" : "left behind",
+          live,
+          createdAt: statSync(join(this.root, d.name)).birthtime.toISOString(),
+        };
+      });
   }
 
   async resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox> {
@@ -371,6 +417,8 @@ export function dockerRunArgs(name: string, spec: SandboxSpec, egress: EgressRou
     if (spec.deniedHosts?.length) args.push("-e", `KILN_EGRESS_DENY=${spec.deniedHosts.join(",")}`);
   }
   args.push("--security-opt", "no-new-privileges", "--cap-drop", "ALL");
+  // Capped logs: a chatty dev server must not fill the host's disk.
+  args.push("--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3");
   for (const [k, v] of Object.entries(spec.env ?? {})) args.push("-e", `${k}=${v}`);
   args.push(spec.runner.image, "sleep", "infinity");
   return args;
@@ -392,6 +440,8 @@ export class DockerSandboxProvider implements SandboxProvider {
       egress?: EgressRoute;
       owner?: string;
       previewNetwork?: string;
+      /** Runs before a sandbox starts; throws (e.g. DiskSpaceLow) to refuse it with a clear error. */
+      diskGuard?: () => Promise<void>;
     } = {},
   ) {}
 
@@ -424,6 +474,7 @@ export class DockerSandboxProvider implements SandboxProvider {
   }
 
   async create(spec: SandboxSpec): Promise<Sandbox> {
+    await this.options.diskGuard?.();
     const started = Date.now();
     const id = newId();
     const name = `kiln-${id}`;
@@ -470,11 +521,52 @@ export class DockerSandboxProvider implements SandboxProvider {
       .map((l) => l.trim().split("\t"))
       .filter(([name, owner]) => name && !this.live.has(name) && (owner || "kiln") === this.owner)
       .map(([name]) => name!);
-    if (stale.length) await this.runner.run("docker", ["rm", "-f", ...stale]);
+    if (stale.length) await this.runner.run("docker", ["rm", "-f", "-v", ...stale]);
     return stale;
   }
 
+  /** `docker ps` for every Kiln sandbox (any owner), plus one `docker stats` sample of the running ones. */
+  async list(): Promise<SandboxListing[]> {
+    const r = await this.must([
+      "ps",
+      "-a",
+      "--filter",
+      "label=kiln.sandbox=1",
+      "--format",
+      '{{.Names}}\t{{.State}}\t{{.CreatedAt}}\t{{.Label "kiln.owner"}}\t{{.Label "kiln.studio.app"}}',
+    ]);
+    const rows = r.stdout
+      .split("\n")
+      .map((l) => l.trim().split("\t"))
+      .filter(([name]) => name)
+      .map(([name, state, created, owner, app]): SandboxListing => ({
+        name: name!,
+        provider: this.name,
+        state: state ?? "unknown",
+        live: this.live.has(name!),
+        owner: owner || "kiln",
+        ...(app ? { studioApp: app } : {}),
+        ...(created && !Number.isNaN(Date.parse(created.replace(/ [A-Z]+$/, "")))
+          ? { createdAt: new Date(created.replace(/ [A-Z]+$/, "")).toISOString() }
+          : {}),
+      }));
+    const running = rows.filter((s) => s.state === "running").map((s) => s.name);
+    if (!running.length) return rows;
+    const stats = await this.runner.run("docker", ["stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}", ...running]);
+    for (const line of stats.code === 0 ? stats.stdout.split("\n") : []) {
+      const [name, cpu, mem] = line.trim().split("\t");
+      const row = rows.find((s) => s.name === name);
+      if (!row) continue;
+      const pct = Number.parseFloat(cpu ?? "");
+      if (!Number.isNaN(pct)) row.cpuPercent = pct;
+      const bytes = parseByteSize((mem ?? "").split("/")[0] ?? "");
+      if (bytes !== undefined) row.memoryBytes = bytes;
+    }
+    return rows;
+  }
+
   async resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox> {
+    await this.options.diskGuard?.();
     const started = Date.now();
     const id = newId();
     const name = `kiln-${id}`;
@@ -591,7 +683,7 @@ class DockerSandbox implements Sandbox {
   async destroy() {
     // Forget it first: if removal fails, the next sweep retries it.
     this.onDestroy?.();
-    await this.runner.run("docker", ["rm", "-f", this.container]);
+    await this.runner.run("docker", ["rm", "-f", "-v", this.container]);
   }
 
   /** The container's address on its network; the API must share that network to reach it. */

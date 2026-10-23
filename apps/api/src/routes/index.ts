@@ -1,4 +1,5 @@
 import type { RouteContext } from "../app";
+import { adminRoutes } from "./admin";
 import { authRoutes } from "./auth";
 import { registerAutomationRoutes } from "./automations";
 import * as benchmarks from "./benchmarks";
@@ -72,6 +73,7 @@ const PLATFORM: ((ctx: RouteContext) => void)[] = [
   registerAutomationRoutes,
   registerWebhookSourceRoutes,
   factoryDeleteRoutes,
+  adminRoutes,
 ];
 
 /** Public routes (Studio preview hosts, provider webhooks, OAuth callbacks): registered before the API's auth middleware. */

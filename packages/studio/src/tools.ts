@@ -58,6 +58,7 @@ export const STUDIO_TOOLS = [
   tool("restore", "server", "Restore an earlier version as a new version; nothing is lost.", VersionRef),
   tool("bookmark", "server", "Pin or unpin a version.", Bookmark),
   tool("look", "server", "The live preview of a chat (its URL).", ChatRef),
+  tool("restart_preview", "server", "Restart a chat's preview dev server, for example after its environment changed or when it is stuck.", ChatRef),
   tool("stop", "server", "Stop the chat's agent; it waits for the next message.", ChatRef),
   tool(
     "ship",
@@ -144,6 +145,8 @@ async function dispatch(studio: Studio, call: ToolCall, caller: ToolCaller, ship
       return { ok: true, data: null };
     case "look":
       return { ok: true, data: await studio.preview({ chatId: chat(call.input.chat) }) };
+    case "restart_preview":
+      return { ok: true, data: await studio.restartPreview(chat(call.input.chat)) };
     case "ship": {
       const { app: appId, ...input } = call.input;
       app(appId);

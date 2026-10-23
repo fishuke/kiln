@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ClipboardEvent } from "react";
 import { Plus, Trash2, X } from "lucide-react";
 import type { VariableLayerView } from "@kiln/sdk-ts";
 import { ConfirmAction } from "@/components/kiln/confirm-action";
@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { rowProblem, toVariableInputs, type VariableRow } from "@/lib/variables";
+import { parseDotenv } from "@/lib/secret-types";
+import { mergePasted, rowProblem, toVariableInputs, type VariableRow } from "@/lib/variables";
 import { deleteEnvironment, saveVariables, type EnvironmentScope } from "./environment-actions";
 
 const ENV_NAME = /^[a-z][a-z0-9-]{0,31}$/;
@@ -19,6 +20,7 @@ export type InheritedLayers = { from: string; layers: VariableLayerView[] };
 const NOUN: Record<EnvironmentScope, string> = { project: "project", app: "App" };
 
 let nextId = 0;
+const blankRow = (key = "", value = ""): Row => ({ id: nextId++, key, value, secret: false, stored: false });
 const rowsOf = (layer?: VariableLayerView): Row[] =>
   (layer?.variables ?? []).map((v) => ({ id: nextId++, key: v.key, value: v.secret ? "" : v.value, secret: v.secret, stored: v.secret }));
 
@@ -115,6 +117,13 @@ function EnvironmentCard({
   const [rows, setRows] = useState<Row[]>(() => rowsOf(layer));
   const set = (id: number, patch: Partial<Row>) => setRows(rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const problem = rowProblem(rows);
+  // Pasting a .env (KEY=value lines) into a field fills one row per variable.
+  const paste = (r: Row, text: string, e: ClipboardEvent) => {
+    const pairs = text.includes("\n") || text.includes("=") ? parseDotenv(text) : [];
+    if (pairs.length === 0) return;
+    e.preventDefault();
+    setRows(mergePasted(rows, r, pairs, blankRow));
+  };
   const save = () => run(() => saveVariables(scope, owner, name, toVariableInputs(rows)), { onSuccess: onSaved });
 
   return (
@@ -153,11 +162,13 @@ function EnvironmentCard({
       </div>
       <fieldset disabled={!canEdit} className="space-y-2 p-4">
         {rows.length === 0 && <p className="text-sm text-muted-foreground">No {NOUN[scope]} variables.</p>}
+        {canEdit && <p className="text-xs text-muted-foreground">Tip: paste a .env into a key field to add many variables at once.</p>}
         {rows.map((r) => (
           <div key={r.id} className="flex items-center gap-2">
             <Input
               value={r.key}
               onChange={(e) => set(r.id, { key: e.target.value })}
+              onPaste={(e) => paste(r, e.clipboardData.getData("text"), e)}
               placeholder="API_URL"
               aria-label="Key"
               className="h-8 w-56 shrink-0 font-mono"
@@ -165,6 +176,10 @@ function EnvironmentCard({
             <Input
               value={r.value}
               onChange={(e) => set(r.id, { value: e.target.value })}
+              onPaste={(e) => {
+                const text = e.clipboardData.getData("text");
+                if (text.trim().includes("\n")) paste(r, text, e);
+              }}
               type={r.secret ? "password" : "text"}
               placeholder={r.secret && r.stored ? "Saved. Enter a new value to replace it" : "Value"}
               aria-label={`Value of ${r.key || "variable"}`}
@@ -191,7 +206,7 @@ function EnvironmentCard({
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => setRows([...rows, { id: nextId++, key: "", value: "", secret: false, stored: false }])}
+            onClick={() => setRows([...rows, blankRow()])}
           >
             <Plus /> Add variable
           </Button>

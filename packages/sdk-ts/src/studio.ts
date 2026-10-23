@@ -104,7 +104,7 @@ export type StudioApplyResult = { ok: true; version: StudioVersion } | { ok: fal
 export type StudioStatusReport = {
   apps: { id: string; name: string; working: string[]; needsYou: { chatId: string; question: string }[]; latest?: { title: string; at: string } }[];
 };
-export type StudioClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" };
+export type StudioClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" | "hands_free" };
 export type StudioToolResult = { ok: true; data: unknown; client?: StudioClientAction } | { ok: false; error: string };
 
 /** Ship mode is not set here: ship's setShipMode changes it after the App policy's cap check. */

@@ -7,7 +7,7 @@ import { ChatMode, AppSource, ShipMode, StudioError, type Via } from "./types";
 
 export type ToolKind = "server" | "client";
 export type StudioTool<I extends z.ZodType = z.ZodType, N extends string = string> = { name: N; kind: ToolKind; description: string; input: I };
-export type ClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" };
+export type ClientAction = { focus: { app: string; chat?: string } } | { show: "preview" | "code" | "history" | "hands_free" };
 export type ToolResult = { ok: true; data: unknown; client?: ClientAction } | { ok: false; error: string };
 /** `role` is the caller's team role; shipping checks it (who may cancel). */
 export type ToolCaller = { team: string; by: string; via: Via; role?: TeamRole };
@@ -46,7 +46,7 @@ const ChatRef = z.object({ chat: z.string() }).strict();
 const VersionRef = z.object({ version: z.string() }).strict();
 const Bookmark = z.object({ version: z.string(), on: z.boolean() }).strict();
 const Focus = z.object({ app: z.string(), chat: z.string().optional() }).strict();
-const Show = z.object({ view: z.enum(["preview", "code", "history"]) }).strict();
+const Show = z.object({ view: z.enum(["preview", "code", "history", "hands_free"]) }).strict();
 
 /** Every Studio action, for any client: the web page, MCP and voice (ADR-012). */
 export const STUDIO_TOOLS = [
@@ -72,7 +72,7 @@ export const STUDIO_TOOLS = [
     SetShipMode,
   ),
   tool("focus", "client", "Move the person's screen to an app and, optionally, a chat.", Focus),
-  tool("show", "client", "Show the preview, the code or the history in the person's screen.", Show),
+  tool("show", "client", "Show the preview, the code, the history or the hands-free view in the person's screen.", Show),
 ] as const satisfies readonly StudioTool[];
 
 export type StudioToolName = (typeof STUDIO_TOOLS)[number]["name"];

@@ -40,7 +40,7 @@ import { SetupPanel } from "./setup-panel";
 import { AppSettingsLink, AppSwitcher, NeedsYouMenu } from "./top-bar";
 import { TasksPanel } from "./child-chats";
 import { ShipControl } from "./ship";
-import { ConflictNote, TurnView } from "./turn-view";
+import { ConflictNote, TurnView, WaitingPrompt } from "./turn-view";
 import { usePreview, useStudioApp, type PreviewTarget } from "./use-studio";
 import { VersionCard } from "./version-card";
 
@@ -359,6 +359,8 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
           <ChatTabs chats={chatList} active={chatId} onPick={selectChat} onNew={() => void newChat()} />
           {!detail || (chatId && !current) ? (
             <RailSkeleton />
+          ) : !turns.length && app?.firstPrompt && !chatList.length ? (
+            <WaitingPrompt text={app.firstPrompt.text} />
           ) : !turns.length ? (
             <EmptyChat />
           ) : (

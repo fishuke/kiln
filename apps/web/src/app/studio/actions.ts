@@ -42,6 +42,7 @@ const CreateInput = z.object({
   source: AppSource.optional(),
   harness: z.string().optional(),
   model: z.string().optional(),
+  prompt: z.string().trim().min(1).optional(),
 });
 const PatchInput = z.object({
   name: z.string().trim().min(1).max(80).optional(),

@@ -97,6 +97,17 @@ describe("Studio API", () => {
     expect(await client.studioUpdateApp(created.id, { projectId: "prj_1" })).toMatchObject({ projectId: "prj_1" });
   });
 
+  it("creates an App with a first prompt and answers before setup is done", async () => {
+    const { client, kiln } = setup();
+    const created = await client.studioCreateApp({ name: "Pet a cat", source: { kind: "template", template: "test" }, prompt: "write cat" });
+    expect(created).toMatchObject({ status: "creating", firstPrompt: { text: "write cat", via: "web" } });
+    await studioFor(kiln)!.ready(created.id);
+    const { app, chats } = await client.studioApp(created.id);
+    expect(app.firstPrompt).toBeUndefined();
+    await studioFor(kiln)!.idle(chats[0]!.id);
+    expect((await client.studioChat(chats[0]!.id)).turns.map((t) => t.prompt)).toEqual(["write cat"]);
+  });
+
   it("is off unless the server sets KILN_STUDIO=1", async () => {
     vi.stubEnv("KILN_STUDIO", "");
     const { app, kiln } = setup();

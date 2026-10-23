@@ -53,6 +53,8 @@ export const StudioApp = z.object({
   model: z.string().optional(),
   status: AppStatus,
   error: z.string().optional(),
+  /** The prompt the App was created with, until its first chat starts. */
+  firstPrompt: z.object({ text: z.string(), via: z.string() }).optional(),
   createdBy: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -186,7 +188,8 @@ export const AppPullRequest = z.object({
 });
 export type AppPullRequest = z.infer<typeof AppPullRequest>;
 
-export type CreateAppInput = { name: string; source?: AppSource; harness?: string; model?: string };
+/** `prompt` starts the App's first chat once setup is done. */
+export type CreateAppInput = { name: string; source?: AppSource; harness?: string; model?: string; prompt?: string };
 /** `devCommand: null` clears an override. */
 export type UpdateAppInput = { name?: string; devCommand?: string | null };
 export type NewChatInput = { prompt?: string; mode?: ChatMode; harness?: string; model?: string; title?: string };

@@ -82,6 +82,7 @@ export type App = {
   model?: string;
   status: AppStatus;
   error?: string;
+  firstPrompt?: { text: string; via: Via }; // the prompt it was created with, until its first chat starts
   snapshot?: SnapshotRef; // latest workspace snapshot
   createdBy: string;
   createdAt: string;
@@ -271,9 +272,9 @@ export class Studio {
 
   listApps(team: string): App[];
   getApp(id: string): { app: App; chats: Chat[]; versions: Version[] } | undefined; // versions newest first
-  createApp(input: { team: string; by: string; name: string; projectId?: string; source?: AppSource; harness?: HarnessType; model?: string }): Promise<App>; // ship mode: the default for the source // default source: the nextjs template
+  createApp(input: { team: string; by: string; name: string; projectId?: string; source?: AppSource; harness?: HarnessType; model?: string; firstPrompt?: { text: string; via: Via } }): Promise<App>; // ship mode: the default for the source // default source: the nextjs template // returns while the App is creating; once setup succeeds, a new chat starts with firstPrompt (span studio.first_chat) and firstPrompt is dropped; a failed App keeps it for a retry
   updateApp(id: string, patch: { name?: string; projectId?: string | null; shipMode?: ShipMode; devCommand?: string | null }): App; // shipMode only from ship's setShipMode, after its cap check; the API and tools don't take it
-  /** Resolves when a new App is ready or has failed (creation runs in the background). */
+  /** Resolves when a new App is ready or has failed (creation runs in the background), and its first chat has started. */
   ready(appId: string): Promise<void>;
   /** Stops every dev server, agent and sandbox without snapshotting (process shutdown, tests). */
   shutdown(): Promise<void>;
@@ -410,7 +411,7 @@ Every route needs a signed-in caller (`ctx.user`) and a token scope: reads need 
 | Method and path                              | Body                                              | Response                                                                                                                                                                                                                                                                                                        |
 | -------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /api/v1/studio/apps`                    |                                                   | `{ apps: App[] }`                                                                                                                                                                                                                                                                                               |
-| `POST /api/v1/studio/apps`                   | `{ name, projectId?, source?, harness?, model? }` | `App` (status `creating`; poll until `ready`)                                                                                                                                                                                                                                                                   |
+| `POST /api/v1/studio/apps`                   | `{ name, projectId?, source?, harness?, model?, prompt? }` | `App` (status `creating`; poll until `ready`). With `prompt`, the first chat starts with it once setup is done; until then the App carries it as `firstPrompt`                                                                                                                                       |
 | `GET /api/v1/studio/apps/{id}`               |                                                   | `{ app, chats: Chat[], versions: Version[], pullRequest?: AppPullRequest }` (versions newest first; the App's latest pull request)                                                                                                                                                                              |
 | `PATCH /api/v1/studio/apps/{id}`             | `{ name?, projectId?, devCommand? }`              | `App`                                                                                                                                                                                                                                                                                                           |
 | `PUT /api/v1/studio/apps/{id}/ship-mode`     | `{ mode }`                                        | `App` (`Shipper.setShipMode`: the App policy's cap for the caller's team role; 400 above it)                                                                                                                                                                                                                    |

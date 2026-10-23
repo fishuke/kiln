@@ -167,6 +167,18 @@ describe("FakeStudioClient", () => {
     expect((await studio.updateApp(p.id, { devCommand: null })).setup?.dev).toBe("pnpm run dev");
   });
 
+  it("restarts a preview: it starts again and becomes ready", async () => {
+    const { studio, run } = setup();
+    const id = await readyProject(studio, run);
+    const [v] = (await studio.app(id)).versions;
+    expect((await studio.versionPreview(v!.id)).status).toBe("starting");
+    run();
+    expect((await studio.versionPreview(v!.id)).status).toBe("ready");
+    expect((await studio.restartVersionPreview(v!.id)).status).toBe("starting");
+    run();
+    expect((await studio.versionPreview(v!.id)).status).toBe("ready");
+  });
+
   it("titles from the first clause", () => {
     expect(titleFrom("please add a dark mode toggle. Thanks")).toBe("Add a dark mode toggle");
   });

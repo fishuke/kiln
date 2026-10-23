@@ -2215,6 +2215,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/studio/versions/{id}/bookmark` | `send` | Pin or unpin a version |
 | GET | `/api/v1/studio/versions/{id}/diff` | `read` | A version's changes against its parent |
 | GET | `/api/v1/studio/versions/{id}/preview` | `read` | Preview an earlier version |
+| POST | `/api/v1/studio/versions/{id}/preview/restart` | `send` | Restart the version preview's dev server |
 | GET | `/api/v1/studio/status` | `read` | What is working and what needs you, across your team's Apps |
 | GET | `/api/v1/studio/events` | `read` | Server-sent events for your team's Apps: Studio events and merge gate reviews |
 | POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, restart_preview, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send |
@@ -4591,6 +4592,12 @@ Each preview gets its own origin, `<id>.<KILN_STUDIO_PREVIEW_DOMAIN>`, never Kil
 | `KILN_STUDIO_PREVIEW_DOMAIN` | The preview domain, for example `preview.kiln.example.com`. Point a wildcard DNS record and a wildcard certificate for `*.<domain>` at the API. For local development, `preview.localhost:4000` gives `http://` URLs, because browsers send `*.localhost` to your own machine. |
 
 When the variable is unset, the preview URL is the sandbox's own address, such as `http://127.0.0.1:4101`. That works only with local sandboxes.
+
+A dev server that exits stays stopped, and the preview shows why with its last output lines. **Restart** (in the preview's toolbar, or under the error) starts it again. Dev servers read the App's environment variables when they start, so restart after you change them. Changing the dev command during an import restarts it for you.
+
+An imported repository's `.env.example` (or `.env.sample`, `.env.local.example`) doesn't say which keys are required, so Studio lists the keys no variable provides as **Not set yet**. They don't stop the App from opening.
+
+If the repository's `dev` script is a single `next dev` or `vite` command with its own port, such as `next dev -p 4000`, Studio runs that command with each preview's own port instead. For any other script that sets a port, change the dev command and use `{port}`, for example `pnpm exec next dev --port {port} --hostname 0.0.0.0`.
 
 What the proxy does with a request to a preview host:
 

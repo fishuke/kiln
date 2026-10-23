@@ -423,6 +423,9 @@ export class KilnClient {
   studioVersionPreview(versionId: string) {
     return this.request<StudioPreview>("GET", `/api/v1/studio/versions/${encodeURIComponent(versionId)}/preview`);
   }
+  studioRestartVersionPreview(versionId: string) {
+    return this.request<StudioPreview>("POST", `/api/v1/studio/versions/${encodeURIComponent(versionId)}/preview/restart`);
+  }
   studioStatus() {
     return this.request<StudioStatusReport>("GET", "/api/v1/studio/status");
   }

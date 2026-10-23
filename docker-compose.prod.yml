@@ -110,9 +110,9 @@ services:
   # with node_modules and a warm pnpm store, so a new App is a copy (runners/images/studio). It only idles.
   runner-studio-image:
     build:
-      context: templates/nextjs
-      dockerfile: ../../runners/images/studio/Dockerfile
-      args: { BASE: "${KILN_RUNNER_IMAGE:-kiln-runner-node:local}" }
+      context: runners/images/node
+      target: studio
+      additional_contexts: { template: templates/nextjs }
     image: ${KILN_STUDIO_IMAGE:-kiln-runner-studio:local}
     command: ["sleep", "infinity"]
     init: true

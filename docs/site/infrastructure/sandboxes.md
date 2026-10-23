@@ -114,7 +114,7 @@ Studio Apps run in their own image, `kiln-runner-studio`, so a new App needs no 
 
 ```sh
 docker build -t kiln-runner-node:local runners/images/node
-docker build -t kiln-runner-studio:local -f runners/images/studio/Dockerfile templates/nextjs
+docker build --target studio --build-context template=templates/nextjs -t kiln-runner-studio:local runners/images/node
 ```
 
 Studio is off unless the API has `KILN_STUDIO=1`; without it, the Studio routes answer 503. Set `KILN_STUDIO_IMAGE=kiln-runner-studio:local` on the API. Without it, Studio uses `KILN_RUNNER_IMAGE` and creates the App with `create-next-app`, which downloads everything and takes minutes. `runners/studio.yaml` is the matching runner file.

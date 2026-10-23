@@ -102,6 +102,36 @@ describe("FakeStudioClient", () => {
     expect((await studio.status()).apps[0]!.needsYou).toHaveLength(1);
   });
 
+  it("asks before a risky command, needs you while it waits and goes on once allowed", async () => {
+    const { studio, run } = setup();
+    const id = await readyProject(studio, run);
+    const { chat } = await studio.newChat(id, { prompt: "Clean up the build output" });
+    run();
+    const waiting = await studio.chat(chat.id);
+    expect(waiting.chat).toMatchObject({ status: "needs_you", question: "Allow this command? rm -rf .next" });
+    const approval = waiting.turns[0]!.approval!;
+    expect(approval).toMatchObject({ command: "rm -rf .next", state: "waiting" });
+    expect((await studio.status()).apps[0]!.needsYou).toHaveLength(1);
+
+    await studio.decideApproval(approval.gateId, "approve");
+    expect((await studio.chat(chat.id)).chat.status).toBe("working");
+    run();
+    const done = await studio.chat(chat.id);
+    expect(done.turns[0]).toMatchObject({ status: "succeeded", approval: { state: "allowed" } });
+    expect(done.chat.status).toBe("idle");
+  });
+
+  it("blocks a risky command the person rejects", async () => {
+    const { studio, run } = setup();
+    const id = await readyProject(studio, run);
+    const { chat } = await studio.newChat(id, { prompt: "Clean up the build output" });
+    run();
+    const { turns } = await studio.chat(chat.id);
+    await studio.decideApproval(turns[0]!.approval!.gateId, "reject");
+    run();
+    expect((await studio.chat(chat.id)).turns[0]!.approval).toMatchObject({ state: "blocked" });
+  });
+
   it("restores as a new version and bookmarks", async () => {
     const { studio, run } = setup();
     const id = await readyProject(studio, run);

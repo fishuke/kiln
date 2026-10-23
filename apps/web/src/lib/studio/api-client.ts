@@ -37,6 +37,9 @@ export class ApiStudioClient implements StudioClient {
   repositories = () => unwrap(actions.studioRepositories());
   ship: StudioClient["ship"] = (appId, input) => unwrap(actions.studioShip(appId, input));
   mergeReviews: StudioClient["mergeReviews"] = async (state) => (await unwrap(actions.studioMergeReviews(state))).reviews;
+  decideApproval: StudioClient["decideApproval"] = async (gateId, decision) => {
+    await unwrap(actions.studioDecideApproval(gateId, decision));
+  };
   interrupt = async (runId: string) => {
     await unwrap(actions.studioInterrupt(runId));
   };

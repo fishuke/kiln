@@ -256,6 +256,20 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
     [client, chatId, turns.length, mode, newChat, loadChat, refresh],
   );
 
+  /** Allow or block the command a turn's run waits on; the person's own identity decides the gate. */
+  const decideApproval = useCallback(
+    async (gateId: string, decision: "approve" | "reject") => {
+      try {
+        await client.decideApproval(gateId, decision);
+        if (chatId) await loadChat(chatId);
+        void refresh();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [client, chatId, loadChat, refresh],
+  );
+
   // Keyboard: ⌥P mode, ⌥H history, ⌥K tasks, ⌥N new chat, ⌥1–9 chats, Esc leaves an old version.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -373,6 +387,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
                           <TurnView
                             turn={t}
                             busy={working}
+                            onDecideApproval={decideApproval}
                             onBuildPlan={(plan, inNew) => {
                               setDraftMode("build");
                               void (inNew ? newChat(plan, "build") : send(plan, "build"));

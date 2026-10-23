@@ -17,7 +17,8 @@ import type { Run } from "@kiln/engine";
 
 type RunInfo = Pick<Run, "id" | "factory" | "agent" | "harness" | "traceId" | "status" | "costUsd" | "eventCount" | "startedAt"> &
   Partial<Pick<Run, "workItemId" | "parentRunId" | "model" | "stage" | "summary" | "error" | "finishedAt">>;
-export type TelemetryLookup = { run(id: string): RunInfo | undefined };
+/** `gate`: a gate's run, so a run's command approval logs in the run's trace. */
+export type TelemetryLookup = { run(id: string): RunInfo | undefined; gate?(id: string): { runId?: string } | undefined };
 
 const hash = (s: string, hexChars: number) => createHash("sha256").update(s).digest("hex").slice(0, hexChars);
 export const workItemTraceId = (id: string) => hash(`kiln:work_item:${id}`, 32);
@@ -219,6 +220,10 @@ export function bridgeEvents(bus: EventBus, lookup: TelemetryLookup, t: EngineTe
     else if (e.type === "work_item.created") onWorkItemCreated(e as KilnEvent<"work_item.created">);
     else if (e.type === "work_item.stage_changed") onStageChanged(e as KilnEvent<"work_item.stage_changed">);
     const workItemId = "workItemId" in e.payload ? e.payload.workItemId : undefined;
+    // A gate a run waits on (a command approval) logs on the run's span: a run without a work item has its own trace.
+    const gateId = e.type.startsWith("gate.") && "gateId" in e.payload ? e.payload.gateId : undefined;
+    const gateRunId = gateId ? lookup.gate?.(gateId)?.runId : undefined;
+    const gateRun = gateRunId ? runInfo(gateRunId) : undefined;
     const failure = STUDIO_FAILURES[e.type]?.(e.payload as never);
     const [severityNumber, severityText] = failure?.severity ?? [SeverityNumber.INFO, "INFO"];
     // Without a work item, the record lands in the active trace: a Studio failure's span or request.
@@ -229,10 +234,15 @@ export function bridgeEvents(bus: EventBus, lookup: TelemetryLookup, t: EngineTe
       body: failure ? clip(`${e.type}: ${failure.message}`) : e.type,
       // A dev server's output keeps all of its 40 lines (payloadAttributes clips strings to 4000 characters).
       attributes: {
+        ...(gateRun ? (runAttributes(gateRun) as AnyValueMap) : {}),
         ...payloadAttributes(e.payload),
         ...(e.type === "studio.preview_failed" ? { "kiln.output": clip((e as KilnEvent<"studio.preview_failed">).payload.output) } : {}),
       },
-      ...(workItemId ? { context: remote(workItemTraceId(workItemId), workItemSpanId(workItemId)) } : {}),
+      ...(gateRun
+        ? { context: remote(runTrace(gateRun), runSpanId(gateRun.id)) }
+        : workItemId
+          ? { context: remote(workItemTraceId(workItemId), workItemSpanId(workItemId)) }
+          : {}),
     });
   });
 }

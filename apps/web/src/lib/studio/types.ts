@@ -112,6 +112,8 @@ export const Turn = z.object({
   finishedAt: z.string().optional(),
   /** The run this turn is (docs/specs/studio.md, "Chats reuse runs"). */
   runId: z.string().optional(),
+  /** The run's trace id in the tracing backend, shown muted under the turn. */
+  traceId: z.string().optional(),
 });
 export type Turn = z.infer<typeof Turn>;
 

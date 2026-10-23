@@ -9,7 +9,7 @@ import { MemoryStore } from "@kiln/store";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppDefinitions } from "./app-definitions";
 import { studioEngineHooks, studioRuns } from "./engine-port";
-import { Studio, type StudioOptions } from "./studio";
+import { Studio, toolText, type StudioOptions } from "./studio";
 import type { Template } from "./templates";
 
 class TestClock {
@@ -418,6 +418,30 @@ describe("restarts", () => {
     store.put("studio_chats", { id: "sc_old", appId: "sa_2", title: "Chat", mode: "build", harness: "claude-code", branch: "chat/sc_old", path: "chats/sc_old", port: 4101, status: "idle", createdAt: at, updatedAt: at });
     const { studio } = make({ store });
     expect(studio.getChat("sc_old")!.chat.agent).toBe("general");
+  });
+});
+
+describe("activity", () => {
+  it("says what each tool call acted on", () => {
+    expect(toolText({ command: "pnpm typecheck\n&& pnpm test" })).toBe("pnpm typecheck");
+    expect(toolText({ file_path: "/workspace/chats/sc_1/app/page.tsx" })).toBe("app/page.tsx");
+    expect(toolText({ pattern: "TodoItem", path: "/workspace/chats/sc_1/components" })).toBe("TodoItem in components");
+    expect(toolText({ pattern: "**/*.tsx" })).toBe("**/*.tsx");
+    expect(toolText({ url: "https://nextjs.org/docs" })).toBe("https://nextjs.org/docs");
+    expect(toolText({})).toBeUndefined();
+  });
+
+  it("records a command's text on its activity line", async () => {
+    const ran: FakeScript = async ({ emit }) => {
+      emit({ type: "tool_call", name: "Bash", input: { command: "pnpm typecheck" } });
+      return { summary: "checked" };
+    };
+    const { studio } = make({}, ran);
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    const t = await say(studio, chat.id, "check it");
+    expect(t.activity).toContainEqual(expect.objectContaining({ kind: "tool", name: "Bash", text: "pnpm typecheck" }));
+    expect(t.traceId).toMatch(/^[0-9a-f]{32}$/);
   });
 });
 

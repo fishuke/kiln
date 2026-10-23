@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import {
   AlertCircle,
   Bot,
@@ -34,7 +35,7 @@ import {
   TraceTitle,
 } from "@/components/ui/trace";
 import { relativeTime } from "@/lib/run-tree";
-import { turnCard, workTitle } from "@/lib/studio/model";
+import { turnCard, traceSteps, workTitle } from "@/lib/studio/model";
 import type { Activity, Turn } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
 
@@ -53,9 +54,26 @@ export function PromptBubble({ turn }: { turn: Turn }) {
           {turn.via === "voice" && <Mic className="size-3" aria-label="Spoken" />}
           {turn.resolve && <span>Started by Studio</span>}
           <span suppressHydrationWarning>{relativeTime(turn.startedAt)}</span>
+          {turn.traceId && <TraceId id={turn.traceId} />}
         </MessageFooter>
       </MessageContent>
     </Message>
+  );
+}
+
+/** The turn's trace id, muted: enough to find it in the tracing backend from a screenshot; click copies it. */
+function TraceId({ id }: { id: string }) {
+  return (
+    <button
+      type="button"
+      title={`Trace ${id}`}
+      className="font-mono text-[11px] text-muted-foreground/60 hover:text-muted-foreground"
+      onClick={() => {
+        void navigator.clipboard.writeText(id).then(() => toast.success("Trace id copied"));
+      }}
+    >
+      trace {id.slice(0, 8)}
+    </button>
   );
 }
 
@@ -143,7 +161,7 @@ function ActivityLine({ a, live }: { a: Activity; live: boolean }) {
 /** The agent's work as a Chain of Thought: one collapsible line, open and shimmering while it runs. */
 export function ActivityTrace({ turn }: { turn: Turn }) {
   const live = turn.status === "running";
-  const steps = turn.activity;
+  const steps = traceSteps(turn);
   if (!steps.length && !live) return null;
   const tools = steps.filter((a) => a.kind === "tool").length;
   return (

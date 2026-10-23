@@ -123,6 +123,8 @@ export const Turn = z.object({
   chatId: z.string(),
   /** The run this turn is (set once the run has its workspace). */
   runId: z.string().optional(),
+  /** The run's trace id, to find this turn in the tracing backend. */
+  traceId: z.string().optional(),
   prompt: z.string(),
   mode: ChatMode,
   via: Via,

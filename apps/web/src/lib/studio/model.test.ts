@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  traceSteps,
   cowboyConfirmation,
   defaultShipMode,
   fileTree,
@@ -108,6 +109,18 @@ describe("turnCard", () => {
   });
   it("shows the plan card for a plan", () => {
     expect(turnCard(turn({ plan: "1. Do it" }))).toBe("plan");
+  });
+});
+
+describe("traceSteps", () => {
+  const at = "2026-10-23T09:00:00Z";
+  it("drops the final message when it is the reply shown below the steps", () => {
+    const t = turn({ reply: "Done.", activity: [{ kind: "tool", name: "Bash", text: "pnpm test", at }, { kind: "message", text: "Done.", at }] });
+    expect(traceSteps(t)).toEqual([{ kind: "tool", name: "Bash", text: "pnpm test", at }]);
+  });
+  it("keeps interim messages and a final message that differs from the reply", () => {
+    const t = turn({ reply: "All set.", activity: [{ kind: "message", text: "Checking the list first.", at }] });
+    expect(traceSteps(t)).toHaveLength(1);
   });
 });
 

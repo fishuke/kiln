@@ -110,6 +110,12 @@ export function needsYouCount(status: StatusReport | undefined): number {
 }
 
 /** "Worked for 34s" once a turn is done, "Working" while it runs. */
+/** The turn's activity lines, without its final message when that message is the reply shown below them. */
+export function traceSteps(t: Turn): Turn["activity"] {
+  const last = t.activity.at(-1);
+  return last?.kind === "message" && t.reply && last.text.trim() === t.reply.trim() ? t.activity.slice(0, -1) : t.activity;
+}
+
 export function workTitle(t: Turn): string {
   if (t.status === "running") return "Working";
   if (!t.finishedAt) return "Worked";

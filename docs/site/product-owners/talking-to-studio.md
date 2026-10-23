@@ -52,7 +52,7 @@ You can't upload files by voice. Drop a logo or a screenshot on the screen inste
 
 | Event                                                       | What you hear                                                |
 | ----------------------------------------------------------- | ------------------------------------------------------------ |
-| A chat needs you (it asks a question)                | It says so at the next pause, never over you.                |
+| A chat needs you (it asks a question)                       | It says so at the next pause, never over you.                |
 | A turn finished in the chat you're in, or while you're idle | Its title and short summary                                  |
 | A turn finished in another chat                             | Nothing. A badge appears, and you can ask "how's it going?". |
 | Progress while an agent works                               | Nothing                                                      |

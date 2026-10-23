@@ -23,3 +23,16 @@ export function rowProblem(rows: VariableRow[]): string | undefined {
   }
   return undefined;
 }
+
+/**
+ * Merges pasted KEY=value pairs (a .env file) into the rows: a key already listed gets the new
+ * value, other keys are added at the end, and the empty row the paste landed in is dropped.
+ */
+export function mergePasted<R extends VariableRow>(rows: R[], into: R, pairs: { name: string; value: string }[], add: (key: string, value: string) => R): R[] {
+  const values = new Map(pairs.map((p) => [p.name, p.value]));
+  const merged = rows
+    .filter((r) => r !== into || r.key.trim() || r.value)
+    .map((r) => (values.has(r.key.trim()) ? { ...r, value: values.get(r.key.trim())! } : r));
+  const listed = new Set(merged.map((r) => r.key.trim()));
+  return [...merged, ...[...values].filter(([k]) => !listed.has(k)).map(([k, v]) => add(k, v))];
+}

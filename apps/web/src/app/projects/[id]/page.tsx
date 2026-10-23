@@ -6,7 +6,7 @@ import { Page, PageHeader, Section, StateBadge } from "@/components/kiln/ui";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, safe } from "@/lib/kiln";
-import { ProjectEnvironments } from "./environments";
+import { Environments } from "@/components/kiln/environments";
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -26,16 +26,27 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         <p className="mb-8 text-sm text-muted-foreground">
           Owner {p.owner} · factories {p.factories.join(", ")}
         </p>
-        <Section title="Plan with the plan agent" description="A goal, a PRD or meeting notes become epics, milestones and tracker issues with acceptance criteria and a target factory.">
+        <Section
+          title="Plan with the plan agent"
+          description="A goal, a PRD or meeting notes become epics, milestones and tracker issues with acceptance criteria and a target factory."
+        >
           <form action={planProject} className="space-y-2">
             <input type="hidden" name="projectId" value={p.id} />
             <input name="goal" required placeholder="Goal, e.g. Self-serve returns" className="h-9 w-full rounded-md border bg-background px-3 text-sm" />
-            <textarea name="prd" rows={8} placeholder={"## Returns\n### Start a return from the order page\n  - AC: a Return button appears on delivered orders [shop]"} className="w-full rounded-md border bg-background p-3 font-mono text-xs" />
+            <textarea
+              name="prd"
+              rows={8}
+              placeholder={"## Returns\n### Start a return from the order page\n  - AC: a Return button appears on delivered orders [shop]"}
+              className="w-full rounded-md border bg-background p-3 font-mono text-xs"
+            />
             <SubmitButton>Create roadmap and issues</SubmitButton>
           </form>
         </Section>
-        <Section title="Environments" description="Variables and secrets for this project's factories and Studio apps. They override the team's variables; a factory or app can override them.">
-          <ProjectEnvironments projectId={p.id} layers={layers} team={team} canEdit={canEdit} />
+        <Section
+          title="Environments"
+          description="Variables and secrets for this project's factories and Studio apps. They override the team's variables; a factory or app can override them."
+        >
+          <Environments scope="project" owner={p.id} layers={layers} inherited={[{ from: "team", layers: team }]} canEdit={canEdit} />
         </Section>
         {p.roadmap && (
           <Section title={`Roadmap: ${p.roadmap.goal}`}>

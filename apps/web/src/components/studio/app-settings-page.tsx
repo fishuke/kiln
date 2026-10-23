@@ -1,8 +1,9 @@
 "use client";
 
-import type { StudioAppSettings } from "@kiln/sdk-ts";
+import type { StudioAppSettings, VariableLayerView } from "@kiln/sdk-ts";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "@/lib/toast";
+import { Environments, type InheritedLayers } from "@/components/kiln/environments";
 import { SettingsColumn, SettingsSection } from "@/components/kiln/settings-blocks";
 import { PageHeader } from "@/components/kiln/ui";
 import { saveStudioSettings } from "@/components/studio-settings/actions";
@@ -14,11 +15,22 @@ import { ShipModePicker } from "./top-bar";
 import { useStudioClient } from "./use-client";
 
 /**
- * /studio/[app]/settings: the App's ship mode and workspace, then its definition (AppSettingsView,
+ * /studio/[app]/settings: the App's ship mode, workspace and environments (its own variables over the
+ * team's and its project's), then its definition (AppSettingsView,
  * the one source for agents, skills, policy and budget). Cowboy on an imported repository is the
  * person's opt-in, so confirming it also turns on the policy's `pushDefaultBranch`.
  */
-export function AppSettingsPage({ appId, settings, canEditPolicy }: { appId: string; settings?: StudioAppSettings; canEditPolicy: boolean }) {
+export function AppSettingsPage({
+  appId,
+  settings,
+  canEditPolicy,
+  environments,
+}: {
+  appId: string;
+  settings?: StudioAppSettings;
+  canEditPolicy: boolean;
+  environments?: { layers: VariableLayerView[]; inherited: InheritedLayers[]; canEdit: boolean };
+}) {
   const client = useStudioClient();
   const [app, setApp] = useState<StudioApp>();
   const load = useCallback(
@@ -45,7 +57,12 @@ export function AppSettingsPage({ appId, settings, canEditPolicy }: { appId: str
     }
   };
 
-  const nav = [{ id: "ship-mode", label: "Ship mode" }, ...(app?.setup ? [{ id: "workspace", label: "Workspace" }] : []), ...APP_SETTINGS_NAV];
+  const nav = [
+    { id: "ship-mode", label: "Ship mode" },
+    ...(app?.setup ? [{ id: "workspace", label: "Workspace" }] : []),
+    ...(environments ? [{ id: "environments", label: "Environments" }] : []),
+    ...APP_SETTINGS_NAV,
+  ];
   return (
     <>
       <PageHeader crumbs={[{ label: "Studio", href: "/studio" }, { label: app?.name ?? "App", href: `/studio/${appId}` }, { label: "Settings" }]} />
@@ -67,8 +84,16 @@ export function AppSettingsPage({ appId, settings, canEditPolicy }: { appId: str
                   await load();
                 }}
               />
-              <MissingEnv keys={app.setup.envMissing} />
+              <MissingEnv appId={appId} keys={app.setup.envMissing} />
             </div>
+          </SettingsSection>
+        )}
+        {environments && (
+          <SettingsSection id="environments" title="Environments">
+            <p className="mb-4 text-sm text-muted-foreground">
+              Variables for this App only. They override the team&apos;s and the project&apos;s; a new chat or a preview restart picks them up.
+            </p>
+            <Environments scope="app" owner={appId} {...environments} onSaved={() => void load()} />
           </SettingsSection>
         )}
         {settings ? (

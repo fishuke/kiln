@@ -247,8 +247,10 @@ export class Studio {
   }
 
   getApp(appId: string): { app: App; chats: Chat[]; versions: Version[] } | undefined {
-    const app = this.opts.store.get<App>(C.apps, appId);
-    if (!app) return undefined;
+    const stored = this.opts.store.get<App>(C.apps, appId);
+    if (!stored) return undefined;
+    // People assign variables after setup, so what's missing is worked out on each read.
+    const app = stored.setup ? { ...stored, setup: { ...stored.setup, envMissing: this.missingEnv(stored, stored.setup) } } : stored;
     const chats = this.opts.store.list<Chat>(C.chats, (c) => c.appId === appId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     return { app, chats, versions: this.versions(appId) };
   }
@@ -525,9 +527,7 @@ export class Studio {
       envRequired,
       envMissing: [],
     };
-    // The resolver may only look up the keys the App asks for, so it sees the setup first.
-    const provided = this.env({ ...app, setup });
-    setup.envMissing = envRequired.filter((k) => !(k in provided));
+    setup.envMissing = this.missingEnv(app, setup);
     const dev = devCommand(setup);
     return dev ? { ...setup, dev } : setup;
   }
@@ -1218,6 +1218,13 @@ export class Studio {
 
   private versions(appId: string): Version[] {
     return this.opts.store.list<Version>(C.versions, (v) => v.appId === appId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** The keys the App's env example asks for that no variable provides. */
+  private missingEnv(app: App, setup: AppSetup): string[] {
+    // The resolver may only look up the keys the App asks for, so it sees the setup first.
+    const provided = this.env({ ...app, setup });
+    return setup.envRequired.filter((k) => !(k in provided));
   }
 
   private env(p: App): Record<string, string> {

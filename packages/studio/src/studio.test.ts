@@ -248,6 +248,19 @@ describe("apps", () => {
     expect(chat.id).toMatch(/^sc_[0-9a-f]{32}$/);
   });
 
+  it("starts a new chat's install from another worktree's dependencies", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-studio-"));
+    // The install marks a fresh node_modules, and notes when it found one already there.
+    const install = ["if [ -f node_modules/.installed ]; then touch node_modules/.reused; else mkdir -p node_modules && touch node_modules/.installed; fi"];
+    const { studio } = make({ sandboxes: new LocalSandboxProvider(root), templates: { test: { ...TEST, install } } });
+    const p = await app(studio);
+    const a = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    const b = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    const files = readdirSync(root, { recursive: true }) as string[];
+    expect(files.some((f) => f.endsWith(`${a.path}/node_modules/.reused`))).toBe(false);
+    expect(files.some((f) => f.endsWith(`${b.path}/node_modules/.reused`))).toBe(true);
+  });
+
   it("may belong to a Kiln Project, and needs no factory", async () => {
     const { studio } = make();
     const created = await studio.createApp({ team: "t1", by: "me", name: "Frontend", projectId: "prj_shop", source: { kind: "template", template: "test" } });

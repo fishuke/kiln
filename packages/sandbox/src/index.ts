@@ -324,6 +324,13 @@ class LocalSandbox implements Sandbox {
 }
 
 /** The runner's egress list plus the hosts of the repos the sandbox clones. */
+/**
+ * Packs /workspace while a dev server may still write to it. GNU tar exits 1 when a file changed while
+ * it was read ("file changed as we read it"); the archive is still complete, so that is not a failure.
+ * Any other non-zero exit is.
+ */
+export const SNAPSHOT_TAR = "tar --warning=no-file-changed -czf /tmp/snap.tgz -C /workspace . || [ $? -eq 1 ]";
+
 export function egressAllowlist(spec: SandboxSpec): string[] {
   const hosts = spec.repos
     .map((r) => {
@@ -566,7 +573,7 @@ class DockerSandbox implements Sandbox {
       if (r.code !== 0) throw new Error(`docker ${args[0]} failed: ${r.stderr}`);
       return r;
     };
-    await run(["exec", this.container, "tar", "-czf", "/tmp/snap.tgz", "-C", "/workspace", "."]);
+    await run(["exec", this.container, "sh", "-c", SNAPSHOT_TAR]);
     await run(["cp", `${this.container}:/tmp/snap.tgz`, archive]);
     let processState = false;
     if (this.options.checkpoint) {
@@ -800,7 +807,7 @@ class KubernetesSandbox implements Sandbox {
 
   async snapshot(store: ObjectStore): Promise<SnapshotRef> {
     const host = mkdtempSync(join(tmpdir(), "kiln-snap-"));
-    await this.runner.run("kubectl", [...this.base(), "tar", "-czf", "/tmp/snap.tgz", "-C", "/workspace", "."]);
+    await this.runner.run("kubectl", [...this.base(), "sh", "-c", SNAPSHOT_TAR]);
     await this.runner.run("kubectl", ["-n", this.namespace, "cp", `${this.pod}:/tmp/snap.tgz`, join(host, "snap.tgz")]);
     const body = existsSync(join(host, "snap.tgz")) ? new Uint8Array(readFileSync(join(host, "snap.tgz"))) : new Uint8Array();
     const key = `snapshots/${this.id}/${Date.now()}.tgz`;

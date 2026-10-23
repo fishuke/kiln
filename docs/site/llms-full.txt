@@ -620,7 +620,7 @@ The verdict:
 | Action | Result |
 | --- | --- |
 | `allow` (no entry matched) | The command runs. |
-| `ask_human` | Kiln opens a `command-approval` question for the requester and the `admins` role, and the run waits. Approve runs the command; reject, or no answer within 30 minutes, blocks it. |
+| `ask_human` | Kiln opens a `command-approval` question for the requester and the `admins` role, and the run waits. Approve runs the command; reject, or no answer within 9 minutes, blocks it. In Studio, the App's chat asks the person instead of the inbox. |
 | `block` | The command does not run. The agent sees "Blocked by the Kiln guardrail". |
 
 If the Claude Code hook cannot reach Kiln, it blocks the command.
@@ -3067,7 +3067,7 @@ The harness program must be installed in the runner's image. Pin its version in 
 | Instructions | Appended to the system prompt | Sent before the prompt | Written to `AGENTS.md` |
 | Skills folder | `.claude/skills/` | `.agents/skills/` | `.opencode/skills/` |
 | Kiln MCP | `.kiln/mcp.json`, passed with `--mcp-config` (never committed: it holds the run token) | Not configured | Not configured |
-| Command guard | `PreToolUse` hook on Bash in `.kiln/claude-settings.json`, passed with `--settings` | Not installed | Not installed |
+| Command guard | `PreToolUse` hook on Bash in `.kiln/claude-settings.json`, passed with `--settings`, with a 10-minute `timeout`; it blocks the command when Kiln hasn't answered after 9.5 minutes | Not installed | Not installed |
 | Cost | Reported by Claude Code | Estimated from token counts | Reported per step |
 
 Kiln drives Claude Code with the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview). The SDK runs in Kiln (the API or the worker), and the `claude` binary it talks to runs inside the run's sandbox with the run's environment only, so sandboxes, the egress allowlist and workers behave as for the other harnesses. The SDK sends the instructions and steering messages over the session's input. Its version is pinned to the release paired with the Claude Code version in the runner image (SDK `0.3.290` with Claude Code `2.1.290`), so bump both together. See [ADR-009](https://github.com/fishuke/kiln/blob/main/docs/adr/0009-claude-agent-sdk.md).
@@ -4925,7 +4925,7 @@ Only question gates take free-text answers. To decide through the inbox, the API
 
 Gates with a `nudge` time post a reminder in the source thread at that interval, naming who the gate waits on. Gates with an `expire` time park, approve or reject on their own when it passes. The built-in spec and preview gates nudge every 24 hours and park after 72 hours. The merge gate nudges every 48 hours.
 
-A command approval waits up to 30 minutes, then expires and the command is blocked.
+A command approval waits up to 9 minutes, then expires and the command is blocked. Claude Code gives the guard hook 10 minutes and runs the command when the hook times out, so Kiln always answers first. A Studio App's command approvals are asked in the App's chat, with **Allow** and **Block**.
 
 ## From the command line and MCP
 
@@ -5985,7 +5985,7 @@ The factory pauses at gates. Each gate appears in the [inbox](../management/inbo
 | Spec approval | The spec is written | Nudge every 24h, park after 72h |
 | Preview acceptance | The preview is deployed | Nudge every 24h, park after 72h |
 | Question | A stage keeps failing, or the build agent fails twice | None |
-| Command approval | The guardrail rates a shell command as risky | Waits up to 30 minutes, then blocks the command |
+| Command approval | The guardrail rates a shell command as risky | Waits up to 9 minutes, then blocks the command |
 | Merge | The pull request is handed off | Nudge every 48h |
 
 Rejecting a spec sends the item back to the spec stage with your feedback. Rejecting a preview sends it back to build.

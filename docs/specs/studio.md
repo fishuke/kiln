@@ -145,10 +145,14 @@ export type Turn = {
   discarded: boolean; // chat/plan mode changed files and Studio reverted them
   resolve?: boolean; // a conflict-resolution turn Studio started itself
   activity: Activity[];
+  approval?: CommandApproval; // the turn's latest command approval
   costUsd: number;
   startedAt: string;
   finishedAt?: string;
 };
+
+/** A command the run's guard asked a person about (a `command-approval` gate). */
+export type CommandApproval = { gateId: string; command: string; state: "waiting" | "allowed" | "blocked"; by?: string };
 
 export type Version = {
   id: string; // "sv_…": also the version preview target id
@@ -359,6 +363,14 @@ ADR-012: every agent execution in a chat is a **run**, and parallel work is **su
 
 Until it lands, Claude Code's guard hook can't check an App run's commands; commands that go through the sandbox (`withGuard`) are checked.
 
+**Command approvals.** When the command guard answers `ask_human` for a chat's run, the engine opens a `command-approval` gate with the run's id (`gates.askCommand`). Studio maps gate → run → chat through `StudioOptions.gates` (the engine's `GateService`):
+
+- On `gate.opened` for a run it lent a worktree, the turn gets `approval: { gateId, command, state: "waiting" }` (the command redacted like turn output), the chat becomes `needs_you` with the question `Allow this command? <command>`, and Studio publishes `studio.needs_you` with `reason: "approval"`. The top bar's badge and the team event stream report it like any other needs-you.
+- The chat shows the Confirmation pattern: **Allow this command?**, the command in mono, **Block** and **Allow**. Both call `POST /api/v1/gates/{id}/decide` (`reject` or `approve`) as the signed-in person; a run token can't decide.
+- On `gate.decided`, or once the gate expired (Studio checks on the run's next event and when the turn ends), the approval becomes `allowed` (with `by`) or `blocked`, the chat is `working` again and Studio publishes `studio.approval_decided`. The turn goes on.
+- Fail closed: the guard waits at most `askHumanTimeoutMs` (9 minutes, the default and the maximum), then expires the gate and answers `block`. Claude Code's hook has an explicit 10-minute `timeout` and blocks on its own after 9.5 minutes without an answer, because Claude Code runs a command whose hook timed out.
+- `gate.opened` and `gate.decided` for a run's gate are logged on the run's span, in the run's trace (the turn's `traceId`).
+
 **Contract changes.** `StudioOptions` loses `harness` and `credentials` and gains `definitions: AppDefinitions` and `runs: { start, followup, interrupt }` (the API wires them to `kiln.runs`). `Chat` gains `agent`, `runId?` and `parentRunId?`; `Turn` gains `runId?`. `new_chat` takes `agent?`. A `stop` tool `{ chat }` interrupts the chat's run.
 
 **Reading App runs.** Only through Studio's routes; `canReadRun` is unchanged.
@@ -369,7 +381,8 @@ Until it lands, Claude Code's guard hook can't check an App run's commands; comm
 "studio.turn_started":    { appId: string; chatId: string; turnId: string; priority: "progress" };
 "studio.turn_finished":   { appId: string; chatId: string; turnId: string; title?: string; summary?: string; changed: boolean; priority: "finished" };
 "studio.version_created": { appId: string; versionId: string; title: string; kind: VersionKind; priority: "finished" };
-"studio.needs_you":       { appId: string; chatId: string; question: string; reason: "question" | "conflict" | "failed"; priority: "needs_you" };
+"studio.needs_you":       { appId: string; chatId: string; question: string; reason: "question" | "conflict" | "failed" | "approval"; priority: "needs_you" };
+"studio.approval_decided": { appId: string; chatId: string; turnId: string; decision: "allowed" | "blocked"; by?: string; priority: "progress" }; // by: absent when nobody answered
 "studio.app_failed":      { appId: string; error: string; priority: "needs_you" };
 "studio.preview_failed":  { appId: string; chatId?: string; versionId?: string; port: number; reason: string; output: string; priority: "progress" };
 ```

@@ -142,7 +142,7 @@ The verdict:
 | Action | Result |
 | --- | --- |
 | `allow` (no entry matched) | The command runs. |
-| `ask_human` | Kiln opens a `command-approval` question for the requester and the `admins` role, and the run waits. Approve runs the command; reject, or no answer within 30 minutes, blocks it. |
+| `ask_human` | Kiln opens a `command-approval` question for the requester and the `admins` role, and the run waits. Approve runs the command; reject, or no answer within 9 minutes, blocks it. In Studio, the App's chat asks the person instead of the inbox. |
 | `block` | The command does not run. The agent sees "Blocked by the Kiln guardrail". |
 
 If the Claude Code hook cannot reach Kiln, it blocks the command.

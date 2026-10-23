@@ -71,7 +71,7 @@ The factory pauses at gates. Each gate appears in the [inbox](../management/inbo
 | Spec approval | The spec is written | Nudge every 24h, park after 72h |
 | Preview acceptance | The preview is deployed | Nudge every 24h, park after 72h |
 | Question | A stage keeps failing, or the build agent fails twice | None |
-| Command approval | The guardrail rates a shell command as risky | Waits up to 30 minutes, then blocks the command |
+| Command approval | The guardrail rates a shell command as risky | Waits up to 9 minutes, then blocks the command |
 | Merge | The pull request is handed off | Nudge every 48h |
 
 Rejecting a spec sends the item back to the spec stage with your feedback. Rejecting a preview sends it back to build.

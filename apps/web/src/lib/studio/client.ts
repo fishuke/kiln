@@ -48,8 +48,6 @@ export interface StudioClient {
   status(): Promise<StatusReport>;
   /** Connected forge repositories, for "Import from GitHub". */
   repositories(): Promise<ForgeRepository[]>;
-  /** Where a person gives Kiln's GitHub App access to more repositories; undefined without a GitHub App or the right to see it. */
-  repositoryAccessUrl(): Promise<string | undefined>;
   /** The `ship` tool: push and open or update the App's pull request, or move it to Ready for review or Cancelled. */
   ship(appId: string, input: { title?: string; state?: "uat" | "ready_for_review" | "cancelled" }): Promise<AppPullRequest>;
   /** The merge gate's reviews of the team's App pull requests (`GET /merge-gate/reviews`). */

@@ -392,6 +392,10 @@ export class KilnClient {
   studioChat(id: string) {
     return this.request<{ chat: StudioChat; turns: StudioTurn[] }>("GET", `/api/v1/studio/chats/${encodeURIComponent(id)}`);
   }
+  /** Deletes a chat that isn't working, with its worktree, preview and turns. */
+  async studioDeleteChat(id: string): Promise<void> {
+    await this.request<undefined>("DELETE", `/api/v1/studio/chats/${encodeURIComponent(id)}`);
+  }
   studioSend(chatId: string, input: { text: string; mode?: StudioChatMode }) {
     return this.request<{ turn: StudioTurn; steered: boolean }>("POST", `/api/v1/studio/chats/${encodeURIComponent(chatId)}/messages`, input);
   }

@@ -86,6 +86,12 @@ export async function studioDeleteApp(appId: string) {
 export async function studioNewChat(appId: string, input: z.input<typeof ChatInput>) {
   return call(NewChatResult, () => api.studioNewChat(Id.parse(appId), ChatInput.parse(input)));
 }
+export async function studioDeleteChat(chatId: string) {
+  return call(
+    z.undefined().transform(() => null),
+    () => api.studioDeleteChat(Id.parse(chatId)),
+  );
+}
 export async function studioChat(chatId: string) {
   return call(ChatDetail, () => api.studioChat(Id.parse(chatId)));
 }

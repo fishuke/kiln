@@ -125,6 +125,13 @@ export const routes: Route[] = [
   },
   { method: "get", path: "/api/v1/studio/chats/{id}", summary: "A chat with its turns (oldest first)", scope: "read", tag: S },
   {
+    method: "delete",
+    path: "/api/v1/studio/chats/{id}",
+    summary: "Delete a chat that isn't working: its worktree, branch, preview and turns",
+    scope: "send",
+    tag: S,
+  },
+  {
     method: "post",
     path: "/api/v1/studio/chats/{id}/messages",
     summary: "Send a message: starts a turn, or steers the running one",
@@ -340,7 +347,6 @@ export function register(ctx: RouteContext) {
     };
   const id = (c: Context<Env>) => c.req.param("id")!;
 
-
   app.get(
     "/api/v1/studio/apps",
     wrap((c) => c.json({ apps: studio().listApps(caller(c, "read").team) })),
@@ -420,6 +426,14 @@ export function register(ctx: RouteContext) {
     wrap((c) => {
       const { who: _, ...found } = ownChat(c, id(c), "read");
       return c.json(found);
+    }),
+  );
+  app.delete(
+    "/api/v1/studio/chats/:id",
+    wrap(async (c) => {
+      ownChat(c, id(c), "send");
+      await studio().deleteChat(id(c));
+      return c.body(null, 204);
     }),
   );
   app.post(

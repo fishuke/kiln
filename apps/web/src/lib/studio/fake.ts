@@ -231,6 +231,14 @@ export class FakeStudioClient implements StudioClient {
     return { chat, turns };
   }
 
+  async deleteChat(id: string): Promise<void> {
+    const chat = this.must(this.chats.get(id), "Chat");
+    if (chat.status === "working") throw new StudioClientError("the chat is working; stop it first", 400);
+    for (const t of [...this.turns.values()]) if (t.chatId === id) this.turns.delete(t.id);
+    this.chats.delete(id);
+    this.emit();
+  }
+
   private patchChat(id: string, patch: Partial<Chat>) {
     const c = this.chats.get(id);
     if (c) this.chats.set(id, { ...c, ...patch, updatedAt: this.iso() });

@@ -639,6 +639,13 @@ export class Studio {
       updatedAt: now,
     };
     await this.locked(p.id, () => must(sandbox, "app", `git worktree add -q -b ${chat.branch} ../${chat.path} ${shellQuote(p.setup!.mainBranch)}`));
+    // Starts from another worktree's installed dependencies, so the install only tops them up.
+    if (p.setup!.install.length)
+      await must(
+        sandbox,
+        chat.path,
+        'for d in ../../app ../../version ../*; do [ -d "$d/node_modules" ] && [ "$d" != "../' + chatId + '" ] && cp -a "$d/node_modules" . && break; done; true',
+      );
     await this.install(p.id, sandbox, chat.path, p.setup!.install, this.env(p));
     return this.save(C.chats, chat);
   }

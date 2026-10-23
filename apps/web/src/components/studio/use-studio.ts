@@ -38,10 +38,11 @@ export function useStudioApp(client: StudioClient, appId: string) {
   );
 
   const refresh = useCallback(async () => {
+    // The attention report is slower and secondary: the app shows without waiting for it.
+    void client.status().then(setStatus, () => undefined);
     try {
-      const [d, s] = await Promise.all([client.app(appId), client.status().catch(() => undefined)]);
+      const d = await client.app(appId);
       setDetail(d);
-      if (s) setStatus(s);
       setError(undefined);
       await Promise.all([...wanted.current].filter((id) => d.chats.some((c) => c.id === id)).map(loadChat));
     } catch (err) {

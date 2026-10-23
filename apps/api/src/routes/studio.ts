@@ -200,6 +200,8 @@ export function studioFor(kiln: Kiln): Studio | undefined {
     // Turns are runs of the App's agents (ADR-012): the engine resolves them through KilnOptions.apps (studioEngineHooks).
     definitions: appDefinitionsFor(kiln),
     runs: studioRuns(kiln.runs),
+    // Command approvals App runs wait on: the chat asks the person; they decide through the gate decision API.
+    gates: kiln.gates,
     // Only values people assigned to the App (team → Kiln Project → App); never the secret vault.
     env: (app) => {
       const v = kiln.variables.forApp(app);

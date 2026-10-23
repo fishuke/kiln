@@ -6,6 +6,7 @@ import { loadTree } from "@kiln/definitions";
 import { DecisionJudge, fakeAgents, FakeJudge, Kiln, sampleTree, type IntegrationAdapters, type KilnOptions } from "@kiln/engine";
 import { studioEngineHooks } from "@kiln/studio";
 import { studioFor } from "./routes/studio";
+import { configureVoice } from "./routes/voice";
 import {
   AzureDevOpsForge,
   BitbucketForge,
@@ -35,6 +36,7 @@ import {
 } from "@kiln/integrations";
 import { DEFAULT_EGRESS, DockerSandboxProvider, KubernetesSandboxProvider, LocalSandboxProvider } from "@kiln/sandbox";
 import { FileObjectStore, FileStore } from "@kiln/store";
+import { AnthropicThinker, GptLiveProvider } from "@kiln/voice";
 
 export type ServerConfig = {
   kiln: Kiln;
@@ -145,6 +147,16 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     ...studioEngineHooks(() => studioFor(kiln)),
   };
   const kiln = new Kiln(options);
+  // Talk to Studio (ADR-013): GPT-Live with the team's or the server's OpenAI key (looked up per session);
+  // the conductor's decision model through the gateway if one is set, else the team's or the server's Anthropic key.
+  configureVoice(kiln, {
+    provider: new GptLiveProvider(),
+    thinker: (teamKey) => {
+      if (env.LLM_GATEWAY_URL) return new AnthropicThinker({ apiKey: env.LLM_GATEWAY_KEY ?? "", baseURL: env.LLM_GATEWAY_URL, model });
+      const apiKey = teamKey ?? env.ANTHROPIC_API_KEY;
+      return apiKey ? new AnthropicThinker({ apiKey, model }) : undefined;
+    },
+  });
 
   /** Kiln's own GitHub App (created from the web app) when the environment configures none. */
   function useGitHubApp(app: GitHubAppCredentials) {

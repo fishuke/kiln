@@ -72,7 +72,7 @@ List my factories, then help me send a task to the right one and follow it throu
 | `studio_send` | Studio: Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them. |
 | `studio_set_ship_mode` | Studio: Change an App's ship mode (safe, review or cowboy), up to the highest mode the App's policy allows the caller's role. Only a person may. |
 | `studio_ship` | Studio: Open or update the App's pull request from its main line; or, as its author, mark it ready for review (the merge gate merges it or sends it to a reviewer); or cancel it. |
-| `studio_show` | Studio: Show the preview, the code or the history in the person's screen. (Moves the caller's screen; changes nothing on the server.) |
+| `studio_show` | Studio: Show the preview, the code, the history or the hands-free view in the person's screen. (Moves the caller's screen; changes nothing on the server.) |
 | `studio_status` | Studio: What is running and what needs the person, for one app or all of them. |
 | `studio_stop` | Studio: Stop the chat's agent; it waits for the next message. |
 | `update_app_settings` | Change a Studio App's own definition layer (not its policy, which people change in the App's settings). null removes the App's value so it inherits from its project or team again. Every change is a new version. |

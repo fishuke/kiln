@@ -23,6 +23,7 @@ import { secretRoutes } from "./secrets";
 import * as studioDefinitions from "./studio-definitions";
 import { registerStudioPreview } from "./studio-preview";
 import * as tasks from "./tasks";
+import * as voice from "./voice";
 import { teamRoutes } from "./teams";
 import { usageRoutes } from "./usage";
 import { variableRoutes } from "./variables";
@@ -53,6 +54,7 @@ export const MODULES = [
   studio,
   studioDefinitions,
   mergeGate,
+  voice,
 ];
 const PLATFORM: ((ctx: RouteContext) => void)[] = [
   authRoutes,

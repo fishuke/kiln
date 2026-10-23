@@ -48,6 +48,8 @@ import type {
   WriteResult,
 } from "@kiln/engine";
 import type {
+  CleanupRun,
+  CleanupStatus,
   ServerStats,
   ApiKeyRow,
   Appearance,
@@ -940,6 +942,10 @@ export class KilnClient {
   metricsText = () => this.text("/metrics");
 
   serverStats = () => this.request<ServerStats>("GET", "/api/v1/admin/server");
+  /** The Docker clean-up's dry run: what it would remove, disk usage, schedule and last run. Read-only. */
+  cleanup = () => this.request<CleanupStatus>("GET", "/api/v1/admin/cleanup");
+  runCleanup = () => this.request<CleanupRun>("POST", "/api/v1/admin/cleanup");
+  setCleanupScheduled = (scheduled: boolean) => this.request<{ scheduled: boolean }>("PUT", "/api/v1/admin/cleanup/schedule", { scheduled });
   audit = (limit = 200) =>
     this.request<{ id: string; at: string; actor: string; action: string; target: string; details?: unknown }[]>("GET", `/api/v1/audit?limit=${limit}`);
   decisions = (workItem?: string) =>

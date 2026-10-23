@@ -76,13 +76,16 @@ describe("AnthropicThinker", () => {
     for (const part of ["how's Daily Done doing?", "Daily Done (a1)", "c1"]) expect(text).toContain(part);
   });
 
-  it("offers relay, confirm, reply and every Studio tool except send, with real input schemas", () => {
+  it("offers relay, confirm, reply and every Studio tool except send and set_ship_mode, with real input schemas", () => {
     const tools = thinkerTools();
     const names = tools.map((t) => t.name);
-    expect(names).toEqual(["relay", "confirm", "reply", ...STUDIO_TOOLS.map((t) => t.name).filter((n) => n !== "send")]);
+    expect(names).toEqual(["relay", "confirm", "reply", ...STUDIO_TOOLS.map((t) => t.name).filter((n) => n !== "send" && n !== "set_ship_mode")]);
     for (const t of tools) expect(t.input_schema.type).toBe("object");
     const newChat = tools.find((t) => t.name === "new_chat")!;
     expect(newChat.input_schema).toMatchObject({ properties: { app: { type: "string" } }, required: ["app"] });
+    // The model never writes a chat's first message; relay sends the person's words.
+    expect(Object.keys(newChat.input_schema.properties as object)).not.toContain("prompt");
+    expect(newChat.description).not.toMatch(/first message/);
     // open_app is a union: one object with both branches' fields.
     const openApp = tools.find((t) => t.name === "open_app")!;
     expect(Object.keys(openApp.input_schema.properties as object)).toEqual(expect.arrayContaining(["app", "name", "source"]));

@@ -45,7 +45,7 @@ const nodeSocket: LiveSocketFactory = (url, headers) => new WebSocket(url, { hea
 const Created = z.object({ session: z.object({ id: z.string().min(1) }), transport: z.object({ sdp: z.string().min(1) }) });
 const ProviderError = z.object({ error: z.object({ message: z.string() }) });
 
-const Transcript = z.object({ delta: z.string() });
+const Transcript = z.object({ delta: z.string(), start_ms: z.number().optional(), end_ms: z.number().optional() });
 const WireEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session.started") }),
   Transcript.extend({ type: z.literal("session.input_transcript.delta") }),
@@ -59,8 +59,13 @@ const WireEvent = z.discriminatedUnion("type", [
 ]);
 const KNOWN = new Set<string>(WireEvent.options.map((o) => o.shape.type.value));
 
-/** Maps one wire frame to a voice event; unknown types, acks and unreadable frames give undefined. */
-export function toVoiceEvent(data: unknown): VoiceEvent | undefined {
+/**
+ * A silence this long between two input transcript deltas starts a new utterance. Deltas inside one
+ * utterance carry their own spaces; a new utterance gets one, so two of them don't run together.
+ */
+export const UTTERANCE_GAP_MS = 500;
+
+function parseWire(data: unknown): z.infer<typeof WireEvent> | { type: "unreadable"; wireType: string } | undefined {
   let raw: unknown;
   try {
     raw = JSON.parse(String(data));
@@ -70,9 +75,19 @@ export function toVoiceEvent(data: unknown): VoiceEvent | undefined {
   const type = (raw as { type?: unknown } | null)?.type;
   if (typeof type !== "string" || !KNOWN.has(type)) return undefined;
   const parsed = WireEvent.safeParse(raw);
-  if (!parsed.success) return { type: "error", message: `GPT-Live sent an unreadable ${type} event.` };
-  const e = parsed.data;
+  return parsed.success ? parsed.data : { type: "unreadable", wireType: type };
+}
+
+/** Maps one wire frame to a voice event; unknown types, acks and unreadable frames give undefined. */
+export function toVoiceEvent(data: unknown): VoiceEvent | undefined {
+  return fromWire(parseWire(data));
+}
+
+function fromWire(e: ReturnType<typeof parseWire>): VoiceEvent | undefined {
+  if (!e) return undefined;
   switch (e.type) {
+    case "unreadable":
+      return { type: "error", message: `GPT-Live sent an unreadable ${e.wireType} event.` };
     case "session.started":
       return { type: "started" };
     case "session.input_transcript.delta":
@@ -167,6 +182,8 @@ export class GptLiveProvider implements VoiceProvider {
     let open = false;
     let detached = false;
     let ended = false;
+    /** Where the person's last transcribed audio ended, to tell a new utterance from the next piece of one. */
+    let inputEndMs: number | undefined;
 
     return new Promise((resolve, reject) => {
       socket.addEventListener("open", () => {
@@ -189,7 +206,13 @@ export class GptLiveProvider implements VoiceProvider {
       });
       socket.addEventListener("message", ({ data }) => {
         if (detached) return;
-        const event = toVoiceEvent(data);
+        const wire = parseWire(data);
+        let event = fromWire(wire);
+        if (event?.type === "input_transcript" && wire?.type === "session.input_transcript.delta") {
+          const newUtterance = inputEndMs !== undefined && wire.start_ms !== undefined && wire.start_ms - inputEndMs >= UTTERANCE_GAP_MS;
+          if (newUtterance && !/^\s/.test(event.text)) event = { ...event, text: ` ${event.text}` };
+          if (wire.end_ms !== undefined) inputEndMs = wire.end_ms;
+        }
         if (event?.type === "closed") ended = true;
         if (event) emit(event);
       });
@@ -200,7 +223,7 @@ export class GptLiveProvider implements VoiceProvider {
         if (!open) return reject(new VoiceError("provider_failed", "GPT-Live closed the sideband connection before it opened."));
         if (detached || ended) return;
         ended = true;
-        emit({ type: "error", message: "GPT-Live's sideband connection closed before the session ended." });
+        emit({ type: "detached" });
       });
     });
   }

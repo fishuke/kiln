@@ -38,6 +38,8 @@ export type VoiceEvent =
   /** The voice hands a request to Kiln; the person's words are in the input transcript. */
   | { type: "delegation"; id: string }
   | { type: "closed"; usage?: { seconds?: number; costUsd?: number } }
+  /** The sideband dropped before the session ended; the session may still run, so attach again. */
+  | { type: "detached" }
   | { type: "error"; message: string };
 
 /** What Kiln tells the live session. `delegation` answers that request; null is session-wide. */

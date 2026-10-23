@@ -499,7 +499,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | --- | --- | --- | --- |
 | POST | `/api/v1/voice/sessions` | `send` | Start a voice session (GPT-Live) from the browser's WebRTC offer, or resume one; 409 no_openai_key without an OpenAI key |
 | GET | `/api/v1/voice/sessions/{id}/events` | `read` | Server-sent events of a voice session: client actions, transcript lines, badges and state |
-| PATCH | `/api/v1/voice/sessions/{id}` | `send` | Tell a voice session where the person is now, or turn quiet mode on or off |
+| PATCH | `/api/v1/voice/sessions/{id}` | `send` | Tell a voice session where the person is now, turn quiet mode on or off, or wake it to listen again |
 | DELETE | `/api/v1/voice/sessions/{id}` | `send` | End a voice session |
 
 ## Errors

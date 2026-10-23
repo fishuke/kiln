@@ -171,10 +171,20 @@ describe("GptLiveProvider.attach", () => {
     expect(events[1]).toEqual({ type: "error", message: "Rate limited" });
   });
 
-  it("reports a sideband that drops before session.closed", async () => {
-    const { socket, events } = await attached();
+  it("reports a sideband that drops before session.closed as detached", async () => {
+    const { socket, events, link } = await attached();
     socket.fire("close");
-    expect(events).toEqual([{ type: "error", message: expect.stringContaining("closed") }]);
+    expect(events).toEqual([{ type: "detached" }]);
+    expect(() => link.send({ type: "mute" })).toThrow(VoiceError);
+  });
+
+  it("separates the person's utterances so words from two of them don't run together", async () => {
+    const { socket, events } = await attached();
+    socket.serve({ type: "session.input_transcript.delta", delta: "make it ", start_ms: 0, end_ms: 300 });
+    socket.serve({ type: "session.input_transcript.delta", delta: "blue", start_ms: 300, end_ms: 600 });
+    socket.serve({ type: "session.input_transcript.delta", delta: "and bigger", start_ms: 2000, end_ms: 2600 });
+    socket.serve({ type: "session.input_transcript.delta", delta: " please", start_ms: 4000, end_ms: 4400 });
+    expect(events.map((e) => ("text" in e ? e.text : "")).join("")).toBe("make it blue and bigger please");
   });
 
   it("maps commands to wire commands with generated event ids", async () => {

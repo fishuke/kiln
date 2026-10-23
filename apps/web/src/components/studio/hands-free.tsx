@@ -69,6 +69,11 @@ export function HandsFree({ voice, preview, status }: { voice: Voice; preview: R
           )}
           {stateLabel(voice)}
         </span>
+        {state.phase === "live" && state.status === "idle" && (
+          <Button size="sm" variant="outline" onClick={voice.wake}>
+            Resume listening
+          </Button>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <Switch size="sm" checked={state.quiet} onCheckedChange={(q: boolean) => voice.setQuiet(q)} disabled={state.phase !== "live"} />

@@ -376,6 +376,11 @@ class VoiceController {
     void this.patch({ quiet });
   }
 
+  /** An idle session stopped listening; only this (or moving by hand) starts it again, since it hears nothing while paused. */
+  wake() {
+    void this.patch({ wake: true });
+  }
+
   /** The person moved by hand: tell the session where they are now. */
   setFocus(focus: Focus) {
     if (!this.live?.id || !focusChanged(this.state.focus, focus)) return;
@@ -391,7 +396,7 @@ class VoiceController {
     if (this.state.phase === "error") this.dispatch({ type: "ended" });
   }
 
-  private async patch(body: { focus?: Focus; quiet?: boolean }) {
+  private async patch(body: { focus?: Focus; quiet?: boolean; wake?: true }) {
     const id = this.live?.id;
     if (!id) return;
     await fetch(`${BASE}/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(
@@ -472,6 +477,7 @@ export function useVoice(focus: Focus, handlers: VoiceHandlers) {
     end: useCallback(() => void c.end(), [c]),
     setMuted: useCallback((m: boolean) => c.setMuted(m), [c]),
     setQuiet: useCallback((q: boolean) => c.setQuiet(q), [c]),
+    wake: useCallback(() => c.wake(), [c]),
     setHandsFree: useCallback((o: boolean) => c.setHandsFree(o), [c]),
     dismissError: useCallback(() => c.dismissError(), [c]),
   };

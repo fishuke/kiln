@@ -200,6 +200,11 @@ function TalkButton({ voice }: { voice: Voice }) {
           <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
         </span>
         <span className="mr-1 text-xs font-medium">{state.phase === "ending" ? "Ending" : state.status === "idle" ? "Listening paused" : "Live"}</span>
+        {state.phase === "live" && state.status === "idle" && (
+          <InputGroupButton size="xs" variant="ghost" onClick={voice.wake} className="rounded-full px-2">
+            Resume
+          </InputGroupButton>
+        )}
         <Tooltip>
           <TooltipTrigger
             render={

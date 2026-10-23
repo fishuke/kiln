@@ -181,4 +181,38 @@ describe("Conductor", () => {
     expect(r.say).toBe("Opening Budget. There it is.");
     expect(r.focus).toEqual({ app: "a2" });
   });
+
+  it("never changes the ship mode: only a person may, on the screen", async () => {
+    const { conductor, calls } = setup([[{ tool: "studio", name: "set_ship_mode", input: { app: "a1", mode: "cowboy" } }]]);
+    const r = await conductor.handle(state(), "switch to cowboy");
+    expect(calls).toEqual([]);
+    expect(r.pending).toBeUndefined();
+    expect(r.say).toMatch(/ship mode/i);
+  });
+
+  it("starts a new chat without the model's words; the person's words go there by relay", async () => {
+    const { conductor, calls } = setup([[{ tool: "studio", name: "new_chat", input: { app: "a2", prompt: "Make header sticky" } }, { tool: "relay" }]], {
+      new_chat: { ok: true, data: { chat: { id: "c7" } }, client: { focus: { app: "a2", chat: "c7" } } },
+    });
+    await conductor.handle(state(), "start a new chat and make the header sticky with a blur");
+    expect(calls).toEqual([
+      { name: "new_chat", input: { app: "a2" } },
+      { name: "send", input: { chat: "c7", text: "start a new chat and make the header sticky with a blur" } },
+    ]);
+  });
+
+  it("runs a pending action only when the person said something", async () => {
+    const pending = { name: "ship" as const, input: { app: "a1" }, asked: "Open or update the pull request? Say yes or no." };
+    const { conductor, calls } = setup([[{ tool: "confirm", yes: true }]]);
+    const r = await conductor.handle(state({ pending }), "  ");
+    expect(calls).toEqual([]);
+    expect(r.pending).toBeUndefined();
+  });
+
+  it("asks for confirmation only when the person said something", async () => {
+    const { conductor, calls } = setup([[{ tool: "studio", name: "ship", input: { app: "a1" } }]]);
+    const r = await conductor.handle(state(), "");
+    expect(calls).toEqual([]);
+    expect(r.pending).toBeUndefined();
+  });
 });

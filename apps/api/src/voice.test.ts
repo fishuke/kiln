@@ -5,16 +5,27 @@ import { createTestKiln, FakeClock, type Kiln } from "@kiln/engine";
 import { FakeHarness } from "@kiln/harness";
 import { LocalSandboxProvider } from "@kiln/sandbox";
 import { studioEngineHooks } from "@kiln/studio";
-import { FakeThinker, FakeVoiceProvider, VOICE_SESSIONS, VoiceSessionStore, type ConductorCall, type VoiceSession } from "@kiln/voice";
+import {
+  AnthropicThinker,
+  FakeThinker,
+  FakeVoiceProvider,
+  VOICE_SESSIONS,
+  VoiceSessionStore,
+  type ConductorCall,
+  type ThinkInput,
+  type Thinker,
+  type VoiceSession,
+} from "@kiln/voice";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app";
+import { voiceThinker } from "./config";
 import { ROUTES } from "./openapi";
 import { configureStudio, studioFor } from "./routes/studio";
 import { configureVoice, routes as voiceRoutes, voiceFor } from "./routes/voice";
 
 const kilns: object[] = [];
 
-function setup(script: ConductorCall[][] = []) {
+function setup(script: ConductorCall[][] = [], thinker: Thinker & { inputs?: ThinkInput[] } = new FakeThinker(script)) {
   const agent = new FakeHarness(async ({ emit }) => emit({ type: "message", text: "Done." }));
   const clock = new FakeClock();
   const t: ReturnType<typeof createTestKiln> = createTestKiln({
@@ -29,7 +40,6 @@ function setup(script: ConductorCall[][] = []) {
     basePort: 30_000 + Math.floor(Math.random() * 20_000),
   });
   const provider = new FakeVoiceProvider();
-  const thinker = new FakeThinker(script);
   const anthropicKeys: (string | undefined)[] = [];
   configureVoice(t.kiln, {
     provider,
@@ -41,7 +51,7 @@ function setup(script: ConductorCall[][] = []) {
   kilns.push(t.kiln);
   const app = createApp(t.kiln, { devAuth: true });
   const team = t.kiln.teams.ensureDefaultTeam().id;
-  return { ...t, clock, app, provider, thinker, anthropicKeys, team };
+  return { ...t, clock, app, provider, thinker: thinker as FakeThinker, anthropicKeys, team };
 }
 
 beforeEach(() => {
@@ -248,5 +258,143 @@ describe("Voice API", () => {
       "patch /api/v1/voice/sessions/{id}",
       "delete /api/v1/voice/sessions/{id}",
     ]);
+  });
+
+  it("keeps a focus the person moved to while a delegation was thinking", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-server-openai");
+    let release!: () => void;
+    const thinking = new Promise<void>((r) => (release = r));
+    const inputs: ThinkInput[] = [];
+    const slow: Thinker = {
+      async think(input) {
+        inputs.push(input);
+        await thinking;
+        return [{ tool: "reply", text: "Okay." }];
+      },
+    };
+    const { app, kiln, provider } = setup([], slow);
+    const { id } = (await (await app.request("/api/v1/voice/sessions", json("POST", { sdp: "offer", app: "sa_1", chat: "sc_1" }))).json()) as { id: string };
+    const link = provider.link("live_1");
+    link.emit({ type: "input_transcript", text: "what now?" });
+    link.emit({ type: "delegation", id: "dlg_1" });
+    await until(() => inputs.length === 1, "the thinker");
+
+    await app.request(`/api/v1/voice/sessions/${id}`, json("PATCH", { focus: { app: "sa_2", chat: "sc_2" } }));
+    release();
+    await until(() => link.commands.some((c) => "delegation" in c && c.delegation === "dlg_1"), "the delegation's answer");
+    expect(session(kiln, id).focus).toEqual({ app: "sa_2", chat: "sc_2" });
+  });
+
+  it("wakes an idle session when the person asks it to listen again", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-server-openai");
+    const { app, kiln, clock, provider } = setup();
+    const { id } = (await (await app.request("/api/v1/voice/sessions", json("POST", { sdp: "offer" }))).json()) as { id: string };
+    const link = provider.link("live_1");
+    link.emit({ type: "started" });
+    clock.advance(120_000);
+    voiceFor(kiln)!.tick();
+    expect(session(kiln, id).status).toBe("idle");
+
+    const res = await app.request(`/api/v1/voice/sessions/${id}`, json("PATCH", { wake: true }));
+    expect(await res.json()).toMatchObject({ status: "live" });
+    expect(link.commands.at(-1)).toEqual({ type: "unmute" });
+  });
+
+  it("counts the session as live from its first sideband event, even without session.started", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-server-openai");
+    const { app, kiln, clock, provider } = setup();
+    const { id } = (await (await app.request("/api/v1/voice/sessions", json("POST", { sdp: "offer" }))).json()) as { id: string };
+    const link = provider.link("live_1");
+    link.emit({ type: "input_transcript", text: "hello" });
+    expect(session(kiln, id).status).toBe("live");
+    clock.advance(120_000);
+    voiceFor(kiln)!.tick();
+    expect(link.commands).toEqual([{ type: "mute" }]);
+  });
+
+  it("relays only what the person said since the voice last answered", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-server-openai");
+    const { app, provider, thinker } = setup([[{ tool: "reply", text: "Okay." }]]);
+    await app.request("/api/v1/voice/sessions", json("POST", { sdp: "offer", app: "sa_1", chat: "sc_1" }));
+    const link = provider.link("live_1");
+    link.emit({ type: "input_transcript", text: "hi, can you hear me?" });
+    link.emit({ type: "output_transcript", text: "Yes, I can." });
+    link.emit({ type: "input_transcript", text: "make the header red" });
+    link.emit({ type: "output_transcript", text: "One moment." });
+    link.emit({ type: "delegation", id: "dlg_1" });
+    await until(() => link.commands.some((c) => "delegation" in c && c.delegation === "dlg_1"), "the delegation's answer");
+    expect(thinker.inputs[0]!.words).toBe("make the header red");
+  });
+
+  it("closes a session that is still live when it is resumed, and records its usage", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-server-openai");
+    const { app, kiln, provider } = setup([[{ tool: "reply", text: "Okay." }]]);
+    const { id } = (await (await app.request("/api/v1/voice/sessions", json("POST", { sdp: "offer" }))).json()) as { id: string };
+    const first = provider.link("live_1");
+    first.emit({ type: "started" });
+
+    expect((await app.request("/api/v1/voice/sessions", json("POST", { sdp: "offer 2", resume: id }))).status).toBe(201);
+    expect(first.commands).toEqual([{ type: "close" }]);
+    expect(first.detached).toBe(false);
+
+    // The old session's report adds its usage but doesn't end the resumed one.
+    first.emit({ type: "closed", usage: { seconds: 29 * 60, costUsd: 1.45 } });
+    expect(first.detached).toBe(true);
+    expect(session(kiln, id)).toMatchObject({ status: "connecting", liveSessionId: "live_2", seconds: 29 * 60, costUsd: 1.45 });
+
+    const second = provider.link("live_2");
+    second.emit({ type: "input_transcript", text: "still there?" });
+    second.emit({ type: "delegation", id: "dlg_2" });
+    await until(() => second.commands.some((c) => "delegation" in c && c.delegation === "dlg_2"), "the delegation's answer");
+    expect(session(kiln, id).status).toBe("live");
+  });
+
+  it("carries the session's length over a resume", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-server-openai");
+    const { app, kiln, clock, provider } = setup();
+    const { id } = (await (await app.request("/api/v1/voice/sessions", json("POST", { sdp: "offer" }))).json()) as { id: string };
+    provider.link("live_1").emit({ type: "closed", usage: { seconds: 29 * 60 } });
+    await app.request("/api/v1/voice/sessions", json("POST", { sdp: "offer 2", resume: id }));
+    clock.advance(60_000);
+    voiceFor(kiln)!.tick();
+    expect(provider.link("live_2").commands.at(-1)).toEqual({ type: "close" });
+    expect(session(kiln, id).status).toBe("closed");
+  });
+
+  it("attaches again when the sideband drops, and ends the session when it can't", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-server-openai");
+    const { app, kiln, clock, provider } = setup();
+    const { id } = (await (await app.request("/api/v1/voice/sessions", json("POST", { sdp: "offer" }))).json()) as { id: string };
+    const link = provider.link("live_1");
+    link.emit({ type: "started" });
+    link.emit({ type: "detached" });
+    await until(() => provider.attached.length === 2, "the second attach");
+    expect(provider.attached[1]).toEqual({ sessionId: "live_1", apiKey: "sk-server-openai" });
+    expect(session(kiln, id).status).toBe("live");
+
+    provider.attach = async () => {
+      throw new Error("unreachable");
+    };
+    link.emit({ type: "detached" });
+    clock.advance(5_000);
+    voiceFor(kiln)!.tick();
+    expect(session(kiln, id).status).toBe("live");
+    clock.advance(30_000);
+    voiceFor(kiln)!.tick();
+    await until(() => session(kiln, id).status === "closed", "the session to end");
+  });
+});
+
+describe("voiceThinker", () => {
+  const options = (t: unknown) => (t as { options: { apiKey: string; baseURL?: string } }).options;
+
+  it("uses the team's Anthropic key, then the server's, and never the OpenAI-compatible gateway", () => {
+    const env = { LLM_GATEWAY_URL: "https://gateway.test", LLM_GATEWAY_KEY: "gw", ANTHROPIC_API_KEY: "sk-ant-server" };
+    const team = voiceThinker(env)("sk-ant-team");
+    expect(team).toBeInstanceOf(AnthropicThinker);
+    expect(options(team)).toMatchObject({ apiKey: "sk-ant-team" });
+    expect(options(team).baseURL).toBeUndefined();
+    expect(options(voiceThinker(env)(undefined))).toMatchObject({ apiKey: "sk-ant-server" });
+    expect(voiceThinker({ LLM_GATEWAY_URL: "https://gateway.test" })(undefined)).toBeUndefined();
   });
 });

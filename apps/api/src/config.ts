@@ -147,16 +147,8 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     ...studioEngineHooks(() => studioFor(kiln)),
   };
   const kiln = new Kiln(options);
-  // Talk to Studio (ADR-013): GPT-Live with the team's or the server's OpenAI key (looked up per session);
-  // the conductor's decision model through the gateway if one is set, else the team's or the server's Anthropic key.
-  configureVoice(kiln, {
-    provider: new GptLiveProvider(),
-    thinker: (teamKey) => {
-      if (env.LLM_GATEWAY_URL) return new AnthropicThinker({ apiKey: env.LLM_GATEWAY_KEY ?? "", baseURL: env.LLM_GATEWAY_URL, model });
-      const apiKey = teamKey ?? env.ANTHROPIC_API_KEY;
-      return apiKey ? new AnthropicThinker({ apiKey, model }) : undefined;
-    },
-  });
+  // Talk to Studio (ADR-013): GPT-Live with the team's or the server's OpenAI key (looked up per session).
+  configureVoice(kiln, { provider: new GptLiveProvider(), thinker: voiceThinker(env) });
 
   /** Kiln's own GitHub App (created from the web app) when the environment configures none. */
   function useGitHubApp(app: GitHubAppCredentials) {
@@ -202,6 +194,18 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
  * Adapters for providers configured by environment variables. Providers connected later through
  * the API are picked up from their stored credentials without a restart.
  */
+/**
+ * The conductor's decision model (ADR-013): Claude through the team's Anthropic key, else the server's
+ * ANTHROPIC_API_KEY. It uses the Messages API, so LLM_GATEWAY_URL (an OpenAI-compatible gateway) can't serve it.
+ */
+export function voiceThinker(env: NodeJS.ProcessEnv): (teamKey: string | undefined) => AnthropicThinker | undefined {
+  const model = env.KILN_DECISION_MODEL || "claude-haiku-5-5";
+  return (teamKey) => {
+    const apiKey = teamKey ?? env.ANTHROPIC_API_KEY;
+    return apiKey ? new AnthropicThinker({ apiKey, model }) : undefined;
+  };
+}
+
 export function adaptersFromEnv(env: NodeJS.ProcessEnv): IntegrationAdapters {
   const adapters: IntegrationAdapters = { chats: {}, forges: {} };
   if (env.GITLAB_TOKEN) adapters.forges!.gitlab = new GitLabForge({ token: env.GITLAB_TOKEN, baseUrl: env.GITLAB_BASE_URL });

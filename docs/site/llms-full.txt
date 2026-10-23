@@ -2248,7 +2248,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | --- | --- | --- | --- |
 | POST | `/api/v1/voice/sessions` | `send` | Start a voice session (GPT-Live) from the browser's WebRTC offer, or resume one; 409 no_openai_key without an OpenAI key |
 | GET | `/api/v1/voice/sessions/{id}/events` | `read` | Server-sent events of a voice session: client actions, transcript lines, badges and state |
-| PATCH | `/api/v1/voice/sessions/{id}` | `send` | Tell a voice session where the person is now, or turn quiet mode on or off |
+| PATCH | `/api/v1/voice/sessions/{id}` | `send` | Tell a voice session where the person is now, turn quiet mode on or off, or wake it to listen again |
 | DELETE | `/api/v1/voice/sessions/{id}` | `send` | End a voice session |
 
 ## Errors
@@ -6386,9 +6386,9 @@ There is no mode to switch into. The decision is [ADR-013](https://github.com/fi
 4. Speak normally. You can talk over the voice; it stops and listens.
 5. Press **Mute** to stop sending your voice, or **End** to close the session.
 
-The session ends by itself after 30 minutes. After 2 minutes without you speaking it stops listening and shows **Idle**; speak or move to another chat to wake it.
+The session ends by itself after 30 minutes. After 2 minutes without you speaking it stops listening and shows **Listening paused**. It can't hear you then, so press **Resume** (or **Resume listening** in the hands-free view), or move to another chat, to wake it.
 
-If you reload the page, the session picks up where it was, with the same transcript and focus.
+If you reload the page, the session picks up where it was, with the same transcript and focus. The 30 minutes count across reloads.
 
 ## What to say
 
@@ -6401,6 +6401,7 @@ If you reload the page, the session picks up where it was, with the same transcr
 | "Show me the code." / "Show the history."              | Your screen switches view.                                  |
 | "Go hands-free."                                       | The hands-free view opens.                                  |
 | "Apply it." / "Restore the last version." / "Ship it." | It asks you to confirm first. Say "yes" to go ahead.        |
+| "Switch to cowboy mode."                               | Nothing. Only you change an App's ship mode, on the screen. |
 
 The voice never writes code. It picks which chat your words go to and calls the same Studio tools as the web UI and [Kiln MCP](../developer-tools/mcp.md). It never rewords what you said for the agent.
 
@@ -6431,7 +6432,7 @@ Voice uses OpenAI's GPT-Live (`gpt-live-1`). Kiln creates each session with the 
 
 With neither set, **Talk** shows an error with a link to **Team settings → Model keys**. A team owner or admin adds the key there. See [Team-managed model keys](../management/secrets-mcps-environments.md#team-managed-model-keys).
 
-Kiln decides what to do with what you say using the decision model, `KILN_DECISION_MODEL` (Claude Haiku by default), through `LLM_GATEWAY_URL` or an Anthropic key. See [Typed decisions](../configuration/decisions.md).
+Kiln decides what to do with what you say using the decision model, `KILN_DECISION_MODEL` (Claude Haiku by default), with the team's Anthropic model key or the server's `ANTHROPIC_API_KEY`. Voice calls Anthropic's Messages API directly, so an OpenAI-compatible `LLM_GATEWAY_URL` doesn't serve it. See [Typed decisions](../configuration/decisions.md).
 
 ## Costs
 
@@ -6452,7 +6453,7 @@ Sessions stop listening when idle and end after 30 minutes, so a forgotten tab d
 | -------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | `POST`   | `/api/v1/voice/sessions`             | Starts a session from the browser's WebRTC offer. Answers 409 `no_openai_key` when no OpenAI key is set. |
 | `GET`    | `/api/v1/voice/sessions/{id}/events` | Server-sent events: screen moves, transcript lines, badges and state.                                    |
-| `PATCH`  | `/api/v1/voice/sessions/{id}`        | Sets the focus or quiet mode.                                                                            |
+| `PATCH`  | `/api/v1/voice/sessions/{id}`        | Sets the focus or quiet mode, or wakes a paused session (`wake: true`).                                  |
 | `DELETE` | `/api/v1/voice/sessions/{id}`        | Ends the session.                                                                                        |
 
 Writes need the `send` scope and the event stream needs `read`. See the [API reference](../developer-tools/api.md).

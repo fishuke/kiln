@@ -37,9 +37,26 @@ function inputSchema(input: z.ZodType): InputSchema {
   return { type: "object", properties, additionalProperties: false };
 }
 
-/** relay, confirm, reply and every Studio tool except send (relay sends the person's own words). */
+/**
+ * Studio tools the decision model never gets: `send` (relay sends the person's own words) and
+ * `set_ship_mode` (only a person picks an App's ship mode, on the screen; ADR-012).
+ */
+const WITHHELD = new Set<string>(["send", "set_ship_mode"]);
+
+/** new_chat without its first message: the model never writes words for an agent; relay sends the person's to the new chat. */
+function forThinker(t: (typeof STUDIO_TOOLS)[number]): { name: string; description: string; input: z.ZodType } {
+  if (t.name !== "new_chat") return t;
+  return {
+    name: t.name,
+    description:
+      "Start a new chat (a parallel line of work) in an app with one of its agents (default general). Relay after it to send the person's words there.",
+    input: (t.input as z.ZodObject).omit({ prompt: true }),
+  };
+}
+
+/** relay, confirm, reply and every Studio tool except the withheld ones. */
 export function thinkerTools(): ToolDef[] {
-  return [...OWN_TOOLS, ...STUDIO_TOOLS.filter((t) => t.name !== "send")].map((t) => ({
+  return [...OWN_TOOLS, ...STUDIO_TOOLS.filter((t) => !WITHHELD.has(t.name)).map(forThinker)].map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: inputSchema(t.input),

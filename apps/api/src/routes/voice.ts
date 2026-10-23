@@ -36,7 +36,14 @@ export const CreateVoiceSession = z
     resume: z.string().min(1).optional(),
   })
   .strict();
-export const UpdateVoiceSession = z.object({ focus: Focus.optional(), quiet: z.boolean().optional() }).strict();
+export const UpdateVoiceSession = z
+  .object({
+    focus: Focus.optional(),
+    quiet: z.boolean().optional(),
+    /** The person asked an idle session to listen again. */
+    wake: z.literal(true).optional(),
+  })
+  .strict();
 
 const V = "Voice";
 export const routes: Route[] = [
@@ -58,7 +65,7 @@ export const routes: Route[] = [
   {
     method: "patch",
     path: "/api/v1/voice/sessions/{id}",
-    summary: "Tell a voice session where the person is now, or turn quiet mode on or off",
+    summary: "Tell a voice session where the person is now, turn quiet mode on or off, or wake it to listen again",
     scope: "send",
     body: UpdateVoiceSession,
     tag: V,
@@ -76,10 +83,15 @@ export type VoiceOptions = {
 const TICK_MS = 5_000;
 /** How long a closed session's sideband stays open for the provider's usage report. */
 const CLOSE_GRACE_MS = 30_000;
+/** How long a dropped sideband is attached again (on every tick) before the session is ended. */
+const REATTACH_MS = 30_000;
 
 /** A session with a live sideband in this process. */
 type Live = {
   id: string;
+  /** The provider's live session and the key it was created with, to attach again. */
+  liveSessionId: string;
+  apiKey: string;
   link: VoiceLink;
   off: () => void;
   thinker: Thinker;
@@ -88,11 +100,16 @@ type Live = {
   lastInputAt: number;
   /** The line being spoken now, by whom; written to the transcript when the other side speaks or a delegation arrives. */
   line?: { role: "person" | "voice"; text: string };
-  /** The person's words since the last delegation. */
+  /** The person's words since the last delegation or the voice's last answer. */
   words: string;
+  /** The voice spoke since the person did: the person's next words start a new request. */
+  answered: boolean;
   /** Delegations run one at a time, in order. */
   queue: Promise<void>;
   closingSince?: number;
+  /** When the sideband dropped; it is attached again until REATTACH_MS has passed. */
+  detachedSince?: number;
+  reattaching?: boolean;
 };
 
 class VoiceUnavailable extends Error {}
@@ -105,6 +122,8 @@ class VoiceUnavailable extends Error {}
 export class VoiceHub {
   private readonly sessions: VoiceSessionStore;
   private readonly live = new Map<string, Live>();
+  /** Live sessions replaced by a resume: asked to close, kept only for their usage report. */
+  private readonly retiring = new Set<Live>();
   private readonly listeners = new Map<string, Set<(e: VoiceStreamEvent) => void>>();
   private readonly offBus: () => void;
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -127,11 +146,11 @@ export class VoiceHub {
     const apiKey = this.secret(input.team, MODEL_KEYS.openai.name) ?? this.kiln.secrets.getSecret("OPENAI_API_KEY");
     if (!apiKey) throw new VoiceError("no_openai_key", "Voice needs an OpenAI key: add one in your team's model keys, or set OPENAI_API_KEY on the server");
     const thinker = this.options.thinker(this.secret(input.team, MODEL_KEYS.anthropic.name));
-    if (!thinker) throw new VoiceUnavailable("Voice needs a decision model: set LLM_GATEWAY_URL or ANTHROPIC_API_KEY, or add your team's Anthropic key");
+    if (!thinker) throw new VoiceUnavailable("Voice needs a decision model: add your team's Anthropic key, or set ANTHROPIC_API_KEY on the server");
     const focus = input.focus.app ? input.focus : (input.resume?.focus ?? {});
     const created = await this.options.provider.create({ apiKey, sdp: input.sdp, instructions: voiceInstructions(focus) });
 
-    if (input.resume) this.drop(input.resume.id);
+    if (input.resume) this.retire(input.resume.id);
     const session = input.resume
       ? this.sessions.update(input.resume.id, { liveSessionId: created.sessionId, status: "connecting", focus })
       : this.sessions.create({ team: input.team, by: input.by, focus, liveSessionId: created.sessionId });
@@ -145,13 +164,17 @@ export class VoiceHub {
     const now = this.now();
     const live: Live = {
       id: session.id,
+      liveSessionId: created.sessionId,
+      apiKey,
       link,
       off: () => undefined,
       thinker,
       caller: { team: input.team, by: input.by, via: "voice", ...(input.role ? { role: input.role } : {}) },
-      startedAt: now,
+      // The length limit counts the whole session, across resumes.
+      startedAt: now - session.seconds * 1000,
       lastInputAt: now,
       words: "",
+      answered: false,
       queue: Promise.resolve(),
     };
     live.off = link.on((e) => this.onEvent(live, e));
@@ -163,7 +186,7 @@ export class VoiceHub {
     return { id: session.id, sdp: created.sdp };
   }
 
-  /** The person moved by hand or toggled quiet mode; either wakes an idle session. */
+  /** The person moved by hand, toggled quiet mode or asked it to listen; any of them wakes an idle session. */
   update(id: string, patch: z.infer<typeof UpdateVoiceSession>): VoiceSession {
     const live = this.live.get(id);
     const before = this.sessions.get(id)!;
@@ -212,6 +235,14 @@ export class VoiceHub {
         if (now - live.closingSince >= CLOSE_GRACE_MS) this.drop(live.id);
         continue;
       }
+      if (live.detachedSince !== undefined) {
+        if (now - live.detachedSince < REATTACH_MS) void this.reattach(live);
+        else {
+          this.drop(live.id);
+          this.emitState(this.sessions.update(live.id, { status: "closed" }));
+        }
+        continue;
+      }
       if (now - live.startedAt >= VOICE_LIMITS.maxSeconds * 1000) {
         this.close(live.id);
         continue;
@@ -221,26 +252,36 @@ export class VoiceHub {
         this.emitState(this.sessions.update(live.id, { status: "idle" }));
       }
     }
+    for (const old of [...this.retiring]) if (now - old.closingSince! >= CLOSE_GRACE_MS) this.unretire(old);
   }
 
   shutdown() {
     for (const id of [...this.live.keys()]) this.drop(id);
+    for (const old of [...this.retiring]) this.unretire(old);
     this.offBus();
     this.stopTimer();
   }
 
   private onEvent(live: Live, e: VoiceEvent) {
+    // The sideband may not get session.started (it attaches to a running session): any sign of the
+    // conversation means it's live.
+    if (e.type === "started" || e.type === "input_transcript" || e.type === "output_transcript" || e.type === "delegation") {
+      if (this.sessions.get(live.id)?.status === "connecting") this.emitState(this.sessions.update(live.id, { status: "live" }));
+    }
     switch (e.type) {
       case "started":
-        this.emitState(this.sessions.update(live.id, { status: "live" }));
         break;
       case "input_transcript": {
         live.lastInputAt = this.now();
+        // What the voice already answered (small talk) isn't part of the next request.
+        if (live.answered) live.words = "";
+        live.answered = false;
         live.words += e.text;
         this.hear(live, "person", e.text);
         break;
       }
       case "output_transcript":
+        live.answered = true;
         this.hear(live, "voice", e.text);
         break;
       case "delegation": {
@@ -262,10 +303,61 @@ export class VoiceHub {
         this.emitState(session);
         break;
       }
+      case "detached":
+        live.off();
+        live.detachedSince ??= this.now();
+        void this.reattach(live);
+        break;
       case "error":
         reportError(new Error(`voice session ${live.id}: ${e.message}`), 502, { "kiln.voice.session": live.id });
         break;
     }
+  }
+
+  /** Attaches to the live session again after its sideband dropped; tick retries until REATTACH_MS. */
+  private async reattach(live: Live) {
+    if (live.reattaching) return;
+    live.reattaching = true;
+    try {
+      const link = await this.options.provider.attach(live.liveSessionId, live.apiKey);
+      if (this.live.get(live.id) !== live) return link.detach();
+      live.link = link;
+      live.off = link.on((e) => this.onEvent(live, e));
+      live.detachedSince = undefined;
+    } catch (err) {
+      reportError(err, 502, { "kiln.voice.session": live.id });
+    } finally {
+      live.reattaching = false;
+    }
+  }
+
+  /**
+   * A resume replaces the session's live session: the old one is asked to close (it may still be
+   * connected, say in a duplicated tab) and kept only until its usage report arrives.
+   */
+  private retire(id: string) {
+    const old = this.live.get(id);
+    if (!old) return;
+    this.live.delete(id);
+    old.off();
+    if (old.closingSince === undefined) {
+      old.closingSince = this.now();
+      this.send(old, { type: "close" });
+    }
+    this.retiring.add(old);
+    old.off = old.link.on((e) => {
+      if (e.type !== "closed") return;
+      const s = this.sessions.get(old.id);
+      if (s) this.sessions.update(old.id, { seconds: s.seconds + (e.usage?.seconds ?? 0), costUsd: s.costUsd + (e.usage?.costUsd ?? 0) });
+      this.unretire(old);
+    });
+  }
+
+  private unretire(old: Live) {
+    if (!this.retiring.delete(old)) return;
+    old.off();
+    old.link.detach();
+    if (!this.live.size && !this.retiring.size) this.stopTimer();
   }
 
   /** Transcripts arrive in pieces; a line is written once the other side speaks or a delegation arrives. */
@@ -306,7 +398,9 @@ export class VoiceHub {
         { focus: session.focus, transcript: session.transcript, ...(session.pending ? { pending: session.pending } : {}) },
         words,
       );
-      const updated = this.sessions.update(live.id, { focus: result.focus, pending: result.pending });
+      // The focus is written only when a tool moved it: the person may have moved by hand while the model thought.
+      const moved = result.client.some((a) => "focus" in a);
+      const updated = this.sessions.update(live.id, { ...(moved ? { focus: result.focus } : {}), pending: result.pending });
       for (const action of result.client) this.emit(live.id, { event: "client", data: action });
       if (result.client.length) this.emitState(updated);
       if (result.say) this.send(live, { type: "say", text: result.say, delegation });
@@ -349,7 +443,7 @@ export class VoiceHub {
     this.live.delete(id);
     live.off();
     live.link.detach();
-    if (!this.live.size) this.stopTimer();
+    if (!this.live.size && !this.retiring.size) this.stopTimer();
   }
 
   private emitState(session: VoiceSession) {

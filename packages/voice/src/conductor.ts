@@ -26,7 +26,6 @@ const DOING: Record<string, string> = {
   look: "look at that",
   stop: "stop that",
   ship: "ship that",
-  set_ship_mode: "change the ship mode",
   focus: "move there",
   show: "show that",
 };
@@ -59,6 +58,10 @@ function question(p: Omit<PendingAction, "asked">): string {
     : i.state === "ready_for_review"
       ? "Mark the pull request ready for review? Say yes or no."
       : "Open or update the pull request? Say yes or no.";
+}
+
+function withoutPrompt({ prompt: _, ...rest }: Record<string, unknown>): Record<string, unknown> {
+  return rest;
 }
 
 /** What a confirmed action says when it ran. */
@@ -128,9 +131,10 @@ export class Conductor {
           break;
         }
         case "confirm": {
-          // A pending action lives for one delegation; anything but a yes drops it.
+          // A pending action lives for one delegation; anything but a yes drops it. Only the person's
+          // own words can say yes: a delegation without them (the voice acting on narrated text) can't.
           const p = state.pending;
-          if (!p) break;
+          if (!p || !words.trim()) break;
           if (!call.yes) says.push("Okay, I won't.");
           else {
             const r = await run(p.name, p.input);
@@ -144,13 +148,20 @@ export class Conductor {
         case "studio": {
           const { name, input } = call;
           if (name === "send") break; // Never the model's words; relay sends the person's.
+          if (name === "set_ship_mode") {
+            // Only a person picks an App's ship mode, on the screen (ADR-012); never a model.
+            says.push("I can't change the ship mode. Change it in the App's settings.");
+            break;
+          }
           if (CONFIRM.has(name)) {
+            if (!words.trim()) break;
             const asked = question({ name: name as PendingAction["name"], input });
             pending = { name: name as PendingAction["name"], input, asked };
             says.push(asked);
             return done();
           }
-          const r = await run(name, input);
+          // A new chat starts empty: its first message is the person's words, sent by relay, never the model's.
+          const r = await run(name, name === "new_chat" ? withoutPrompt(input) : input);
           if (!r.ok) break;
           if (name === "status") says.push(describeStatus(r.data as StatusReport));
           else if (name === "look") says.push(describePreview(r.data as Preview));

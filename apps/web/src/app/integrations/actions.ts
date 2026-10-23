@@ -29,6 +29,12 @@ export async function createGitHubApp(org: string): Promise<ActionResult<{ actio
   }
 }
 
+export async function removeGitHubApp(slug: string): Promise<ActionResult> {
+  const r = await attempt(() => api.removeGitHubApp(slug), `Removed ${slug}`);
+  if (r.ok) revalidatePath("/integrations");
+  return r.ok ? { ok: true, message: r.message } : r;
+}
+
 export async function completeConnect(provider: string, state: string, params: Record<string, string>): Promise<ActionResult> {
   const r = await attempt(() => api.completeConnection(provider, { state, params }), "Connected");
   if (r.ok) revalidatePath("/integrations");

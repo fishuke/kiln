@@ -123,6 +123,8 @@ export type KilnOptions = {
   githubManifests?: GitHubManifestClient;
   /** Called when an admin creates Kiln's GitHub App, so the server can switch its forge to it. */
   onGitHubApp?: (app: GitHubAppCredentials) => void;
+  /** An admin removed one of Kiln's own GitHub Apps: stop using it. */
+  onGitHubAppRemoved?: (slug: string) => void;
   /** Only this email may sign up as a fresh server's first owner (KILN_OWNER_EMAIL). */
   ownerEmail?: string;
   scoreAllRuns?: boolean;

@@ -78,6 +78,18 @@ export class GitHubAppService {
     return { by: s.by };
   }
 
+  /**
+   * Forgets an app (one created by mistake, or a duplicate): its credentials go, and Kiln stops using it
+   * for the forge and webhooks. The app itself stays on GitHub until someone deletes it there.
+   */
+  remove(slug: string, by: string): void {
+    const stored = this.find(slug);
+    if (!stored) throw new KilnError("resource_not_found", `no GitHub App ${slug}`);
+    this.k.store.delete(APPS, stored.id);
+    this.k.audit(by, "github_app.removed", slug, { appId: stored.appId, owner: stored.owner, installationId: stored.installationId });
+    this.k.options.onGitHubAppRemoved?.(slug);
+  }
+
   /** Every app, oldest first, without secrets. */
   list(): GitHubAppInfo[] {
     return this.stored().map((s) => ({ appId: s.appId, slug: s.slug, owner: s.owner, installationId: s.installationId, createdBy: s.createdBy, createdAt: s.createdAt, installUrl: `https://github.com/apps/${s.slug}/installations/new` }));

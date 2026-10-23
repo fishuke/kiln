@@ -456,6 +456,23 @@ describe("Kiln's own GitHub App from a manifest", () => {
     expect((await app.request("/webhooks/github", { method: "POST", body, headers: { "x-github-event": "ping", "x-hub-signature-256": sig("nope") } })).status).toBe(401);
   });
 
+  it("removes an app an admin created by mistake", async () => {
+    const { app, kiln, manifests, admin, reader } = appSetup();
+    const create = async (org?: string) => {
+      const { state } = await admin.request<{ state: string }>("POST", "/api/v1/connections/github/app-manifest", org ? { org } : {});
+      await app.request(`/oauth/github/app/callback?code=c&state=${state}`);
+    };
+    await create();
+    manifests.next = { appId: "5151", slug: "kiln-dup", privateKey: "-----BEGIN RSA PRIVATE KEY-----\ndup\n-----END RSA PRIVATE KEY-----\n", webhookSecret: "whsec-dup", owner: "acme" };
+    await create("acme");
+    await expect(reader.removeGitHubApp("kiln-dup")).rejects.toMatchObject({ status: 403 });
+    await admin.removeGitHubApp("kiln-dup");
+    expect((await admin.githubApps()).map((a) => a.slug)).toEqual(["kiln-test"]);
+    expect(kiln.githubApp.allCredentials().map((c) => c.webhookSecret)).toEqual(["whsec-fake"]);
+    expect(kiln.store.list<{ id: string; action: string; target: string }>("audit").some((e) => e.action === "github_app.removed" && e.target === "kiln-dup")).toBe(true);
+    await expect(admin.removeGitHubApp("kiln-dup")).rejects.toMatchObject({ status: 404 });
+  });
+
   it("sends people back to Integrations when GitHub's code has expired", async () => {
     const { app, admin } = appSetup();
     const { state } = await admin.request<{ state: string }>("POST", "/api/v1/connections/github/app-manifest");

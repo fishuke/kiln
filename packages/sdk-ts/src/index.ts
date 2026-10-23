@@ -1121,6 +1121,10 @@ export class KilnClient {
       "GET",
       "/api/v1/connections/github/apps",
     );
+  /** Forgets one of Kiln's own GitHub Apps (admin); it stays on GitHub until deleted there. */
+  removeGitHubApp = async (slug: string): Promise<void> => {
+    await this.request<undefined>("DELETE", `/api/v1/connections/github/apps/${encodeURIComponent(slug)}`);
+  };
   githubApp = () =>
     this.request<{ appId: string; slug: string; owner?: string; installationId?: string; createdBy: string; createdAt: string; installUrl: string } | null>(
       "GET",

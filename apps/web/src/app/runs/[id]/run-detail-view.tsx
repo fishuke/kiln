@@ -23,7 +23,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { confirmLanded, handBack, pauseRun, replayRun, resumeRun, retryTask, saveAsBenchmark, scoreThisRun, sendFollowup, stopRun, takeLocal } from "@/app/runs/actions";
 import { useAttachments } from "@/components/kiln/attachments";
 import { PromptInput } from "@/components/kiln/prompt-input";

@@ -2,7 +2,7 @@
 
 import type { StudioAppSettings } from "@kiln/sdk-ts";
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { SettingsColumn, SettingsSection } from "@/components/kiln/settings-blocks";
 import { PageHeader } from "@/components/kiln/ui";
 import { saveStudioSettings } from "@/components/studio-settings/actions";

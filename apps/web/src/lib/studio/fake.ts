@@ -174,6 +174,32 @@ export class FakeStudioClient implements StudioClient {
     return this.appsById.get(id)!;
   }
 
+  async retryApp(id: string): Promise<StudioApp> {
+    const p = this.failed(id, "retried");
+    for (const v of [...this.versions.values()]) if (v.appId === id) this.versions.delete(v.id);
+    this.appsById.set(id, { ...p, status: "creating", error: undefined, setup: undefined, updatedAt: this.iso() });
+    this.schedule(() => {
+      this.patchApp(id, { status: "ready" });
+      this.addVersion(id, { title: "Started from the Next.js template", kind: "initial" });
+    }, this.stepMs * 2);
+    this.emit();
+    return this.appsById.get(id)!;
+  }
+
+  async deleteApp(id: string): Promise<void> {
+    this.failed(id, "deleted");
+    for (const c of [...this.chats.values()]) if (c.appId === id) this.chats.delete(c.id);
+    for (const v of [...this.versions.values()]) if (v.appId === id) this.versions.delete(v.id);
+    this.appsById.delete(id);
+    this.emit();
+  }
+
+  private failed(id: string, action: string): StudioApp {
+    const p = this.must(this.appsById.get(id), "App");
+    if (p.status !== "failed") throw new StudioClientError(`only a failed app can be ${action}; this one is ${p.status}`, 400);
+    return p;
+  }
+
   async newChat(appId: string, input: NewChatInput): Promise<NewChatResult> {
     this.must(this.appsById.get(appId), "App");
     const n = [...this.chats.values()].filter((c) => c.appId === appId).length;

@@ -2,7 +2,7 @@
 
 import { Circle, CircleCheck, CircleDot, CircleX, ExternalLink, GitPullRequest, Rocket, X } from "lucide-react";
 import { useRef } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Trace, TraceIcon, TraceLine, TraceTitle } from "@/components/ui/trace";

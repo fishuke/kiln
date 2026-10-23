@@ -4,7 +4,7 @@ import type { SpecRetryOptions } from "@kiln/sdk-ts";
 import { Check, ExternalLink, GitPullRequest, Globe, RotateCcw, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { decide, retrySpec, specRetryOptions } from "@/app/runs/actions";
 import { Markdown } from "@/components/kiln/markdown";
 import { ModelSelect } from "@/components/kiln/resource-pickers";

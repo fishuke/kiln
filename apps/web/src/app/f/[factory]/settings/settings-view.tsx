@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Cloud, ExternalLink, KeyRound, Pencil, Plug, Plus, RefreshCw, Server, Settings2, Trash, Upload, X } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { AzureDevOpsIcon, BitbucketIcon, DiscordIcon, GitHubIcon, GitLabIcon, JiraIcon, LinearIcon, SlackIcon, TeamsIcon } from "@/components/kiln/brand-icons";
 import { InfoTip } from "@/components/kiln/info-tip";
 import { McpTestButton } from "@/components/kiln/mcp-test";

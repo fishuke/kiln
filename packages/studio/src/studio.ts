@@ -8,6 +8,7 @@ import { z } from "zod";
 import { DEFAULT_AGENT, targetOf, type AppDefinitions } from "./app-definitions";
 import { detectSetup, devCommand, ENV_EXAMPLES, envKeys, listenPort } from "./setup";
 import { DEFAULT_READY, TEMPLATES, type Template } from "./templates";
+import { NOOP_TRACER, type StudioSpanAttributes, type StudioTracer } from "./tracer";
 import {
   COLLECTIONS as C,
   StudioError,
@@ -35,7 +36,16 @@ export interface Clock {
 /** Starting and talking to App runs; the API wires these to the engine's RunService (factory runs' machinery). */
 export interface StudioRuns {
   /** Start a run of an App agent for a chat; resolves once the run exists. */
-  start(input: { appId: string; chatId: string; agent: string; prompt: string; by: string; via: Via; harness?: HarnessType; model?: string }): Promise<{ runId: string }>;
+  start(input: {
+    appId: string;
+    chatId: string;
+    agent: string;
+    prompt: string;
+    by: string;
+    via: Via;
+    harness?: HarnessType;
+    model?: string;
+  }): Promise<{ runId: string }>;
   /** Steers a live run, or continues a finished one in a new run. */
   followup(runId: string, input: { message: string; by: string }): Promise<{ delivered: "steered" | "continued"; runId: string }>;
   interrupt(runId: string, by: string): Promise<void>;
@@ -100,9 +110,23 @@ export type StudioOptions = {
   previewDomain?: string;
   /** For the preview ready check; defaults to the global fetch. */
   fetch?: typeof fetch;
+  /** Spans for Studio's slow steps; records nothing by default. */
+  tracer?: StudioTracer;
 };
 
-type Dev = { proc: Proc; port: number; state: "starting" | "ready" | "failed" };
+/**
+ * A dev server. `preview` names what it serves (for studio.preview_failed); `output` keeps its last output lines;
+ * `failure` is set once its failure is reported; `stopped` when Studio itself stopped it (not a failure).
+ */
+type Dev = {
+  proc: Proc;
+  port: number;
+  state: "starting" | "ready" | "failed";
+  preview: { chatId: string } | { versionId: string };
+  output: string[];
+  failure?: string;
+  stopped?: boolean;
+};
 /** An App's environment: the values people assigned (team → Kiln Project → App), and which of them are secret. */
 export type AppEnv = { env: Record<string, string>; secretValues: string[] };
 
@@ -138,6 +162,8 @@ const withText = (t: string | undefined, clean: (s: string) => string) => (t ? {
 const MAX_CHATS = 99;
 /** How often the ready check asks a starting dev server. */
 const READY_POLL_MS = 200;
+/** How many of a dev server's last output lines studio.preview_failed carries. */
+const DEV_OUTPUT_LINES = 40;
 /** What an imported App's sandbox may reach (docs/specs/studio.md): its package registry. */
 const IMPORT_EGRESS = ["registry.npmjs.org"];
 
@@ -151,7 +177,11 @@ const oneLine = (s: string, max = 80) => {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 };
 /** The newest message of a continued run's prompt (a follow-up appends "## Follow-up from …"). */
-const followUpText = (prompt: string) => prompt.split(/\n## Follow-up from [^\n]*\n/).at(-1)!.trim();
+const followUpText = (prompt: string) =>
+  prompt
+    .split(/\n## Follow-up from [^\n]*\n/)
+    .at(-1)!
+    .trim();
 
 /** What every App agent is told about working in Studio (after its own instructions and mandatory skills). */
 export const STUDIO_INSTRUCTIONS = [
@@ -203,9 +233,11 @@ export class Studio {
     for (const t of this.opts.store.list<Turn>(C.turns, (x) => x.status === "running")) {
       this.save(C.turns, { ...t, status: "failed", reply: t.reply || reason, finishedAt: this.now() });
     }
-    for (const c of this.opts.store.list<Chat>(C.chats, (x) => x.status === "working")) this.touch(C.chats, { ...c, status: "needs_you", question: `The agent failed: ${reason}` });
+    for (const c of this.opts.store.list<Chat>(C.chats, (x) => x.status === "working"))
+      this.touch(C.chats, { ...c, status: "needs_you", question: `The agent failed: ${reason}` });
     // Chats saved before chats named their agent (Studio before turns became runs) use the default agent.
-    for (const c of this.opts.store.list<Partial<Chat> & Pick<Chat, "id">>(C.chats, (x) => !x.agent)) this.opts.store.put(C.chats, { ...c, agent: DEFAULT_AGENT });
+    for (const c of this.opts.store.list<Partial<Chat> & Pick<Chat, "id">>(C.chats, (x) => !x.agent))
+      this.opts.store.put(C.chats, { ...c, agent: DEFAULT_AGENT });
   }
 
   // ---- reads ----
@@ -288,6 +320,55 @@ export class Studio {
     return app;
   }
 
+  /**
+   * Sets a failed App up again on a fresh sandbox: its sandbox (if this process holds one) is destroyed, its
+   * versions, snapshot, setup and error are dropped, and it is `creating` until setup succeeds or fails again.
+   */
+  async retryApp(appId: string): Promise<App> {
+    return this.locked(appId, async () => {
+      const p = this.failedApp(appId, "retried");
+      await this.discardWorkspace(appId);
+      for (const v of this.versions(appId)) this.opts.store.delete(C.versions, v.id);
+      const { error: _error, setup: _setup, snapshot: _snapshot, ...rest } = p;
+      const app = this.touch<App>(C.apps, { ...rest, status: "creating" });
+      this.provisioning.set(
+        app.id,
+        this.provision(app).finally(() => this.provisioning.delete(app.id)),
+      );
+      return app;
+    });
+  }
+
+  /** Deletes a failed App: destroys its sandbox (if this process holds one) and removes its chats, turns, versions and record. */
+  async deleteApp(appId: string): Promise<void> {
+    await this.locked(appId, async () => {
+      this.failedApp(appId, "deleted");
+      await this.discardWorkspace(appId);
+      const { chats, versions } = this.getApp(appId)!;
+      for (const c of chats) {
+        for (const t of this.opts.store.list<Turn>(C.turns, (x) => x.chatId === c.id)) this.opts.store.delete(C.turns, t.id);
+        this.opts.store.delete(C.chats, c.id);
+      }
+      for (const v of versions) this.opts.store.delete(C.versions, v.id);
+      this.opts.store.delete(C.apps, appId);
+    });
+  }
+
+  private failedApp(appId: string, action: string): App {
+    const p = this.app(appId);
+    if (p.status !== "failed") throw new StudioError("invalid", `only a failed app can be ${action}; this one is ${p.status}`);
+    return p;
+  }
+
+  /** Stops the App's dev servers and destroys its sandbox, when this process holds one. */
+  private async discardWorkspace(appId: string) {
+    const live = this.live.get(appId);
+    if (!live) return;
+    this.stopDevs(live);
+    this.live.delete(appId);
+    await live.sandbox.destroy();
+  }
+
   /** Resolves when a new app is ready or has failed. */
   async ready(appId: string): Promise<void> {
     await this.provisioning.get(appId);
@@ -317,7 +398,7 @@ export class Studio {
       if (live) {
         for (const chat of this.getApp(appId)!.chats) if (this.running.has(chat.id)) throw new StudioError("busy", "a chat is still working");
         this.stopDevs(live);
-        p.snapshot = await live.sandbox.snapshot(this.opts.objects);
+        p.snapshot = await this.snapshotOf(appId, live.sandbox);
         await live.sandbox.destroy();
         this.live.delete(appId);
       }
@@ -329,7 +410,9 @@ export class Studio {
   /** Stop every dev server, agent and sandbox without snapshotting (process shutdown, tests). */
   async shutdown(): Promise<void> {
     const working = [...this.running.values()];
-    const stops = await Promise.allSettled(working.filter((r) => r.runId && this.opts.runs.active(r.runId)).map((r) => this.opts.runs.interrupt(r.runId!, "studio")));
+    const stops = await Promise.allSettled(
+      working.filter((r) => r.runId && this.opts.runs.active(r.runId)).map((r) => this.opts.runs.interrupt(r.runId!, "studio")),
+    );
     // Let stopped turns finish their bookkeeping (release) before their sandboxes go away.
     await Promise.allSettled([...working.map((r) => r.done), ...this.settling.values()]);
     for (const live of this.live.values()) this.stopDevs(live);
@@ -344,51 +427,76 @@ export class Studio {
       );
   }
 
+  /**
+   * Sets an App up in a new sandbox. A failure marks the App failed and publishes studio.app_failed inside the
+   * provision span, so its log record carries the trace; the span ends with error status.
+   */
   private async provision(app: App) {
-    try {
-      const template = app.source.kind === "template" ? this.templates[app.source.template]! : undefined;
-      const clone = app.source.kind === "repo" ? await this.opts.clone!(app.source) : undefined;
-      // The provider clones an imported repository into "app" and allows its host for the clone.
-      const sandbox = await this.opts.sandboxes.create(this.spec(app, clone?.url));
-      this.live.set(app.id, { sandbox, devs: new Map(), addresses: new Map() });
-      const env = this.env(app);
-      await must(sandbox, ".", "mkdir -p chats");
-      let mainBranch = "main";
-      let title: string;
-      if (app.source.kind === "template") {
-        await must(sandbox, ".", "mkdir -p app");
-        for (const cmd of template!.scaffold) await must(sandbox, "app", cmd.replaceAll("{templates}", shellQuote(this.opts.templatesDir ?? "/opt/kiln/templates")), env);
-        await must(sandbox, "app", "git init -q -b main");
-        title = `Created ${app.name}`;
-      } else {
-        const want = app.source.branch ?? clone!.branch;
-        if (want) await must(sandbox, "app", `git checkout -q ${shellQuote(want)}`);
-        mainBranch = await must(sandbox, "app", "git rev-parse --abbrev-ref HEAD");
-        // Forget the credential in the clone URL; Studio never pushes in phases 1–4.
-        await must(sandbox, "app", "git remote remove origin");
-        title = `Imported ${app.source.repo}`;
+    await this.trace("studio.provision", { "kiln.studio.app.id": app.id, "kiln.studio.app.source": app.source.kind }, async () => {
+      try {
+        await this.setUp(app);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const p = this.app(app.id);
+        p.status = "failed";
+        p.error = message;
+        this.touch(C.apps, p);
+        this.opts.bus.publish("studio.app_failed", { appId: app.id, error: this.redactor(p)(message), priority: "needs_you" });
+        throw err;
       }
-      await must(
-        sandbox,
-        "app",
-        `git config user.email studio@kiln.local && git config user.name 'Kiln Studio' && mkdir -p .git/info && printf '.kiln/\\n' >> .git/info/exclude`,
-      );
-      const setup = await this.detect(sandbox, app, mainBranch, template);
-      if (template) await must(sandbox, "app", "git add -A && git commit -q -m " + shellQuote(title));
-      else await this.install(sandbox, "app", setup.install, env);
-      const sha = await must(sandbox, "app", "git rev-parse HEAD");
-      const p = this.app(app.id);
-      p.setup = setup;
-      p.status = "ready";
-      this.touch(C.apps, p);
-      this.addVersion(p, { sha, title, kind: "initial" });
-      await this.snapshot(p.id);
-    } catch (err) {
-      const p = this.app(app.id);
-      p.status = "failed";
-      p.error = err instanceof Error ? err.message : String(err);
-      this.touch(C.apps, p);
+    }).catch(() => {
+      // Already recorded: on the App, as studio.app_failed, and on the provision span.
+    });
+  }
+
+  private async setUp(app: App) {
+    const attrs = { "kiln.studio.app.id": app.id };
+    const source = app.source;
+    const template = source.kind === "template" ? this.templates[source.template]! : undefined;
+    // The provider clones an imported repository into "app" and allows its host for the clone.
+    const { sandbox, branch } =
+      source.kind === "repo"
+        ? await this.trace("studio.clone", { ...attrs, "kiln.studio.repo": source.repo }, async () => {
+            const clone = await this.opts.clone!(source);
+            return { sandbox: await this.opts.sandboxes.create(this.spec(app, clone.url)), branch: clone.branch };
+          })
+        : { sandbox: await this.opts.sandboxes.create(this.spec(app)), branch: undefined };
+    this.live.set(app.id, { sandbox, devs: new Map(), addresses: new Map() });
+    const env = this.env(app);
+    await must(sandbox, ".", "mkdir -p chats");
+    let mainBranch = "main";
+    let title: string;
+    if (source.kind === "template") {
+      await this.trace("studio.scaffold", { ...attrs, "kiln.studio.template": source.template }, async () => {
+        await must(sandbox, ".", "mkdir -p app");
+        for (const cmd of template!.scaffold)
+          await must(sandbox, "app", cmd.replaceAll("{templates}", shellQuote(this.opts.templatesDir ?? "/opt/kiln/templates")), env);
+        await must(sandbox, "app", "git init -q -b main");
+      });
+      title = `Created ${app.name}`;
+    } else {
+      const want = source.branch ?? branch;
+      if (want) await must(sandbox, "app", `git checkout -q ${shellQuote(want)}`);
+      mainBranch = await must(sandbox, "app", "git rev-parse --abbrev-ref HEAD");
+      // Forget the credential in the clone URL; Studio never pushes in phases 1–4.
+      await must(sandbox, "app", "git remote remove origin");
+      title = `Imported ${source.repo}`;
     }
+    await must(
+      sandbox,
+      "app",
+      `git config user.email studio@kiln.local && git config user.name 'Kiln Studio' && mkdir -p .git/info && printf '.kiln/\\n' >> .git/info/exclude`,
+    );
+    const setup = await this.detect(sandbox, app, mainBranch, template);
+    if (template) await this.trace("studio.commit", attrs, () => must(sandbox, "app", "git add -A && git commit -q -m " + shellQuote(title)));
+    else await this.install(app.id, sandbox, "app", setup.install, env);
+    const sha = await must(sandbox, "app", "git rev-parse HEAD");
+    const p = this.app(app.id);
+    p.setup = setup;
+    p.status = "ready";
+    this.touch(C.apps, p);
+    this.addVersion(p, { sha, title, kind: "initial" });
+    await this.snapshot(p.id);
   }
 
   /**
@@ -396,9 +504,12 @@ export class Studio {
    * nothing the install writes (a generated lockfile, a reformatted package.json) counts as an agent's change.
    * Ignored files, such as node_modules, stay.
    */
-  private async install(sandbox: Sandbox, cwd: string, commands: string[], env: Record<string, string>) {
-    for (const cmd of commands) await must(sandbox, cwd, cmd, env);
-    if (commands.length) await must(sandbox, cwd, "git checkout -q -- . && git clean -fdq -e node_modules");
+  private async install(appId: string, sandbox: Sandbox, cwd: string, commands: string[], env: Record<string, string>) {
+    if (!commands.length) return;
+    await this.trace("studio.install", { "kiln.studio.app.id": appId, "kiln.studio.cwd": cwd }, async () => {
+      for (const cmd of commands) await must(sandbox, cwd, cmd, env);
+      await must(sandbox, cwd, "git checkout -q -- . && git clean -fdq -e node_modules");
+    });
   }
 
   private async detect(sandbox: Sandbox, app: App, mainBranch: string, template?: Template): Promise<AppSetup> {
@@ -472,7 +583,7 @@ export class Studio {
       updatedAt: now,
     };
     await this.locked(p.id, () => must(sandbox, "app", `git worktree add -q -b ${chat.branch} ../${chat.path} ${shellQuote(p.setup!.mainBranch)}`));
-    await this.install(sandbox, chat.path, p.setup!.install, this.env(p));
+    await this.install(p.id, sandbox, chat.path, p.setup!.install, this.env(p));
     return this.save(C.chats, chat);
   }
 
@@ -563,7 +674,11 @@ export class Studio {
     };
     let finish!: () => void;
     const done = new Promise<void>((res) => (finish = res));
-    this.running.set(chat.id, { turnId: turn.id, done, finish: () => (this.running.get(chat.id)?.turnId === turn.id && this.running.delete(chat.id), finish()) });
+    this.running.set(chat.id, {
+      turnId: turn.id,
+      done,
+      finish: () => (this.running.get(chat.id)?.turnId === turn.id && this.running.delete(chat.id), finish()),
+    });
     this.save(C.turns, turn);
     this.opts.bus.publish("studio.turn_started", { appId: p.id, chatId: chat.id, turnId: turn.id, priority: "progress" });
     return turn;
@@ -611,7 +726,12 @@ export class Studio {
     let chat = continued ?? (named ? this.chat(named) : undefined);
     if (!chat) {
       if (!parent) throw new StudioError("invalid", `run ${run.id} has no Studio chat`);
-      chat = await this.createChat(p, { title: run.name ?? run.title ?? oneLine(run.startState.prompt, 40), agent: run.agent, mode: "build", parentRunId: parent.id });
+      chat = await this.createChat(p, {
+        title: run.name ?? run.title ?? oneLine(run.startState.prompt, 40),
+        agent: run.agent,
+        mode: "build",
+        parentRunId: parent.id,
+      });
     }
     // A turn Studio started (send) waits for its run; any other run (a child, a report, an agent's follow-up) is a new turn.
     const waiting = this.running.get(chat.id);
@@ -739,7 +859,8 @@ export class Studio {
       changed: Boolean(turn.checkpoint),
       priority: "finished",
     });
-    if (needs) this.opts.bus.publish("studio.needs_you", { appId: p.id, chatId, question: needs, reason: turn.question ? "question" : "failed", priority: "needs_you" });
+    if (needs)
+      this.opts.bus.publish("studio.needs_you", { appId: p.id, chatId, question: needs, reason: turn.question ? "question" : "failed", priority: "needs_you" });
   }
 
   private finishFailed(p: App, chatId: string, turn: Turn, message: string) {
@@ -775,25 +896,31 @@ export class Studio {
     const p = this.readyApp(chat.appId);
     return this.locked(p.id, async () => {
       const { sandbox } = await this.ensureLive(p);
-      const main = shellQuote(p.setup!.mainBranch);
-      const ahead = Number(await must(sandbox, "app", `git rev-list --count ${main}..${chat.branch}`));
-      if (!ahead) return { ok: false, nothing: true } as const;
-      const subjects = (await must(sandbox, "app", `git log --no-merges --reverse --format=%s ${main}..${chat.branch}`)).split("\n").filter(Boolean);
-      const title = oneLine(subjects.join("; ") || chat.title);
-      const merged = await sandbox.exec(`git merge --no-ff -q -m ${shellQuote(title)} ${chat.branch}`, { cwd: "app", trusted: true });
-      if (merged.code !== 0) {
-        const files = (await must(sandbox, "app", "git diff --name-only --diff-filter=U")).split("\n").filter(Boolean);
-        await sandbox.exec("git merge --abort", { cwd: "app", trusted: true });
-        this.touch(C.chats, { ...this.chat(chatId), status: "conflict", question: `Applying conflicts in ${files.join(", ")}` });
-        return { ok: false, conflict: files } as const;
-      }
-      const sha = await must(sandbox, "app", "git rev-parse HEAD");
-      const appliedSha = await must(sandbox, "app", `git rev-parse ${chat.branch}`);
-      const current = this.chat(chatId);
-      this.touch(C.chats, { ...current, appliedSha, ...(current.status === "conflict" ? { status: "idle" as const, question: undefined } : {}) });
       void by;
-      return { ok: true, version: this.addVersion(p, { sha, title, kind: "apply", chatId }) } as const;
+      return this.trace("studio.apply", { "kiln.studio.app.id": p.id, "kiln.studio.chat.id": chatId }, () => this.merge(p, chat, sandbox));
     });
+  }
+
+  /** Merges a chat's branch into the App's main line as a version (under the App's lock). */
+  private async merge(p: App, chat: Chat, sandbox: Sandbox): Promise<ApplyResult> {
+    const chatId = chat.id;
+    const main = shellQuote(p.setup!.mainBranch);
+    const ahead = Number(await must(sandbox, "app", `git rev-list --count ${main}..${chat.branch}`));
+    if (!ahead) return { ok: false, nothing: true } as const;
+    const subjects = (await must(sandbox, "app", `git log --no-merges --reverse --format=%s ${main}..${chat.branch}`)).split("\n").filter(Boolean);
+    const title = oneLine(subjects.join("; ") || chat.title);
+    const merged = await sandbox.exec(`git merge --no-ff -q -m ${shellQuote(title)} ${chat.branch}`, { cwd: "app", trusted: true });
+    if (merged.code !== 0) {
+      const files = (await must(sandbox, "app", "git diff --name-only --diff-filter=U")).split("\n").filter(Boolean);
+      await sandbox.exec("git merge --abort", { cwd: "app", trusted: true });
+      this.touch(C.chats, { ...this.chat(chatId), status: "conflict", question: `Applying conflicts in ${files.join(", ")}` });
+      return { ok: false, conflict: files } as const;
+    }
+    const sha = await must(sandbox, "app", "git rev-parse HEAD");
+    const appliedSha = await must(sandbox, "app", `git rev-parse ${chat.branch}`);
+    const current = this.chat(chatId);
+    this.touch(C.chats, { ...current, appliedSha, ...(current.status === "conflict" ? { status: "idle" as const, question: undefined } : {}) });
+    return { ok: true, version: this.addVersion(p, { sha, title, kind: "apply", chatId }) } as const;
   }
 
   async restore(versionId: string, by: string): Promise<Version> {
@@ -850,7 +977,7 @@ export class Studio {
       if (exists) await must(live.sandbox, "version", `git checkout -q --detach ${v.sha}`);
       else {
         await must(live.sandbox, "app", `git worktree add -q --detach ../version ${v.sha}`);
-        await this.install(live.sandbox, "version", p.setup!.install, this.env(p));
+        await this.install(p.id, live.sandbox, "version", p.setup!.install, this.env(p));
       }
       live.shownVersion = v.id;
     });
@@ -871,24 +998,42 @@ export class Studio {
     if (!live.sandbox.expose) throw new StudioError("unavailable", `the ${live.sandbox.provider} sandbox backend can't serve previews`);
     const dev = p.setup?.dev;
     if (!dev) throw new StudioError("invalid", "no dev command: set one in the app settings");
+    const attrs = { "kiln.studio.app.id": p.id, "kiln.studio.preview.target": target, "kiln.studio.preview.port": port };
     let running = live.devs.get(key);
     if (!running) {
       const cmd = dev.replaceAll("{port}", String(port));
       const env: Record<string, string> = { ...this.env(p), PORT: String(port), HOST: "0.0.0.0" };
       // The template's next.config.ts allows dev origins (hot reload) under the preview domain.
       if (this.opts.previewDomain) env.KILN_STUDIO_PREVIEW_DOMAIN = this.opts.previewDomain;
-      const proc = live.sandbox.spawn("sh", ["-c", cmd], { cwd, env });
-      const started: Dev = { proc, port, state: "starting" };
+      const started = await this.trace("studio.dev_server_start", attrs, async () => {
+        // stderr joins stdout, so a failure report has the dev server's errors too.
+        const proc = live.sandbox.spawn("sh", ["-c", `exec 2>&1\n${cmd}`], { cwd, env });
+        const d: Dev = { proc, port, state: "starting", preview: key === "version" ? { versionId: target } : { chatId: key }, output: [] };
+        live.devs.set(key, d);
+        this.watchDev(p, live, key, d).catch((err: unknown) => this.devFailed(p, live, key, d, `reading the dev server's output failed: ${errorText(err)}`));
+        try {
+          await this.address(live, port);
+        } catch (err) {
+          this.devFailed(p, live, key, d, `the dev server's address is unknown: ${errorText(err)}`);
+          throw err;
+        }
+        return d;
+      });
       running = started;
-      live.devs.set(key, started);
-      this.watchDev(live, key, started).catch(() => this.devFailed(live, key, started));
       const template = p.source.kind === "template" ? this.templates[p.source.template] : undefined;
-      this.checkReady(live, started, template?.ready ?? DEFAULT_READY).catch(() => this.devFailed(live, key, started));
+      const ready = template?.ready ?? DEFAULT_READY;
+      this.trace("studio.ready_check", { ...attrs, "kiln.studio.preview.path": ready.path, "kiln.studio.preview.timeout_ms": ready.timeoutMs }, () =>
+        this.checkReady(live, started, ready),
+      ).catch((err: unknown) => {
+        // A dev server that never answered keeps running (its preview shows failed); anything else stops it.
+        if (err instanceof ReadyTimeout) this.reportDev(p, started, err.message);
+        else this.devFailed(p, live, key, started, errorText(err));
+      });
     }
     return { target, url: this.opts.previewUrl(target, await this.address(live, running.port)), status: running.state };
   }
 
-  /** Ready once GET `path` answers with any status; failed after `timeoutMs`. */
+  /** Ready once GET `path` answers with any status; throws ReadyTimeout after `timeoutMs`, and the dev server's failure when it exits first. */
   private async checkReady(live: Live, dev: Dev, ready: { path: string; timeoutMs: number }) {
     const fetchImpl = this.opts.fetch ?? fetch;
     const deadline = Date.now() + ready.timeoutMs;
@@ -896,23 +1041,32 @@ export class Studio {
       const left = deadline - Date.now();
       if (left <= 0) {
         dev.state = "failed";
-        return;
+        throw new ReadyTimeout(`the dev server didn't answer GET ${ready.path} on port ${dev.port} within ${ready.timeoutMs} ms`);
       }
       const a = await this.address(live, dev.port);
       if (await answers(fetchImpl, `http://${a.host}:${a.port}${ready.path}`, left)) dev.state = "ready";
       else await new Promise((r) => setTimeout(r, READY_POLL_MS));
     }
+    if (dev.state === "failed") throw new Error(dev.failure ?? "the dev server failed");
   }
 
-  /** Follow a dev server's output: switch to the port it says it listens on, forget it when it exits. */
-  private async watchDev(live: Live, key: string, dev: Dev) {
+  /**
+   * Follow a dev server's output: keep its last lines, switch to the port it says it listens on, and forget it
+   * when it exits (the next preview starts it again). An exit Studio didn't ask for is reported.
+   */
+  private async watchDev(p: App, live: Live, key: string, dev: Dev) {
     let seen = 0;
     for await (const line of dev.proc.lines) {
+      dev.output.push(line);
+      if (dev.output.length > DEV_OUTPUT_LINES) dev.output.shift();
       const port = seen++ < 50 ? listenPort(line) : undefined;
       if (port && port !== dev.port) dev.port = port;
     }
-    // The next preview starts it again.
     if (live.devs.get(key) === dev) live.devs.delete(key);
+    if (dev.stopped) return;
+    const { code } = await dev.proc.exit;
+    dev.state = "failed";
+    this.reportDev(p, dev, `the dev server exited with code ${code}`);
   }
 
   private async address(live: Live, port: number): Promise<SandboxAddress> {
@@ -923,15 +1077,35 @@ export class Studio {
     return a;
   }
 
-  /** A dev server whose output or address broke: the preview shows failed, and the next preview starts it again. */
-  private devFailed(live: Live, key: string, dev: Dev) {
+  /** A dev server whose output or address broke: reported, the preview shows failed, and the next preview starts it again. */
+  private devFailed(p: App, live: Live, key: string, dev: Dev, reason: string) {
     dev.state = "failed";
+    this.reportDev(p, dev, reason);
+    dev.stopped = true;
     dev.proc.kill();
     if (live.devs.get(key) === dev) live.devs.delete(key);
   }
 
+  /** Publishes studio.preview_failed once per dev server, with its last output lines; secret values redacted. */
+  private reportDev(p: App, dev: Dev, reason: string) {
+    if (dev.failure !== undefined) return;
+    const clean = this.redactor(p);
+    dev.failure = clean(reason);
+    this.opts.bus.publish("studio.preview_failed", {
+      appId: p.id,
+      ...dev.preview,
+      port: dev.port,
+      reason: dev.failure,
+      output: clean(dev.output.join("\n")),
+      priority: "progress",
+    });
+  }
+
   private stopDevs(live: Live) {
-    for (const d of live.devs.values()) d.proc.kill();
+    for (const d of live.devs.values()) {
+      d.stopped = true;
+      d.proc.kill();
+    }
     live.devs.clear();
   }
 
@@ -964,10 +1138,14 @@ export class Studio {
       const again = this.live.get(p.id);
       if (again) return again;
       const current = this.app(p.id);
-      if (!current.snapshot) throw new StudioError("unavailable", "the app's workspace is gone and has no snapshot");
-      const sandbox = await this.opts.sandboxes.resume(current.snapshot, this.spec(current), this.opts.objects);
-      // Worktrees record absolute paths; a resumed workspace may live elsewhere.
-      await sandbox.exec('for d in ../chats/* ../version; do [ -e "$d" ] && git worktree repair "$d"; done; true', { cwd: "app", trusted: true });
+      const snapshot = current.snapshot;
+      if (!snapshot) throw new StudioError("unavailable", "the app's workspace is gone and has no snapshot");
+      const sandbox = await this.trace("studio.resume", { "kiln.studio.app.id": p.id }, async () => {
+        const s = await this.opts.sandboxes.resume(snapshot, this.spec(current), this.opts.objects);
+        // Worktrees record absolute paths; a resumed workspace may live elsewhere.
+        await s.exec('for d in ../chats/* ../version; do [ -e "$d" ] && git worktree repair "$d"; done; true', { cwd: "app", trusted: true });
+        return s;
+      });
       const live: Live = { sandbox, devs: new Map(), addresses: new Map() };
       this.live.set(p.id, live);
       if (current.status === "paused") this.touch(C.apps, { ...current, status: "ready" });
@@ -978,8 +1156,16 @@ export class Studio {
   private async snapshot(appId: string) {
     const live = this.live.get(appId);
     if (!live) return;
-    const snapshot = await live.sandbox.snapshot(this.opts.objects);
+    const snapshot = await this.snapshotOf(appId, live.sandbox);
     this.touch(C.apps, { ...this.app(appId), snapshot });
+  }
+
+  private snapshotOf(appId: string, sandbox: Sandbox) {
+    return this.trace("studio.snapshot", { "kiln.studio.app.id": appId }, () => sandbox.snapshot(this.opts.objects));
+  }
+
+  private trace<T>(name: string, attributes: StudioSpanAttributes, fn: () => Promise<T>): Promise<T> {
+    return (this.opts.tracer ?? NOOP_TRACER).span(name, attributes, fn);
   }
 
   private addVersion(p: App, v: Pick<Version, "sha" | "title" | "kind" | "chatId" | "restoredFrom">): Version {
@@ -1061,6 +1247,13 @@ export class Studio {
     return v;
   }
 }
+
+/** A dev server didn't answer its ready check in time. */
+class ReadyTimeout extends Error {
+  override name = "ReadyTimeout";
+}
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** True when anything answers HTTP at `url`. A refused connection or a timeout means the server isn't up yet. */
 async function answers(fetchImpl: typeof fetch, url: string, leftMs: number): Promise<boolean> {

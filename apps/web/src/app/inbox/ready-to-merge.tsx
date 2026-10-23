@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, GitMerge, GitPullRequest } from "lucide-reac
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { mergeTask } from "./review-actions";
 

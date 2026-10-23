@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileText, Globe, Loader2, Play, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { GitHubIcon } from "@/components/kiln/brand-icons";
 import { AgentIcon, Chip, SourceIcon, StatusSquare, agentLook } from "@/components/kiln/run-visuals";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";

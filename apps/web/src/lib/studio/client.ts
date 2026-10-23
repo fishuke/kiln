@@ -31,6 +31,10 @@ export interface StudioClient {
   updateApp(id: string, patch: UpdateAppInput): Promise<StudioApp>;
   /** `PUT /apps/{id}/ship-mode`: the server checks the App policy's cap for the caller's role. */
   setShipMode(id: string, mode: ShipMode): Promise<StudioApp>;
+  /** `POST /apps/{id}/retry`: sets a failed App up again; it is creating until setup succeeds or fails. */
+  retryApp(id: string): Promise<StudioApp>;
+  /** `DELETE /apps/{id}`: deletes a failed App with its chats and versions. */
+  deleteApp(id: string): Promise<void>;
   newChat(appId: string, input: NewChatInput): Promise<NewChatResult>;
   chat(id: string): Promise<ChatDetail>;
   send(chatId: string, input: { text: string; mode?: ChatMode }): Promise<SendResult>;

@@ -4,7 +4,7 @@ import type { PullRequestFileView, ReviewSubmission, TaskReview } from "@kiln/sd
 import { ChevronDown, ChevronRight, GitMerge, GitPullRequest, MessageSquarePlus, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { loadReview, mergeTask, startGitHubLink, submitReview } from "@/app/inbox/review-actions";
 import { GitHubIcon } from "@/components/kiln/brand-icons";
 import { Button } from "@/components/ui/button";

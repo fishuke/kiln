@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Ellipsis, Pencil, Plug, Server, Trash2, X } from "lucide-react";
 import type { McpServer } from "@kiln/sdk-ts";
 import { ConfirmAction, CopyButton } from "@/components/kiln/confirm-action";

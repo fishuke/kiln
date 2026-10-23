@@ -97,6 +97,12 @@ const SEVERITY: Record<string, [SeverityNumber, string]> = {
   mcp_skipped: [SeverityNumber.WARN, "WARN"],
 };
 
+/** Studio failures are logged as errors and warnings, with what failed in the body. */
+const STUDIO_FAILURES: Partial<Record<string, (payload: never) => { severity: [SeverityNumber, string]; message: string }>> = {
+  "studio.app_failed": (p: KilnEvent<"studio.app_failed">["payload"]) => ({ severity: [SeverityNumber.ERROR, "ERROR"], message: p.error }),
+  "studio.preview_failed": (p: KilnEvent<"studio.preview_failed">["payload"]) => ({ severity: [SeverityNumber.WARN, "WARN"], message: p.reason }),
+};
+
 /** Subscribes to the bus and turns engine events into spans and log records. Returns the unsubscribe function. */
 export function bridgeEvents(bus: EventBus, lookup: TelemetryLookup, t: EngineTelemetry): () => void {
   const lastStageChange = new Map<string, string>();
@@ -213,12 +219,19 @@ export function bridgeEvents(bus: EventBus, lookup: TelemetryLookup, t: EngineTe
     else if (e.type === "work_item.created") onWorkItemCreated(e as KilnEvent<"work_item.created">);
     else if (e.type === "work_item.stage_changed") onStageChanged(e as KilnEvent<"work_item.stage_changed">);
     const workItemId = "workItemId" in e.payload ? e.payload.workItemId : undefined;
+    const failure = STUDIO_FAILURES[e.type]?.(e.payload as never);
+    const [severityNumber, severityText] = failure?.severity ?? [SeverityNumber.INFO, "INFO"];
+    // Without a work item, the record lands in the active trace: a Studio failure's span or request.
     t.logger.emit({
       timestamp: at(e.at),
-      severityNumber: SeverityNumber.INFO,
-      severityText: "INFO",
-      body: e.type,
-      attributes: payloadAttributes(e.payload),
+      severityNumber,
+      severityText,
+      body: failure ? clip(`${e.type}: ${failure.message}`) : e.type,
+      // A dev server's output keeps all of its 40 lines (payloadAttributes clips strings to 4000 characters).
+      attributes: {
+        ...payloadAttributes(e.payload),
+        ...(e.type === "studio.preview_failed" ? { "kiln.output": clip((e as KilnEvent<"studio.preview_failed">).payload.output) } : {}),
+      },
       ...(workItemId ? { context: remote(workItemTraceId(workItemId), workItemSpanId(workItemId)) } : {}),
     });
   });

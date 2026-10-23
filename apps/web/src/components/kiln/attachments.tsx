@@ -2,7 +2,7 @@
 
 import { FileIcon, ImageIcon, Loader2, VideoIcon, X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentMedia, AttachmentTitle } from "@/components/ui/attachment";
 import { cn } from "@/lib/utils";
 

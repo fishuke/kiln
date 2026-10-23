@@ -16,6 +16,10 @@ export class ApiStudioClient implements StudioClient {
   app = (id: string) => unwrap(actions.studioApp(id));
   updateApp: StudioClient["updateApp"] = (id, patch) => unwrap(actions.studioUpdateApp(id, patch));
   setShipMode: StudioClient["setShipMode"] = (id, mode) => unwrap(actions.studioSetShipMode(id, mode));
+  retryApp = (id: string) => unwrap(actions.studioRetryApp(id));
+  deleteApp = async (id: string) => {
+    await unwrap(actions.studioDeleteApp(id));
+  };
   newChat: StudioClient["newChat"] = (appId, input) => unwrap(actions.studioNewChat(appId, input));
   chat = (id: string) => unwrap(actions.studioChat(id));
   send: StudioClient["send"] = (chatId, input) => unwrap(actions.studioSend(chatId, input));

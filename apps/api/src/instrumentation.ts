@@ -3,8 +3,7 @@
 // and fs are patched before the API loads. Does nothing unless OTEL_EXPORTER_OTLP_ENDPOINT is set;
 // OTEL_EXPORTER_OTLP_HEADERS, OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES work as usual.
 import { register } from "node:module";
-import { format } from "node:util";
-import { logs, SeverityNumber } from "@opentelemetry/api-logs";
+import { logs } from "@opentelemetry/api-logs";
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-proto";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
@@ -14,6 +13,7 @@ import { BatchLogRecordProcessor } from "@opentelemetry/sdk-logs";
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { ATTR_SERVICE_VERSION } from "@opentelemetry/semantic-conventions";
+import { bridgeConsole } from "./console-logs";
 
 if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   process.env.OTEL_SERVICE_NAME ||= "kiln-api";
@@ -37,7 +37,7 @@ if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
     ],
   });
   sdk.start();
-  bridgeConsole();
+  bridgeConsole(logs.getLogger("console"));
 
   const shutdown = () =>
     sdk
@@ -46,29 +46,4 @@ if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
       .finally(() => process.exit(0));
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);
-}
-
-/** The API logs through console.*; those lines become log records linked to the active trace. */
-function bridgeConsole() {
-  const logger = logs.getLogger("console");
-  const levels = [
-    ["debug", SeverityNumber.DEBUG, "DEBUG"],
-    ["log", SeverityNumber.INFO, "INFO"],
-    ["info", SeverityNumber.INFO, "INFO"],
-    ["warn", SeverityNumber.WARN, "WARN"],
-    ["error", SeverityNumber.ERROR, "ERROR"],
-  ] as const;
-  for (const [method, severityNumber, severityText] of levels) {
-    const original = console[method].bind(console);
-    console[method] = (...args: unknown[]) => {
-      original(...args);
-      const error = args.find((a): a is Error => a instanceof Error);
-      logger.emit({
-        severityNumber,
-        severityText,
-        body: format(...args),
-        attributes: error ? { "exception.type": error.name, "exception.message": error.message, "exception.stacktrace": error.stack } : undefined,
-      });
-    };
-  }
 }

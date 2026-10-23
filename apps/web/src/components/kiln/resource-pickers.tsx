@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { Bot, Cloud, Container, Eye, EyeOff, KeyRound, Laptop, Pencil, Plug, Plus, Search, Server, X } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { createMcpServers, createTeamSecret } from "@/app/f/[factory]/settings/actions";
 import { McpFields, useMcpFields, VariantChoice } from "@/components/kiln/mcp-fields";
 import { InfoTip } from "@/components/kiln/info-tip";

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ArrowLeft, Check, CircleAlert, CircleCheck, CircleX, Loader2, Search, Upload, X } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { connectRepo } from "@/app/actions";
 import { loadConnectionOptions, uploadFile } from "@/app/f/[factory]/settings/actions";
 import { AgentTypeIcon } from "@/components/kiln/agent-type-icon";

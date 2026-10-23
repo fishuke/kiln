@@ -452,6 +452,8 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | PUT | `/api/v1/studio/apps/{id}/ship-mode` | `send` | Change an App's ship mode, up to the highest mode the App's policy allows your team role |
 | POST | `/api/v1/studio/apps/{id}/ship` | `send` | Open or update the App's pull request; as its author, mark it ready for review; or cancel it |
 | POST | `/api/v1/studio/apps/{id}/pause` | `send` | Snapshot an App's workspace and free its sandbox; the next use resumes it |
+| POST | `/api/v1/studio/apps/{id}/retry` | `send` | Set a failed App up again on a fresh sandbox; it is creating until setup succeeds or fails |
+| DELETE | `/api/v1/studio/apps/{id}` | `send` | Delete a failed App: its sandbox, chats, turns and versions |
 | POST | `/api/v1/studio/apps/{id}/chats` | `send` | Start a chat (its own worktree and preview), optionally with a first message |
 | GET | `/api/v1/studio/chats/{id}` | `read` | A chat with its turns (oldest first) |
 | POST | `/api/v1/studio/chats/{id}/messages` | `send` | Send a message: starts a turn, or steers the running one |

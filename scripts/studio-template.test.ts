@@ -59,7 +59,7 @@ describe("Studio's Next.js template", () => {
   });
 
   it("copies the directory the Studio image installs", () => {
-    const dockerfile = readFileSync(join(ROOT, "runners/images/studio/Dockerfile"), "utf8");
+    const dockerfile = readFileSync(join(ROOT, "runners/images/node/Dockerfile"), "utf8");
     expect(nextjs.scaffold[0]!.replaceAll("{templates}", TEMPLATES_DIR)).toContain(`cp -a ${TEMPLATE_DIR}/. .`);
     expect(dockerfile).toContain(`WORKDIR ${TEMPLATE_DIR}`);
     expect(dockerfile).toContain("pnpm install --frozen-lockfile");

@@ -162,6 +162,7 @@ export const routes: Route[] = [
   { method: "post", path: "/api/v1/studio/versions/{id}/bookmark", summary: "Pin or unpin a version", scope: "send", body: Bookmark, tag: S },
   { method: "get", path: "/api/v1/studio/versions/{id}/diff", summary: "A version's changes against its parent", scope: "read", tag: S },
   { method: "get", path: "/api/v1/studio/versions/{id}/preview", summary: "Preview an earlier version", scope: "read", tag: S },
+  { method: "post", path: "/api/v1/studio/versions/{id}/preview/restart", summary: "Restart the version preview's dev server", scope: "send", tag: S },
   { method: "get", path: "/api/v1/studio/status", summary: "What is working and what needs you, across your team's Apps", scope: "read", tag: S },
   {
     method: "get",
@@ -556,6 +557,13 @@ export function register(ctx: RouteContext) {
     wrap(async (c) => {
       ownVersion(c, id(c), "read");
       return c.json(await studio().preview({ versionId: id(c) }));
+    }),
+  );
+  app.post(
+    "/api/v1/studio/versions/:id/preview/restart",
+    wrap(async (c) => {
+      ownVersion(c, id(c), "send");
+      return c.json(await studio().restartVersionPreview(id(c)));
     }),
   );
   app.get(

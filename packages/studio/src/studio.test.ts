@@ -673,6 +673,40 @@ describe("preview addresses", () => {
   });
 });
 
+describe("a dev server that exits", () => {
+  it("stays failed with its reason and output until restarted, and starts again with the App's current environment", async () => {
+    let env: Record<string, string> = {};
+    const { studio, bus } = make({
+      templates: { test: { ...TEST, dev: `echo "key=$KEY"; [ -n "$KEY" ] || exit 2; ${TEST.dev}` } },
+      env: () => ({ env, secretValues: [] }),
+    });
+    const failed: KilnEvent<"studio.preview_failed">[] = [];
+    bus.subscribe("studio.preview_failed", (e) => void failed.push(e));
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.preview({ chatId: chat.id });
+    await waitFor(async () => expect((await studio.preview({ chatId: chat.id })).status).toBe("failed"));
+    // Asking again doesn't start it again.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await studio.preview({ chatId: chat.id })).toMatchObject({ status: "failed", reason: "the dev server exited with code 2", output: "key=" });
+    expect(failed).toHaveLength(1);
+
+    env = { KEY: "set" };
+    expect((await studio.restartPreview(chat.id)).status).toBe("starting");
+    await waitFor(async () => expect((await studio.preview({ chatId: chat.id })).status).toBe("ready"));
+  });
+
+  it("restarts the version preview", async () => {
+    const { studio } = make();
+    const p = await app(studio, "safe");
+    const v = studio.getApp(p.id)!.versions[0]!;
+    await studio.preview({ versionId: v.id });
+    await waitFor(async () => expect((await studio.preview({ versionId: v.id })).status).toBe("ready"));
+    expect((await studio.restartVersionPreview(v.id)).status).toBe("starting");
+    await waitFor(async () => expect((await studio.preview({ versionId: v.id })).status).toBe("ready"));
+  });
+});
+
 describe("a dev server that never answers", () => {
   it("marks the preview failed after the template's ready timeout", async () => {
     const { studio } = make({ templates: { test: { ...TEST, dev: "sleep 30", ready: { path: "/", timeoutMs: 300 } } } });

@@ -99,7 +99,8 @@ export type StudioVersion = {
   createdAt: string;
 };
 
-export type StudioPreview = { target: string; url: string; status: "starting" | "ready" | "failed" };
+/** A failed preview says why (`reason`) and carries the dev server's last output lines. */
+export type StudioPreview = { target: string; url: string; status: "starting" | "ready" | "failed"; reason?: string; output?: string };
 export type StudioApplyResult = { ok: true; version: StudioVersion } | { ok: false; conflict: string[] } | { ok: false; nothing: true };
 export type StudioStatusReport = {
   apps: { id: string; name: string; working: string[]; needsYou: { chatId: string; question: string }[]; latest?: { title: string; at: string } }[];

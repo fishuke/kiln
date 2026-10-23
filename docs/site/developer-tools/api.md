@@ -467,6 +467,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/studio/versions/{id}/bookmark` | `send` | Pin or unpin a version |
 | GET | `/api/v1/studio/versions/{id}/diff` | `read` | A version's changes against its parent |
 | GET | `/api/v1/studio/versions/{id}/preview` | `read` | Preview an earlier version |
+| POST | `/api/v1/studio/versions/{id}/preview/restart` | `send` | Restart the version preview's dev server |
 | GET | `/api/v1/studio/status` | `read` | What is working and what needs you, across your team's Apps |
 | GET | `/api/v1/studio/events` | `read` | Server-sent events for your team's Apps: Studio events and merge gate reviews |
 | POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, restart_preview, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send |

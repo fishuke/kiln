@@ -190,7 +190,14 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
       : latest && app?.status === "ready"
         ? { versionId: latest.id }
         : undefined;
-  const { preview, error: previewError } = usePreview(client, target, finished);
+  const { preview, error: previewError, restart } = usePreview(client, target, finished);
+  const restartPreview = useCallback(async () => {
+    try {
+      await restart();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
+  }, [restart]);
 
   // The merge gate's record of the App's pull request: polled while the gate decides or a reviewer is on it.
   const pr = detail?.pullRequest;
@@ -304,7 +311,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
   const importing =
     app?.source.kind === "repo" &&
     !chatList.length &&
-    (app.status !== "ready" || steps.some((s) => s.status !== "done") || (app.setup?.envMissing.length ?? 0) > 0);
+    (app.status !== "ready" || steps.some((s) => s.status !== "done"));
 
   const retryApp = async () => {
     await client.retryApp(appId);
@@ -552,6 +559,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
             onViewChange={setView}
             loadDiff={loadDiff}
             diffKey={previewVersion ?? chatId ?? ""}
+            onRestart={target ? restartPreview : undefined}
             banner={
               previewing ? (
                 <PreviewingBanner
@@ -569,10 +577,14 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
               <SetupPanel
                 app={app}
                 steps={steps}
+                preview={preview}
                 onDevCommand={async (devCommand) => {
                   await client.updateApp(app.id, { devCommand });
                   await refresh();
+                  // A running dev server keeps its command until it starts again.
+                  if (target) await restartPreview();
                 }}
+                onRestart={restartPreview}
                 failedActions={app.status === "failed" ? <FailedAppActions app={app} onRetry={retryApp} onDelete={deleteApp} /> : undefined}
               />
             ) : app.status === "failed" ? (

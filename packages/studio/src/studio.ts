@@ -6,7 +6,7 @@ import type { HarnessType } from "@kiln/schema";
 import type { ObjectStore, Store } from "@kiln/store";
 import { z } from "zod";
 import { DEFAULT_AGENT, targetOf, type AppDefinitions } from "./app-definitions";
-import { detectSetup, devCommand, ENV_EXAMPLES, envKeys, listenPort } from "./setup";
+import { detectSetup, devCommand, ENV_EXAMPLES, envKeys, listenPort, plainLine } from "./setup";
 import { DEFAULT_READY, TEMPLATES, type Template } from "./templates";
 import { NOOP_TRACER, type StudioSpanAttributes, type StudioTracer } from "./tracer";
 import {
@@ -127,7 +127,7 @@ export type StudioOptions = {
 /**
  * A dev server. `preview` names what it serves (for studio.preview_failed); `output` keeps its last output lines;
  * `log` the longer tail mirrored to DEV_LOG in `cwd` for the agent; `failure` is set once its failure is reported;
- * `stopped` when Studio itself stopped it (not a failure).
+ * `stopped` when Studio itself stopped it (not a failure); `exited` once its process ended.
  */
 type Dev = {
   proc: Proc;
@@ -140,6 +140,7 @@ type Dev = {
   logFlush?: ReturnType<typeof setTimeout>;
   failure?: string;
   stopped?: boolean;
+  exited?: boolean;
 };
 /** An App's environment: the values people assigned (team → Kiln Project → App), and which of them are secret. */
 export type AppEnv = { env: Record<string, string>; secretValues: string[] };
@@ -1103,6 +1104,14 @@ export class Studio {
     return this.preview({ chatId });
   }
 
+  /** Stops the version preview's dev server and starts it again, showing `versionId`. */
+  async restartVersionPreview(versionId: string): Promise<Preview> {
+    const v = this.version(versionId);
+    const live = this.live.get(v.appId);
+    if (live) await this.stopDev(live, "version");
+    return this.preview({ versionId });
+  }
+
   /** Where the preview proxy sends a target's requests; undefined when it isn't being served. */
   async resolvePreview(target: string): Promise<SandboxAddress | undefined> {
     for (const live of this.live.values()) {
@@ -1129,11 +1138,11 @@ export class Studio {
         const proc = live.sandbox.spawn("sh", ["-c", `exec 2>&1\nmkdir -p .kiln && echo $$ > ${DEV_PID}\n${cmd}`], { cwd, env });
         const d: Dev = { proc, cwd, port, state: "starting", preview: key === "version" ? { versionId: target } : { chatId: key }, output: [], log: [] };
         live.devs.set(key, d);
-        this.watchDev(p, live, key, d).catch((err: unknown) => this.devFailed(p, live, key, d, `reading the dev server's output failed: ${errorText(err)}`));
+        this.watchDev(p, live, d).catch((err: unknown) => this.devFailed(p, d, `reading the dev server's output failed: ${errorText(err)}`));
         try {
           await this.address(live, port);
         } catch (err) {
-          this.devFailed(p, live, key, d, `the dev server's address is unknown: ${errorText(err)}`);
+          this.devFailed(p, d, `the dev server's address is unknown: ${errorText(err)}`);
           throw err;
         }
         return d;
@@ -1146,10 +1155,12 @@ export class Studio {
       ).catch((err: unknown) => {
         // A dev server that never answered keeps running (its preview shows failed); anything else stops it.
         if (err instanceof ReadyTimeout) this.reportDev(p, started, err.message);
-        else this.devFailed(p, live, key, started, errorText(err));
+        else this.devFailed(p, started, errorText(err));
       });
     }
-    return { target, url: this.opts.previewUrl(target, await this.address(live, running.port)), status: running.state };
+    const url = this.opts.previewUrl(target, await this.address(live, running.port));
+    if (running.state !== "failed" || running.failure === undefined) return { target, url, status: running.state };
+    return { target, url, status: "failed", reason: running.failure, output: this.redactor(p)(running.output.join("\n")) };
   }
 
   /** Ready once GET `path` answers with any status; throws ReadyTimeout after `timeoutMs`, and the dev server's failure when it exits first. */
@@ -1170,20 +1181,20 @@ export class Studio {
   }
 
   /**
-   * Follow a dev server's output: keep its last lines, switch to the port it says it listens on, and forget it
-   * when it exits (the next preview starts it again). An exit Studio didn't ask for is reported.
+   * Follow a dev server's output: keep its last lines and switch to the port it says it listens on. An exit Studio didn't ask for is reported, and the preview stays failed until it is restarted.
    */
-  private async watchDev(p: App, live: Live, key: string, dev: Dev) {
+  private async watchDev(p: App, live: Live, dev: Dev) {
     let seen = 0;
-    for await (const line of dev.proc.lines) {
+    for await (const raw of dev.proc.lines) {
+      const line = plainLine(raw);
       dev.output.push(line);
       if (dev.output.length > DEV_OUTPUT_LINES) dev.output.shift();
       this.logDev(p, live, dev, line);
       const port = seen++ < 50 ? listenPort(line) : undefined;
       if (port && port !== dev.port) dev.port = port;
     }
-    if (live.devs.get(key) === dev) live.devs.delete(key);
     const { code } = await dev.proc.exit;
+    dev.exited = true;
     this.logDev(p, live, dev, `[kiln] the dev server ${dev.stopped ? "was stopped" : `exited with code ${code}`}`);
     if (dev.stopped) return;
     dev.state = "failed";
@@ -1210,13 +1221,12 @@ export class Studio {
     dev.logFlush.unref?.();
   }
 
-  /** A dev server whose output or address broke: reported, the preview shows failed, and the next preview starts it again. */
-  private devFailed(p: App, live: Live, key: string, dev: Dev, reason: string) {
+  /** A dev server whose output or address broke: reported and stopped; the preview shows failed until it is restarted. */
+  private devFailed(p: App, dev: Dev, reason: string) {
     dev.state = "failed";
     this.reportDev(p, dev, reason);
     dev.stopped = true;
     dev.proc.kill();
-    if (live.devs.get(key) === dev) live.devs.delete(key);
   }
 
   /** Publishes studio.preview_failed once per dev server, with its last output lines; secret values redacted. */
@@ -1248,7 +1258,9 @@ export class Studio {
     if (!dev) return;
     dev.stopped = true;
     live.devs.delete(key);
-    await live.sandbox
+    // An exited dev server's pid may belong to another process by now.
+    if (!dev.exited)
+      await live.sandbox
       .exec(`${KILL_TREE}\n[ -f ${DEV_PID} ] && kill_tree "$(cat ${DEV_PID})"; rm -f ${DEV_PID}; true`, { cwd: dev.cwd, trusted: true })
       .catch(() => undefined);
     dev.proc.kill();

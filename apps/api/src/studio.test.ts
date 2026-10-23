@@ -298,6 +298,15 @@ describe("Studio API", () => {
     await expect(client.studioRetryApp(ready.id)).rejects.toMatchObject({ status: 400 });
   });
 
+  it("restarts a version's preview through the SDK", async () => {
+    const { client, kiln } = setup();
+    const p = await client.studioCreateApp({ name: "Fine", source: { kind: "template", template: "test" } });
+    await studioFor(kiln)!.ready(p.id);
+    const [v] = (await client.studioApp(p.id)).versions;
+    expect(await client.studioRestartVersionPreview(v!.id)).toMatchObject({ target: v!.id, status: "starting" });
+    await expect(client.studioRestartVersionPreview("sv_nope")).rejects.toMatchObject({ status: 404 });
+  });
+
   it("deletes a chat through the SDK", async () => {
     const { client, kiln } = setup();
     const p = await client.studioCreateApp({ name: "Fine", source: { kind: "template", template: "test" } });

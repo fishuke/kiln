@@ -43,10 +43,13 @@ export interface StudioClient {
   apply(chatId: string): Promise<ApplyResult>;
   chatDiff(chatId: string): Promise<{ diff: string }>;
   chatPreview(chatId: string): Promise<Preview>;
+  /** Stops the chat's dev server and starts it again, with the App's current environment. */
+  restartChatPreview(chatId: string): Promise<Preview>;
   restore(versionId: string): Promise<Version>;
   bookmark(versionId: string, on: boolean): Promise<Version>;
   versionDiff(versionId: string): Promise<{ diff: string }>;
   versionPreview(versionId: string): Promise<Preview>;
+  restartVersionPreview(versionId: string): Promise<Preview>;
   status(): Promise<StatusReport>;
   /** Connected forge repositories, for "Import from GitHub". */
   repositories(): Promise<ForgeRepository[]>;

@@ -70,6 +70,12 @@ Each preview gets its own origin, `<id>.<KILN_STUDIO_PREVIEW_DOMAIN>`, never Kil
 
 When the variable is unset, the preview URL is the sandbox's own address, such as `http://127.0.0.1:4101`. That works only with local sandboxes.
 
+A dev server that exits stays stopped, and the preview shows why with its last output lines. **Restart** (in the preview's toolbar, or under the error) starts it again. Dev servers read the App's environment variables when they start, so restart after you change them. Changing the dev command during an import restarts it for you.
+
+An imported repository's `.env.example` (or `.env.sample`, `.env.local.example`) doesn't say which keys are required, so Studio lists the keys no variable provides as **Not set yet**. They don't stop the App from opening.
+
+If the repository's `dev` script is a single `next dev` or `vite` command with its own port, such as `next dev -p 4000`, Studio runs that command with each preview's own port instead. For any other script that sets a port, change the dev command and use `{port}`, for example `pnpm exec next dev --port {port} --hostname 0.0.0.0`.
+
 What the proxy does with a request to a preview host:
 
 1. Looks up the id. An unknown, stopped or malformed id gets the same `404 preview not found`.

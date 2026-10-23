@@ -70,6 +70,8 @@ export function usePreview(client: StudioClient, target: PreviewTarget | undefin
   const [error, setError] = useState<string>();
   const key = target ? ("chatId" in target ? `c:${target.chatId}` : `v:${target.versionId}`) : "";
   const shown = useRef("");
+  // Bumps after a restart, so the preview is polled again while it starts.
+  const [restarted, setRestarted] = useState(0);
 
   useEffect(() => {
     if (!target) {
@@ -97,7 +99,17 @@ export function usePreview(client: StudioClient, target: PreviewTarget | undefin
       if (timer) clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` identifies `target`
-  }, [client, key, finished]);
+  }, [client, key, finished, restarted]);
 
-  return { preview, error };
+  /** Stops the target's dev server and starts it again (it reads the App's environment when it starts). */
+  const restart = useCallback(async () => {
+    if (!target) return;
+    const p = "chatId" in target ? await client.restartChatPreview(target.chatId) : await client.restartVersionPreview(target.versionId);
+    setPreview(p);
+    setError(undefined);
+    setRestarted((n) => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` identifies `target`
+  }, [client, key]);
+
+  return { preview, error, restart };
 }

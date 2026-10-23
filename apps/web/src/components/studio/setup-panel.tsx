@@ -94,7 +94,7 @@ export function DevCommand({ app, onSave }: { app: StudioApp; onSave: (cmd: stri
 }
 
 /** Missing env: the keys the repository needs that no environment provides, with a link to set them. */
-export function MissingEnv({ keys }: { keys: string[] }) {
+export function MissingEnv({ appId, keys }: { appId: string; keys: string[] }) {
   if (!keys.length) return null;
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
@@ -109,8 +109,11 @@ export function MissingEnv({ keys }: { keys: string[] }) {
           </li>
         ))}
       </ul>
-      <Link href="/secrets" className="self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
-        Set them in Secrets
+      <Link
+        href={`/studio/${appId}/settings#environments`}
+        className="self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+      >
+        Set them in the App&apos;s environments
       </Link>
     </div>
   );
@@ -155,7 +158,7 @@ export function SetupPanel({
         {app.error && <p className="text-sm whitespace-pre-wrap text-destructive">{app.error}</p>}
         {failedActions}
         {app.setup && <DevCommand app={app} onSave={onDevCommand} />}
-        {app.setup && <MissingEnv keys={app.setup.envMissing} />}
+        {app.setup && <MissingEnv appId={app.id} keys={app.setup.envMissing} />}
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LayoutTemplate, Plus } from "lucide-react";
+import { ExternalLink, LayoutTemplate, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { GitHubIcon } from "@/components/kiln/brand-icons";
@@ -29,6 +29,7 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
   const [branch, setBranch] = useState("");
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
+  const [accessUrl, setAccessUrl] = useState<string>();
 
   const source: AppSource =
     path === "repo" && repo ? { kind: "repo", repo, ...(branch.trim() ? { branch: branch.trim() } : {}) } : { kind: "template", template: "nextjs" };
@@ -41,6 +42,15 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
         toast.error(e instanceof Error ? e.message : String(e));
       });
   }, [open, path, repos, client]);
+
+  useEffect(() => {
+    if (!open || path !== "repo") return;
+    client.repositoryAccessUrl().then(setAccessUrl, () => setAccessUrl(undefined));
+    // Coming back from GitHub after granting access to another repository: list them again.
+    const refresh = () => client.repositories().then(setRepos, () => {});
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [open, path, client]);
 
   const create = async () => {
     if (!appName || (path === "repo" && !repo)) return;
@@ -116,7 +126,9 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
               <Input placeholder="Search repositories" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Search repositories" />
               <div role="listbox" aria-label="Repositories" className="flex max-h-48 flex-col overflow-y-auto rounded-lg border p-1">
                 {!repos && <div className="shimmer p-3 text-sm text-muted-foreground">Loading repositories…</div>}
-                {repos && !shown.length && <div className="p-3 text-sm text-muted-foreground">No connected repositories. Connect GitHub in Integrations.</div>}
+                {repos && !shown.length && (
+                  <div className="p-3 text-sm text-muted-foreground">{accessUrl ? "No repositories yet." : "No connected repositories. Connect GitHub in Integrations."}</div>
+                )}
                 {shown.map((r) => {
                   const id = `${r.owner}/${r.name}`;
                   return (
@@ -135,6 +147,18 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
                   );
                 })}
               </div>
+              {accessUrl && (
+                <a
+                  href={accessUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="-mt-1 flex h-8 items-center gap-2 self-start rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <Plus className="size-4" />
+                  Add repository
+                  <ExternalLink className="size-3.5" />
+                </a>
+              )}
               <div className="grid gap-1.5">
                 <Label htmlFor="new-app-branch">Branch</Label>
                 <Input

@@ -140,6 +140,7 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     }),
     adapters: adaptersFromEnv(env),
     onGitHubApp: (app) => useGitHubApp(app),
+    onGitHubAppRemoved: (slug) => dropGitHubApp(slug),
     // Studio App runs (ADR-012): their agents and workspaces come from the Studio built for this Kiln (KILN_STUDIO=1).
     ...studioEngineHooks(() => studioFor(kiln)),
   };
@@ -155,6 +156,15 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     appAuths = [...auths.values()];
     forgeImpl = appForge(() => appAuths.map((a) => a.auth));
     if (!githubConfig.appId) Object.assign(githubConfig, { appSlug: app.slug, appId: app.appId, privateKey: app.privateKey });
+  }
+  /** A removed app: the forge stops using it, and the connection moves to the next app (or none). */
+  function dropGitHubApp(slug: string) {
+    if (env.GITHUB_APP_ID || env.GITHUB_TOKEN) return;
+    // The forge reads appAuths on every call.
+    appAuths = appAuths.filter((a) => a.slug !== slug);
+    if (githubConfig.appSlug !== slug) return;
+    const next = kiln.githubApp.credentials();
+    Object.assign(githubConfig, next ? { appSlug: next.slug, appId: next.appId, privateKey: next.privateKey } : { appSlug: undefined, appId: undefined, privateKey: undefined });
   }
   let appAuths: { slug: string; auth: HttpGitHubAppAuth }[] = [];
   const ownApp = kiln.githubApp.credentials();

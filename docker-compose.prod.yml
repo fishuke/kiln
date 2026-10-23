@@ -9,6 +9,19 @@ services:
     # A real init process forwards stop signals, so the container stops in a second instead of Docker's 10s timeout.
     init: true
     restart: unless-stopped
+    # Studio previews (<label>.KILN_STUDIO_PREVIEW_DOMAIN) for Traefik, such as Coolify's proxy, whose
+    # domain form takes no wildcard: one router for every preview host to the API's preview proxy, with a
+    # wildcard certificate (the resolver needs a DNS challenge; see the self-hosting docs). Without a
+    # preview domain the rule matches nothing. Other proxies ignore these labels.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kiln-studio-preview.rule=HostRegexp(`^[a-z0-9-]+\\.${KILN_STUDIO_PREVIEW_DOMAIN:-preview.invalid}$$`)"
+      - "traefik.http.routers.kiln-studio-preview.entrypoints=https"
+      - "traefik.http.routers.kiln-studio-preview.tls=true"
+      - "traefik.http.routers.kiln-studio-preview.tls.certresolver=${KILN_TRAEFIK_CERT_RESOLVER:-letsencrypt}"
+      - "traefik.http.routers.kiln-studio-preview.tls.domains[0].main=*.${KILN_STUDIO_PREVIEW_DOMAIN:-preview.invalid}"
+      - "traefik.http.routers.kiln-studio-preview.service=kiln-studio-preview"
+      - "traefik.http.services.kiln-studio-preview.loadbalancer.server.port=4000"
     environment:
       KILN_PUBLIC_URL: ${KILN_PUBLIC_URL:?the API's public URL, e.g. https://api.kiln.example.com}
       KILN_WEB_URL: ${KILN_WEB_URL:?the web app's public URL, e.g. https://kiln.example.com}

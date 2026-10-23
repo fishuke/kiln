@@ -167,6 +167,23 @@ describe("API", () => {
     expect((await check("ls", "nope")).status).toBe(401);
   });
 
+  it("checks commands for a Studio App's runs, whose definitions aren't factory definitions", async () => {
+    const t = createTestKiln({
+      preview: false,
+      apps: { definition: () => ({ sha: "app-sha", team: "t1", agents: {}, skill: () => undefined, env: {}, secretValues: [] }) },
+    });
+    const app = createApp(t.kiln);
+    t.kiln.store.put("runs", { id: "run_app", factory: "app:sa_1", app: "sa_1", definitionSha: "app-sha", status: "running", artifacts: [] });
+    const runToken = t.kiln.secrets.issueRunToken("run_app", []);
+    const res = await app.request("/api/v1/guard", {
+      method: "POST",
+      body: JSON.stringify({ command: "pnpm test" }),
+      headers: { authorization: `Bearer ${runToken}`, "content-type": "application/json" },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ verdict: "allow" });
+  });
+
   it("publishes an OpenAPI document covering every route", () => {
     const doc = openApiDocument();
     expect(Object.keys(doc.paths).length).toBe(new Set(ROUTES.map((r) => r.path)).size);

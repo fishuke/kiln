@@ -93,7 +93,7 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     if (!claims) throw new HttpError(401, "a valid run token is required");
     const body = S.Guard.parse(await c.req.json());
     const run = kiln.runs.get(claims.runId);
-    const def = run ? kiln.defs.resolved(run.definitionSha).parsed.decisions["command-guard"] : undefined;
+    const def = run ? kiln.runs.decisionsFor(run)["command-guard"] : undefined;
     const { verdict, outcome } = await guardCommand(body.command, { cwd: body.cwd }, kiln.decide, def);
     kiln.logDecision(outcome, { command: body.command }, { runId: claims.runId, workItemId: run?.workItemId });
     if (verdict === "ask_human" && run) {

@@ -23,6 +23,7 @@ import { z } from "zod";
 import { HttpError, type Env, type RouteContext } from "../app";
 import type { Route } from "../openapi";
 import { previewConfig, previewUrlFor, setPreviewResolver } from "./studio-preview";
+import { otelStudioTracer, reportError, traceErrorResponses } from "../trace-context";
 
 // Ship mode is not set here: ship's setShipMode changes it after the App policy's cap check.
 export const CreateApp = z
@@ -102,6 +103,20 @@ export const routes: Route[] = [
   },
   {
     method: "post",
+    path: "/api/v1/studio/apps/{id}/retry",
+    summary: "Set a failed App up again on a fresh sandbox; it is creating until setup succeeds or fails",
+    scope: "send",
+    tag: S,
+  },
+  {
+    method: "delete",
+    path: "/api/v1/studio/apps/{id}",
+    summary: "Delete a failed App: its sandbox, chats, turns and versions",
+    scope: "send",
+    tag: S,
+  },
+  {
+    method: "post",
     path: "/api/v1/studio/apps/{id}/chats",
     summary: "Start a chat (its own worktree and preview), optionally with a first message",
     scope: "send",
@@ -132,7 +147,13 @@ export const routes: Route[] = [
   { method: "get", path: "/api/v1/studio/versions/{id}/diff", summary: "A version's changes against its parent", scope: "read", tag: S },
   { method: "get", path: "/api/v1/studio/versions/{id}/preview", summary: "Preview an earlier version", scope: "read", tag: S },
   { method: "get", path: "/api/v1/studio/status", summary: "What is working and what needs you, across your team's Apps", scope: "read", tag: S },
-  { method: "get", path: "/api/v1/studio/events", summary: "Server-sent events for your team's Apps: Studio events and merge gate reviews", scope: "read", tag: S },
+  {
+    method: "get",
+    path: "/api/v1/studio/events",
+    summary: "Server-sent events for your team's Apps: Studio events and merge gate reviews",
+    scope: "read",
+    tag: S,
+  },
   {
     method: "post",
     path: "/api/v1/studio/tools/{name}",
@@ -192,6 +213,7 @@ export function studioFor(kiln: Kiln): Studio | undefined {
     // The Studio image (the runner image plus the warm Next.js template), else the server's runner image (KILN_RUNNER_IMAGE).
     image: process.env.KILN_STUDIO_IMAGE || kiln.options.defaultImage || DEFAULT_RUNNER_IMAGE,
     previewUrl: previewUrlFor(),
+    tracer: otelStudioTracer(),
     ...(previewConfig() ? { previewDomain: process.env.KILN_STUDIO_PREVIEW_DOMAIN!.trim() } : {}),
     ...(process.env.KILN_STUDIO_TEMPLATES?.trim() ? { templatesDir: process.env.KILN_STUDIO_TEMPLATES.trim() } : {}),
     ...over,
@@ -309,11 +331,16 @@ export function register(ctx: RouteContext) {
       try {
         return await fn(c);
       } catch (err) {
-        if (err instanceof StudioError) return c.json({ error: err.message, code: err.code }, STATUS[err.code]);
-        throw err;
+        if (!(err instanceof StudioError)) throw err;
+        const status = STATUS[err.code];
+        // On the request's span, and a 5xx logged at ERROR in its trace; traceErrorResponses adds the trace id.
+        reportError(err, status, { "kiln.studio.error.code": err.code, "http.route": c.req.routePath });
+        return c.json({ error: err.message, code: err.code }, status);
       }
     };
   const id = (c: Context<Env>) => c.req.param("id")!;
+
+  app.use("/api/v1/studio/*", traceErrorResponses);
 
   app.get(
     "/api/v1/studio/apps",
@@ -364,6 +391,21 @@ export function register(ctx: RouteContext) {
     wrap(async (c) => {
       ownApp(c, id(c), "send");
       return c.json(await studio().pause(id(c)));
+    }),
+  );
+  app.post(
+    "/api/v1/studio/apps/:id/retry",
+    wrap(async (c) => {
+      ownApp(c, id(c), "send");
+      return c.json(await studio().retryApp(id(c)));
+    }),
+  );
+  app.delete(
+    "/api/v1/studio/apps/:id",
+    wrap(async (c) => {
+      ownApp(c, id(c), "send");
+      await studio().deleteApp(id(c));
+      return c.body(null, 204);
     }),
   );
   app.post(

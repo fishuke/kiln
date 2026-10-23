@@ -30,6 +30,8 @@ export type StudioApp = {
   model?: string;
   status: "creating" | "ready" | "paused" | "failed";
   error?: string;
+  /** The prompt the App was created with, until its first chat starts. */
+  firstPrompt?: { text: string; via: string };
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -106,7 +108,8 @@ export type StudioClientAction = { focus: { app: string; chat?: string } } | { s
 export type StudioToolResult = { ok: true; data: unknown; client?: StudioClientAction } | { ok: false; error: string };
 
 /** Ship mode is not set here: ship's setShipMode changes it after the App policy's cap check. */
-export type StudioCreateApp = { name: string; projectId?: string; source?: StudioAppSource; harness?: string; model?: string };
+/** `prompt` starts the App's first chat once setup is done. */
+export type StudioCreateApp = { name: string; projectId?: string; source?: StudioAppSource; harness?: string; model?: string; prompt?: string };
 export type StudioUpdateApp = { name?: string; projectId?: string | null; devCommand?: string | null };
 export type StudioPullRequestState = "uat" | "ready_for_review" | "waiting_for_review" | "merged" | "cancelled";
 /** The App's pull request (docs/specs/studio.md, "Shipping"). */

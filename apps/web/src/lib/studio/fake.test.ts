@@ -42,6 +42,17 @@ describe("FakeStudioClient", () => {
     expect(detail.versions.map((v) => v.kind)).toEqual(["initial"]);
   });
 
+  it("starts the first chat with the prompt an app was created with once it is ready", async () => {
+    const { studio, run } = setup();
+    const p = await studio.createApp({ name: "Pet a cat", prompt: "Make an app where you can pet a cat" });
+    expect(p.firstPrompt).toEqual({ text: "Make an app where you can pet a cat", via: "web" });
+    expect((await studio.app(p.id)).chats).toEqual([]);
+    run();
+    const { app, chats } = await studio.app(p.id);
+    expect(app.firstPrompt).toBeUndefined();
+    expect((await studio.chat(chats[0]!.id)).turns.map((t) => t.prompt)).toEqual(["Make an app where you can pet a cat"]);
+  });
+
   it("checkpoints a build turn and applies it in cowboy mode", async () => {
     const { studio, run } = setup();
     const id = await readyProject(studio, run);

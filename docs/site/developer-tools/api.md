@@ -446,7 +446,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
 | GET | `/api/v1/studio/apps` | `read` | Your team's Studio Apps |
-| POST | `/api/v1/studio/apps` | `send` | Create an App from a template or a repository your team may use; it starts as creating |
+| POST | `/api/v1/studio/apps` | `send` | Create an App from a template or a repository your team may use; it starts as creating, and a prompt starts its first chat once setup is done |
 | GET | `/api/v1/studio/apps/{id}` | `read` | An App with its chats and versions (newest first) |
 | PATCH | `/api/v1/studio/apps/{id}` | `send` | Rename an App, change its Kiln Project or dev command |
 | PUT | `/api/v1/studio/apps/{id}/ship-mode` | `send` | Change an App's ship mode, up to the highest mode the App's policy allows your team role |

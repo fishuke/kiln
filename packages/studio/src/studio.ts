@@ -312,6 +312,7 @@ export class Studio {
     source?: AppSource;
     harness?: HarnessType;
     model?: string;
+    firstPrompt?: { text: string; via: Via };
   }): Promise<App> {
     const source = input.source ?? { kind: "template", template: "nextjs" };
     if (source.kind === "template" && !this.templates[source.template]) throw new StudioError("invalid", `unknown template ${source.template}`);
@@ -328,15 +329,13 @@ export class Studio {
       harness: input.harness ?? "claude-code",
       ...(input.model ? { model: input.model } : {}),
       status: "creating",
+      ...(input.firstPrompt ? { firstPrompt: input.firstPrompt } : {}),
       createdBy: input.by,
       createdAt: now,
       updatedAt: now,
     };
     this.save(C.apps, app);
-    this.provisioning.set(
-      app.id,
-      this.provision(app).finally(() => this.provisioning.delete(app.id)),
-    );
+    this.setUpInBackground(app);
     return app;
   }
 
@@ -351,10 +350,7 @@ export class Studio {
       for (const v of this.versions(appId)) this.opts.store.delete(C.versions, v.id);
       const { error: _error, setup: _setup, snapshot: _snapshot, ...rest } = p;
       const app = this.touch<App>(C.apps, { ...rest, status: "creating" });
-      this.provisioning.set(
-        app.id,
-        this.provision(app).finally(() => this.provisioning.delete(app.id)),
-      );
+      this.setUpInBackground(app);
       return app;
     });
   }
@@ -387,6 +383,29 @@ export class Studio {
     this.stopDevs(live);
     this.live.delete(appId);
     await live.sandbox.destroy();
+  }
+
+  /** Sets the App up; `ready` waits for setup and for the first chat to start. */
+  private setUpInBackground(app: App) {
+    this.provisioning.set(
+      app.id,
+      this.provision(app)
+        .finally(() => this.provisioning.delete(app.id))
+        .then(() => this.startFirstChat(app.id)),
+    );
+  }
+
+  /** Starts the first chat with the prompt the App was created with; a failed App keeps it for a retry. */
+  private async startFirstChat(appId: string) {
+    const p = this.getApp(appId)?.app;
+    if (p?.status !== "ready" || !p.firstPrompt) return;
+    const { firstPrompt, ...rest } = p;
+    this.touch<App>(C.apps, rest);
+    await this.trace("studio.first_chat", { "kiln.studio.app.id": appId }, () =>
+      this.newChat(appId, { by: p.createdBy, via: firstPrompt.via, prompt: firstPrompt.text }),
+    ).catch(() => {
+      // Already recorded on the studio.first_chat span.
+    });
   }
 
   /** Resolves when a new app is ready or has failed. */

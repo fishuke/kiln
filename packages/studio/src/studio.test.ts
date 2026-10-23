@@ -11,6 +11,8 @@ import { AppDefinitions } from "./app-definitions";
 import { studioEngineHooks, studioRuns } from "./engine-port";
 import { Studio, type StudioOptions } from "./studio";
 import type { Template } from "./templates";
+import type { StudioTracer } from "./tracer";
+import type { KilnEvent } from "@kiln/events";
 
 class TestClock {
   private t = new Date("2026-10-22T10:00:00Z").getTime();
@@ -32,8 +34,7 @@ const TEST: Template = {
 
 /** A scripted agent, reading the newest message: "write <file> <text>" writes a file, "ask" asks a question, anything else just answers. */
 const agent: FakeScript = async ({ opts, emit }) => {
-  const write = async (path: string, text: string) =>
-    opts.sandbox.writeFile(`${opts.cwd}/${path}`, text);
+  const write = async (path: string, text: string) => opts.sandbox.writeFile(`${opts.cwd}/${path}`, text);
   // A continued run's prompt is the first message plus "## Follow-up from …" sections; a real agent acts on the newest.
   const latest = opts.prompt.split(/\n## Follow-up from [^\n]*\n/).at(-1)!;
   for (const line of latest.split("\n")) {
@@ -58,20 +59,13 @@ const agent: FakeScript = async ({ opts, emit }) => {
         }),
       );
     if (line.startsWith("Run `git merge main`"))
-      await opts.sandbox.exec(
-        "git merge main || (printf 'export const n = 3;\\n' > app.ts && git add -A && git commit -qm resolved)",
-        {
-          cwd: opts.cwd,
-          trusted: true,
-        },
-      );
+      await opts.sandbox.exec("git merge main || (printf 'export const n = 3;\\n' > app.ts && git add -A && git commit -qm resolved)", {
+        cwd: opts.cwd,
+        trusted: true,
+      });
   }
   const title = /^write (\S+)/m.exec(latest)?.[1];
-  if (title)
-    await write(
-      ".kiln/studio.json",
-      JSON.stringify({ title: `Changed ${title}`, summary: "Done." }),
-    );
+  if (title) await write(".kiln/studio.json", JSON.stringify({ title: `Changed ${title}`, summary: "Done." }));
   emit({ type: "message", text: "Done." });
   return { summary: "Done." };
 };
@@ -96,9 +90,7 @@ function make(over: Partial<StudioOptions> = {}, script: FakeScript = agent) {
     objects: kiln.objects,
     bus: kiln.bus,
     clock,
-    sandboxes: new LocalSandboxProvider(
-      mkdtempSync(join(tmpdir(), "kiln-studio-")),
-    ),
+    sandboxes: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-"))),
     definitions,
     runs: studioRuns(kiln.runs),
     templates: { test: TEST },
@@ -205,7 +197,9 @@ describe("turns and versions", () => {
 
   it("never counts what installing dependencies writes as the agent's change", async () => {
     // An install that generates a lockfile and edits a tracked file, like `pnpm install` in a repository without one.
-    const { studio } = make({ templates: { test: { ...TEST, install: ["printf 'lockfileVersion: 9\\n' > pnpm-lock.yaml", "printf 'export const n = 2;\\n' > app.ts"] } } });
+    const { studio } = make({
+      templates: { test: { ...TEST, install: ["printf 'lockfileVersion: 9\\n' > pnpm-lock.yaml", "printf 'export const n = 2;\\n' > app.ts"] } },
+    });
     const p = await app(studio, "safe");
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     const asked = await say(studio, chat.id, "how does it work?");
@@ -415,7 +409,19 @@ describe("restarts", () => {
   it("gives a chat saved before chats had an agent the general agent", () => {
     const store = new MemoryStore();
     const at = "2026-10-22T10:00:00.000Z";
-    store.put("studio_chats", { id: "sc_old", appId: "sa_2", title: "Chat", mode: "build", harness: "claude-code", branch: "chat/sc_old", path: "chats/sc_old", port: 4101, status: "idle", createdAt: at, updatedAt: at });
+    store.put("studio_chats", {
+      id: "sc_old",
+      appId: "sa_2",
+      title: "Chat",
+      mode: "build",
+      harness: "claude-code",
+      branch: "chat/sc_old",
+      path: "chats/sc_old",
+      port: 4101,
+      status: "idle",
+      createdAt: at,
+      updatedAt: at,
+    });
     const { studio } = make({ store });
     expect(studio.getChat("sc_old")!.chat.agent).toBe("general");
   });
@@ -485,3 +491,146 @@ async function waitFor<T>(fn: () => Promise<T>, ms = 5000): Promise<T> {
     }
   }
 }
+
+/** Records each span's name, attributes and whether it failed. */
+function recordingTracer() {
+  const spans: { name: string; attributes: Record<string, unknown>; error?: string }[] = [];
+  const tracer: StudioTracer = {
+    span: async (name, attributes, fn) => {
+      const s: (typeof spans)[number] = { name, attributes };
+      spans.push(s);
+      try {
+        return await fn();
+      } catch (err) {
+        s.error = err instanceof Error ? err.message : String(err);
+        throw err;
+      }
+    },
+  };
+  return { tracer, spans };
+}
+
+describe("failures are reported", () => {
+  it("publishes studio.app_failed when setup fails, with secret values redacted, and fails the provision span", async () => {
+    const { tracer, spans } = recordingTracer();
+    const { studio, bus } = make({
+      tracer,
+      templates: { test: { ...TEST, scaffold: ["echo 'token s3cr3t-value-123' >&2; exit 3"] } },
+      env: () => ({ env: {}, secretValues: ["s3cr3t-value-123"] }),
+    });
+    const failed: KilnEvent<"studio.app_failed">[] = [];
+    bus.subscribe("studio.app_failed", (e) => void failed.push(e));
+    const p = await app(studio);
+    expect(p.status).toBe("failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.payload).toMatchObject({ appId: p.id, priority: "needs_you" });
+    expect(failed[0]!.payload.error).toContain("token [redacted]");
+    expect(spans.map((s) => [s.name, Boolean(s.error)])).toEqual([
+      ["studio.provision", true],
+      ["studio.scaffold", true],
+    ]);
+  });
+
+  it("traces provision steps, snapshots, apply and the dev server", async () => {
+    const { tracer, spans } = recordingTracer();
+    const { studio } = make({ tracer });
+    const p = await app(studio, "safe");
+    expect(spans.map((s) => s.name)).toEqual(["studio.provision", "studio.scaffold", "studio.commit", "studio.snapshot"]);
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await say(studio, chat.id, "write a.ts one");
+    await studio.apply(chat.id, "me");
+    await studio.preview({ chatId: chat.id });
+    await waitFor(async () => expect(spans.map((s) => s.name)).toContain("studio.ready_check"));
+    expect(spans.map((s) => s.name)).toEqual(expect.arrayContaining(["studio.apply", "studio.dev_server_start"]));
+    expect(spans.find((s) => s.name === "studio.apply")!.attributes).toMatchObject({ "kiln.studio.app.id": p.id, "kiln.studio.chat.id": chat.id });
+    expect(spans.every((s) => !s.error)).toBe(true);
+  });
+
+  it("publishes studio.preview_failed when a dev server never answers, with its last output lines", async () => {
+    const { tracer, spans } = recordingTracer();
+    const dev = `for i in $(seq 1 45); do echo line $i; done; echo 'key s3cr3t-value-123'; echo 'boom' >&2; sleep 30`;
+    const { studio, bus } = make({
+      tracer,
+      templates: { test: { ...TEST, dev, ready: { path: "/", timeoutMs: 500 } } },
+      env: () => ({ env: {}, secretValues: ["s3cr3t-value-123"] }),
+    });
+    const failed: KilnEvent<"studio.preview_failed">[] = [];
+    bus.subscribe("studio.preview_failed", (e) => void failed.push(e));
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.preview({ chatId: chat.id });
+    await waitFor(async () => expect(failed).toHaveLength(1));
+    const e = failed[0]!.payload;
+    expect(e).toMatchObject({ appId: p.id, chatId: chat.id, port: chat.port, priority: "progress" });
+    expect(e.reason).toBe(`the dev server didn't answer GET / on port ${chat.port} within 500 ms`);
+    const lines = e.output.split("\n");
+    expect(lines).toHaveLength(40);
+    expect(lines.slice(-2)).toEqual(["key [redacted]", "boom"]);
+    expect(spans.find((s) => s.name === "studio.ready_check")!.error).toBe(e.reason);
+  });
+
+  it("publishes studio.preview_failed once when a dev server exits", async () => {
+    const { studio, bus } = make({ templates: { test: { ...TEST, dev: "echo 'Error: Cannot find module next'; exit 2" } } });
+    const failed: KilnEvent<"studio.preview_failed">[] = [];
+    bus.subscribe("studio.preview_failed", (e) => void failed.push(e));
+    const p = await app(studio, "safe");
+    const v = studio.getApp(p.id)!.versions[0]!;
+    await studio.preview({ versionId: v.id });
+    await waitFor(async () => expect(failed).toHaveLength(1));
+    expect(failed[0]!.payload).toMatchObject({
+      appId: p.id,
+      versionId: v.id,
+      reason: "the dev server exited with code 2",
+      output: "Error: Cannot find module next",
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(failed).toHaveLength(1);
+  });
+});
+
+describe("a failed App", () => {
+  it("is set up again on a fresh sandbox when retried", async () => {
+    const marker = join(mkdtempSync(join(tmpdir(), "kiln-marker-")), "ok");
+    const local = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
+    let created = 0;
+    let destroyed = 0;
+    const sandboxes = {
+      name: "local",
+      create: async (spec: SandboxSpec) => {
+        created++;
+        const s = await local.create(spec);
+        const destroy = s.destroy.bind(s);
+        s.destroy = async () => (destroyed++, destroy());
+        return s;
+      },
+      resume: local.resume.bind(local),
+    };
+    const { studio } = make({ sandboxes, templates: { test: { ...TEST, scaffold: [`test -e ${marker}`, ...TEST.scaffold] } } });
+    const p = await app(studio);
+    expect(p).toMatchObject({ status: "failed", error: expect.stringContaining(`test -e ${marker} failed`) });
+    writeFileSync(marker, "");
+    const retried = await studio.retryApp(p.id);
+    expect(retried.status).toBe("creating");
+    expect(retried.error).toBeUndefined();
+    await studio.ready(p.id);
+    expect(studio.getApp(p.id)!.app.status).toBe("ready");
+    expect(studio.getApp(p.id)!.versions.map((v) => v.title)).toEqual(["Created Daily Done"]);
+    expect([created, destroyed]).toEqual([2, 1]);
+    await expect(studio.retryApp(p.id)).rejects.toThrow("only a failed app can be retried; this one is ready");
+  });
+
+  it("is deleted with its records", async () => {
+    const { studio, kiln } = make({ templates: { test: { ...TEST, scaffold: ["exit 1"] } } });
+    const p = await app(studio);
+    await studio.deleteApp(p.id);
+    expect(studio.getApp(p.id)).toBeUndefined();
+    expect(kiln.store.list<{ id: string; appId: string }>("studio_versions", (v) => v.appId === p.id)).toEqual([]);
+    await expect(studio.deleteApp(p.id)).rejects.toThrow(`unknown app ${p.id}`);
+  });
+
+  it("can't be deleted unless it failed", async () => {
+    const { studio } = make();
+    const p = await app(studio);
+    await expect(studio.deleteApp(p.id)).rejects.toThrow("only a failed app can be deleted; this one is ready");
+  });
+});

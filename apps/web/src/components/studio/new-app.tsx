@@ -54,8 +54,9 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
     if (!appName || (path === "repo" && !repo)) return;
     setBusy(true);
     try {
-      const app = await client.createApp({ name: appName, source });
-      if (path === "template" && prompt.trim()) await client.newChat(app.id, { prompt: prompt.trim() });
+      // The first chat starts with the prompt once setup is done; the workspace shows setup until then.
+      const first = path === "template" ? prompt.trim() : "";
+      const app = await client.createApp({ name: appName, source, ...(first ? { prompt: first } : {}) });
       setOpen(false);
       router.push(`/studio/${app.id}`);
     } catch (e) {

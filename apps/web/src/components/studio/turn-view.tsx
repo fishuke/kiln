@@ -45,6 +45,22 @@ import { cn } from "@/lib/utils";
 
 const MD = "text-sm leading-6 [&_a]:text-violet-600 dark:[&_a]:text-violet-400";
 
+/** The prompt an App was created with, while the App is set up; its first chat starts with it after. */
+export function WaitingPrompt({ text }: { text: string }) {
+  return (
+    <div className="flex-1 px-4 pt-3">
+      <Message align="end">
+        <MessageContent className="gap-1">
+          <Bubble align="end" variant="muted">
+            <BubbleContent className="whitespace-pre-wrap">{text}</BubbleContent>
+          </Bubble>
+          <MessageFooter className="px-0 font-normal">Starts when the app is set up</MessageFooter>
+        </MessageContent>
+      </Message>
+    </div>
+  );
+}
+
 /** The person's prompt: a muted bubble on the right, with its mode when it isn't Build. */
 export function PromptBubble({ turn }: { turn: Turn }) {
   return (

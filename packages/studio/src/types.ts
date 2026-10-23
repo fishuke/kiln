@@ -77,6 +77,8 @@ export const App = z.object({
   model: z.string().optional(),
   status: AppStatus,
   error: z.string().optional(),
+  /** The prompt the App was created with; its first chat starts with it once setup is done. */
+  firstPrompt: z.object({ text: z.string(), via: Via }).optional(),
   snapshot: SnapshotRefSchema.optional(),
   createdBy: z.string(),
   createdAt: z.string(),

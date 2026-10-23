@@ -33,6 +33,8 @@ export const CreateApp = z
     source: AppSource.optional(),
     harness: HarnessType.optional(),
     model: z.string().trim().max(120).optional(),
+    /** The first chat's prompt; the chat starts once setup is done. */
+    prompt: z.string().trim().min(1).optional(),
   })
   .strict();
 export const UpdateApp = z
@@ -64,7 +66,7 @@ export const routes: Route[] = [
   {
     method: "post",
     path: "/api/v1/studio/apps",
-    summary: "Create an App from a template or a repository your team may use; it starts as creating",
+    summary: "Create an App from a template or a repository your team may use; it starts as creating, and a prompt starts its first chat once setup is done",
     scope: "send",
     body: CreateApp,
     tag: S,
@@ -357,9 +359,10 @@ export function register(ctx: RouteContext) {
     "/api/v1/studio/apps",
     wrap(async (c) => {
       const who = caller(c, "send");
-      const body = CreateApp.parse(await c.req.json());
+      const { prompt, ...body } = CreateApp.parse(await c.req.json());
       checkImport(c, body.source);
-      return c.json(await studio().createApp({ ...body, team: who.team, by: who.by }), 201);
+      const firstPrompt = prompt ? { text: prompt, via: "web" as const } : undefined;
+      return c.json(await studio().createApp({ ...body, ...(firstPrompt ? { firstPrompt } : {}), team: who.team, by: who.by }), 201);
     }),
   );
   app.get(

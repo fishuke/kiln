@@ -109,6 +109,7 @@ export class FakeStudioClient implements StudioClient {
       harness: input.harness ?? "claude-code",
       model: input.model ?? "claude-opus-5-5",
       status: "creating",
+      ...(input.prompt ? { firstPrompt: { text: input.prompt, via: "web" } } : {}),
       createdBy: ME,
       createdAt: this.iso(),
       updatedAt: this.iso(),
@@ -129,19 +130,24 @@ export class FakeStudioClient implements StudioClient {
             envMissing: envRequired,
           },
         });
-        this.schedule(() => {
-          this.patchApp(app.id, { status: "ready" });
-          this.addVersion(app.id, { title: `Imported ${source.repo}`, kind: "initial" });
-        }, this.stepMs * 2);
+        this.schedule(() => this.ready(app.id, `Imported ${source.repo}`), this.stepMs * 2);
       }, this.stepMs * 2);
     } else {
-      this.schedule(() => {
-        this.patchApp(app.id, { status: "ready" });
-        this.addVersion(app.id, { title: "Started from the Next.js template", kind: "initial" });
-      }, this.stepMs * 2);
+      this.schedule(() => this.ready(app.id, "Started from the Next.js template"), this.stepMs * 2);
     }
     this.emit();
     return app;
+  }
+
+  /** Setup is done: the initial version, then the first chat with the prompt the App was created with. */
+  private ready(id: string, title: string) {
+    const p = this.appsById.get(id);
+    if (!p) return;
+    const { firstPrompt, ...rest } = p;
+    this.appsById.set(id, rest);
+    this.patchApp(id, { status: "ready" });
+    this.addVersion(id, { title, kind: "initial" });
+    if (firstPrompt) void this.newChat(id, { prompt: firstPrompt.text });
   }
 
   private patchApp(id: string, patch: Partial<StudioApp>) {

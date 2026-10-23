@@ -134,6 +134,46 @@ describe("apps", () => {
     expect(versions.map((v) => [v.kind, v.title])).toEqual([["initial", "Created Daily Done"]]);
   });
 
+  it("returns while it is set up and starts the first chat with its prompt once setup is done", async () => {
+    const { studio } = make();
+    const p = await studio.createApp({
+      team: teams.get(studio)!,
+      by: "me@x.test",
+      name: "Daily Done",
+      source: { kind: "template", template: "test" },
+      firstPrompt: { text: "write home.md", via: "web" },
+    });
+    expect(p).toMatchObject({ status: "creating", firstPrompt: { text: "write home.md", via: "web" } });
+    expect(studio.getApp(p.id)!.chats).toEqual([]);
+    await studio.ready(p.id);
+    const { app: ready, chats } = studio.getApp(p.id)!;
+    expect(ready.status).toBe("ready");
+    expect(ready.firstPrompt).toBeUndefined();
+    expect(chats).toHaveLength(1);
+    await studio.idle(chats[0]!.id);
+    expect(studio.getChat(chats[0]!.id)!.turns.map((t) => [t.prompt, t.by, t.via])).toEqual([["write home.md", "me@x.test", "web"]]);
+  });
+
+  it("keeps the first prompt of an App whose setup failed and starts it when the App is retried", async () => {
+    const marker = join(mkdtempSync(join(tmpdir(), "kiln-marker-")), "ok");
+    const { studio } = make({ templates: { test: { ...TEST, scaffold: [`test -e ${marker}`, ...TEST.scaffold] } } });
+    const p = await studio.createApp({
+      team: teams.get(studio)!,
+      by: "me@x.test",
+      name: "Daily Done",
+      source: { kind: "template", template: "test" },
+      firstPrompt: { text: "write home.md", via: "web" },
+    });
+    await studio.ready(p.id);
+    expect(studio.getApp(p.id)!.app).toMatchObject({ status: "failed", firstPrompt: { text: "write home.md" } });
+    expect(studio.getApp(p.id)!.chats).toEqual([]);
+    writeFileSync(marker, "");
+    await studio.retryApp(p.id);
+    await studio.ready(p.id);
+    expect(studio.getApp(p.id)!.app.firstPrompt).toBeUndefined();
+    expect(studio.getApp(p.id)!.chats.map((c) => c.title)).toEqual(["write home.md"]);
+  });
+
   it("imports a repository: package manager, dev command and missing environment", async () => {
     const origin = mkdtempSync(join(tmpdir(), "kiln-origin-"));
     writeFileSync(join(origin, "package.json"), JSON.stringify({ name: "x", scripts: { dev: "node server.js" } }));

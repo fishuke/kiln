@@ -145,6 +145,13 @@ export const routes: Route[] = [
   { method: "get", path: "/api/v1/studio/chats/{id}/diff", summary: "The chat's changes since it branched or was last applied", scope: "read", tag: S },
   { method: "get", path: "/api/v1/studio/chats/{id}/preview", summary: "The chat's live preview (starts its dev server)", scope: "read", tag: S },
   {
+    method: "post",
+    path: "/api/v1/studio/chats/{id}/preview/restart",
+    summary: "Restart the chat's dev server with the App's current environment",
+    scope: "send",
+    tag: S,
+  },
+  {
     method: "get",
     path: "/api/v1/studio/chats/{id}/events",
     summary: "Server-sent events from the chat's Studio events: the chat and the turn each event names",
@@ -167,7 +174,7 @@ export const routes: Route[] = [
     method: "post",
     path: "/api/v1/studio/tools/{name}",
     summary:
-      "Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send",
+      "Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, restart_preview, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send",
     scope: "send",
     tag: S,
   },
@@ -468,6 +475,13 @@ export function register(ctx: RouteContext) {
     wrap(async (c) => {
       ownChat(c, id(c), "read");
       return c.json(await studio().preview({ chatId: id(c) }));
+    }),
+  );
+  app.post(
+    "/api/v1/studio/chats/:id/preview/restart",
+    wrap(async (c) => {
+      ownChat(c, id(c), "send");
+      return c.json(await studio().restartPreview(id(c)));
     }),
   );
   app.get(

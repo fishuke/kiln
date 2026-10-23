@@ -55,6 +55,7 @@ describe("studio tools", () => {
       "restore:server",
       "bookmark:server",
       "look:server",
+      "restart_preview:server",
       "stop:server",
       "ship:server",
       "set_ship_mode:server",
@@ -89,6 +90,7 @@ describe("studio tools", () => {
     const status = await runTool(studio, "status", {}, caller);
     expect(status).toMatchObject({ ok: true, data: { apps: [{ id: appId, name: "Daily Done", latest: { title: "ok" } }] } });
     expect(await runTool(studio, "look", { chat: chatId }, caller)).toMatchObject({ ok: true, data: { url: `https://${chatId}.preview.test` } });
+    expect(await runTool(studio, "restart_preview", { chat: chatId }, caller)).toMatchObject({ ok: true, data: { url: `https://${chatId}.preview.test` } });
   });
 
   it("hides another team's app", async () => {

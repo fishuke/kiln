@@ -68,6 +68,7 @@ List my factories, then help me send a task to the right one and follow it throu
 | `studio_look` | Studio: The live preview of a chat (its URL). |
 | `studio_new_chat` | Studio: Start a new chat (a parallel line of work) in an app with one of its agents (default general), optionally with a first message. |
 | `studio_open_app` | Studio: Open an app by id, or create one from a name and a source (a template or a repository). |
+| `studio_restart_preview` | Studio: Restart a chat's preview dev server, for example after its environment changed or when it is stuck. |
 | `studio_restore` | Studio: Restore an earlier version as a new version; nothing is lost. |
 | `studio_send` | Studio: Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them. |
 | `studio_set_ship_mode` | Studio: Change an App's ship mode (safe, review or cowboy), up to the highest mode the App's policy allows the caller's role. Only a person may. |

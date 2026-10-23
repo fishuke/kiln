@@ -39,10 +39,25 @@ function devScript(pm: PackageManager, packageJson?: string): string | undefined
   const run = `${pm} run dev`;
   // npm needs `--` to pass flags to the script; pnpm, yarn and bun pass them through.
   const sep = pm === "npm" ? " --" : "";
-  if (/(^|\s)(-p|--port)(\s|=)/.test(dev)) return run;
+  if (PORT_FLAG.test(dev)) return ownPort(pm, dev.trim()) ?? run;
   if (/\bnext dev\b/.test(dev)) return `${run}${sep} --port {port} --hostname 0.0.0.0`;
   if (/(^|\s)vite(\s|$)/.test(dev)) return `${run}${sep} --port {port} --host 0.0.0.0`;
   return run;
+}
+
+const PORT_FLAG = /(^|\s)(-p|--port)(\s+|=)\d+(?=\s|$)/;
+const EXEC: Record<PackageManager, string> = { pnpm: "pnpm exec", npm: "npm exec --", yarn: "yarn", bun: "bun x" };
+
+/**
+ * A dev script that fixes its port (`next dev -p 4000`) would have every preview listen on that one port,
+ * so a single next or vite command runs itself with `{port}` in its place. Anything else stays as it is.
+ */
+function ownPort(pm: PackageManager, dev: string): string | undefined {
+  const next = /^next dev(\s|$)/.test(dev);
+  if ((!next && !/^vite(\s|$)/.test(dev)) || /[;&|<>`$]/.test(dev)) return undefined;
+  const cmd = dev.replace(PORT_FLAG, "$1$2$3{port}");
+  const host = next ? (/(^|\s)(-H|--hostname)(\s|=)/.test(cmd) ? "" : " --hostname 0.0.0.0") : /(^|\s)--host(\s|=|$)/.test(cmd) ? "" : " --host 0.0.0.0";
+  return `${EXEC[pm]} ${cmd}${host}`;
 }
 
 /** The keys an example env file declares (KEY=…, optionally `export KEY=…`). */
@@ -63,4 +78,11 @@ export function devCommand(setup: Pick<AppSetup, "devDetected" | "devOverride">)
 export function listenPort(line: string): number | undefined {
   const m = /(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::\]):(\d{2,5})\b/.exec(line);
   return m ? Number(m[1]) : undefined;
+}
+
+const ANSI = /\u001b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\))/g;
+
+/** A dev server's output line without terminal colors and cursor codes. */
+export function plainLine(line: string): string {
+  return line.replace(ANSI, "");
 }

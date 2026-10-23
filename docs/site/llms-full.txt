@@ -2084,6 +2084,10 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
 | GET | `/api/v1/audit` | `admin` | Audit log |
+| GET | `/api/v1/admin/server` | `admin` | Server memory, disk, load and sandboxes (server admins) |
+| GET | `/api/v1/admin/cleanup` | `admin` | Docker clean-up dry run: what it would remove (server admins) |
+| POST | `/api/v1/admin/cleanup` | `admin` | Run the Docker clean-up now (server admins) |
+| PUT | `/api/v1/admin/cleanup/schedule` | `admin` | Turn the hourly Docker clean-up on or off (server admins) |
 | GET | `/api/v1/tokens` | `admin` | List API tokens |
 | POST | `/api/v1/tokens` | `admin` | Issue a scoped token |
 | PUT | `/api/v1/secrets/{name}` | `admin` | Set a managed secret |
@@ -2210,14 +2214,16 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/studio/chats/{id}/apply` | `send` | Apply a chat's checkpoints to the App's main line as a version |
 | GET | `/api/v1/studio/chats/{id}/diff` | `read` | The chat's changes since it branched or was last applied |
 | GET | `/api/v1/studio/chats/{id}/preview` | `read` | The chat's live preview (starts its dev server) |
+| POST | `/api/v1/studio/chats/{id}/preview/restart` | `send` | Restart the chat's dev server with the App's current environment |
 | GET | `/api/v1/studio/chats/{id}/events` | `read` | Server-sent events from the chat's Studio events: the chat and the turn each event names |
 | POST | `/api/v1/studio/versions/{id}/restore` | `send` | Restore a version as a new version |
 | POST | `/api/v1/studio/versions/{id}/bookmark` | `send` | Pin or unpin a version |
 | GET | `/api/v1/studio/versions/{id}/diff` | `read` | A version's changes against its parent |
 | GET | `/api/v1/studio/versions/{id}/preview` | `read` | Preview an earlier version |
+| POST | `/api/v1/studio/versions/{id}/preview/restart` | `send` | Restart the version preview's dev server |
 | GET | `/api/v1/studio/status` | `read` | What is working and what needs you, across your team's Apps |
 | GET | `/api/v1/studio/events` | `read` | Server-sent events for your team's Apps: Studio events and merge gate reviews |
-| POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send |
+| POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, restart_preview, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send |
 | GET | `/api/v1/studio/apps/{id}/definition` | — | An App's own Studio definition layer: tree, sha and history |
 | PUT | `/api/v1/studio/apps/{id}/definition` | — | Replace an App's own definition layer (kiln/v1 App tree) |
 | PATCH | `/api/v1/studio/apps/{id}/definition` | — | Change an App's own definition layer from settings |
@@ -2392,6 +2398,7 @@ List my factories, then help me send a task to the right one and follow it throu
 | `studio_look` | Studio: The live preview of a chat (its URL). |
 | `studio_new_chat` | Studio: Start a new chat (a parallel line of work) in an app with one of its agents (default general), optionally with a first message. |
 | `studio_open_app` | Studio: Open an app by id, or create one from a name and a source (a template or a repository). |
+| `studio_restart_preview` | Studio: Restart a chat's preview dev server, for example after its environment changed or when it is stuck. |
 | `studio_restore` | Studio: Restore an earlier version as a new version; nothing is lost. |
 | `studio_send` | Studio: Send a message to a chat: starts a turn, or steers the one that is running. Pass the person's words as they said them. |
 | `studio_set_ship_mode` | Studio: Change an App's ship mode (safe, review or cowboy), up to the highest mode the App's policy allows the caller's role. Only a person may. |
@@ -3630,6 +3637,18 @@ Kiln runs a timer pass that:
 - Each run records a trace ID, so you can match its events with your logs and traces.
 - The audit log lists who applied definitions, decided gates, steered runs, issued tokens and set secrets.
 
+## Disk space
+
+Every deploy rebuilds the runner images (`kiln-runner-node`, `kiln-runner-studio`, a few GB each) and the app images; the previous ones stay on the host as dangling or superseded images, with their build cache. Server admins clean them up on **Server → Clean up disk** (`/admin/cleanup`):
+
+- The page is a dry run first: Docker's disk usage and the list of what would go. **Clean up now** removes it; after a first run, **Clean up every hour** keeps it that way.
+- It removes only Kiln's own things: stopped sandbox containers and stopped containers of Kiln's Compose project older than a day, images of that project a newer build replaced (the newest 2 per image stay, never one a container uses), and build cache older than 7 days down to 10 GB. The project is read from the API's own container labels; set `KILN_COMPOSE_PROJECT` to override.
+- It never removes a volume. `kiln-data` volumes no container uses are listed so you can decide.
+- Before a Docker sandbox starts, Kiln checks free space on its data volume. Below `KILN_DISK_MIN_FREE_GB` (default 20) or `KILN_DISK_MIN_FREE_PCT` (default 15) it cleans up once, then refuses the sandbox with a clear error if space is still low. `0` turns a limit off.
+- Sandboxes and the Compose services keep at most 30 MB of logs each.
+
+On Coolify, also turn on the server's own Docker clean-up (Servers → your server → Docker Cleanup) for images other resources leave behind.
+
 ## Troubleshooting
 
 | Symptom                                                 | Check                                                                                                                                            |
@@ -4600,6 +4619,12 @@ Each preview gets its own origin, `<id>.<KILN_STUDIO_PREVIEW_DOMAIN>`, never Kil
 
 When the variable is unset, the preview URL is the sandbox's own address, such as `http://127.0.0.1:4101`. That works only with local sandboxes.
 
+A dev server that exits stays stopped, and the preview shows why with its last output lines. **Restart** (in the preview's toolbar, or under the error) starts it again. Dev servers read the App's environment variables when they start, so restart after you change them. Changing the dev command during an import restarts it for you.
+
+An imported repository's `.env.example` (or `.env.sample`, `.env.local.example`) doesn't say which keys are required, so Studio lists the keys no variable provides as **Not set yet**. They don't stop the App from opening.
+
+If the repository's `dev` script is a single `next dev` or `vite` command with its own port, such as `next dev -p 4000`, Studio runs that command with each preview's own port instead. For any other script that sets a port, change the dev command and use `{port}`, for example `pnpm exec next dev --port {port} --hostname 0.0.0.0`.
+
 What the proxy does with a request to a preview host:
 
 1. Looks up the id. An unknown, stopped or malformed id gets the same `404 preview not found`.
@@ -4756,6 +4781,10 @@ Only server admins and team owners and admins can issue scoped tokens, list them
 | --- | --- | --- | --- | --- |
 | Server admin: the bootstrap admin token (`admin` on `*`), dev auth, or a user listed in `KILN_ADMIN_EMAILS` | Every team | Every token | The server's secret store | Any grants |
 | Team owner or admin | Their current team only | Tokens of their team and its members | The team's raw secrets | Only on their team's factories, never `*`. The token belongs to the team. |
+
+## Server page
+
+Server admins get a **Server** item in the sidebar (`/admin`, API `GET /api/v1/admin/server`). It shows the host's memory, disk (the data directory and `/`), load, the Kiln API's own memory, running and queued runs, connected workers, and every sandbox on the host with its state, owner, CPU and memory. It refreshes every 5 seconds. Everyone else gets a 403.
 
 Kiln records the team of each audit entry from what it is about: the factory, work item, run, gate, secret, token, team or user. When a factory moves to another team, its history moves with it.
 
@@ -6413,7 +6442,7 @@ You can't upload files by voice. Drop a logo or a screenshot on the screen inste
 
 | Event                                                       | What you hear                                                |
 | ----------------------------------------------------------- | ------------------------------------------------------------ |
-| A chat needs you (it asks a question)                | It says so at the next pause, never over you.                |
+| A chat needs you (it asks a question)                       | It says so at the next pause, never over you.                |
 | A turn finished in the chat you're in, or while you're idle | Its title and short summary                                  |
 | A turn finished in another chat                             | Nothing. A badge appears, and you can ask "how's it going?". |
 | Progress while an agent works                               | Nothing                                                      |

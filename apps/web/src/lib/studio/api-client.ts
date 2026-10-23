@@ -29,10 +29,12 @@ export class ApiStudioClient implements StudioClient {
   apply = (chatId: string) => unwrap(actions.studioApply(chatId));
   chatDiff = (chatId: string) => unwrap(actions.studioChatDiff(chatId));
   chatPreview = (chatId: string) => unwrap(actions.studioChatPreview(chatId));
+  restartChatPreview = (chatId: string) => unwrap(actions.studioRestartChatPreview(chatId));
   restore = (versionId: string) => unwrap(actions.studioRestore(versionId));
   bookmark = (versionId: string, on: boolean) => unwrap(actions.studioBookmark(versionId, on));
   versionDiff = (versionId: string) => unwrap(actions.studioVersionDiff(versionId));
   versionPreview = (versionId: string) => unwrap(actions.studioVersionPreview(versionId));
+  restartVersionPreview = (versionId: string) => unwrap(actions.studioRestartVersionPreview(versionId));
   status = () => unwrap(actions.studioStatus());
   repositories = () => unwrap(actions.studioRepositories());
   ship: StudioClient["ship"] = (appId, input) => unwrap(actions.studioShip(appId, input));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectSetup, devCommand, envKeys, listenPort } from "./setup";
+import { detectSetup, devCommand, envKeys, listenPort, plainLine } from "./setup";
 
 describe("detecting an imported app's setup", () => {
   it("picks the package manager from the lockfile", () => {
@@ -21,8 +21,17 @@ describe("detecting an imported app's setup", () => {
     expect(detectSetup({ files: [], packageJson: JSON.stringify({ scripts: { dev: "vite" } }) }).devDetected).toBe(
       "npm run dev -- --port {port} --host 0.0.0.0",
     );
-    expect(detectSetup({ files: [], packageJson: JSON.stringify({ scripts: { dev: "next dev -p 3001" } }) }).devDetected).toBe("npm run dev");
     expect(detectSetup({ files: [], packageJson: "{}" }).devDetected).toBeUndefined();
+  });
+
+  it("runs next and vite itself when scripts.dev fixes the port, so each preview gets its own", () => {
+    const dev = (script: string, files: string[] = []) => detectSetup({ files, packageJson: JSON.stringify({ scripts: { dev: script } }) }).devDetected;
+    expect(dev("next dev -p 4000", ["pnpm-lock.yaml"])).toBe("pnpm exec next dev -p {port} --hostname 0.0.0.0");
+    expect(dev("next dev --turbopack --port=3001 -H 0.0.0.0")).toBe("npm exec -- next dev --turbopack --port={port} -H 0.0.0.0");
+    expect(dev("vite --port 5173", ["yarn.lock"])).toBe("yarn vite --port {port} --host 0.0.0.0");
+    // Anything else keeps the script; a person can change the dev command.
+    expect(dev("next build && next start -p 3000")).toBe("npm run dev");
+    expect(dev("node server.js --port 3000")).toBe("npm run dev");
   });
 
   it("lists the environment keys an example file asks for", () => {
@@ -38,5 +47,11 @@ describe("detecting an imported app's setup", () => {
     expect(listenPort("  ▲ Next.js 15  - Local:  http://localhost:3005")).toBe(3005);
     expect(listenPort("listening on 0.0.0.0:8080")).toBe(8080);
     expect(listenPort("compiling…")).toBeUndefined();
+  });
+
+  it("drops terminal colors and cursor codes from dev server output", () => {
+    expect(plainLine("\u001b[?25h")).toBe("");
+    expect(plainLine("\u001b[31m ELIFECYCLE \u001b[39m Command failed")).toBe(" ELIFECYCLE  Command failed");
+    expect(plainLine("\u001b]8;;https://x.test\u0007link\u001b]8;;\u0007")).toBe("link");
   });
 });

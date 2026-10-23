@@ -203,6 +203,18 @@ Kiln runs a timer pass that:
 - Each run records a trace ID, so you can match its events with your logs and traces.
 - The audit log lists who applied definitions, decided gates, steered runs, issued tokens and set secrets.
 
+## Disk space
+
+Every deploy rebuilds the runner images (`kiln-runner-node`, `kiln-runner-studio`, a few GB each) and the app images; the previous ones stay on the host as dangling or superseded images, with their build cache. Server admins clean them up on **Server → Clean up disk** (`/admin/cleanup`):
+
+- The page is a dry run first: Docker's disk usage and the list of what would go. **Clean up now** removes it; after a first run, **Clean up every hour** keeps it that way.
+- It removes only Kiln's own things: stopped sandbox containers and stopped containers of Kiln's Compose project older than a day, images of that project a newer build replaced (the newest 2 per image stay, never one a container uses), and build cache older than 7 days down to 10 GB. The project is read from the API's own container labels; set `KILN_COMPOSE_PROJECT` to override.
+- It never removes a volume. `kiln-data` volumes no container uses are listed so you can decide.
+- Before a Docker sandbox starts, Kiln checks free space on its data volume. Below `KILN_DISK_MIN_FREE_GB` (default 20) or `KILN_DISK_MIN_FREE_PCT` (default 15) it cleans up once, then refuses the sandbox with a clear error if space is still low. `0` turns a limit off.
+- Sandboxes and the Compose services keep at most 30 MB of logs each.
+
+On Coolify, also turn on the server's own Docker clean-up (Servers → your server → Docker Cleanup) for images other resources leave behind.
+
 ## Troubleshooting
 
 | Symptom                                                 | Check                                                                                                                                            |

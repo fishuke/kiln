@@ -261,6 +261,7 @@ describe("Kiln MCP with scoped tokens ", () => {
         "studio_look",
         "studio_new_chat",
         "studio_open_app",
+        "studio_restart_preview",
         "studio_restore",
         "studio_send",
         "studio_set_ship_mode",

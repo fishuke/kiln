@@ -22,6 +22,7 @@ export function meRoutes(ctx: RouteContext) {
       teams: user ? kiln.teams.teamsOf(user.id).map(({ settings: _s, avatarKey: _k, ...team }) => team) : [],
       currentTeam: a.team ? { id: a.team.id, name: a.team.name, slug: a.team.slug, avatar: a.team.avatar } : undefined,
       role: a.teamRole,
+      serverAdmin: a.serverAdmin,
       factoryRoles: user ? kiln.teams.factoryRoles(user.id) : {},
     });
   });

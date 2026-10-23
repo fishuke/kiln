@@ -335,6 +335,10 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
 | GET | `/api/v1/audit` | `admin` | Audit log |
+| GET | `/api/v1/admin/server` | `admin` | Server memory, disk, load and sandboxes (server admins) |
+| GET | `/api/v1/admin/cleanup` | `admin` | Docker clean-up dry run: what it would remove (server admins) |
+| POST | `/api/v1/admin/cleanup` | `admin` | Run the Docker clean-up now (server admins) |
+| PUT | `/api/v1/admin/cleanup/schedule` | `admin` | Turn the hourly Docker clean-up on or off (server admins) |
 | GET | `/api/v1/tokens` | `admin` | List API tokens |
 | POST | `/api/v1/tokens` | `admin` | Issue a scoped token |
 | PUT | `/api/v1/secrets/{name}` | `admin` | Set a managed secret |
@@ -461,14 +465,16 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/studio/chats/{id}/apply` | `send` | Apply a chat's checkpoints to the App's main line as a version |
 | GET | `/api/v1/studio/chats/{id}/diff` | `read` | The chat's changes since it branched or was last applied |
 | GET | `/api/v1/studio/chats/{id}/preview` | `read` | The chat's live preview (starts its dev server) |
+| POST | `/api/v1/studio/chats/{id}/preview/restart` | `send` | Restart the chat's dev server with the App's current environment |
 | GET | `/api/v1/studio/chats/{id}/events` | `read` | Server-sent events from the chat's Studio events: the chat and the turn each event names |
 | POST | `/api/v1/studio/versions/{id}/restore` | `send` | Restore a version as a new version |
 | POST | `/api/v1/studio/versions/{id}/bookmark` | `send` | Pin or unpin a version |
 | GET | `/api/v1/studio/versions/{id}/diff` | `read` | A version's changes against its parent |
 | GET | `/api/v1/studio/versions/{id}/preview` | `read` | Preview an earlier version |
+| POST | `/api/v1/studio/versions/{id}/preview/restart` | `send` | Restart the version preview's dev server |
 | GET | `/api/v1/studio/status` | `read` | What is working and what needs you, across your team's Apps |
 | GET | `/api/v1/studio/events` | `read` | Server-sent events for your team's Apps: Studio events and merge gate reviews |
-| POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send |
+| POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, restart_preview, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send |
 | GET | `/api/v1/studio/apps/{id}/definition` | — | An App's own Studio definition layer: tree, sha and history |
 | PUT | `/api/v1/studio/apps/{id}/definition` | — | Replace an App's own definition layer (kiln/v1 App tree) |
 | PATCH | `/api/v1/studio/apps/{id}/definition` | — | Change an App's own definition layer from settings |

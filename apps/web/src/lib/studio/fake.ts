@@ -397,6 +397,16 @@ export class FakeStudioClient implements StudioClient {
     return this.preview(versionId, v.appId, n);
   }
 
+  async restartChatPreview(chatId: string): Promise<Preview> {
+    this.started.delete(chatId);
+    return this.chatPreview(chatId);
+  }
+
+  async restartVersionPreview(versionId: string): Promise<Preview> {
+    this.started.delete(versionId);
+    return this.versionPreview(versionId);
+  }
+
   async restore(versionId: string): Promise<Version> {
     const v = this.must(this.versions.get(versionId), "Version");
     const restored = this.addVersion(v.appId, { title: `Restore: ${v.title}`, kind: "restore", restoredFrom: v.id });

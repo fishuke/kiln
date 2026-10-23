@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestKiln } from "@kiln/engine";
@@ -27,12 +27,15 @@ const TEST: Template = {
   name: "Test",
   scaffold: ["printf 'export const n = 1;\\n' > app.ts", "printf 'node_modules\\n' > .gitignore"],
   install: [],
-  dev: `node -e "require('http').createServer((q, s) => s.end('preview ' + process.cwd() + ' ' + (process.env.KILN_STUDIO_PREVIEW_DOMAIN || ''))).listen({port}, '127.0.0.1')"`,
+  dev: `node -e "require('http').createServer((q, s) => s.end('preview ' + process.cwd() + ' ' + (process.env.KILN_STUDIO_PREVIEW_DOMAIN || '') + ' pid ' + process.pid)).listen({port}, '127.0.0.1')"`,
   ready: { path: "/", timeoutMs: 5000 },
   egress: [],
 };
 
-/** A scripted agent, reading the newest message: "write <file> <text>" writes a file, "ask" asks a question, anything else just answers. */
+/**
+ * A scripted agent, reading the newest message: "write <file> <text>" writes a file, "ask" asks a question,
+ * "restart" asks Studio to restart the preview, anything else just answers.
+ */
 const agent: FakeScript = async ({ opts, emit }) => {
   const write = async (path: string, text: string) => opts.sandbox.writeFile(`${opts.cwd}/${path}`, text);
   // A continued run's prompt is the first message plus "## Follow-up from …" sections; a real agent acts on the newest.
@@ -49,6 +52,7 @@ const agent: FakeScript = async ({ opts, emit }) => {
         name: "Task",
         input: { description: "look around" },
       });
+    if (line === "restart") await write(".kiln/studio.json", JSON.stringify({ title: "Restarted", restartPreview: true }));
     if (line === "ask")
       await write(
         ".kiln/studio.json",
@@ -377,6 +381,36 @@ describe("previews and pausing", () => {
   });
 });
 
+describe("restarting a preview", () => {
+  const pid = async (port: number) => /pid (\d+)/.exec(await (await fetch(`http://127.0.0.1:${port}/`)).text())?.[1];
+
+  it("starts the chat's dev server again on the same port, when asked or when the agent asks", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-studio-"));
+    const { studio } = make({ sandboxes: new LocalSandboxProvider(root) });
+    const p = await app(studio, "cowboy");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.preview({ chatId: chat.id });
+    await waitFor(async () => expect((await studio.preview({ chatId: chat.id })).status).toBe("ready"));
+    const first = await pid(chat.port);
+
+    expect((await studio.restartPreview(chat.id)).status).toBe("starting");
+    await waitFor(async () => expect((await studio.preview({ chatId: chat.id })).status).toBe("ready"));
+    const second = await pid(chat.port);
+    expect(second).not.toBe(first);
+
+    // The agent can read the dev server's output in its worktree.
+    const log = () => {
+      const f = (readdirSync(root, { recursive: true }) as string[]).find((x) => x.endsWith(`${chat.path}/.kiln/dev.log`));
+      return f ? readFileSync(join(root, f), "utf8") : "";
+    };
+    await waitFor(async () => expect(log()).toContain("[kiln] the dev server was stopped"));
+
+    await say(studio, chat.id, "restart");
+    await waitFor(async () => expect(await pid(chat.port).catch(() => undefined)).not.toBe(second));
+    await waitFor(async () => expect((await studio.preview({ chatId: chat.id })).status).toBe("ready"));
+  });
+});
+
 describe("deleting chats", () => {
   it("removes a chat's preview, worktree, branch and turns, keeps its versions, and reuses its port", async () => {
     const { studio, kiln } = make();
@@ -636,6 +670,40 @@ describe("preview addresses", () => {
     const before = calls;
     for (let i = 0; i < 5; i++) await studio.resolvePreview(chat.id);
     expect(calls).toBe(before);
+  });
+});
+
+describe("a dev server that exits", () => {
+  it("stays failed with its reason and output until restarted, and starts again with the App's current environment", async () => {
+    let env: Record<string, string> = {};
+    const { studio, bus } = make({
+      templates: { test: { ...TEST, dev: `echo "key=$KEY"; [ -n "$KEY" ] || exit 2; ${TEST.dev}` } },
+      env: () => ({ env, secretValues: [] }),
+    });
+    const failed: KilnEvent<"studio.preview_failed">[] = [];
+    bus.subscribe("studio.preview_failed", (e) => void failed.push(e));
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.preview({ chatId: chat.id });
+    await waitFor(async () => expect((await studio.preview({ chatId: chat.id })).status).toBe("failed"));
+    // Asking again doesn't start it again.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await studio.preview({ chatId: chat.id })).toMatchObject({ status: "failed", reason: "the dev server exited with code 2", output: "key=" });
+    expect(failed).toHaveLength(1);
+
+    env = { KEY: "set" };
+    expect((await studio.restartPreview(chat.id)).status).toBe("starting");
+    await waitFor(async () => expect((await studio.preview({ chatId: chat.id })).status).toBe("ready"));
+  });
+
+  it("restarts the version preview", async () => {
+    const { studio } = make();
+    const p = await app(studio, "safe");
+    const v = studio.getApp(p.id)!.versions[0]!;
+    await studio.preview({ versionId: v.id });
+    await waitFor(async () => expect((await studio.preview({ versionId: v.id })).status).toBe("ready"));
+    expect((await studio.restartVersionPreview(v.id)).status).toBe("starting");
+    await waitFor(async () => expect((await studio.preview({ versionId: v.id })).status).toBe("ready"));
   });
 });
 

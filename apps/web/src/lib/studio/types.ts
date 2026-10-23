@@ -143,7 +143,14 @@ export const Version = z.object({
 });
 export type Version = z.infer<typeof Version>;
 
-export const Preview = z.object({ target: z.string(), url: z.string(), status: z.enum(["starting", "ready", "failed"]) });
+/** A failed preview says why (`reason`) and carries the dev server's last output lines. */
+export const Preview = z.object({
+  target: z.string(),
+  url: z.string(),
+  status: z.enum(["starting", "ready", "failed"]),
+  reason: z.string().optional(),
+  output: z.string().optional(),
+});
 export type Preview = z.infer<typeof Preview>;
 
 export const StatusReport = z.object({

@@ -140,6 +140,7 @@ const CORE: Route[] = [
   { method: "post", path: "/api/v1/skills/publish", summary: "Publish a factory skill to the catalog", scope: "definitions:write", body: S.Publish, tag: "Memories and skills" },
   { method: "post", path: "/api/v1/skills/{id}/install", summary: "Install a catalog skill into a factory", scope: "definitions:write", body: S.Install, tag: "Memories and skills" },
   { method: "get", path: "/api/v1/audit", summary: "Audit log", scope: "admin", tag: "Admin" },
+  { method: "get", path: "/api/v1/admin/server", summary: "Server memory, disk, load and sandboxes (server admins)", scope: "admin", tag: "Admin" },
   { method: "get", path: "/api/v1/tokens", summary: "List API tokens", scope: "admin", tag: "Admin" },
   { method: "post", path: "/api/v1/tokens", summary: "Issue a scoped token", scope: "admin", body: S.Token, tag: "Admin" },
   { method: "put", path: "/api/v1/secrets/{name}", summary: "Set a managed secret", scope: "admin", tag: "Admin" },

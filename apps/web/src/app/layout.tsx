@@ -36,6 +36,7 @@ async function shell() {
         email: me.user?.email ?? me.subject,
         avatarUrl: me.user?.avatar,
         role: me.role ?? (me.grants.some((g) => g.scope === "admin" && g.factory === "*") ? "admin" : undefined),
+        serverAdmin: me.serverAdmin,
       }
     : undefined;
   const team = me?.currentTeam ? { id: me.currentTeam.id, name: me.currentTeam.name } : undefined;

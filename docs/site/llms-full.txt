@@ -2083,6 +2083,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | Method | Path | Scope | What it does |
 | --- | --- | --- | --- |
 | GET | `/api/v1/audit` | `admin` | Audit log |
+| GET | `/api/v1/admin/server` | `admin` | Server memory, disk, load and sandboxes (server admins) |
 | GET | `/api/v1/tokens` | `admin` | List API tokens |
 | POST | `/api/v1/tokens` | `admin` | Issue a scoped token |
 | PUT | `/api/v1/secrets/{name}` | `admin` | Set a managed secret |
@@ -4754,6 +4755,10 @@ Only server admins and team owners and admins can issue scoped tokens, list them
 | --- | --- | --- | --- | --- |
 | Server admin: the bootstrap admin token (`admin` on `*`), dev auth, or a user listed in `KILN_ADMIN_EMAILS` | Every team | Every token | The server's secret store | Any grants |
 | Team owner or admin | Their current team only | Tokens of their team and its members | The team's raw secrets | Only on their team's factories, never `*`. The token belongs to the team. |
+
+## Server page
+
+Server admins get a **Server** item in the sidebar (`/admin`, API `GET /api/v1/admin/server`). It shows the host's memory, disk (the data directory and `/`), load, the Kiln API's own memory, running and queued runs, connected workers, and every sandbox on the host with its state, owner, CPU and memory. It refreshes every 5 seconds. Everyone else gets a 403.
 
 Kiln records the team of each audit entry from what it is about: the factory, work item, run, gate, secret, token, team or user. When a factory moves to another team, its history moves with it.
 

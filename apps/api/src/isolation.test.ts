@@ -110,4 +110,16 @@ describe("multi-team isolation", () => {
     expect(all.some((a) => a.action === "secret.created" && a.target.includes("PAY_TOKEN"))).toBe(true);
     expect((await pay.audit(1000)).length).toBeLessThan(all.length);
   });
+
+  it("only server admins see the server page: memory, disk and sandboxes", async () => {
+    const { o, p, admin } = await twoTeams(["olga@acme.test"]);
+    expect((await o.me()).serverAdmin).toBe(true);
+    expect((await p.me()).serverAdmin).toBe(false);
+    await expect(p.serverStats()).rejects.toMatchObject({ status: 403 });
+    const stats = await o.serverStats();
+    expect(stats.host.totalMemoryBytes).toBeGreaterThan(0);
+    expect(stats.disks[0]!.totalBytes).toBeGreaterThan(0);
+    expect(Array.isArray(stats.sandboxes)).toBe(true);
+    expect((await admin.serverStats()).runs).toEqual({ running: 0, queued: 0 });
+  });
 });

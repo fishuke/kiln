@@ -70,6 +70,9 @@ describe("local sandbox", () => {
     const provider = new LocalSandboxProvider(root);
     const live = await provider.create({ runner, repos: [{ name: "app", url: gitRepo() }] });
     await expect(provider.create({ runner: { ...runner, setupCommands: ["exit 3"] }, repos: [] })).rejects.toThrow();
+    const listed = await provider.list();
+    expect(listed.find((s) => s.name === "sbx_old-abc")).toMatchObject({ state: "left behind", live: false });
+    expect(listed.find((s) => s.live)?.state).toBe("running");
     expect(await provider.sweep()).toEqual(["sbx_old-abc"]);
     expect(readdirSync(root)).toEqual([live.workdir.split("/").pop()]);
     await live.destroy();
@@ -195,6 +198,21 @@ describe("docker sandbox", () => {
     expect(fake.calls.at(-1)?.args).toEqual(["rm", "-f", "kiln-old", "kiln-legacy"]);
     await sbx.destroy();
     expect(await provider.sweep()).toContain(created);
+  });
+
+  it("lists every Kiln container with the CPU and memory of the running ones", async () => {
+    const fake = new FakeCommandRunner((_cmd, args) => {
+      if (args[0] === "ps")
+        return { code: 0, stdout: "kiln-a\trunning\t2026-10-23 10:11:12 +0000 UTC\tkiln\tapp1\nkiln-b\texited\t2026-10-22 09:00:00 +0000 UTC\tworker:w1\t\n", stderr: "" };
+      if (args[0] === "stats") return { code: 0, stdout: "kiln-a\t12.50%\t256MiB / 7.6GiB\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const rows = await new DockerSandboxProvider(fake).list();
+    expect(rows).toEqual([
+      { name: "kiln-a", provider: "docker", state: "running", live: false, owner: "kiln", studioApp: "app1", createdAt: "2026-10-23T10:11:12.000Z", cpuPercent: 12.5, memoryBytes: 256 * 1024 ** 2 },
+      { name: "kiln-b", provider: "docker", state: "exited", live: false, owner: "worker:w1", createdAt: "2026-10-22T09:00:00.000Z" },
+    ]);
+    expect(fake.calls.at(-1)?.args).toEqual(["stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}", "kiln-a"]);
   });
 
   it("removes the container when cloning or setup fails", async () => {

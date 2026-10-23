@@ -83,6 +83,31 @@ export interface SandboxProvider {
   resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox>;
   /** Remove sandboxes this provider left behind (a restart, a failed destroy): every one it did not create in this process. Returns what it removed. */
   sweep?(): Promise<string[]>;
+  /** Every sandbox on this host, live or left behind, with what it uses where the provider can tell (the admin page). */
+  list?(): Promise<SandboxListing[]>;
+}
+
+/** One sandbox as the admin page shows it. `memoryBytes` and `cpuPercent` are set for running containers only. */
+export type SandboxListing = {
+  name: string;
+  provider: string;
+  state: string;
+  /** Created by this process (false: another owner's, or a leftover the next sweep removes). */
+  live: boolean;
+  owner?: string;
+  studioApp?: string;
+  createdAt?: string;
+  cpuPercent?: number;
+  memoryBytes?: number;
+};
+
+const UNITS: Record<string, number> = { b: 1, kb: 1e3, mb: 1e6, gb: 1e9, tb: 1e12, kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4 };
+
+/** "12.5MiB" or "1.2GB" (docker stats) to bytes. */
+export function parseByteSize(s: string): number | undefined {
+  const m = /^([\d.]+)\s*([a-z]+)$/i.exec(s.trim());
+  const unit = m && UNITS[m[2]!.toLowerCase()];
+  return m && unit ? Math.round(Number(m[1]) * unit) : undefined;
 }
 
 export class CommandBlocked extends Error {
@@ -218,6 +243,21 @@ export class LocalSandboxProvider implements SandboxProvider {
       .map((d) => d.name);
     for (const d of stale) rmSync(join(this.root, d), { recursive: true, force: true });
     return stale;
+  }
+
+  async list(): Promise<SandboxListing[]> {
+    return readdirSync(this.root, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => {
+        const live = this.live.has(d.name);
+        return {
+          name: d.name,
+          provider: this.name,
+          state: live ? "running" : "left behind",
+          live,
+          createdAt: statSync(join(this.root, d.name)).birthtime.toISOString(),
+        };
+      });
   }
 
   async resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox> {
@@ -472,6 +512,46 @@ export class DockerSandboxProvider implements SandboxProvider {
       .map(([name]) => name!);
     if (stale.length) await this.runner.run("docker", ["rm", "-f", ...stale]);
     return stale;
+  }
+
+  /** `docker ps` for every Kiln sandbox (any owner), plus one `docker stats` sample of the running ones. */
+  async list(): Promise<SandboxListing[]> {
+    const r = await this.must([
+      "ps",
+      "-a",
+      "--filter",
+      "label=kiln.sandbox=1",
+      "--format",
+      '{{.Names}}\t{{.State}}\t{{.CreatedAt}}\t{{.Label "kiln.owner"}}\t{{.Label "kiln.studio.app"}}',
+    ]);
+    const rows = r.stdout
+      .split("\n")
+      .map((l) => l.trim().split("\t"))
+      .filter(([name]) => name)
+      .map(([name, state, created, owner, app]): SandboxListing => ({
+        name: name!,
+        provider: this.name,
+        state: state ?? "unknown",
+        live: this.live.has(name!),
+        owner: owner || "kiln",
+        ...(app ? { studioApp: app } : {}),
+        ...(created && !Number.isNaN(Date.parse(created.replace(/ [A-Z]+$/, "")))
+          ? { createdAt: new Date(created.replace(/ [A-Z]+$/, "")).toISOString() }
+          : {}),
+      }));
+    const running = rows.filter((s) => s.state === "running").map((s) => s.name);
+    if (!running.length) return rows;
+    const stats = await this.runner.run("docker", ["stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}", ...running]);
+    for (const line of stats.code === 0 ? stats.stdout.split("\n") : []) {
+      const [name, cpu, mem] = line.trim().split("\t");
+      const row = rows.find((s) => s.name === name);
+      if (!row) continue;
+      const pct = Number.parseFloat(cpu ?? "");
+      if (!Number.isNaN(pct)) row.cpuPercent = pct;
+      const bytes = parseByteSize((mem ?? "").split("/")[0] ?? "");
+      if (bytes !== undefined) row.memoryBytes = bytes;
+    }
+    return rows;
   }
 
   async resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox> {

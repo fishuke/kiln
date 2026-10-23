@@ -108,6 +108,9 @@ export async function studioChatDiff(chatId: string) {
 export async function studioChatPreview(chatId: string) {
   return call(Preview, () => api.studioChatPreview(Id.parse(chatId)));
 }
+export async function studioRestartChatPreview(chatId: string) {
+  return call(Preview, () => api.studioRestartChatPreview(Id.parse(chatId)));
+}
 export async function studioRestore(versionId: string) {
   return call(Version, () => api.studioRestore(Id.parse(versionId)));
 }
@@ -119,6 +122,9 @@ export async function studioVersionDiff(versionId: string) {
 }
 export async function studioVersionPreview(versionId: string) {
   return call(Preview, () => api.studioVersionPreview(Id.parse(versionId)));
+}
+export async function studioRestartVersionPreview(versionId: string) {
+  return call(Preview, () => api.studioRestartVersionPreview(Id.parse(versionId)));
 }
 export async function studioStatus() {
   return call(StatusReport, () => api.studioStatus());

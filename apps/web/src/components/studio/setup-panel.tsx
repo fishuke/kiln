@@ -9,8 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Trace, TraceIcon, TraceLine, TraceTitle } from "@/components/ui/trace";
 import type { SetupStep } from "@/lib/studio/model";
-import type { StudioApp } from "@/lib/studio/types";
+import type { Preview, StudioApp } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
+import { DevServerFailed } from "./preview-pane";
 
 const STEP_ICON: Record<SetupStep["status"], React.ReactNode> = {
   done: <CircleCheck className="text-emerald-600 dark:text-emerald-400" />,
@@ -93,15 +94,19 @@ export function DevCommand({ app, onSave }: { app: StudioApp; onSave: (cmd: stri
   );
 }
 
-/** Missing env: the keys the repository needs that no environment provides, with a link to set them. */
+/**
+ * The keys the repository's example env file lists that no environment provides, with a link to set them.
+ * The file doesn't say which keys an App needs, so they're shown as not set rather than as required.
+ */
 export function MissingEnv({ appId, keys }: { appId: string; keys: string[] }) {
   if (!keys.length) return null;
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
       <div className="flex items-center gap-2 text-sm font-medium">
         <KeyRound className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-        Missing environment {keys.length === 1 ? "variable" : "variables"}
+        Not set yet
       </div>
+      <p className="text-xs text-muted-foreground">From the repository&apos;s example env file. Set the ones the App needs, then restart the dev server.</p>
       <ul className="flex flex-wrap gap-1.5">
         {keys.map((k) => (
           <li key={k} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs">
@@ -123,12 +128,16 @@ export function MissingEnv({ appId, keys }: { appId: string; keys: string[] }) {
 export function SetupPanel({
   app,
   steps,
+  preview,
   onDevCommand,
+  onRestart,
   failedActions,
 }: {
   app: StudioApp;
   steps: SetupStep[];
+  preview?: Preview;
   onDevCommand: (cmd: string | null) => Promise<void>;
+  onRestart: () => Promise<void>;
   /** Retry and Delete, when the import failed. */
   failedActions?: React.ReactNode;
 }) {
@@ -157,6 +166,7 @@ export function SetupPanel({
         <ImportSteps steps={steps} />
         {app.error && <p className="text-sm whitespace-pre-wrap text-destructive">{app.error}</p>}
         {failedActions}
+        {preview?.status === "failed" && <DevServerFailed preview={preview} onRestart={onRestart} />}
         {app.setup && <DevCommand app={app} onSave={onDevCommand} />}
         {app.setup && <MissingEnv appId={app.id} keys={app.setup.envMissing} />}
       </div>

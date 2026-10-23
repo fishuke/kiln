@@ -10,6 +10,7 @@ import {
   History,
   LoaderCircle,
   Monitor,
+  Power,
   RotateCw,
   Route,
   Smartphone,
@@ -164,6 +165,42 @@ function FrameLoading({ label }: { label: string }) {
   );
 }
 
+/** A dev server that stopped: why, its last output lines, and Restart. */
+export function DevServerFailed({ preview, onRestart }: { preview: Preview; onRestart?: () => Promise<void> }) {
+  const [restarting, setRestarting] = useState(false);
+  return (
+    <div className="flex w-full max-w-xl flex-col gap-2 text-sm">
+      <div className="flex items-center gap-2 font-medium">
+        <CircleAlert className="size-4 shrink-0 text-destructive" />
+        The dev server stopped
+      </div>
+      {preview.reason && <p className="text-muted-foreground">{preview.reason}</p>}
+      {preview.output && (
+        <pre className="max-h-64 overflow-auto rounded-md border bg-muted/40 p-2.5 font-mono text-xs whitespace-pre-wrap">{preview.output}</pre>
+      )}
+      {onRestart && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="self-start"
+          disabled={restarting}
+          onClick={async () => {
+            setRestarting(true);
+            try {
+              await onRestart();
+            } finally {
+              setRestarting(false);
+            }
+          }}
+        >
+          {restarting ? <LoaderCircle className="animate-spin" /> : <Power />}
+          Restart
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /**
  * The Web Preview: Preview and Code tabs, an address bar with a route picker and reload, a device
  * toggle and "open in a new tab". `children` replaces the frame (setup progress, empty state).
@@ -178,10 +215,13 @@ export function PreviewPane({
   onViewChange,
   loadDiff,
   diffKey,
+  onRestart,
   children,
 }: {
   preview?: Preview;
   error?: string;
+  /** Restarts the dev server (it reads the App's environment when it starts). */
+  onRestart?: () => Promise<void>;
   /** Bumps when the frame should reload (a turn finished). */
   reload: number;
   routes: string[];
@@ -253,6 +293,11 @@ export function PreviewPane({
             </ToggleGroupItem>
           </ToggleGroup>
         )}
+        {onRestart && preview && !children && (
+          <IconButton label="Restart the dev server" onClick={() => void onRestart()}>
+            <Power />
+          </IconButton>
+        )}
         {src ? (
           <IconButton label="Open in a new tab" render={<a href={src} target="_blank" rel="noreferrer" />} nativeButton={false}>
             <ExternalLink />
@@ -275,12 +320,8 @@ export function PreviewPane({
           ) : !preview || preview.status === "starting" ? (
             <FrameLoading label="Starting the dev server…" />
           ) : preview.status === "failed" ? (
-            <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-sm">
-              <CircleAlert className="size-5 text-destructive" />
-              <span className="font-medium">The dev server stopped</span>
-              <Button size="sm" variant="outline" onClick={() => setNonce((n) => n + 1)}>
-                Try again
-              </Button>
+            <div className="flex h-full items-center justify-center overflow-y-auto p-8">
+              <DevServerFailed preview={preview} onRestart={onRestart} />
             </div>
           ) : (
             <div className={cn("flex h-full justify-center", device !== "desktop" && "p-4")}>

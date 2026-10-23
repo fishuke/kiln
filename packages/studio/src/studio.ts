@@ -577,7 +577,7 @@ export class Studio {
       ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
       branch: `chat/${chatId}`,
       path: `chats/${chatId}`,
-      port: this.basePort + 1 + existing,
+      port: this.freePort(p.id),
       status: "idle",
       createdAt: now,
       updatedAt: now,
@@ -636,6 +636,29 @@ export class Studio {
     const runId = this.running.get(chatId)?.runId;
     if (!runId) throw new StudioError("invalid", "the chat has no running turn");
     await this.opts.runs.interrupt(runId, by);
+  }
+
+  /**
+   * Deletes a chat that isn't working: stops its dev server, removes its worktree and branch (when the
+   * App's sandbox is up), and removes its turns and record. Versions it applied stay in the history.
+   */
+  async deleteChat(chatId: string): Promise<void> {
+    const chat = this.chat(chatId);
+    if (this.running.has(chatId) || this.settling.has(chatId)) throw new StudioError("invalid", "the chat is working; stop it first");
+    const live = this.live.get(chat.appId);
+    if (live) {
+      const dev = live.devs.get(chat.id);
+      if (dev) {
+        dev.stopped = true;
+        dev.proc.kill();
+        live.devs.delete(chat.id);
+      }
+      await this.locked(chat.appId, async () => {
+        await live.sandbox.exec(`git worktree remove --force ../${chat.path}; git branch -D ${chat.branch}; true`, { cwd: "app", trusted: true });
+      });
+    }
+    for (const t of this.opts.store.list<Turn>(C.turns, (x) => x.chatId === chat.id)) this.opts.store.delete(C.turns, t.id);
+    this.opts.store.delete(C.chats, chat.id);
   }
 
   /** Resolves when the chat has no running turn and its last one is applied and saved, including a resolve turn Studio started itself. */
@@ -1099,6 +1122,14 @@ export class Studio {
       output: clean(dev.output.join("\n")),
       priority: "progress",
     });
+  }
+
+  /** The lowest preview port no chat of the App uses (deleted chats free theirs). */
+  private freePort(appId: string): number {
+    const used = new Set(this.getApp(appId)!.chats.map((c) => c.port));
+    let port = this.basePort + 1;
+    while (used.has(port)) port++;
+    return port;
   }
 
   private stopDevs(live: Live) {

@@ -332,6 +332,15 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
             setPanel(undefined);
           }}
           onStop={(c) => void client.interrupt(c.runId!).then(refresh, (e: unknown) => toast.error(e instanceof Error ? e.message : String(e)))}
+          onDelete={(c) =>
+            client.deleteChat(c.id).then(
+              () => {
+                toast.success(`Deleted ${c.title}`);
+                return refresh();
+              },
+              (e: unknown) => toast.error(e instanceof Error ? e.message : String(e)),
+            )
+          }
           onClose={() => setPanel(undefined)}
         />
       ) : historyOpen ? (

@@ -11,6 +11,7 @@ import { AppDefinitions } from "./app-definitions";
 import { studioEngineHooks, studioRuns } from "./engine-port";
 import { Studio, toolText, type StudioOptions } from "./studio";
 import type { Template } from "./templates";
+import type { App } from "./types";
 import type { StudioTracer } from "./tracer";
 import type { KilnEvent } from "@kiln/events";
 
@@ -207,6 +208,31 @@ describe("apps", () => {
     expect(studio.getApp(p.id)!.app.setup?.envMissing).toEqual([]);
     expect(studio.updateApp(p.id, { devCommand: "node other.js" }).setup?.dev).toBe("node other.js");
     expect(studio.updateApp(p.id, { devCommand: null }).setup?.dev).toBe("npm run dev");
+  });
+
+  it("gives an App imported before ports were rewritten its own preview port", async () => {
+    const origin = mkdtempSync(join(tmpdir(), "kiln-origin-"));
+    writeFileSync(join(origin, "package.json"), JSON.stringify({ name: "x", scripts: { dev: "next dev -p 4000" } }));
+    const git = (...a: string[]) => execFileSync("git", a, { cwd: origin });
+    git("init", "-q", "-b", "main");
+    git("add", "-A");
+    git("-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-q", "-m", "app");
+    const { studio, kiln } = make({ clone: async () => ({ url: origin }) });
+    const created = await studio.createApp({ team: "t1", by: "me", name: "Old import", source: { kind: "repo", repo: "acme/app" } });
+    await studio.ready(created.id);
+    // What setup stored before a fixed port was rewritten: the script itself, which always listens on 4000.
+    const stored = kiln.store.get<App>("studio_apps", created.id)!;
+    kiln.store.put("studio_apps", { ...stored, setup: { ...stored.setup!, devDetected: "npm run dev", dev: "npm run dev" } });
+    const { chat } = await studio.newChat(created.id, { by: "me", via: "web" });
+    await studio.preview({ chatId: chat.id }).catch(() => undefined);
+    expect(studio.getApp(created.id)!.app.setup).toMatchObject({
+      devDetected: "npm exec -- next dev -p {port} --hostname 0.0.0.0",
+      dev: "npm exec -- next dev -p {port} --hostname 0.0.0.0",
+    });
+    // A dev command the person set is theirs: it is never replaced.
+    studio.updateApp(created.id, { devCommand: "npm run dev" });
+    await studio.restartPreview(chat.id).catch(() => undefined);
+    expect(studio.getApp(created.id)!.app.setup?.dev).toBe("npm run dev");
   });
 
   it("asks for preview sandboxes and keeps ports in the preview range", async () => {

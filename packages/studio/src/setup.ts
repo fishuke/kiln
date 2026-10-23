@@ -27,7 +27,8 @@ export function detectSetup(input: { files: string[]; packageJson?: string }): P
   return { packageManager: pm, install: [install], devDetected: devScript(pm, input.packageJson) };
 }
 
-function devScript(pm: PackageManager, packageJson?: string): string | undefined {
+/** The command that runs the `dev` script, with `{port}` where a next or vite server can take its port. */
+export function devScript(pm: PackageManager, packageJson?: string): string | undefined {
   let scripts: Record<string, unknown> = {};
   try {
     scripts = (JSON.parse(packageJson ?? "{}") as { scripts?: Record<string, unknown> }).scripts ?? {};

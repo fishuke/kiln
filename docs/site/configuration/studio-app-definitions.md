@@ -114,3 +114,4 @@ Export writes the resolved definition, all layers combined, in the layout above,
 - [Definitions as code](definitions-as-code.md)
 - [Definition file reference](definitions-reference.md)
 - [Secrets, MCPs and environments](../management/secrets-mcps-environments.md)
+- [Talking to Studio](../product-owners/talking-to-studio.md)

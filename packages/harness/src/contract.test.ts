@@ -11,6 +11,10 @@ import {
   codexUsageLimitReset,
   EventStream,
   FakeHarness,
+  COMMAND_APPROVAL_MAX_WAIT_MS,
+  GUARD_HOOK_DEADLINE_MS,
+  GUARD_HOOK_TIMEOUT_MS,
+  guardHook,
   OpenCodeAdapter,
   type HarnessAdapter,
   type HarnessEvent,
@@ -232,7 +236,12 @@ describe("claude code specifics", () => {
       mcpServers: [{ name: "kiln", url: "http://kiln/mcp", headers: { authorization: "Bearer run-token" } }],
     });
     await session.result;
-    expect(JSON.parse(files["app/.kiln/claude-settings.json"]!).hooks.PreToolUse[0].hooks[0].command).toBe("node .kiln/kiln-guard.mjs");
+    expect(JSON.parse(files["app/.kiln/claude-settings.json"]!).hooks.PreToolUse[0].hooks[0]).toEqual({
+      type: "command",
+      command: "node .kiln/kiln-guard.mjs",
+      // Claude Code runs the command when a hook times out, so the timeout is explicit and the guard answers first.
+      timeout: GUARD_HOOK_TIMEOUT_MS / 1000,
+    });
     expect(files["app/.kiln/kiln-guard.mjs"]).toContain("http://kiln/api/v1/guard");
     expect(JSON.parse(files["app/.kiln/mcp.json"]!).mcpServers.kiln.url).toBe("http://kiln/mcp");
     // Nothing that could be committed carries the token, and the repository's own config is left alone.
@@ -345,6 +354,27 @@ describe("command guard hook", () => {
     } finally {
       proxy.close();
     }
+  });
+
+  it("blocks the command when the guard doesn't answer before the hook's deadline", async () => {
+    // A guard that never answers, like one waiting on a person who never decides.
+    const guard = createServer(() => undefined);
+    const port = await listen(guard);
+    try {
+      const path = join(mkdtempSync(join(tmpdir(), "kiln-guard-")), "kiln-guard.mjs");
+      writeFileSync(path, guardHook(`http://127.0.0.1:${port}/api/v1/guard`, 200));
+      const r = await runHook(path, {});
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain("No answer from the Kiln guard in time, blocking: pnpm test");
+    } finally {
+      guard.closeAllConnections();
+      guard.close();
+    }
+  });
+
+  it("ends a person's approval wait before the hook gives up on the guard", () => {
+    expect(COMMAND_APPROVAL_MAX_WAIT_MS).toBeLessThan(GUARD_HOOK_DEADLINE_MS);
+    expect(GUARD_HOOK_DEADLINE_MS).toBeLessThan(GUARD_HOOK_TIMEOUT_MS);
   });
 
   it("tunnels to an https guard with CONNECT, and blocks when the proxy refuses", async () => {

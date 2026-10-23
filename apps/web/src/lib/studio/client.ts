@@ -54,6 +54,8 @@ export interface StudioClient {
   ship(appId: string, input: { title?: string; state?: "uat" | "ready_for_review" | "cancelled" }): Promise<AppPullRequest>;
   /** The merge gate's reviews of the team's App pull requests (`GET /merge-gate/reviews`). */
   mergeReviews(state?: MergeReview["state"]): Promise<MergeReview[]>;
+  /** Allow or block a command a chat's run waits on: `POST /gates/{id}/decide` as the signed-in person. */
+  decideApproval(gateId: string, decision: "approve" | "reject"): Promise<void>;
   /** Stop: interrupts a chat's run. */
   interrupt(runId: string): Promise<void>;
   /** Calls `onChange` when the chat changes (the SSE route); returns a function that stops watching. */

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeProvider, heuristicRule, type FakeRule } from "@kiln/decide";
 import type { ResolvedAgent } from "@kiln/definitions";
-import { FakeHarness, type HarnessAdapter, type StartOptions } from "@kiln/harness";
+import { COMMAND_APPROVAL_MAX_WAIT_MS, FakeHarness, GUARD_HOOK_DEADLINE_MS, type HarnessAdapter, type StartOptions } from "@kiln/harness";
 import { FakeForge } from "@kiln/integrations";
 import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
 import { describe, expect, it } from "vitest";
@@ -116,6 +116,24 @@ describe("recovering after a restart", () => {
     expect(restarted.workflow.get(wi.id)).toMatchObject({ state: "blocked", blockedReason: expect.stringMatching(/restarted/) });
     expect(restarted.workflow.get(ciWait.id)?.state).toBe("building");
     expect(restarted.recoverInterrupted()).toEqual({ runs: [], workItems: [] });
+  });
+});
+
+describe("command approvals", () => {
+  it("wait for a person until just before the guard hook gives up, unless told to wait less", () => {
+    expect(createTestKiln({ preview: false, askHumanTimeoutMs: undefined }).kiln.options.askHumanTimeoutMs).toBe(COMMAND_APPROVAL_MAX_WAIT_MS);
+    expect(createTestKiln({ preview: false, askHumanTimeoutMs: 1000 }).kiln.options.askHumanTimeoutMs).toBe(1000);
+  });
+
+  it("refuse a wait the guard hook would cut off, since Claude Code then runs the command", () => {
+    expect(() => createTestKiln({ preview: false, askHumanTimeoutMs: GUARD_HOOK_DEADLINE_MS })).toThrow(/askHumanTimeoutMs/);
+  });
+
+  it("block the command when nobody answers", async () => {
+    const { kiln } = createTestKiln({ preview: false, askHumanTimeoutMs: 50 });
+    const run = await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.list()[0]!.appliedSha!, agent: "foreman", prompt: "go", push: false });
+    expect(await kiln.gates.askCommand({ run, command: "git push origin main" })).toBe(false);
+    expect(kiln.gates.list({ state: "expired" }).map((g) => g.command)).toEqual(["git push origin main"]);
   });
 });
 

@@ -72,6 +72,14 @@ export type RunRef = {
   startState: { prompt: string };
 };
 
+/** A gate as Studio reads it (structural: the engine's Gate). `decision` is set only when a person decided. */
+export type GateRef = { id: string; runId?: string; command?: string; state: string; decision?: string; decidedBy?: string };
+
+/** The gates runs wait on; the API wires this to the engine's GateService. */
+export interface StudioGates {
+  get(id: string): GateRef | undefined;
+}
+
 /** An App's definition for its runs, as the engine's KilnOptions.apps returns it (structural). */
 export type AppRunDefinition = {
   sha: string;
@@ -93,6 +101,8 @@ export type StudioOptions = {
   /** App definitions (team → Kiln Project → App): agents, skills, policies. */
   definitions: AppDefinitions;
   runs: StudioRuns;
+  /** Command approvals App runs wait on; a chat shows them and needs the person while one is open. */
+  gates?: StudioGates;
   templates?: Record<string, Template>;
   /** Where prepared templates live ({templates} in a scaffold command); the studio runner image has them at /opt/kiln/templates. */
   templatesDir?: string;
@@ -217,6 +227,12 @@ export class Studio {
     this.templates = opts.templates ?? TEMPLATES;
     this.reconcile();
     opts.bus.subscribe("run.event", (e) => this.recordEvent(e.payload));
+    opts.bus.subscribe("gate.opened", (e) => this.approvalOpened(e.payload.gateId));
+    opts.bus.subscribe("gate.decided", (e) => {
+      const runId = this.opts.gates?.get(e.payload.gateId)?.runId;
+      const lent = runId ? this.lent.get(runId) : undefined;
+      if (lent) this.settleApproval(lent.turnId);
+    });
     // A run that ended without a workspace (it failed to start) never becomes a turn.
     opts.bus.subscribe("run.finished", (e) => {
       const waiter = this.turnWaiters.get(e.payload.runId);
@@ -231,7 +247,9 @@ export class Studio {
     const reason = "interrupted by a restart";
     for (const a of this.opts.store.list<App>(C.apps, (x) => x.status === "creating")) this.touch(C.apps, { ...a, status: "failed", error: reason });
     for (const t of this.opts.store.list<Turn>(C.turns, (x) => x.status === "running")) {
-      this.save(C.turns, { ...t, status: "failed", reply: t.reply || reason, finishedAt: this.now() });
+      // The engine expires a command approval a restart cut off, which blocks the command.
+      const approval = t.approval?.state === "waiting" ? { approval: { ...t.approval, state: "blocked" as const } } : {};
+      this.save(C.turns, { ...t, ...approval, status: "failed", reply: t.reply || reason, finishedAt: this.now() });
     }
     for (const c of this.opts.store.list<Chat>(C.chats, (x) => x.status === "working"))
       this.touch(C.chats, { ...c, status: "needs_you", question: `The agent failed: ${reason}` });
@@ -791,6 +809,7 @@ export class Studio {
 
   private async settle(run: RunRef, lent: Lent): Promise<void> {
     const p = this.app(run.app!);
+    this.settleApproval(lent.turnId);
     const turn = this.opts.store.get<Turn>(C.turns, lent.turnId)!;
     try {
       await this.finishTurn(p, lent.chatId, turn, run, lent.startHead);
@@ -818,10 +837,44 @@ export class Studio {
     }
   }
 
+  /** The guard asked a person about a command a chat's run wants to run: the turn shows it and the chat needs the person. */
+  private approvalOpened(gateId: string) {
+    const gate = this.opts.gates?.get(gateId);
+    const lent = gate?.runId ? this.lent.get(gate.runId) : undefined;
+    const turn = lent ? this.opts.store.get<Turn>(C.turns, lent.turnId) : undefined;
+    if (!gate?.command || !lent || !turn) return;
+    const p = this.app(turn.appId);
+    const command = this.redactor(p)(gate.command);
+    this.save(C.turns, { ...turn, approval: { gateId, command, state: "waiting" } });
+    const question = `Allow this command? ${oneLine(command, 200)}`;
+    this.touch(C.chats, { ...this.chat(lent.chatId), status: "needs_you", question });
+    this.opts.bus.publish("studio.needs_you", { appId: p.id, chatId: lent.chatId, question, reason: "approval", priority: "needs_you" });
+  }
+
+  /**
+   * The turn's waiting approval once its gate closed: allowed when a person approved, else blocked
+   * (rejected, or expired because nobody answered in time). The chat works on.
+   */
+  private settleApproval(turnId: string) {
+    const turn = this.opts.store.get<Turn>(C.turns, turnId);
+    const approval = turn?.approval;
+    if (!turn || approval?.state !== "waiting") return;
+    const gate = this.opts.gates?.get(approval.gateId);
+    if (gate?.state === "open") return;
+    const decision = gate?.state === "approved" ? "allowed" : "blocked";
+    const by = gate?.decision ? gate.decidedBy : undefined;
+    this.save(C.turns, { ...turn, approval: { ...approval, state: decision, ...(by ? { by } : {}) } });
+    const chat = this.chat(turn.chatId);
+    if (chat.status === "needs_you") this.touch(C.chats, { ...chat, status: "working", question: undefined });
+    this.opts.bus.publish("studio.approval_decided", { appId: turn.appId, chatId: turn.chatId, turnId, decision, ...(by ? { by } : {}), priority: "progress" });
+  }
+
   /** A run's events (already redacted by the run) become its turn's activity. */
   private recordEvent(e: { runId: string; type: string; text?: string; data?: unknown }) {
     const lent = this.lent.get(e.runId);
     if (!lent) return;
+    // The run goes on after an approval expired, which publishes no event of its own.
+    this.settleApproval(lent.turnId);
     const turn = this.opts.store.get<Turn>(C.turns, lent.turnId);
     if (!turn) return;
     const clean = this.redactor(this.app(turn.appId));

@@ -76,12 +76,13 @@ const teams = new WeakMap<Studio, string>();
 let basePort = 20_000 + Math.floor(Math.random() * 20_000);
 
 /** A Studio on a test Kiln: every turn is a run of the App's agent through the engine, with `script` as the agent. */
-function make(over: Partial<StudioOptions> = {}, script: FakeScript = agent) {
+function make(over: Partial<StudioOptions> = {}, script: FakeScript = agent, kilnOptions: { askHumanTimeoutMs?: number } = {}) {
   const harness = new FakeHarness(script);
   let studio!: Studio;
   const { kiln } = createTestKiln({
     harness: () => harness,
     ...studioEngineHooks(() => studio),
+    ...kilnOptions,
   });
   const clock = new TestClock();
   const definitions = new AppDefinitions({ store: over.store ?? kiln.store, clock });
@@ -93,6 +94,7 @@ function make(over: Partial<StudioOptions> = {}, script: FakeScript = agent) {
     sandboxes: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-"))),
     definitions,
     runs: studioRuns(kiln.runs),
+    gates: kiln.gates,
     templates: { test: TEST },
     image: "kiln-runner-studio:test",
     previewUrl: (target, a) => `http://${a.host}:${a.port}/#${target}`,
@@ -490,6 +492,67 @@ describe("activity", () => {
     const t = await say(studio, chat.id, "check it");
     expect(t.activity).toContainEqual(expect.objectContaining({ kind: "tool", name: "Bash", text: "pnpm typecheck" }));
     expect(t.traceId).toMatch(/^[0-9a-f]{32}$/);
+  });
+});
+
+describe("command approvals", () => {
+  /** An agent that runs a command the guard asks a person about (`rm -` is risky), then says what happened. */
+  const risky: FakeScript = async ({ opts, emit }) => {
+    emit({ type: "tool_call", name: "Bash", input: { command: "rm -f notes.tmp" } });
+    const r = await opts.sandbox.exec("rm -f notes.tmp", { cwd: opts.cwd }).then(
+      () => "ran",
+      (e: Error) => e.message,
+    );
+    emit({ type: "message", text: r });
+    return { summary: r };
+  };
+  const waitUntil = async (ok: () => boolean) => {
+    for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(ok()).toBe(true);
+  };
+
+  it("asks the person in the chat, and the turn continues once they allow the command", async () => {
+    const { studio, kiln, bus } = make({}, risky);
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.send(chat.id, { by: "me", via: "web", text: "clean up" });
+    await waitUntil(() => studio.getChat(chat.id)!.chat.status === "needs_you");
+
+    const waiting = studio.getChat(chat.id)!;
+    expect(waiting.chat.question).toBe("Allow this command? rm -f notes.tmp");
+    const approval = waiting.turns.at(-1)!.approval!;
+    expect(approval).toMatchObject({ command: "rm -f notes.tmp", state: "waiting" });
+    expect(kiln.gates.get(approval.gateId)).toMatchObject({ runId: waiting.turns.at(-1)!.runId, state: "open" });
+    expect(bus.outbox.filter((e) => e.type === "studio.needs_you").map((e) => e.payload)).toEqual([
+      { appId: p.id, chatId: chat.id, question: "Allow this command? rm -f notes.tmp", reason: "approval", priority: "needs_you" },
+    ]);
+    expect(studio.status({ team: p.team }).apps[0]!.needsYou).toEqual([{ chatId: chat.id, question: "Allow this command? rm -f notes.tmp" }]);
+
+    await kiln.gates.decide(approval.gateId, { decision: "approve", by: "ada@x.test", via: "web" });
+    expect(studio.getChat(chat.id)!.chat).toMatchObject({ status: "working", question: undefined });
+    expect(bus.outbox.find((e) => e.type === "studio.approval_decided")?.payload).toEqual({
+      appId: p.id,
+      chatId: chat.id,
+      turnId: waiting.turns.at(-1)!.id,
+      decision: "allowed",
+      by: "ada@x.test",
+      priority: "progress",
+    });
+    await studio.idle(chat.id);
+    const done = studio.getChat(chat.id)!;
+    expect(done.turns.at(-1)).toMatchObject({ status: "succeeded", reply: "ran", approval: { state: "allowed", by: "ada@x.test" } });
+    expect(done.chat.status).toBe("idle");
+  });
+
+  it("blocks the command when nobody answers in time, and the turn goes on without it", async () => {
+    const { studio, kiln } = make({}, risky, { askHumanTimeoutMs: 100 });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    const t = await say(studio, chat.id, "clean up");
+    expect(t.reply).not.toBe("ran");
+    expect(t.approval).toMatchObject({ command: "rm -f notes.tmp", state: "blocked" });
+    expect(kiln.gates.get(t.approval!.gateId)?.state).toBe("expired");
+    expect(studio.getChat(chat.id)!.chat.status).toBe("idle");
   });
 });
 

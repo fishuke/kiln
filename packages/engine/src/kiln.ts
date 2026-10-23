@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { FakeProvider, type DecisionOutcome, type DecisionProvider } from "@kiln/decide";
 import { InMemoryEventBus } from "@kiln/events";
-import { adapterFor, type HarnessAdapter } from "@kiln/harness";
+import { adapterFor, COMMAND_APPROVAL_MAX_WAIT_MS, type HarnessAdapter } from "@kiln/harness";
 import type {
   Chat,
   ConnectionProvider,
@@ -110,6 +110,11 @@ export type KilnOptions = {
   roles?: Record<string, string[]>;
   /** Maps provider identities to people, e.g. { "slack:U024BE7LH": "po@acme.test", "github:alice": "alice@acme.test" }. */
   identities?: Record<string, string>;
+  /**
+   * How long a command approval waits for a person before it blocks the command. At most (and by
+   * default) COMMAND_APPROVAL_MAX_WAIT_MS: the Claude Code guard hook gives up after that, and Claude
+   * Code runs a command whose hook timed out.
+   */
   askHumanTimeoutMs?: number;
   defaultBackend?: "local" | "docker" | "kubernetes";
   /** Image for agents without a runner (KILN_RUNNER_IMAGE); it should carry the harness CLIs. */
@@ -241,7 +246,9 @@ export class Kiln {
   constructor(input: KilnOptions) {
     // The merge capability goes to the merge gate alone; it is not kept on `kiln.options`, which every service reads.
     const { gateMerger, ...options } = input;
-    this.options = options;
+    if (options.askHumanTimeoutMs !== undefined && options.askHumanTimeoutMs > COMMAND_APPROVAL_MAX_WAIT_MS)
+      throw new Error(`askHumanTimeoutMs is at most ${COMMAND_APPROVAL_MAX_WAIT_MS} ms: the guard hook gives up on longer waits, and Claude Code then runs the command`);
+    this.options = { ...options, askHumanTimeoutMs: options.askHumanTimeoutMs ?? COMMAND_APPROVAL_MAX_WAIT_MS };
     this.store = options.store ?? new MemoryStore();
     this.storage = new StorageRouter(this, options.objects ?? new MemoryObjectStore());
     this.objects = this.storage;

@@ -86,7 +86,18 @@ export class EventStream<T> implements AsyncIterable<T> {
   }
 }
 
-function guardHook(url: string): string {
+/**
+ * Claude Code's timeout for the command-guard hook. When a hook times out, Claude Code runs the
+ * command anyway, so Kiln sets it explicitly and answers before it.
+ */
+export const GUARD_HOOK_TIMEOUT_MS = 10 * 60_000;
+/** The hook stops waiting for the guard here and blocks the command (fail closed). */
+export const GUARD_HOOK_DEADLINE_MS = GUARD_HOOK_TIMEOUT_MS - 30_000;
+/** The longest the guard waits for a person to approve a command; it then answers block, before the hook's deadline. */
+export const COMMAND_APPROVAL_MAX_WAIT_MS = GUARD_HOOK_DEADLINE_MS - 30_000;
+
+/** The command-guard hook script; `deadlineMs` is how long it waits for the guard before it blocks. */
+export function guardHook(url: string, deadlineMs = GUARD_HOOK_DEADLINE_MS): string {
   return `#!/usr/bin/env node
 // Kiln command guard: Claude Code PreToolUse hook. Exit code 2 blocks the tool call.
 import http from "node:http";
@@ -94,6 +105,8 @@ import https from "node:https";
 import tls from "node:tls";
 
 const GUARD = new URL(${JSON.stringify(url)});
+// Claude Code runs the command when the hook times out: without an answer by then, block it.
+const DEADLINE_MS = ${deadlineMs};
 
 // Sandboxes reach the network only through the egress proxy, and Node's fetch ignores HTTPS_PROXY.
 function post(body) {
@@ -131,6 +144,10 @@ process.stdin.on("end", async () => {
   const event = JSON.parse(input || "{}");
   const command = event.tool_input?.command;
   if (!command) process.exit(0);
+  setTimeout(() => {
+    console.error("No answer from the Kiln guard in time, blocking: " + command);
+    process.exit(2);
+  }, DEADLINE_MS);
   try {
     const { verdict } = await post(JSON.stringify({ command, cwd: process.cwd() }));
     if (verdict === "allow") process.exit(0);
@@ -266,7 +283,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
       await opts.sandbox.writeFile(`${prefix}.kiln/kiln-guard.mjs`, guardHook(opts.guardUrl));
       await opts.sandbox.writeFile(
         `${prefix}.kiln/claude-settings.json`,
-        JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "node .kiln/kiln-guard.mjs" }] }] } }, null, 2),
+        JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "node .kiln/kiln-guard.mjs", timeout: GUARD_HOOK_TIMEOUT_MS / 1000 }] }] } }, null, 2),
       );
       settings = ".kiln/claude-settings.json";
     }

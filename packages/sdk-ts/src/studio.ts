@@ -75,6 +75,8 @@ export type StudioTurn = {
   discarded: boolean;
   resolve?: boolean;
   activity: StudioActivity[];
+  /** The turn's latest command approval: decide a `waiting` one with `decide(gateId, "approve" | "reject")`. */
+  approval?: { gateId: string; command: string; state: "waiting" | "allowed" | "blocked"; by?: string };
   costUsd: number;
   startedAt: string;
   finishedAt?: string;

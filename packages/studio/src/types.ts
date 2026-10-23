@@ -117,6 +117,18 @@ export const Activity = z.discriminatedUnion("kind", [
 ]);
 export type Activity = z.infer<typeof Activity>;
 
+/**
+ * A command the run's guard asked a person about (a command-approval gate): `waiting` while the
+ * gate is open, then `allowed` or `blocked` (rejected, or nobody answered in time).
+ */
+export const CommandApproval = z.object({
+  gateId: z.string(),
+  command: z.string(),
+  state: z.enum(["waiting", "allowed", "blocked"]),
+  by: z.string().optional(),
+});
+export type CommandApproval = z.infer<typeof CommandApproval>;
+
 export const Turn = z.object({
   id: z.string(),
   appId: z.string(),
@@ -139,6 +151,8 @@ export const Turn = z.object({
   discarded: z.boolean(),
   resolve: z.boolean().optional(),
   activity: z.array(Activity),
+  /** The turn's latest command approval. */
+  approval: CommandApproval.optional(),
   costUsd: z.number(),
   startedAt: z.string(),
   finishedAt: z.string().optional(),

@@ -184,6 +184,23 @@ describe("API", () => {
     expect(await res.json()).toEqual({ verdict: "allow" });
   });
 
+  it("blocks a command whose approval nobody answers, and expires its gate", async () => {
+    const t = createTestKiln({
+      preview: false,
+      askHumanTimeoutMs: 50,
+      apps: { definition: () => ({ sha: "app-sha", team: "t1", agents: {}, skill: () => undefined, env: {}, secretValues: [] }) },
+    });
+    const app = createApp(t.kiln);
+    t.kiln.store.put("runs", { id: "run_app", factory: "app:sa_1", app: "sa_1", agent: "general", definitionSha: "app-sha", status: "running", artifacts: [] });
+    const res = await app.request("/api/v1/guard", {
+      method: "POST",
+      body: JSON.stringify({ command: "git push origin main" }),
+      headers: { authorization: `Bearer ${t.kiln.secrets.issueRunToken("run_app", [])}`, "content-type": "application/json" },
+    });
+    expect(await res.json()).toEqual({ verdict: "block" });
+    expect(t.kiln.gates.list({ workItemId: "run:run_app" })).toMatchObject([{ runId: "run_app", command: "git push origin main", state: "expired" }]);
+  });
+
   it("publishes an OpenAPI document covering every route", () => {
     const doc = openApiDocument();
     expect(Object.keys(doc.paths).length).toBe(new Set(ROUTES.map((r) => r.path)).size);

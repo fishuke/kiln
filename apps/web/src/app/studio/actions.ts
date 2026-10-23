@@ -143,6 +143,14 @@ export async function studioInterrupt(runId: string): Promise<StudioResult<null>
   );
 }
 
+/** Allow or block a command a chat's run waits on, through the gate decision API as the signed-in person. */
+export async function studioDecideApproval(gateId: string, decision: "approve" | "reject"): Promise<StudioResult<null>> {
+  return call(
+    z.unknown().transform(() => null),
+    () => api.decide(z.string().regex(/^gate_[A-Za-z0-9_-]+$/).parse(gateId), z.enum(["approve", "reject"]).parse(decision), undefined, "web"),
+  );
+}
+
 /** The merge gate's reviews of the team's App pull requests (docs/specs/merge-gate.md). */
 export async function studioMergeReviews(state?: string) {
   const q = state ? `?state=${encodeURIComponent(z.enum(["deciding", "merged", "needs_review", "closed"]).parse(state))}` : "";

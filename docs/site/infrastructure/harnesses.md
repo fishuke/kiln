@@ -36,7 +36,7 @@ The harness program must be installed in the runner's image. Pin its version in 
 | Instructions | Appended to the system prompt | Sent before the prompt | Written to `AGENTS.md` |
 | Skills folder | `.claude/skills/` | `.agents/skills/` | `.opencode/skills/` |
 | Kiln MCP | `.kiln/mcp.json`, passed with `--mcp-config` (never committed: it holds the run token) | Not configured | Not configured |
-| Command guard | `PreToolUse` hook on Bash in `.kiln/claude-settings.json`, passed with `--settings` | Not installed | Not installed |
+| Command guard | `PreToolUse` hook on Bash in `.kiln/claude-settings.json`, passed with `--settings`, with a 10-minute `timeout`; it blocks the command when Kiln hasn't answered after 9.5 minutes | Not installed | Not installed |
 | Cost | Reported by Claude Code | Estimated from token counts | Reported per step |
 
 Kiln drives Claude Code with the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview). The SDK runs in Kiln (the API or the worker), and the `claude` binary it talks to runs inside the run's sandbox with the run's environment only, so sandboxes, the egress allowlist and workers behave as for the other harnesses. The SDK sends the instructions and steering messages over the session's input. Its version is pinned to the release paired with the Claude Code version in the runner image (SDK `0.3.290` with Claude Code `2.1.290`), so bump both together. See [ADR-009](https://github.com/fishuke/kiln/blob/main/docs/adr/0009-claude-agent-sdk.md).

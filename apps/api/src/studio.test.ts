@@ -32,6 +32,9 @@ const kilns: object[] = [];
 function setup() {
   const agent = new FakeHarness(async ({ opts, emit }) => {
     if (opts.prompt.startsWith("write ")) await opts.sandbox.writeFile(`${opts.cwd}/note.txt`, `${opts.prompt}\n`);
+    // `rm -` is a command the guard asks a person about.
+    if (opts.prompt === "clean up")
+      return emit({ type: "message", text: await opts.sandbox.exec("rm -f note.tmp", { cwd: opts.cwd }).then(() => "ran", (e: Error) => e.message) });
     emit({ type: "message", text: "Done." });
   });
   // App turns run through the engine: its hooks answer from the Studio built for this Kiln, as config.ts wires them.
@@ -206,6 +209,29 @@ describe("Studio API", () => {
     await client.studioSend(chat.id, { text: "write hello" });
     await read((t) => t.includes("event: turn") && t.includes('"status":"succeeded"'));
     await reader.cancel();
+  });
+
+  it("shows a command approval on the chat's turn; a person decides it through the gate decision API, a run token can't", async () => {
+    const { app, client, kiln } = setup();
+    const created = await client.studioCreateApp({ name: "Guarded", source: { kind: "template", template: "test" } });
+    await studioFor(kiln)!.ready(created.id);
+    const { chat } = await client.studioNewChat(created.id, {});
+    await client.studioSend(chat.id, { text: "clean up" });
+    let waiting: StudioTurn | undefined;
+    for (let i = 0; i < 200 && !waiting; i++) {
+      waiting = (await client.studioChat(chat.id)).turns.find((t) => t.approval?.state === "waiting");
+      if (!waiting) await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(waiting!.approval).toMatchObject({ command: "rm -f note.tmp" });
+    expect((await client.studioStatus()).apps[0]!.needsYou).toEqual([{ chatId: chat.id, question: "Allow this command? rm -f note.tmp" }]);
+
+    const runToken = kiln.secrets.issueRunToken(waiting!.runId!, []);
+    expect((await app.request(`/api/v1/gates/${waiting!.approval!.gateId}/decide`, json("POST", { decision: "approve" }, runToken))).status).toBe(403);
+
+    await client.decide(waiting!.approval!.gateId, "approve", undefined, "web");
+    await studioFor(kiln)!.idle(chat.id);
+    const { turns } = await client.studioChat(chat.id);
+    expect(turns.at(-1)).toMatchObject({ status: "succeeded", reply: "ran", approval: { state: "allowed", by: "dev@kiln.local" } });
   });
 
   it("runs tools by name and answers bad input with 400", async () => {

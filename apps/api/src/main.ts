@@ -16,7 +16,7 @@ const { kiln } = config;
 // Engine events (stages, runs, run events) and the egress proxy's access log go to the OTLP backend too.
 if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   const telemetry = engineTelemetry();
-  bridgeEvents(kiln.bus, { run: (id) => kiln.runs.get(id) }, telemetry);
+  bridgeEvents(kiln.bus, { run: (id) => kiln.runs.get(id), gate: (id) => kiln.gates.get(id) }, telemetry);
   void listenEgressLogs(Number(process.env.KILN_EGRESS_LOG_PORT ?? 5140), telemetry.egressLogger, fromPreview);
   process.once("SIGTERM", () => void telemetry.shutdown());
 }

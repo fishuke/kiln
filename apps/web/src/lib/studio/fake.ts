@@ -51,6 +51,8 @@ export class FakeStudioClient implements StudioClient {
   /** Chat id → checkpoints not yet applied, oldest first. */
   private unapplied = new Map<string, { sha: string; title: string }[]>();
   private started = new Map<string, number>();
+  /** Gate id → the turn waiting on it, and the step to go on from. */
+  private approvals = new Map<string, { turnId: string; steps: Activity[]; next: number }>();
   private listeners = new Set<() => void>();
   private seq = 0;
   private readonly now: () => Date;
@@ -286,7 +288,17 @@ export class FakeStudioClient implements StudioClient {
       const t = this.turns.get(turnId);
       if (!t || t.status !== "running") return;
       if (i < steps.length) {
-        this.patchTurn(turnId, { activity: [...t.activity, { ...steps[i]!, at: this.iso() }], costUsd: t.costUsd + 0.012 });
+        const step = steps[i]!;
+        this.patchTurn(turnId, { activity: [...t.activity, { ...step, at: this.iso() }], costUsd: t.costUsd + 0.012 });
+        // Like the command guard: a risky command waits for the person.
+        if (step.kind === "tool" && step.name === "Bash" && step.text && RISKY.test(step.text)) {
+          const gateId = this.id("gate");
+          this.approvals.set(gateId, { turnId, steps, next: i + 1 });
+          this.patchTurn(turnId, { approval: { gateId, command: step.text, state: "waiting" } });
+          this.patchChat(t.chatId, { status: "needs_you", question: `Allow this command? ${step.text}` });
+          this.emit();
+          return;
+        }
         this.emit();
         this.play(turnId, steps, i + 1);
       } else this.finish(turnId);
@@ -488,6 +500,16 @@ export class FakeStudioClient implements StudioClient {
     return state ? reviews.filter((r) => r.state === state) : reviews;
   }
 
+  async decideApproval(gateId: string, decision: "approve" | "reject"): Promise<void> {
+    const waiting = this.must(this.approvals.get(gateId), "Gate");
+    this.approvals.delete(gateId);
+    const t = this.turns.get(waiting.turnId)!;
+    this.patchTurn(t.id, { approval: { ...t.approval!, state: decision === "approve" ? "allowed" : "blocked", by: ME } });
+    this.patchChat(t.chatId, { status: "working", question: undefined });
+    this.emit();
+    this.play(t.id, waiting.steps, waiting.next);
+  }
+
   async interrupt(runId: string): Promise<void> {
     const chat = [...this.chats.values()].find((c) => c.runId === runId);
     if (!chat) throw new StudioClientError("Run not found", 404);
@@ -685,6 +707,9 @@ function outcomeFor(prompt: string, mode: ChatMode): Outcome {
   };
 }
 
+/** Commands the fake asks about, like the command guard's risky ones. */
+const RISKY = /\brm\s+-/;
+
 function script(prompt: string, mode: ChatMode): Activity[] {
   const at = "";
   const steps: Activity[] = [
@@ -707,6 +732,7 @@ function script(prompt: string, mode: ChatMode): Activity[] {
       },
       { kind: "tool", name: "Bash", text: "pnpm tsc --noEmit", at },
     );
+    if (/\bclean up\b/i.test(prompt)) steps.push({ kind: "tool", name: "Bash", text: "rm -rf .next", at });
   }
   steps.push({ kind: "message", text: mode === "plan" ? "Writing the plan." : "Wrapping up.", at });
   return steps;

@@ -7,12 +7,15 @@ import { createSocket } from "node:dgram";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bridgeEvents, engineTelemetry, listenEgressLogs, parseSquidLine, runSpanId, workItemTraceId } from "./telemetry";
 
-function setup(runs: Record<string, Parameters<typeof bridgeEvents>[1]["run"] extends (id: string) => infer R ? NonNullable<R> : never> = {}) {
+function setup(
+  runs: Record<string, Parameters<typeof bridgeEvents>[1]["run"] extends (id: string) => infer R ? NonNullable<R> : never> = {},
+  gates: Record<string, { runId?: string }> = {},
+) {
   const spans = new InMemorySpanExporter();
   const logs = new InMemoryLogRecordExporter();
   const t = engineTelemetry({ traces: new SimpleSpanProcessor(spans), logs: new SimpleLogRecordProcessor({ exporter: logs }) });
   const bus = new InMemoryEventBus();
-  bridgeEvents(bus, { run: (id) => runs[id] }, t);
+  bridgeEvents(bus, { run: (id) => runs[id], gate: (id) => gates[id] }, t);
   return { bus, spans, logs, t };
 }
 
@@ -75,6 +78,19 @@ describe("engine telemetry", () => {
     const [record] = logs.getFinishedLogRecords();
     expect(record).toMatchObject({ body: "gate.opened", attributes: { "kiln.gate_id": "gate_1", "kiln.kind": "question" } });
     expect(record!.spanContext?.traceId).toBe(workItemTraceId("wi_1"));
+  });
+
+  it("logs a run's command approval on the run's span, in the run's trace", () => {
+    const studioRun = { ...run, id: "run_3", factory: "app:sa_1", workItemId: undefined, status: "running" as const };
+    const { bus, logs } = setup({ run_3: studioRun }, { gate_2: { runId: "run_3" } });
+    bus.publish("gate.opened", { gateId: "gate_2", workItemId: "run:run_3", kind: "question", assignees: [] });
+    bus.publish("gate.decided", { gateId: "gate_2", workItemId: "run:run_3", decision: "approve", by: "ada@acme.test" });
+    const records = logs.getFinishedLogRecords();
+    expect(records.map((r) => r.body)).toEqual(["gate.opened", "gate.decided"]);
+    for (const r of records) {
+      expect(r.spanContext).toMatchObject({ traceId: run.traceId, spanId: runSpanId("run_3") });
+      expect(r.attributes).toMatchObject({ "kiln.run.id": "run_3", "kiln.gate_id": "gate_2" });
+    }
   });
 
   it("uses the run's own trace when it has no work item", () => {

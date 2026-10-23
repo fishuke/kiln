@@ -73,7 +73,7 @@ Only question gates take free-text answers. To decide through the inbox, the API
 
 Gates with a `nudge` time post a reminder in the source thread at that interval, naming who the gate waits on. Gates with an `expire` time park, approve or reject on their own when it passes. The built-in spec and preview gates nudge every 24 hours and park after 72 hours. The merge gate nudges every 48 hours.
 
-A command approval waits up to 30 minutes, then expires and the command is blocked.
+A command approval waits up to 9 minutes, then expires and the command is blocked. Claude Code gives the guard hook 10 minutes and runs the command when the hook times out, so Kiln always answers first. A Studio App's command approvals are asked in the App's chat, with **Allow** and **Block**.
 
 ## From the command line and MCP
 

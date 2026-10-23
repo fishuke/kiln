@@ -78,6 +78,9 @@ export type StudioTurn = {
   costUsd: number;
   startedAt: string;
   finishedAt?: string;
+  /** The run this turn is, and its trace id in the tracing backend. */
+  runId?: string;
+  traceId?: string;
 };
 
 export type StudioVersion = {

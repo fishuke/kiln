@@ -496,10 +496,16 @@ export class GitHubForge implements Forge {
     private readonly options: {
       token: string | ((path: string) => Promise<string> | string);
       sandboxToken?: (repo: RepoRef) => Promise<string>;
+      /** Every repository the credentials can reach, for pickers (GitHub Apps: across their installations). */
+      repositories?: () => Promise<{ owner: string; name: string }[]>;
       baseUrl?: string;
       fetch?: Fetch;
     },
   ) {}
+
+  async listRepositories(): Promise<{ owner: string; name: string }[]> {
+    return this.options.repositories ? this.options.repositories() : [];
+  }
 
   async sandboxToken(repo: RepoRef): Promise<string | undefined> {
     if (this.options.sandboxToken) return this.options.sandboxToken(repo);

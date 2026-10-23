@@ -44,10 +44,14 @@ function StateBadge({ row }: { row: Row }) {
 type GitHubApp = { slug: string; owner?: string; installationId?: string; installUrl: string };
 
 export function IntegrationsList({ rows, publicUrl, canAdmin, connectionsApi, githubApps = [] }: { rows: Row[]; publicUrl: string; canAdmin: boolean; connectionsApi: boolean; githubApps?: GitHubApp[] }) {
-  const [open, setOpen] = useState<string>();
+  const sp = useSearchParams();
+  // ?open=<id> opens that integration's panel (Studio's "Add repository" links to ?open=github).
+  const [open, setOpen] = useState<string | undefined>(() => {
+    const id = sp.get("open");
+    return id && rows.some((r) => r.spec.id === id) ? id : undefined;
+  });
   const [removing, setRemoving] = useState<Row>();
   const [pending, run] = useAction();
-  const sp = useSearchParams();
   const router = useRouter();
   const path = usePathname();
 

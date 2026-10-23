@@ -276,5 +276,6 @@ function appForge(apps: () => HttpGitHubAppAuth[]): Forge {
       return owner ? (await forOwner(owner)).tokenForOwner(owner) : apps()[0]!.installationToken();
     },
     sandboxToken: async (repo) => (await forOwner(repo.owner)).repoToken(repo.owner, repo.name),
+    repositories: async () => (await Promise.all(apps().map((a) => a.repositories()))).flat(),
   });
 }

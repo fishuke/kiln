@@ -233,6 +233,29 @@ export class HttpGitHubAppAuth implements GitHubAppAuth {
     return list.find((i) => i.account.login.toLowerCase() === owner.toLowerCase())?.id.toString();
   }
 
+  /** Every repository this app's installations can reach (every account or organization it is installed on). */
+  async repositories(): Promise<{ owner: string; name: string }[]> {
+    const installations = await this.app<{ id: number }[]>("GET", "/app/installations?per_page=100");
+    const out: { owner: string; name: string }[] = [];
+    for (const i of installations) {
+      const token = await this.installationToken(i.id.toString());
+      for (let page = 1; ; page++) {
+        const r = await this.asInstallation<{ repositories: { name: string; owner: { login: string } }[] }>(token, `/installation/repositories?per_page=100&page=${page}`);
+        out.push(...r.repositories.map((x) => ({ owner: x.owner.login, name: x.name })));
+        if (r.repositories.length < 100) break;
+      }
+    }
+    return out;
+  }
+
+  private async asInstallation<T>(token: string, path: string): Promise<T> {
+    const res = await (this.options.fetch ?? fetch)(`${this.options.baseUrl ?? "https://api.github.com"}${path}`, {
+      headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" },
+    });
+    if (!res.ok) throw new Error(`GitHub GET ${path} returned ${res.status}: ${await res.text()}`);
+    return (await res.json()) as T;
+  }
+
   /** This app's installation on an account or organization, if it has one (cached). */
   async installedOn(owner: string): Promise<string | undefined> {
     const key = owner.toLowerCase();

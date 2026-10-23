@@ -116,13 +116,6 @@ export async function studioVersionPreview(versionId: string) {
 export async function studioStatus() {
   return call(StatusReport, () => api.studioStatus());
 }
-/** The install page of the team's GitHub App, where a person picks the repositories Kiln may use. */
-export async function studioRepositoryAccessUrl(): Promise<StudioResult<string | undefined>> {
-  const r = await call(z.array(z.object({ installUrl: z.string(), installationId: z.string().optional() })), () => api.githubApps());
-  if (!r.ok) return r.status === 403 ? { ok: true, data: undefined } : r;
-  return { ok: true, data: (r.data.find((a) => a.installationId) ?? r.data[0])?.installUrl };
-}
-
 export async function studioRepositories() {
   return call(z.array(z.object({ owner: z.string(), name: z.string(), forge: z.string() })), async () => (await api.forgeRepositories()).repositories);
 }

@@ -97,6 +97,31 @@ describe("github", () => {
     expect(seen).toHaveLength(1);
   });
 
+  it("lists the repositories of every installation, page by page", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const pem = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+    const exp = new Date(now + 3600_000).toISOString();
+    const page = (owner: string, from: number, n: number) => ({ repositories: Array.from({ length: n }, (_, i) => ({ name: `r${from + i}`, owner: { login: owner } })) });
+    const fetcher = (async (url: string, init: RequestInit = {}) => {
+      const auth = String((init.headers as Record<string, string>).authorization ?? "");
+      const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
+      if (url.endsWith("/app/installations?per_page=100")) return json([{ id: 1, account: { login: "fishuke" } }, { id: 2, account: { login: "other-org" } }]);
+      const tok = /\/app\/installations\/(\d+)\/access_tokens$/.exec(url);
+      if (tok) return json({ token: `ghs_${tok[1]}`, expires_at: exp });
+      if (url.includes("/installation/repositories")) {
+        const p = Number(/[?&]page=(\d+)/.exec(url)![1]);
+        if (auth.endsWith("ghs_1")) return json(p === 1 ? page("fishuke", 0, 100) : page("fishuke", 100, 2));
+        return json(page("other-org", 0, 1));
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+    const auth = new HttpGitHubAppAuth({ appId: "123", privateKey: pem, now: () => now, fetch: fetcher });
+    const repos = await auth.repositories();
+    expect(repos).toHaveLength(103);
+    expect(repos).toContainEqual({ owner: "fishuke", name: "r101" });
+    expect(repos).toContainEqual({ owner: "other-org", name: "r0" });
+  });
+
   it("picks the installation of each owner and mints repo-scoped tokens for sandboxes", async () => {
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const pem = privateKey.export({ type: "pkcs1", format: "pem" }).toString();

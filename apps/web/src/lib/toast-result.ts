@@ -1,6 +1,6 @@
 "use client";
 
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 type Result = { ok: true; applied?: string; pullRequest?: string } | { ok: false; error: string; errors?: string[] };
 

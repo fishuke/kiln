@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import type { ChatgptSignIn, PoolEntry } from "@kiln/sdk-ts";
 import { ConfirmAction } from "@/components/kiln/confirm-action";
 import { ConnectedBadge } from "@/components/kiln/settings-blocks";

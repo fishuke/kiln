@@ -35,6 +35,13 @@ export type KilnEventMap = {
   "studio.turn_finished": { appId: string; chatId: string; turnId: string; title?: string; summary?: string; changed: boolean; priority: "finished" };
   "studio.version_created": { appId: string; versionId: string; title: string; kind: "initial" | "apply" | "restore"; priority: "finished" };
   "studio.needs_you": { appId: string; chatId: string; question: string; reason: "question" | "conflict" | "failed"; priority: "needs_you" };
+  /** An App's setup (scaffold or clone, install, first commit) failed; the App stays failed until it is retried or deleted. `error` has the App's secret values redacted. */
+  "studio.app_failed": { appId: string; error: string; priority: "needs_you" };
+  /**
+   * A preview's dev server didn't become ready, or exited. chatId or versionId names the preview. `output` is the
+   * dev server's last 40 output lines (stdout and stderr); `reason` and `output` have the App's secret values redacted.
+   */
+  "studio.preview_failed": { appId: string; chatId?: string; versionId?: string; port: number; reason: string; output: string; priority: "progress" };
   /** An App's pull request changed state; never needs_you (the merge gate's merge_gate.review_updated is the one needs-you event for a review). */
   "studio.pull_request_state_changed": {
     appId: string;

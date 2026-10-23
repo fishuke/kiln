@@ -254,13 +254,19 @@ export type SpawnInput = {
   wait?: boolean;
 };
 
+/** An API error response. `traceId`: the request's trace (the body's `traceId`, else the `x-trace-id` header), to search in the tracing backend. */
 export class KilnApiError extends Error {
+  readonly traceId?: string;
   constructor(
     readonly status: number,
     message: string,
     readonly body?: unknown,
+    traceId?: string | null,
   ) {
     super(message);
+    const fromBody = body && typeof body === "object" ? (body as { traceId?: unknown }).traceId : undefined;
+    const id = typeof fromBody === "string" ? fromBody : (traceId ?? undefined);
+    if (id) this.traceId = id;
   }
 }
 
@@ -372,6 +378,14 @@ export class KilnClient {
   studioPauseApp(id: string) {
     return this.request<StudioApp>("POST", `/api/v1/studio/apps/${encodeURIComponent(id)}/pause`);
   }
+  /** Sets a failed App up again on a fresh sandbox; it is creating until setup succeeds or fails. */
+  studioRetryApp(id: string) {
+    return this.request<StudioApp>("POST", `/api/v1/studio/apps/${encodeURIComponent(id)}/retry`);
+  }
+  /** Deletes a failed App with its sandbox, chats, turns and versions. */
+  async studioDeleteApp(id: string): Promise<void> {
+    await this.request<undefined>("DELETE", `/api/v1/studio/apps/${encodeURIComponent(id)}`);
+  }
   studioNewChat(appId: string, input: StudioNewChat) {
     return this.request<{ chat: StudioChat; turn?: StudioTurn }>("POST", `/api/v1/studio/apps/${encodeURIComponent(appId)}/chats`, input);
   }
@@ -430,7 +444,13 @@ export class KilnClient {
     } catch {
       data = text;
     }
-    if (!res.ok) throw new KilnApiError(res.status, (data as { error?: string })?.error ?? `${method} ${path} returned ${res.status}`, data);
+    if (!res.ok)
+      throw new KilnApiError(
+        res.status,
+        (data as { error?: string })?.error ?? `${method} ${path} returned ${res.status}`,
+        data,
+        res.headers.get("x-trace-id"),
+      );
     return data as T;
   }
 
@@ -441,7 +461,7 @@ export class KilnClient {
       cache: "no-store",
     } as RequestInit);
     const body = await res.text();
-    if (!res.ok) throw new KilnApiError(res.status, body || `GET ${path} returned ${res.status}`);
+    if (!res.ok) throw new KilnApiError(res.status, body || `GET ${path} returned ${res.status}`, undefined, res.headers.get("x-trace-id"));
     return body;
   }
 
@@ -567,7 +587,7 @@ export class KilnClient {
       `${this.options.baseUrl.replace(/\/$/, "")}/api/v1/files/${key.split("/").map(encodeURIComponent).join("/")}`,
       { headers: this.options.token ? { authorization: `Bearer ${this.options.token}` } : {} } as RequestInit,
     );
-    if (!res.ok) throw new KilnApiError(res.status, `GET file ${key} returned ${res.status}`);
+    if (!res.ok) throw new KilnApiError(res.status, `GET file ${key} returned ${res.status}`, undefined, res.headers.get("x-trace-id"));
     return { contentType: res.headers.get("content-type") ?? "application/octet-stream", bytes: new Uint8Array(await res.arrayBuffer()) };
   };
 
@@ -1078,7 +1098,13 @@ export class KilnClient {
     } as RequestInit);
     const text = await res.text();
     const data = text ? JSON.parse(text) : undefined;
-    if (!res.ok) throw new KilnApiError(res.status, (data as { error?: string })?.error ?? `${method} ${path} returned ${res.status}`, data);
+    if (!res.ok)
+      throw new KilnApiError(
+        res.status,
+        (data as { error?: string })?.error ?? `${method} ${path} returned ${res.status}`,
+        data,
+        res.headers.get("x-trace-id"),
+      );
     return data as T;
   }
 
@@ -1148,7 +1174,7 @@ export class KilnClient {
     const res = await (this.options.fetch ?? fetch)(`${this.options.baseUrl.replace(/\/$/, "")}/api/v1/integrations/teams/app-package${this.q(opts)}`, {
       headers: { ...(this.options.token ? { authorization: `Bearer ${this.options.token}` } : {}), ...this.options.headers },
     });
-    if (!res.ok) throw new KilnApiError(res.status, `GET app-package returned ${res.status}`, await res.text());
+    if (!res.ok) throw new KilnApiError(res.status, `GET app-package returned ${res.status}`, await res.text(), res.headers.get("x-trace-id"));
     return res.arrayBuffer();
   };
 

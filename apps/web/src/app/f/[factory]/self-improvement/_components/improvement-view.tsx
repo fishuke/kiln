@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { CheckCircle2, ChevronDown, CircleHelp, ExternalLink, XCircle } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Markdown } from "@/components/kiln/markdown";
 import { PageHeader } from "@/components/kiln/ui";
 import { Button, buttonVariants } from "@/components/ui/button";

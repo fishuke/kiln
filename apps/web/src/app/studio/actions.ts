@@ -74,6 +74,15 @@ export async function studioUpdateApp(appId: string, patch: z.input<typeof Patch
 export async function studioSetShipMode(appId: string, mode: z.input<typeof ShipMode>) {
   return call(StudioApp, () => api.studioSetShipMode(Id.parse(appId), ShipMode.parse(mode)));
 }
+export async function studioRetryApp(appId: string) {
+  return call(StudioApp, () => api.studioRetryApp(Id.parse(appId)));
+}
+export async function studioDeleteApp(appId: string) {
+  return call(
+    z.undefined().transform(() => null),
+    () => api.studioDeleteApp(Id.parse(appId)),
+  );
+}
 export async function studioNewChat(appId: string, input: z.input<typeof ChatInput>) {
   return call(NewChatResult, () => api.studioNewChat(Id.parse(appId), ChatInput.parse(input)));
 }

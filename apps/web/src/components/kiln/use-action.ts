@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useTransition } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 type Result<T> = { ok: true; message?: string; data?: T } | { ok: false; error: string };
 

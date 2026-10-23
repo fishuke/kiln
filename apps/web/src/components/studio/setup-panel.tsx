@@ -87,11 +87,7 @@ export function DevCommand({ app, onSave }: { app: StudioApp; onSave: (cmd: stri
         </div>
       )}
       <span className="text-xs text-muted-foreground">
-        {setup.devOverride
-          ? `Detected: ${setup.devDetected ?? "none"}`
-          : setup.devDetected
-            ? "From package.json"
-            : "No dev script in package.json"}
+        {setup.devOverride ? `Detected: ${setup.devDetected ?? "none"}` : setup.devDetected ? "From package.json" : "No dev script in package.json"}
       </span>
     </div>
   );
@@ -125,10 +121,13 @@ export function SetupPanel({
   app,
   steps,
   onDevCommand,
+  failedActions,
 }: {
   app: StudioApp;
   steps: SetupStep[];
   onDevCommand: (cmd: string | null) => Promise<void>;
+  /** Retry and Delete, when the import failed. */
+  failedActions?: React.ReactNode;
 }) {
   const source = app.source.kind === "repo" ? app.source : undefined;
   return (
@@ -153,7 +152,8 @@ export function SetupPanel({
           </div>
         </div>
         <ImportSteps steps={steps} />
-        {app.error && <p className="text-sm text-destructive">{app.error}</p>}
+        {app.error && <p className="text-sm whitespace-pre-wrap text-destructive">{app.error}</p>}
+        {failedActions}
         {app.setup && <DevCommand app={app} onSave={onDevCommand} />}
         {app.setup && <MissingEnv keys={app.setup.envMissing} />}
       </div>

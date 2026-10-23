@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { Copy, CopyPlus, EllipsisVertical, GitPullRequestArrow, KeyRound, Plug, Plus, RotateCcw, Trash, Zap } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { AgentTypeIcon } from "@/components/kiln/agent-type-icon";
 import { MarkdownEditor } from "@/components/kiln/markdown-editor";
 import { McpTestButton } from "@/components/kiln/mcp-test";

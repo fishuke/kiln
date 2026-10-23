@@ -42,7 +42,10 @@ function setup() {
     ...studioEngineHooks(() => studioFor(t.kiln)),
   });
   configureStudio(t.kiln, {
-    templates: { test: { id: "test", name: "Test", scaffold: ["echo hi > README.md"], install: [], dev: "sleep 30", egress: [] } },
+    templates: {
+      test: { id: "test", name: "Test", scaffold: ["echo hi > README.md"], install: [], dev: "sleep 30", egress: [] },
+      broken: { id: "broken", name: "Broken", scaffold: ["echo no network >&2; exit 1"], install: [], dev: "sleep 30", egress: [] },
+    },
     basePort: 30_000 + Math.floor(Math.random() * 20_000),
   });
   kilns.push(t.kiln);
@@ -234,6 +237,28 @@ describe("Studio API", () => {
     });
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: "unknown template nope", code: "invalid" });
+  });
+
+  it("retries a failed App and deletes one through the SDK", async () => {
+    const { client, kiln } = setup();
+    const failed = await client.studioCreateApp({ name: "Broken", source: { kind: "template", template: "broken" } });
+    await studioFor(kiln)!.ready(failed.id);
+    const { app } = await client.studioApp(failed.id);
+    expect(app).toMatchObject({ status: "failed", error: expect.stringContaining("no network") });
+    // A failed App answers 503 with what failed.
+    await expect(client.studioNewChat(failed.id, {})).rejects.toMatchObject({ status: 503, message: expect.stringContaining("the app failed to start") });
+
+    expect(await client.studioRetryApp(failed.id)).toMatchObject({ id: failed.id, status: "creating" });
+    await studioFor(kiln)!.ready(failed.id);
+    expect((await client.studioApp(failed.id)).app.status).toBe("failed");
+    await client.studioDeleteApp(failed.id);
+    expect((await client.studioApps()).apps).toEqual([]);
+    await expect(client.studioApp(failed.id)).rejects.toMatchObject({ status: 404 });
+
+    const ready = await client.studioCreateApp({ name: "Fine", source: { kind: "template", template: "test" } });
+    await studioFor(kiln)!.ready(ready.id);
+    await expect(client.studioDeleteApp(ready.id)).rejects.toMatchObject({ status: 400, message: "only a failed app can be deleted; this one is ready" });
+    await expect(client.studioRetryApp(ready.id)).rejects.toMatchObject({ status: 400 });
   });
 
   it("serves the Studio tools over MCP with the caller's team", async () => {

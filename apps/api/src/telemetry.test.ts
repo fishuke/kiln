@@ -1,9 +1,10 @@
 import { InMemoryEventBus } from "@kiln/events";
 import { InMemoryLogRecordExporter, SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
-import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { SpanStatusCode } from "@opentelemetry/api";
+import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { context, SpanStatusCode } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { createSocket } from "node:dgram";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bridgeEvents, engineTelemetry, listenEgressLogs, parseSquidLine, runSpanId, workItemTraceId } from "./telemetry";
 
 function setup(runs: Record<string, Parameters<typeof bridgeEvents>[1]["run"] extends (id: string) => infer R ? NonNullable<R> : never> = {}) {
@@ -128,5 +129,54 @@ describe("egress proxy logs", () => {
     client.close();
     socket.close();
     expect(logs.getFinishedLogRecords()[0]).toMatchObject({ body: "TCP_TUNNEL/200 CONNECT github.com:443", severityText: "INFO" });
+  });
+});
+
+describe("Studio failures", () => {
+  // Studio publishes its failures inside a span (the provision or ready check span, or the request's).
+  const manager = new AsyncLocalStorageContextManager();
+  beforeAll(() => void context.setGlobalContextManager(manager.enable()));
+  afterAll(() => context.disable());
+  const inSpan = (fn: () => void) =>
+    new BasicTracerProvider().getTracer("test").startActiveSpan("studio.provision", (span) => (fn(), span.end(), span.spanContext()));
+
+  it("logs a failed App setup at ERROR in the active trace", () => {
+    const { bus, logs } = setup();
+    const span = inSpan(() => bus.publish("studio.app_failed", { appId: "sa_1", error: "git init -q -b main failed in app: boom", priority: "needs_you" }));
+    const [record] = logs.getFinishedLogRecords();
+    expect(record).toMatchObject({
+      severityText: "ERROR",
+      body: "studio.app_failed: git init -q -b main failed in app: boom",
+      attributes: { "kiln.app_id": "sa_1", "kiln.error": "git init -q -b main failed in app: boom" },
+    });
+    expect(record!.spanContext).toMatchObject({ traceId: span.traceId, spanId: span.spanId });
+  });
+
+  it("logs a failed preview at WARN with all of the dev server's output", () => {
+    const { bus, logs } = setup();
+    const output = Array.from({ length: 40 }, (_, i) => `line ${i} ${"x".repeat(150)}`).join("\n");
+    const span = inSpan(() =>
+      bus.publish("studio.preview_failed", {
+        appId: "sa_1",
+        chatId: "sc_1",
+        port: 4101,
+        reason: "the dev server exited with code 1",
+        output,
+        priority: "progress",
+      }),
+    );
+    const [record] = logs.getFinishedLogRecords();
+    expect(record).toMatchObject({
+      severityText: "WARN",
+      body: "studio.preview_failed: the dev server exited with code 1",
+      attributes: { "kiln.app_id": "sa_1", "kiln.chat_id": "sc_1", "kiln.port": 4101, "kiln.output": output },
+    });
+    expect(record!.spanContext?.traceId).toBe(span.traceId);
+  });
+
+  it("logs other Studio events at INFO", () => {
+    const { bus, logs } = setup();
+    bus.publish("studio.version_created", { appId: "sa_1", versionId: "sv_1", title: "Created", kind: "initial", priority: "finished" });
+    expect(logs.getFinishedLogRecords()[0]).toMatchObject({ severityText: "INFO", body: "studio.version_created" });
   });
 });

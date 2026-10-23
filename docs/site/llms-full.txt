@@ -2200,6 +2200,8 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | PUT | `/api/v1/studio/apps/{id}/ship-mode` | `send` | Change an App's ship mode, up to the highest mode the App's policy allows your team role |
 | POST | `/api/v1/studio/apps/{id}/ship` | `send` | Open or update the App's pull request; as its author, mark it ready for review; or cancel it |
 | POST | `/api/v1/studio/apps/{id}/pause` | `send` | Snapshot an App's workspace and free its sandbox; the next use resumes it |
+| POST | `/api/v1/studio/apps/{id}/retry` | `send` | Set a failed App up again on a fresh sandbox; it is creating until setup succeeds or fails |
+| DELETE | `/api/v1/studio/apps/{id}` | `send` | Delete a failed App: its sandbox, chats, turns and versions |
 | POST | `/api/v1/studio/apps/{id}/chats` | `send` | Start a chat (its own worktree and preview), optionally with a first message |
 | GET | `/api/v1/studio/chats/{id}` | `read` | A chat with its turns (oldest first) |
 | POST | `/api/v1/studio/chats/{id}/messages` | `send` | Send a message: starts a turn, or steers the running one |
@@ -3562,14 +3564,14 @@ Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscrip
 
 ### Accounts and login
 
-| Variable                                   | What it does                                                                                                                                                               |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KILN_OPEN_SIGNUP=1`                       | Anyone may sign up and join the default team. Otherwise, after the first owner, signup needs an invite.                                                                    |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Turn on GitHub login. The OAuth app's callback URL is `<KILN_PUBLIC_URL>/api/v1/auth/github/callback`. `GITHUB_OAUTH_URL` and `GITHUB_API_URL` point at GitHub Enterprise. |
+| Variable                                   | What it does                                                                                                                                                                                 |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KILN_OPEN_SIGNUP=1`                       | Anyone may sign up and join the default team. Otherwise, after the first owner, signup needs an invite.                                                                                      |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Turn on GitHub login. The OAuth app's callback URL is `<KILN_PUBLIC_URL>/api/v1/auth/github/callback`. `GITHUB_OAUTH_URL` and `GITHUB_API_URL` point at GitHub Enterprise.                   |
 | `KILN_SECRET_KEY`                          | Seals team and personal secrets with AES-256-GCM, and signs run tokens. Set it, and keep it stable across restarts. To rotate it, see [Secrets](../management/secrets-mcps-environments.md). |
-| `KILN_ADMIN_EMAILS`                        | Comma-separated emails of server admins. They see every team's audit log, tokens and server secrets. Team owners and admins see only their own team.                       |
-| `KILN_SMTP_URL`, `KILN_MAIL_FROM`          | Email notifications, for example `smtp://user:pass@mail.acme.test:587?from=kiln@acme.test`.                                                                                |
-| `KILN_DEV_AUTH=1`                          | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team.                                                                       |
+| `KILN_ADMIN_EMAILS`                        | Comma-separated emails of server admins. They see every team's audit log, tokens and server secrets. Team owners and admins see only their own team.                                         |
+| `KILN_SMTP_URL`, `KILN_MAIL_FROM`          | Email notifications, for example `smtp://user:pass@mail.acme.test:587?from=kiln@acme.test`.                                                                                                  |
+| `KILN_DEV_AUTH=1`                          | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team.                                                                                         |
 
 ### Identities
 
@@ -3619,30 +3621,33 @@ Kiln runs a timer pass that:
 
 ## Troubleshooting
 
-| Symptom                                                 | Check                                                                                                                                          |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| A definition push did not apply                         | The factory's last error shows the first validation error. Run `kiln validate`.                                                                |
-| An automation never fires                               | The trigger's `provider` and `event` match the event name exactly, and every filter key matches (GitHub events carry both `repo` and `repos`). |
-| A work item is `blocked`                                | Its blocked reason says why: an expired gate, a stage that failed too often, the budget, or an error. Answer the open question to resume.      |
-| A run fails at install                                  | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed.                   |
-| Verify waits forever                                    | CI checks on the branch are still pending. Kiln checks again on each timer pass.                                                               |
-| Every command is blocked                                | The Claude Code hook cannot reach the public URL, so it blocks by design.                                                                      |
+| Symptom                                                 | Check                                                                                                                                            |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A definition push did not apply                         | The factory's last error shows the first validation error. Run `kiln validate`.                                                                  |
+| An automation never fires                               | The trigger's `provider` and `event` match the event name exactly, and every filter key matches (GitHub events carry both `repo` and `repos`).   |
+| A work item is `blocked`                                | Its blocked reason says why: an expired gate, a stage that failed too often, the budget, or an error. Answer the open question to resume.        |
+| A run fails at install                                  | The runner's `egress` list is missing a package registry or another host the run needs. Repository hosts are always allowed.                     |
+| Verify waits forever                                    | CI checks on the branch are still pending. Kiln checks again on each timer pass.                                                                 |
+| Every command is blocked                                | The Claude Code hook cannot reach the public URL, so it blocks by design.                                                                        |
 | A Studio preview answers 502                            | The API can't reach the sandbox: on Docker it isn't on `kiln-preview`; on Kubernetes `studio.previewDomain` is unset. Or the dev server stopped. |
-| Webhooks return 401                                     | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set.                          |
-| An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory).      |
+| Webhooks return 401                                     | The secret in Kiln does not match the provider's, or (Teams, Discord, GitLab, Azure DevOps, Bitbucket) it is not set.                            |
+| An automation with `teams` or `channels` fails to apply | The names did not resolve. Connect the provider, or set its directory. See [Connections](../integrations/connections.md#alias-directory).        |
 
 ## OpenTelemetry
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` (OTLP over HTTP, for example `https://otel.example.com`) and Kiln sends traces, metrics and logs there. `OTEL_EXPORTER_OTLP_HEADERS` carries the collector's auth. Works with SigNoz, Grafana, Honeycomb and any OTLP collector; nothing is sent when the endpoint is unset.
 
-| Service             | What it sends                                                                                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kiln-api`          | HTTP requests, outgoing calls (GitHub, model providers, webhooks), host metrics and every console line. `OTEL_SERVICE_NAME` changes the name.                         |
+| Service             | What it sends                                                                                                                                                                                                                                                                                       |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kiln-api`          | HTTP requests, outgoing calls (GitHub, model providers, webhooks), host metrics and every console line. `OTEL_SERVICE_NAME` changes the name.                                                                                                                                                       |
 | `kiln-api` (engine) | One trace per task: a span for each stage and each agent run, with the run's status, cost and failure reason. Every run event (messages, tool calls, errors, guard verdicts) is a log record on its run's span. Other events (gates, pull requests, decisions) are log records in the task's trace. |
-| `kiln-web`          | Next.js routes and rendering, its calls to the API (which continue in the API's traces), metrics and console lines.                                                  |
-| `kiln-egress-proxy` | Every request a sandbox made, allowed or denied, as a log record. A denied host is a warning.                                                                       |
+| `kiln-api` (Studio) | Spans for an App's slow steps (provision, install, resume, snapshot, dev server start, ready check, apply) inside the request that ran them. A failed App setup is an error log record and a preview that didn't start is a warning, with the dev server's last 40 output lines.                    |
+| `kiln-web`          | Next.js routes and rendering, its calls to the API (which continue in the API's traces), metrics and console lines.                                                                                                                                                                                 |
+| `kiln-egress-proxy` | Every request a sandbox made, allowed or denied, as a log record. A denied host is a warning.                                                                                                                                                                                                       |
 
-Run event text is redacted the same way as in the run view. The proxy sends its log to the API over UDP (port `KILN_EGRESS_LOG_PORT`, default 5140); `docker-compose.prod.yml` wires this up when the endpoint is set.
+Run event text and dev server output are redacted the same way as in the run view.
+
+**Trace ids in errors.** A console line written while Kiln handles a request or a run carries that trace's id. API error responses carry it as `traceId` in the body and the `x-trace-id` header, a 5xx is also logged at ERROR in that trace, and the web shows it under every error message as "Trace 1a2b3c4d…" with a button that copies the whole id. Search for it in your tracing backend to see what failed. Studio's routes do this today; the other routes add `traceId` once the API's global error handler does. The proxy sends its log to the API over UDP (port `KILN_EGRESS_LOG_PORT`, default 5140); `docker-compose.prod.yml` wires this up when the endpoint is set.
 
 ## Workers and monitoring
 

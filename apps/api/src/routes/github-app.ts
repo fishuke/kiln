@@ -20,6 +20,11 @@ export function registerGitHubAppRoutes({ app, kiln, need, who }: RouteContext) 
     need(c, "admin", "*");
     return c.json(kiln.githubApp.list());
   });
+  app.delete("/api/v1/connections/github/apps/:slug", (c) => {
+    need(c, "admin", "*");
+    kiln.githubApp.remove(c.req.param("slug"), who(c));
+    return c.body(null, 204);
+  });
 }
 
 /** GitHub's browser redirects after Create and after Install. Public; the single-use state is the check. */

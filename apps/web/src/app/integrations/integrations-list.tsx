@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { webhookUrl, type IntegrationSpec, type IntegrationState } from "@/lib/integration-catalog";
-import { completeConnect, createGitHubApp, disconnectProvider, startConnect, testConnect } from "./actions";
+import { completeConnect, createGitHubApp, disconnectProvider, removeGitHubApp, startConnect, testConnect } from "./actions";
 
 export type Row = {
   spec: IntegrationSpec;
@@ -228,9 +228,24 @@ function ConfigureSheet({ row, publicUrl, canAdmin, connectionsApi, githubApps, 
                     </a>
                     <span className="block text-xs text-muted-foreground">{a.owner ? `Owned by ${a.owner}` : ""}{a.installationId ? " · installed" : " · not installed yet"}</span>
                   </span>
-                  <a href={a.installUrl} target="_blank" rel="noreferrer" className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground">
-                    {a.installationId ? "Repositories" : "Install"}
-                  </a>
+                  <span className="flex shrink-0 items-center gap-1">
+                    <a href={a.installUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-muted-foreground hover:text-foreground">
+                      {a.installationId ? "Repositories" : "Install"}
+                    </a>
+                    {canAdmin && (
+                      <ConfirmAction
+                        trigger={(open) => (
+                          <Button size="icon-sm" variant="ghost" aria-label={`Remove ${a.slug}`} onClick={open}>
+                            <Trash2 />
+                          </Button>
+                        )}
+                        title={`Remove ${a.slug}?`}
+                        description="Kiln forgets the app's key and stops using it for repositories and webhooks. The app stays on GitHub: delete it there in the app's settings, under Advanced."
+                        confirmLabel="Remove"
+                        action={() => removeGitHubApp(a.slug)}
+                      />
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { KilnApiError } from "@kiln/sdk-ts";
 import { Server } from "lucide-react";
 import { AutoRefresh } from "@/components/kiln/auto-refresh";
@@ -45,7 +46,14 @@ export default async function Admin() {
   return (
     <>
       <AutoRefresh ms={5000} />
-      <PageHeader crumbs={[{ label: "Server" }]} />
+      <PageHeader
+        crumbs={[{ label: "Server" }]}
+        actions={
+          <Link href="/admin/cleanup" className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted">
+            Clean up disk
+          </Link>
+        }
+      />
       <Page>
         <Section
           title={host.hostname}

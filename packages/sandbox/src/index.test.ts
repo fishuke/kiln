@@ -195,7 +195,7 @@ describe("docker sandbox", () => {
     const provider = new DockerSandboxProvider(fake);
     const sbx = await provider.create(spec);
     expect(await provider.sweep()).toEqual(["kiln-old", "kiln-legacy"]);
-    expect(fake.calls.at(-1)?.args).toEqual(["rm", "-f", "kiln-old", "kiln-legacy"]);
+    expect(fake.calls.at(-1)?.args).toEqual(["rm", "-f", "-v", "kiln-old", "kiln-legacy"]);
     await sbx.destroy();
     expect(await provider.sweep()).toContain(created);
   });
@@ -220,7 +220,7 @@ describe("docker sandbox", () => {
       args.includes("clone") ? { code: 128, stdout: "", stderr: "no access" } : { code: 0, stdout: "", stderr: "" },
     );
     await expect(new DockerSandboxProvider(fake).create(spec)).rejects.toThrow(/no access/);
-    expect(fake.calls.at(-1)?.args.slice(0, 2)).toEqual(["rm", "-f"]);
+    expect(fake.calls.at(-1)?.args.slice(0, 3)).toEqual(["rm", "-f", "-v"]);
   });
 
   it("uses a cached image, clones, runs setup and destroys", async () => {
@@ -234,7 +234,7 @@ describe("docker sandbox", () => {
     expect(fake.calls.some((c) => c.args.includes("clone"))).toBe(true);
     const setup = fake.calls.find((c) => c.args.includes("corepack enable"))!;
     expect(setup.args.slice(0, 3)).toEqual(["exec", "-w", "/workspace/app"]);
-    expect(fake.calls.at(-1)?.args.slice(0, 2)).toEqual(["rm", "-f"]);
+    expect(fake.calls.at(-1)?.args.slice(0, 3)).toEqual(["rm", "-f", "-v"]);
   });
 
   it("snapshots a workspace a dev server is still writing to", async () => {

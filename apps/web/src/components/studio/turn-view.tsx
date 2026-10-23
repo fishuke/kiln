@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   AlertCircle,
@@ -15,6 +16,9 @@ import {
   MessageSquare,
   Mic,
   Search,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldX,
   Terminal,
   Undo2,
   Wrench,
@@ -22,7 +26,7 @@ import {
 import { Markdown } from "@/components/kiln/markdown";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
-import { Item, ItemContent, ItemDescription, ItemFooter, ItemMedia, ItemTitle } from "@/components/ui/item";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Message, MessageContent, MessageFooter } from "@/components/ui/message";
 import {
   Trace,
@@ -36,7 +40,7 @@ import {
 } from "@/components/ui/trace";
 import { relativeTime } from "@/lib/run-tree";
 import { turnCard, traceSteps, workTitle } from "@/lib/studio/model";
-import type { Activity, Turn } from "@/lib/studio/types";
+import type { Activity, CommandApproval, Turn } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
 
 const MD = "text-sm leading-6 [&_a]:text-violet-600 dark:[&_a]:text-violet-400";
@@ -240,6 +244,61 @@ export function QuestionNote({ question }: { question: string }) {
   );
 }
 
+/**
+ * The Confirmation pattern for a command the turn's run waits on: the command, **Block** or **Allow**.
+ * Once decided, one line says what happened.
+ */
+export function CommandApprovalCard({
+  approval,
+  onDecide,
+}: {
+  approval: CommandApproval;
+  onDecide: (decision: "approve" | "reject") => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  if (approval.state !== "waiting") {
+    const allowed = approval.state === "allowed";
+    return (
+      <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+        {allowed ? <ShieldCheck className="size-3.5 shrink-0" /> : <ShieldX className="size-3.5 shrink-0 text-destructive" />}
+        <span className="shrink-0">
+          {allowed ? "Allowed" : "Blocked"}
+          {approval.by ? ` by ${approval.by}` : allowed ? "" : " without an answer"}
+        </span>
+        <code className="truncate font-mono text-[11px]">{approval.command}</code>
+      </div>
+    );
+  }
+  const decide = async (decision: "approve" | "reject") => {
+    setBusy(true);
+    try {
+      await onDecide(decision);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Item variant="outline" size="sm" className="items-start border-amber-500/40">
+      <ItemMedia variant="icon">
+        <ShieldAlert className="text-amber-600 dark:text-amber-400" />
+      </ItemMedia>
+      <ItemContent className="min-w-0">
+        <ItemTitle>Allow this command?</ItemTitle>
+        <pre className="max-h-40 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-xs break-all whitespace-pre-wrap">{approval.command}</pre>
+        <ItemDescription className="line-clamp-none">The agent waits for you. Without an answer, the command is blocked.</ItemDescription>
+      </ItemContent>
+      <ItemActions className="basis-full justify-end pt-1">
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide("reject")}>
+          Block
+        </Button>
+        <Button size="sm" disabled={busy} onClick={() => void decide("approve")}>
+          Allow
+        </Button>
+      </ItemActions>
+    </Item>
+  );
+}
+
 /** A chat stopped on a merge conflict: the files, and what happens next. */
 export function ConflictNote({ files, onPreview }: { files: string; onPreview?: () => void }) {
   return (
@@ -271,11 +330,13 @@ export function TurnView({
   turn,
   versionCard,
   onBuildPlan,
+  onDecideApproval,
   busy,
 }: {
   turn: Turn;
   versionCard: React.ReactNode;
   onBuildPlan: (plan: string, newChat: boolean) => void;
+  onDecideApproval: (gateId: string, decision: "approve" | "reject") => Promise<void>;
   busy: boolean;
 }) {
   const card = turnCard(turn);
@@ -285,6 +346,9 @@ export function TurnView({
       <Message>
         <MessageContent className="gap-3">
           <ActivityTrace turn={turn} />
+          {turn.approval && (turn.approval.state !== "waiting" || turn.status === "running") && (
+            <CommandApprovalCard approval={turn.approval} onDecide={(decision) => onDecideApproval(turn.approval!.gateId, decision)} />
+          )}
           {turn.reply && <Markdown className={MD}>{turn.reply}</Markdown>}
           {card === "question" && <QuestionNote question={turn.question!} />}
           {card === "plan" && (

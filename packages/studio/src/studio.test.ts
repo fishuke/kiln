@@ -141,7 +141,8 @@ describe("apps", () => {
     git("-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "base");
     git("add", "-A");
     git("-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-q", "-m", "app");
-    const { studio } = make({ clone: async () => ({ url: origin }), env: () => ({ env: { API_URL: "https://api.test" }, secretValues: [] }) });
+    const env: Record<string, string> = { API_URL: "https://api.test" };
+    const { studio } = make({ clone: async () => ({ url: origin }), env: () => ({ env: { ...env }, secretValues: [] }) });
     const created = await studio.createApp({ team: "t1", by: "me", name: "Imported", source: { kind: "repo", repo: "acme/app" } });
     await studio.ready(created.id);
     const p = studio.getApp(created.id)!.app;
@@ -155,6 +156,9 @@ describe("apps", () => {
       envRequired: ["API_URL", "SECRET_KEY"],
       envMissing: ["SECRET_KEY"],
     });
+    // A variable assigned after setup clears it on the next read.
+    env.SECRET_KEY = "s3cret";
+    expect(studio.getApp(p.id)!.app.setup?.envMissing).toEqual([]);
     expect(studio.updateApp(p.id, { devCommand: "node other.js" }).setup?.dev).toBe("node other.js");
     expect(studio.updateApp(p.id, { devCommand: null }).setup?.dev).toBe("npm run dev");
   });

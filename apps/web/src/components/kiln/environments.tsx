@@ -10,31 +10,38 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { rowProblem, toVariableInputs, type VariableRow } from "@/lib/variables";
-import { deleteProjectEnvironment, saveProjectVariables } from "./environment-actions";
+import { deleteEnvironment, saveVariables, type EnvironmentScope } from "./environment-actions";
 
 const ENV_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 type Row = VariableRow & { id: number };
+/** Variables from a parent layer (the team, the App's project), shown read-only on each card. */
+export type InheritedLayers = { from: string; layers: VariableLayerView[] };
+const NOUN: Record<EnvironmentScope, string> = { project: "project", app: "App" };
 
 let nextId = 0;
 const rowsOf = (layer?: VariableLayerView): Row[] =>
   (layer?.variables ?? []).map((v) => ({ id: nextId++, key: v.key, value: v.secret ? "" : v.value, secret: v.secret, stored: v.secret }));
 
-/** Project → Environments: one card per environment, with the team's variables it inherits. */
-export function ProjectEnvironments({
-  projectId,
+/** Environments of a project or a Studio App: one card per environment, with the variables it inherits. */
+export function Environments({
+  scope,
+  owner,
   layers,
-  team,
+  inherited,
   canEdit,
+  onSaved,
 }: {
-  projectId: string;
+  scope: EnvironmentScope;
+  owner: string;
   layers: VariableLayerView[];
-  team: VariableLayerView[];
+  inherited: InheritedLayers[];
   canEdit: boolean;
+  onSaved?: () => void;
 }) {
   const [added, setAdded] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
-  const names = [...new Set(["preview", ...layers.map((l) => l.environment), ...team.map((l) => l.environment), ...added])].sort((a, b) =>
-    a === "preview" ? -1 : b === "preview" ? 1 : a.localeCompare(b),
+  const names = [...new Set(["preview", ...layers.map((l) => l.environment), ...inherited.flatMap((i) => i.layers.map((l) => l.environment)), ...added])].sort(
+    (a, b) => (a === "preview" ? -1 : b === "preview" ? 1 : a.localeCompare(b)),
   );
   const draftOk = ENV_NAME.test(draft) && !names.includes(draft);
 
@@ -43,12 +50,20 @@ export function ProjectEnvironments({
       {names.map((name) => (
         <EnvironmentCard
           key={`${name}:${layers.find((l) => l.environment === name)?.updatedAt ?? ""}`}
-          projectId={projectId}
+          scope={scope}
+          owner={owner}
           name={name}
           layer={layers.find((l) => l.environment === name)}
-          inherited={team.find((l) => l.environment === name)}
+          inherited={inherited.flatMap((i) => {
+            const l = i.layers.find((x) => x.environment === name);
+            return l?.variables.length ? [{ from: i.from, variables: l.variables }] : [];
+          })}
           canEdit={canEdit}
-          onRemoved={() => setAdded(added.filter((a) => a !== name))}
+          onSaved={onSaved}
+          onRemoved={() => {
+            setAdded(added.filter((a) => a !== name));
+            onSaved?.();
+          }}
         />
       ))}
       {canEdit && (
@@ -78,26 +93,29 @@ export function ProjectEnvironments({
 }
 
 function EnvironmentCard({
-  projectId,
+  scope,
+  owner,
   name,
   layer,
   inherited,
   canEdit,
+  onSaved,
   onRemoved,
 }: {
-  projectId: string;
+  scope: EnvironmentScope;
+  owner: string;
   name: string;
   layer?: VariableLayerView;
-  inherited?: VariableLayerView;
+  inherited: { from: string; variables: VariableLayerView["variables"] }[];
   canEdit: boolean;
+  onSaved?: () => void;
   onRemoved: () => void;
 }) {
   const [pending, run] = useAction();
   const [rows, setRows] = useState<Row[]>(() => rowsOf(layer));
   const set = (id: number, patch: Partial<Row>) => setRows(rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const problem = rowProblem(rows);
-  const overridden = new Set(rows.map((r) => r.key.trim()));
-  const save = () => run(() => saveProjectVariables(projectId, name, toVariableInputs(rows)));
+  const save = () => run(() => saveVariables(scope, owner, name, toVariableInputs(rows)), { onSuccess: onSaved });
 
   return (
     <div className="rounded-xl border">
@@ -110,8 +128,8 @@ function EnvironmentCard({
             {layer && (
               <ConfirmAction
                 title={`Delete the ${name} variables?`}
-                description="The project's variables for this environment are removed. Team variables still apply."
-                action={() => deleteProjectEnvironment(projectId, name)}
+                description={`The ${NOUN[scope]}'s variables for this environment are removed. Inherited variables still apply.`}
+                action={() => deleteEnvironment(scope, owner, name)}
                 onDone={onRemoved}
                 trigger={(open) => (
                   <Button
@@ -134,7 +152,7 @@ function EnvironmentCard({
         )}
       </div>
       <fieldset disabled={!canEdit} className="space-y-2 p-4">
-        {rows.length === 0 && <p className="text-sm text-muted-foreground">No project variables.</p>}
+        {rows.length === 0 && <p className="text-sm text-muted-foreground">No {NOUN[scope]} variables.</p>}
         {rows.map((r) => (
           <div key={r.id} className="flex items-center gap-2">
             <Input
@@ -154,12 +172,7 @@ function EnvironmentCard({
               className="h-8 min-w-0 flex-1 font-mono"
             />
             <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-              <Switch
-                size="sm"
-                checked={r.secret}
-                onCheckedChange={(c) => set(r.id, { secret: c })}
-                aria-label={`${r.key || "Variable"} is a secret`}
-              />
+              <Switch size="sm" checked={r.secret} onCheckedChange={(c) => set(r.id, { secret: c })} aria-label={`${r.key || "Variable"} is a secret`} />
               Secret
             </label>
             <Button
@@ -184,20 +197,24 @@ function EnvironmentCard({
           </Button>
         )}
       </fieldset>
-      {inherited && inherited.variables.length > 0 && (
-        <div className="border-t px-4 py-3">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">From the team</p>
-          <ul className="space-y-1 text-sm">
-            {inherited.variables.map((v) => (
-              <li key={v.key} className="flex items-center gap-2">
-                <span className={overridden.has(v.key) ? "font-mono text-muted-foreground line-through" : "font-mono"}>{v.key}</span>
-                <span className="truncate font-mono text-muted-foreground">{v.secret ? "Secret" : v.value}</span>
-                {overridden.has(v.key) && <span className="text-xs text-muted-foreground">Overridden</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {inherited.map((src, i) => {
+        // A key set here, or by a later (closer) parent, replaces this one.
+        const closer = new Set([...rows.map((r) => r.key.trim()), ...inherited.slice(i + 1).flatMap((x) => x.variables.map((v) => v.key))]);
+        return (
+          <div key={src.from} className="border-t px-4 py-3">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">From the {src.from}</p>
+            <ul className="space-y-1 text-sm">
+              {src.variables.map((v) => (
+                <li key={v.key} className="flex items-center gap-2">
+                  <span className={closer.has(v.key) ? "font-mono text-muted-foreground line-through" : "font-mono"}>{v.key}</span>
+                  <span className="truncate font-mono text-muted-foreground">{v.secret ? "Secret" : v.value}</span>
+                  {closer.has(v.key) && <span className="text-xs text-muted-foreground">Overridden</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
     </div>
   );
 }

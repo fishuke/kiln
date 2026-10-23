@@ -57,6 +57,8 @@ export type RunRef = {
   status: string;
   summary?: string;
   costUsd: number;
+  /** The run's trace in the tracing backend (OpenTelemetry). */
+  traceId?: string;
   startState: { prompt: string };
 };
 
@@ -114,6 +116,24 @@ type Lent = { chatId: string; turnId: string; startHead: string };
 const STUDIO_FILE = ".kiln/studio.json";
 const StudioFile = z.object({ title: z.string().optional(), summary: z.string().optional(), question: z.string().optional() }).passthrough();
 const SUBAGENT_TOOLS = new Set(["Task", "Agent"]);
+
+/**
+ * What a tool call acted on, for its activity line: a command's first line, a file path relative to
+ * the chat's worktree, a search pattern (and where), a URL or a query.
+ */
+export function toolText(input: Record<string, unknown>): string | undefined {
+  const str = (k: string) => (typeof input[k] === "string" && (input[k] as string).trim() ? (input[k] as string).trim() : undefined);
+  const rel = (p: string) => p.replace(/^.*\/chats\/[^/]+\//, "");
+  const command = str("command");
+  if (command) return oneLine(command.split("\n")[0]!, 200);
+  const file = str("file_path") ?? str("notebook_path");
+  if (file) return rel(file);
+  const pattern = str("pattern");
+  if (pattern) return str("path") ? `${pattern} in ${rel(str("path")!)}` : pattern;
+  return str("url") ?? str("query") ?? str("description");
+}
+
+const withText = (t: string | undefined, clean: (s: string) => string) => (t ? { text: clean(t) } : {});
 /** Chat dev servers use the ports after the version preview's; the preview network policy allows 4100–4199. */
 const MAX_CHATS = 99;
 /** How often the ready check asks a starting dev server. */
@@ -600,7 +620,7 @@ export class Studio {
         ? this.opts.store.get<Turn>(C.turns, waiting.turnId)!
         : this.newTurn(p, chat, { prompt: followUpText(run.startState.prompt), mode: "build", via: "api", by: run.creator ?? "kiln" });
     this.running.get(chat.id)!.runId = run.id;
-    this.save(C.turns, { ...turn, runId: run.id });
+    this.save(C.turns, { ...turn, runId: run.id, ...(run.traceId ? { traceId: run.traceId } : {}) });
     this.touch(C.chats, { ...this.chat(chat.id), runId: run.id, status: "working", question: undefined });
     const startHead = await must(live.sandbox, chat.path, "git rev-parse HEAD");
     await must(live.sandbox, chat.path, `rm -f ${STUDIO_FILE}`);
@@ -673,7 +693,7 @@ export class Studio {
       const input = (e.data ?? {}) as Record<string, unknown>;
       a = SUBAGENT_TOOLS.has(text)
         ? { kind: "subagent", name: text, text: clean(String(input.description ?? input.prompt ?? "")), at }
-        : { kind: "tool", name: text, ...(typeof input.file_path === "string" ? { text: clean(input.file_path) } : {}), at };
+        : { kind: "tool", name: text, ...withText(toolText(input), clean), at };
     } else if (e.type === "spawn") a = { kind: "subagent", name: "spawn_agent", text, at };
     else if (e.type === "error") a = { kind: "error", text, at };
     if (!a) return;

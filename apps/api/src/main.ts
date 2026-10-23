@@ -5,6 +5,7 @@ import type { Duplex } from "node:stream";
 import { createMcpHandler } from "@kiln/mcp";
 import { createApp } from "./app";
 import { kilnFromEnv, seedDemo } from "./config";
+import { cleanupSettings, runCleanup } from "./janitor";
 import { getPreviewResolver, previewConfig, previewPeerGuard, previewUpgrade, refusePreviewPeers } from "./routes/studio-preview";
 import { bridgeEvents, engineTelemetry, listenEgressLogs } from "./telemetry";
 
@@ -67,4 +68,9 @@ let ticks = 0;
 setInterval(() => {
   ticks += 1;
   kiln.tick({ selfImprovement: ticks % Math.max(1, Math.round(3_600_000 / tickMs)) === 0, sweepSandboxes: ticks % Math.max(1, Math.round(600_000 / tickMs)) === 0 }).catch((err) => console.error("tick failed", err));
+  // Hourly Docker clean-up, once a server admin turned it on (Server page).
+  if (kiln.options.janitor && ticks % Math.max(1, Math.round(3_600_000 / tickMs)) === 0 && cleanupSettings(kiln).scheduled)
+    runCleanup(kiln, "kiln")
+      .then((r) => console.log(`Clean-up removed ${r.removed.containers.length} container(s) and ${r.removed.images.length} image(s), reclaimed ${Math.round(r.reclaimedBytes / 1e9)} GB.`))
+      .catch((err) => console.error("clean-up failed", err));
 }, tickMs);

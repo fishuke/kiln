@@ -336,6 +336,9 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | --- | --- | --- | --- |
 | GET | `/api/v1/audit` | `admin` | Audit log |
 | GET | `/api/v1/admin/server` | `admin` | Server memory, disk, load and sandboxes (server admins) |
+| GET | `/api/v1/admin/cleanup` | `admin` | Docker clean-up dry run: what it would remove (server admins) |
+| POST | `/api/v1/admin/cleanup` | `admin` | Run the Docker clean-up now (server admins) |
+| PUT | `/api/v1/admin/cleanup/schedule` | `admin` | Turn the hourly Docker clean-up on or off (server admins) |
 | GET | `/api/v1/tokens` | `admin` | List API tokens |
 | POST | `/api/v1/tokens` | `admin` | Issue a scoped token |
 | PUT | `/api/v1/secrets/{name}` | `admin` | Set a managed secret |

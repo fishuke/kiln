@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import type { Runner } from "@kiln/schema";
 import type { ObjectStore } from "@kiln/store";
+import { parseByteSize, parseDockerTime } from "./janitor";
 import { NodeCommandRunner, type CommandRunner, type ExecResult, type Proc } from "./process";
 
 export * from "./process";
+export * from "./janitor";
 
 export type GuardVerdict = "allow" | "ask_human" | "block";
 
@@ -101,15 +103,6 @@ export type SandboxListing = {
   memoryBytes?: number;
 };
 
-const UNITS: Record<string, number> = { b: 1, kb: 1e3, mb: 1e6, gb: 1e9, tb: 1e12, kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4 };
-
-/** "12.5MiB" or "1.2GB" (docker stats) to bytes. */
-export function parseByteSize(s: string): number | undefined {
-  const m = /^([\d.]+)\s*([a-z]+)$/i.exec(s.trim());
-  const unit = m && UNITS[m[2]!.toLowerCase()];
-  return m && unit ? Math.round(Number(m[1]) * unit) : undefined;
-}
-
 export class CommandBlocked extends Error {
   constructor(
     readonly command: string,
@@ -143,6 +136,19 @@ async function guarded(spec: Pick<SandboxSpec, "guard" | "askHuman">, command: s
 }
 
 /** The sandbox has no address the API can reach, e.g. a Docker container started with `--network none`. */
+/** Too little free disk to start a sandbox, even after cleaning up. */
+export class DiskSpaceLow extends Error {
+  constructor(
+    readonly freeBytes: number,
+    readonly minFreeBytes: number,
+  ) {
+    super(
+      `Not enough disk space to start a sandbox: ${Math.round(freeBytes / 1e9)} GB free, Kiln needs ${Math.round(minFreeBytes / 1e9)} GB. Free space on the Docker host (Server page → Clean up).`,
+    );
+    this.name = "DiskSpaceLow";
+  }
+}
+
 export class SandboxNotReachable extends Error {
   constructor(
     readonly sandboxId: string,
@@ -411,6 +417,8 @@ export function dockerRunArgs(name: string, spec: SandboxSpec, egress: EgressRou
     if (spec.deniedHosts?.length) args.push("-e", `KILN_EGRESS_DENY=${spec.deniedHosts.join(",")}`);
   }
   args.push("--security-opt", "no-new-privileges", "--cap-drop", "ALL");
+  // Capped logs: a chatty dev server must not fill the host's disk.
+  args.push("--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3");
   for (const [k, v] of Object.entries(spec.env ?? {})) args.push("-e", `${k}=${v}`);
   args.push(spec.runner.image, "sleep", "infinity");
   return args;
@@ -432,6 +440,8 @@ export class DockerSandboxProvider implements SandboxProvider {
       egress?: EgressRoute;
       owner?: string;
       previewNetwork?: string;
+      /** Runs before a sandbox starts; throws (e.g. DiskSpaceLow) to refuse it with a clear error. */
+      diskGuard?: () => Promise<void>;
     } = {},
   ) {}
 
@@ -464,6 +474,7 @@ export class DockerSandboxProvider implements SandboxProvider {
   }
 
   async create(spec: SandboxSpec): Promise<Sandbox> {
+    await this.options.diskGuard?.();
     const started = Date.now();
     const id = newId();
     const name = `kiln-${id}`;
@@ -510,7 +521,7 @@ export class DockerSandboxProvider implements SandboxProvider {
       .map((l) => l.trim().split("\t"))
       .filter(([name, owner]) => name && !this.live.has(name) && (owner || "kiln") === this.owner)
       .map(([name]) => name!);
-    if (stale.length) await this.runner.run("docker", ["rm", "-f", ...stale]);
+    if (stale.length) await this.runner.run("docker", ["rm", "-f", "-v", ...stale]);
     return stale;
   }
 
@@ -555,6 +566,7 @@ export class DockerSandboxProvider implements SandboxProvider {
   }
 
   async resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox> {
+    await this.options.diskGuard?.();
     const started = Date.now();
     const id = newId();
     const name = `kiln-${id}`;
@@ -671,7 +683,7 @@ class DockerSandbox implements Sandbox {
   async destroy() {
     // Forget it first: if removal fails, the next sweep retries it.
     this.onDestroy?.();
-    await this.runner.run("docker", ["rm", "-f", this.container]);
+    await this.runner.run("docker", ["rm", "-f", "-v", this.container]);
   }
 
   /** The container's address on its network; the API must share that network to reach it. */

@@ -463,6 +463,10 @@ export class FakeStudioClient implements StudioClient {
     this.emit();
   }
 
+  async repositoryAccessUrl(): Promise<string | undefined> {
+    return "https://github.com/apps/kiln/installations/new";
+  }
+
   async repositories(): Promise<ForgeRepository[]> {
     return [
       { owner: "acme", name: "storefront", forge: "github" },

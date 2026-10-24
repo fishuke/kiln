@@ -46,7 +46,7 @@ export function AppsList({ startNew }: { startNew: boolean }) {
   const byId = new Map(status?.apps.map((p) => [p.id, p]));
   return (
     <>
-      <PageHeader crumbs={[{ label: "Studio" }]} actions={client && <NewAppDialog client={client} defaultOpen={startNew} />} />
+      <PageHeader crumbs={[{ label: "Studio" }]} actions={client && !(error && !apps) && <NewAppDialog client={client} defaultOpen={startNew} />} />
       <Page>
         {error && !apps ? (
           <Empty title="Studio isn't available">{error}</Empty>
@@ -104,10 +104,7 @@ export function AppsList({ startNew }: { startNew: boolean }) {
                         )}
                       </TableCell>
                       <TableCell>
-                        <span
-                          title={shipModeCopy(a.shipMode).line}
-                          className={cn("rounded-full px-2 py-0.5 text-xs font-medium", SHIP_TONE[a.shipMode])}
-                        >
+                        <span title={shipModeCopy(a.shipMode).line} className={cn("rounded-full px-2 py-0.5 text-xs font-medium", SHIP_TONE[a.shipMode])}>
                           {shipModeCopy(a.shipMode).label}
                         </span>
                       </TableCell>

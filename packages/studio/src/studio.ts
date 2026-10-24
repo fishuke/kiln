@@ -287,8 +287,10 @@ export class Studio {
   getApp(appId: string): { app: App; chats: Chat[]; versions: Version[] } | undefined {
     const stored = this.opts.store.get<App>(C.apps, appId);
     if (!stored) return undefined;
-    // People assign variables after setup, so what's missing is worked out on each read.
-    const app = stored.setup ? { ...stored, setup: { ...stored.setup, envMissing: this.missingEnv(stored, stored.setup) } } : stored;
+    // People assign variables after setup, so what's missing is worked out on each read; so is the
+    // general agent's harness, which people change in the App's settings.
+    const withSetup = stored.setup ? { ...stored, setup: { ...stored.setup, envMissing: this.missingEnv(stored, stored.setup) } } : stored;
+    const app = { ...withSetup, ...this.agentHarness(stored) };
     const chats = this.opts.store.list<Chat>(C.chats, (c) => c.appId === appId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     return { app, chats, versions: this.versions(appId) };
   }
@@ -355,6 +357,14 @@ export class Studio {
       updatedAt: now,
     };
     this.save(C.apps, app);
+    // The App's settings are where its agent's harness lives; chats and runs read it from there.
+    if (input.harness || input.model)
+      this.opts.definitions.edit(
+        targetOf(app),
+        { agents: { [DEFAULT_AGENT]: { ...(input.harness ? { harness: input.harness } : {}), ...(input.model ? { model: input.model } : {}) } } },
+        input.by,
+        "Harness chosen when the App was created",
+      );
     this.setUpInBackground(app);
     return app;
   }
@@ -622,14 +632,19 @@ export class Studio {
     const existing = this.getApp(p.id)!.chats.length;
     if (existing >= MAX_CHATS) throw new StudioError("invalid", `an app can have at most ${MAX_CHATS} chats`);
     const now = this.now();
-    const model = input.model ?? p.model;
+    // The agent's harness and model from the App's settings, unless the chat chose its own.
+    const { harness, model } = this.opts.definitions.chatConfig(targetOf(p), {
+      agent: input.agent,
+      ...(input.harness ? { harness: input.harness } : {}),
+      ...(input.model ? { model: input.model } : {}),
+    });
     const chat: Chat = {
       id: chatId,
       appId: p.id,
       title: input.title ?? `Chat ${existing + 1}`,
       agent: input.agent,
       mode: input.mode,
-      harness: input.harness ?? p.harness,
+      harness,
       ...(model ? { model } : {}),
       ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
       branch: `chat/${chatId}`,
@@ -645,7 +660,9 @@ export class Studio {
       await must(
         sandbox,
         chat.path,
-        'for d in ../../app ../../version ../*; do [ -d "$d/node_modules" ] && [ "$d" != "../' + chatId + '" ] && cp -a "$d/node_modules" . && break; done; true',
+        'for d in ../../app ../../version ../*; do [ -d "$d/node_modules" ] && [ "$d" != "../' +
+          chatId +
+          '" ] && cp -a "$d/node_modules" . && break; done; true',
       );
     await this.install(p.id, sandbox, chat.path, p.setup!.install, this.env(p));
     return this.save(C.chats, chat);
@@ -1283,8 +1300,8 @@ export class Studio {
     // An exited dev server's pid may belong to another process by now.
     if (!dev.exited)
       await live.sandbox
-      .exec(`${KILL_TREE}\n[ -f ${DEV_PID} ] && kill_tree "$(cat ${DEV_PID})"; rm -f ${DEV_PID}; true`, { cwd: dev.cwd, trusted: true })
-      .catch(() => undefined);
+        .exec(`${KILL_TREE}\n[ -f ${DEV_PID} ] && kill_tree "$(cat ${DEV_PID})"; rm -f ${DEV_PID}; true`, { cwd: dev.cwd, trusted: true })
+        .catch(() => undefined);
     dev.proc.kill();
     await Promise.race([dev.proc.exit, new Promise((r) => setTimeout(r, DEV_STOP_MS).unref?.())]);
   }
@@ -1375,6 +1392,16 @@ export class Studio {
 
   private versions(appId: string): Version[] {
     return this.opts.store.list<Version>(C.versions, (v) => v.appId === appId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** The general agent's harness and model, as a new chat gets them; the stored ones when the settings don't resolve. */
+  private agentHarness(app: App): Pick<App, "harness" | "model"> {
+    try {
+      const { harness, model } = this.opts.definitions.chatConfig(targetOf(app));
+      return { harness, model };
+    } catch {
+      return { harness: app.harness, model: app.model };
+    }
   }
 
   /** The keys the App's env example asks for that no variable provides. */

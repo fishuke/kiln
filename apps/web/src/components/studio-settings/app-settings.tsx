@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { modelLabel, modelsFor } from "@/lib/agent-catalog";
 import { timeAgo } from "@/lib/format";
 import { restoreStudioDefinition, saveStudioSettings } from "./actions";
 
@@ -162,7 +163,7 @@ function AgentCard({
   save: (patch: StudioSettingsPatch) => unknown;
 }) {
   const [harness, setHarness] = useState<string>(own?.harness ?? INHERIT);
-  const [model, setModel] = useState(own?.model ?? "");
+  const [model, setModel] = useState<string>(own?.model ?? INHERIT);
   const [description, setDescription] = useState(own?.description ?? "");
   const [mcpServers, setMcpServers] = useState<string[]>(own?.mcpServers ?? agent.mcpServers);
   const [spawnableBy, setSpawnableBy] = useState<string[]>(own?.spawnableBy ?? agent.spawnableBy);
@@ -171,12 +172,19 @@ function AgentCard({
     const patch: StudioAgentPatch = {
       description: description.trim() || null,
       harness: harness === INHERIT ? null : (harness as StudioHarnessType),
-      model: model.trim() || null,
+      model: model === INHERIT ? null : model,
       instructions,
       mcpServers: sameList(mcpServers, agent.mcpServers) && !own?.mcpServers ? undefined : mcpServers,
       spawnableBy: sameList(spawnableBy, agent.spawnableBy) && !own?.spawnableBy ? undefined : spawnableBy,
     };
     save({ agents: { [agent.name]: patch } });
+  };
+  const runs = harness === INHERIT ? agent.harness : harness;
+  // An inherited model belongs to the inherited harness; another harness starts from its own default.
+  const inherited = runs === agent.harness && agent.model ? modelLabel(agent.model) : "The harness default";
+  const pickHarness = (next: string) => {
+    setHarness(next);
+    if (!modelsFor(next === INHERIT ? agent.harness : next).some((m) => m.id === model)) setModel(INHERIT);
   };
   return (
     <div className="rounded-lg border bg-background p-4">
@@ -197,13 +205,21 @@ function AgentCard({
       <SettingsRow label="Harness">
         <SimpleSelect
           value={harness}
-          onChange={setHarness}
+          onChange={pickHarness}
           options={[{ value: INHERIT, label: `Inherit (${label(HARNESSES, agent.harness)})` }, ...HARNESSES]}
           ariaLabel="Harness"
         />
       </SettingsRow>
       <SettingsRow label="Model">
-        <Input value={model} placeholder={agent.model ?? "The harness default"} onChange={(e) => setModel(e.target.value)} />
+        <SimpleSelect
+          value={model}
+          onChange={setModel}
+          options={[
+            { value: INHERIT, label: `Inherit (${inherited})` },
+            ...modelsFor(runs, [], model === INHERIT ? undefined : model).map((m) => ({ value: m.id, label: m.label })),
+          ]}
+          ariaLabel="Model"
+        />
       </SettingsRow>
       <SettingsRow label="MCP servers" hint="Names from MCPs and apps">
         <TagListInput value={mcpServers} onChange={setMcpServers} placeholder="figma" mono />

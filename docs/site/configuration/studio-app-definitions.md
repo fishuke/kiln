@@ -54,6 +54,7 @@ Check the tests and the acceptance criteria. Report what is missing.
 ```
 
 - Every App has an agent named `general` (Claude Code, no instructions), so a chat works with nothing configured. A chat that names no agent runs `general`.
+- A new chat runs on its agent's harness and model, and keeps them: change the harness under **Settings → Agents**, then start a new chat. A chat created through the API with its own `harness` uses that instead, without the agent's model. An App created with a `harness` or `model` writes them to its `general` agent.
 - A chat's agent can start the App's other agents as subagent runs. `spawnableBy` limits which agents may start an agent; without it, any of the App's agents may.
 - Each agent gets every shared skill plus its own skills. Mandatory skills are added to its instructions.
 - `agentType`, `runner`, `workerHost`, `environmentId`, `required_repos` and `credentialStrategy` only mean something in a factory. In an App they are ignored with a warning.

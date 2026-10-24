@@ -11,6 +11,7 @@ import type { Kiln } from "./kiln";
 import { appRunDefinition, factoryRunDefinition, type AppRunDefinition, type RunDefinition } from "./run-definition";
 import { fileUrl, mediaOf } from "./media";
 import { codexHome, parseChatgptAuth, redactChatgptTokens } from "./platform/chatgpt";
+import type { PoolCredential } from "./platform/credential-pool";
 import { registryAuthFor } from "./platform/registry";
 import { checkMetadata, isTerminal, sourceFor } from "./run-state";
 import {
@@ -219,7 +220,9 @@ export class RunService {
   /** Secret values each live run was given; redacted from its events and summary. */
   private readonly redactions = new Map<string, string[]>();
   /** Runs holding a ChatGPT login: saved back (Codex may have refreshed it) and released when the run ends. */
-  private readonly chatgptLogins = new Map<string, { scope: { teamId?: string; userId?: string }; name: string; sandbox: Sandbox; home: string }>();
+  private readonly chatgptLogins = new Map<string, { credential: PoolCredential; sandbox: Sandbox; home: string }>();
+  /** The pooled credential each live run was given; its usage and outcome are recorded on exactly that one. */
+  private readonly pooled = new Map<string, PoolCredential>();
 
   constructor(private readonly k: Kiln) {}
 
@@ -360,7 +363,8 @@ export class RunService {
     return out;
   }
 
-  private record(run: Run, type: string, text?: string, data?: unknown) {
+  /** Text and data a live run reports, without the secret values it was given. */
+  private redacted<T>(run: Run, text: string | undefined, data?: T): { text: string | undefined; data: T | undefined } {
     const secrets = this.redactions.get(run.id);
     if (secrets?.length) {
       if (text) text = redact(text, secrets);
@@ -377,6 +381,11 @@ export class RunService {
       if (text) text = redactChatgptTokens(text);
       if (data !== undefined) data = JSON.parse(redactChatgptTokens(JSON.stringify(data)));
     }
+    return { text, data };
+  }
+
+  private record(run: Run, type: string, text?: string, data?: unknown) {
+    ({ text, data } = this.redacted(run, text, data));
     run.eventCount += 1;
     const ev: RunEvent = { id: `${run.id}:${run.eventCount}`, runId: run.id, seq: run.eventCount, at: this.k.clock.now().toISOString(), type, text, data };
     this.k.store.put(C.runEvents, ev);
@@ -647,18 +656,13 @@ export class RunService {
       const error = classifyError(err);
       run.error = error;
       run.status = this.k.stopping.has(run.id) ? (this.k.stopping.get(run.id) === "interrupt" ? "blocked" : "cancelled") : runStatusFor(error);
-      error.message = redact(error.message, this.redactions.get(run.id) ?? []);
+      error.message = this.redacted(run, error.message).text!;
       run.summary = error.message;
       this.record(run, "error", `${error.code}: ${error.message}`, { code: error.code, retryable: error.retryable });
     } finally {
-      const login = this.chatgptLogins.get(run.id);
-      if (login) {
-        this.chatgptLogins.delete(run.id);
-        await this.k.credentialPool
-          .saveChatgptLogin(login.scope, login.name, login.sandbox, login.home, `run:${run.id}`)
-          .catch((err) => console.error(`saving the refreshed ChatGPT login ${login.name} failed`, err));
-        this.k.credentialPool.release(login.scope, login.name);
-      }
+      await this.releaseChatgptLogin(run.id);
+      const pooled = this.pooled.get(run.id);
+      this.pooled.delete(run.id);
       this.redactions.delete(run.id);
       this.forgeTokens.delete(run.id);
       this.sessions.delete(run.id);
@@ -681,8 +685,8 @@ export class RunService {
       this.save(run);
       const retrying =
         run.status === "error" && retriesAutomatically(run.error) && (run.attempt ?? 1) < Math.max(1, input.maxAttempts ?? this.k.options.maxRunAttempts ?? 3);
-      if (run.credential)
-        this.k.credentialPool.recordOutcome({ teamId: run.team, userId: run.userId }, run.credential, {
+      if (pooled)
+        this.k.credentialPool.recordOutcome(pooled, {
           ok: run.status === "succeeded",
           message: run.error?.message ?? run.summary,
         });
@@ -776,14 +780,8 @@ export class RunService {
     this.record(run, "started", `${agent.name} (${harnessType}${model ? `, ${model}` : ""})`);
     const adapter = this.k.harnessFor(harnessType, agent.agentType);
     const agentEnv = this.agentEnv(p);
-    const scope = { teamId: run.team, userId: run.userId };
-    if (agentEnv.chatgptLogin && run.credential) {
-      // Registered first, so the login is released even if writing it fails.
-      const login = { scope, name: run.credential, sandbox, home: codexHome(run.id) };
-      this.chatgptLogins.set(run.id, login);
-      await this.k.credentialPool.writeChatgptLogin(sandbox, login.home, agentEnv.chatgptLogin);
-      agentEnv.env.CODEX_HOME = login.home;
-    }
+    const pooled = this.pooled.get(run.id);
+    if (agentEnv.chatgptLogin && pooled) agentEnv.env.CODEX_HOME = await this.holdChatgptLogin(run.id, pooled, sandbox, agentEnv.chatgptLogin);
     const session = await adapter.start({
       sandbox,
       cwd,
@@ -806,15 +804,15 @@ export class RunService {
       else if (e.type === "tool_result") this.record(run, "tool_result", e.output?.slice(0, 4000), { isError: e.isError });
       else if (e.type === "steer") this.record(run, "steer", e.text);
       else if (e.type === "error") this.record(run, "error", e.text);
-      else if (e.type === "rate_limit" && run.credential) this.k.credentialPool.recordUsage({ teamId: run.team, userId: run.userId }, run.credential, e);
+      else if (e.type === "rate_limit" && pooled) this.k.credentialPool.recordUsage(pooled, e);
     }
     const result = await session.result;
     run.costUsd += result.costUsd;
-    run.summary = redact(result.summary, this.redactions.get(run.id) ?? []);
+    run.summary = this.redacted(run, result.summary).text!;
     const raw = cwd ? await sandbox.readFile(`${cwd}/.kiln/result.json`) : await sandbox.readFile(".kiln/result.json");
     if (raw) {
       try {
-        run.result = JSON.parse(raw) as Record<string, unknown>;
+        run.result = this.redacted(run, undefined, JSON.parse(raw) as Record<string, unknown>).data;
       } catch {
         this.record(run, "error", "could not parse .kiln/result.json");
       }
@@ -822,7 +820,7 @@ export class RunService {
     if (input.collect && cwd) await input.collect(sandbox, cwd, run);
     await this.collectArtifacts(run, sandbox, cwd);
     run.status = this.finalStatus(run, result.outcome);
-    if (run.status === "failed") run.error = { ...classifyError(new Error(result.summary || "the agent reported a failure")), retryable: false };
+    if (run.status === "failed") run.error = { ...classifyError(new Error(run.summary || "the agent reported a failure")), retryable: false };
     if (run.status === "succeeded" && (input.push ?? run.kind === "work") && input.branch) {
       const pushed = await this.pushBranches(run, sandbox, repos, input.branch, token);
       run.result = { ...run.result, pushed: pushed.pushed, ...(pushed.diffStat ? { diffStat: pushed.diffStat } : {}) };
@@ -905,6 +903,26 @@ export class RunService {
     if (run.status === "failed") run.error = { ...classifyError(new Error(res.error ?? (res.summary || "the agent reported a failure"))), retryable: false };
   }
 
+  /** Writes a pooled ChatGPT login into the run's sandbox for Codex; returns its CODEX_HOME. */
+  private async holdChatgptLogin(runId: string, credential: PoolCredential, sandbox: Sandbox, value: string) {
+    // Registered first, so the login is released even if writing it fails.
+    const login = { credential, sandbox, home: codexHome(runId) };
+    this.chatgptLogins.set(runId, login);
+    await this.k.credentialPool.writeChatgptLogin(sandbox, login.home, value);
+    return login.home;
+  }
+
+  /** Saves the ChatGPT login a run held (Codex may have refreshed it) and gives it back to the pool. */
+  private async releaseChatgptLogin(runId: string) {
+    const login = this.chatgptLogins.get(runId);
+    if (!login) return;
+    this.chatgptLogins.delete(runId);
+    await this.k.credentialPool
+      .saveChatgptLogin(login.credential, login.sandbox, login.home, `run:${runId}`)
+      .catch((err) => console.error(`saving the refreshed ChatGPT login ${login.credential.name} failed`, err));
+    this.k.credentialPool.release(login.credential);
+  }
+
   private skillsFor(resolved: RunDefinition, agentName: string, agent: ResolvedAgent) {
     return agent.skills.map((name) => {
       const s = resolved.skill(agentName, name);
@@ -918,7 +936,7 @@ export class RunService {
     const resolver = this.k.vault.resolver(scope);
     // Automation overrides add secrets (resolved through the vault like the agent's) and replace the MCP servers; team servers given to all agents always come along.
     // A ChatGPT login is a file in the sandbox, so only local runs (not self-hosted workers) get one from the pool.
-    const chosen: { credential?: string; chatgptLogin?: string; files?: boolean } = { files: !p.workerHost };
+    const chosen: { credential?: PoolCredential; chatgptLogin?: string; files?: boolean } = { files: !p.workerHost };
     const credentials = this.credentials(
       p.harnessType,
       { ...p.agent, secrets: [...new Set([...p.agent.secrets, ...p.environmentSecrets, ...(p.input.overrides?.secrets ?? [])])] },
@@ -926,7 +944,8 @@ export class RunService {
       chosen,
     );
     if (chosen.credential) {
-      p.run.credential = chosen.credential;
+      this.pooled.set(p.run.id, chosen.credential);
+      p.run.credential = chosen.credential.name;
       this.save(p.run);
     }
     const mcp = this.k.mcp.resolve(p.team, this.k.mcp.refsFor(p.team, p.input.overrides?.mcpServers ?? p.agent.mcpServers), resolver);
@@ -994,7 +1013,7 @@ export class RunService {
     type: HarnessType,
     agent: Pick<ResolvedAgent, "secrets" | "harness">,
     scope: { teamId?: string; userId?: string } = {},
-    chosen: { credential?: string; chatgptLogin?: string; files?: boolean } = {},
+    chosen: { credential?: PoolCredential; chatgptLogin?: string; files?: boolean } = {},
   ): Record<string, string> {
     const env: Record<string, string> = {};
     const secrets = this.k.vault.resolver(scope);
@@ -1037,7 +1056,7 @@ export class RunService {
           ? this.k.credentialPool.choose(scope, "chatgpt")
           : undefined;
     if (pooled) {
-      chosen.credential = pooled.name;
+      chosen.credential = pooled.credential;
       if (pooled.value) chosen.chatgptLogin = pooled.value;
       return { ...env, ...pooled.env };
     }
@@ -1351,18 +1370,32 @@ export class RunService {
     run.status = "running";
     this.save(run);
     this.record(run, "resumed", `on ${sandbox.provider} ${sandbox.id}`, { workspaceSha: sandbox.provider === "local" ? hashDir(sandbox.workdir) : undefined });
-    const session = await this.k.harnessFor(run.harness as HarnessType, agent.agentType).start({
-      sandbox,
-      cwd,
-      instructions: run.startState.instructions,
-      prompt: `Continue the paused task. Original request:\n${run.startState.prompt}\n${run.steering.length ? `\nSteering so far:\n${run.steering.join("\n")}` : ""}`,
-      model: run.model,
-      env: { KILN_RUN_ID: run.id, KILN_AGENT_TYPE: agent.agentType, KILN_RESUMED: "1" },
-    });
-    this.sessions.set(runId, session);
-    for await (const e of session.events) if (e.type === "message") this.record(run, "message", e.text);
-    const result = await session.result;
-    this.sessions.delete(runId);
+    const env: Record<string, string> = { KILN_RUN_ID: run.id, KILN_AGENT_TYPE: agent.agentType, KILN_RESUMED: "1" };
+    let result: Awaited<HarnessSession["result"]>;
+    try {
+      // Pausing gave its ChatGPT login back (and removed it from the sandbox): take one again like a fresh start.
+      const login = run.harness === "codex" && run.credential ? this.k.credentialPool.choose({ teamId: run.team, userId: run.userId }, "chatgpt") : undefined;
+      if (login) {
+        this.redactions.set(run.id, (parseChatgptAuth(login.value ?? "")?.tokens ?? []).filter((t) => t.length >= 6));
+        run.credential = login.name;
+        env.CODEX_HOME = await this.holdChatgptLogin(run.id, login.credential, sandbox, login.value ?? "");
+      }
+      const session = await this.k.harnessFor(run.harness as HarnessType, agent.agentType).start({
+        sandbox,
+        cwd,
+        instructions: run.startState.instructions,
+        prompt: `Continue the paused task. Original request:\n${run.startState.prompt}\n${run.steering.length ? `\nSteering so far:\n${run.steering.join("\n")}` : ""}`,
+        model: run.model,
+        env,
+      });
+      this.sessions.set(runId, session);
+      for await (const e of session.events) if (e.type === "message") this.record(run, "message", e.text);
+      result = await session.result;
+    } finally {
+      this.sessions.delete(runId);
+      await this.releaseChatgptLogin(runId);
+      this.redactions.delete(runId);
+    }
     run.status = result.outcome === "succeeded" ? "succeeded" : result.outcome;
     run.costUsd += result.costUsd;
     run.finishedAt = this.k.clock.now().toISOString();

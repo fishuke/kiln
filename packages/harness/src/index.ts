@@ -562,12 +562,26 @@ type LineHandler = (
   s: { emit: (e: HarnessEvent) => void; addCost: (n: number) => void; setSummary: (t: string) => void; fail: () => void; turn: () => void },
 ) => void;
 
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
 /**
- * When a ChatGPT plan's usage limit stopped Codex, the time it resets ("… or try again in 2 days 3 hours 5 minutes.");
- * an hour from now when the message gives no duration. Undefined for any other error.
+ * When a ChatGPT plan's usage limit stopped Codex, the time it resets: "… or try again in 2 days 3 hours 5 minutes.",
+ * "try again at 3:04 PM" (today, or tomorrow once that time has passed) or "try again at Oct 25th, 2026 3:04 PM".
+ * Codex prints its local time; Kiln reads it in the server's time zone. An hour from now when the message gives
+ * neither. Undefined for any other error.
  */
 export function codexUsageLimitReset(message: string, now = new Date()): string | undefined {
   if (!/usage limit|usage_limit_reached/i.test(message)) return undefined;
+  const at = /try again at (?:([a-z]{3})[a-z]* (\d{1,2})(?:st|nd|rd|th)?,? (\d{4}),? )?(\d{1,2}):(\d{2}) ?([ap]m)/i.exec(message);
+  const month = at?.[1] ? MONTHS.indexOf(at[1].toLowerCase()) : -1;
+  if (at && (!at[1] || month >= 0)) {
+    const hours = (Number(at[4]) % 12) + (at[6]!.toLowerCase() === "pm" ? 12 : 0);
+    const date = at[1]
+      ? new Date(Number(at[3]), month, Number(at[2]), hours, Number(at[5]))
+      : new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, Number(at[5]));
+    if (!at[1] && date <= now) date.setDate(date.getDate() + 1);
+    return date.toISOString();
+  }
   const span = /try again in ([^.]+)/i.exec(message)?.[1] ?? "";
   const part = (unit: string) => Number(new RegExp(`(\\d+)\\s*${unit}`, "i").exec(span)?.[1] ?? 0);
   const minutes = part("day") * 1440 + part("hour") * 60 + part("min");
@@ -600,8 +614,10 @@ function codexLine(msg: Record<string, any>, s: Parameters<LineHandler>[1]) {
   } else if (msg.type === "turn.completed") {
     s.turn();
     const u = msg.usage ?? {};
-    // Codex reports tokens, not dollars; cost is estimated by the gateway price table upstream.
-    s.addCost(((u.input_tokens ?? 0) * 1.25 + (u.output_tokens ?? 0) * 10) / 1_000_000);
+    // Codex reports tokens, not dollars; cost is estimated by the gateway price table upstream. Rough per-million
+    // rates: $1.25 input, $0.125 cached input (input_tokens includes the cached ones), $10 output.
+    const cached = Math.min(u.cached_input_tokens ?? 0, u.input_tokens ?? 0);
+    s.addCost((((u.input_tokens ?? 0) - cached) * 1.25 + cached * 0.125 + (u.output_tokens ?? 0) * 10) / 1_000_000);
   } else if (msg.type === "turn.failed" || msg.type === "error") {
     const text: string = msg.error?.message ?? msg.message ?? "codex failed";
     // A ChatGPT login out of usage: report it like Claude's windows so the pool skips it until the reset.

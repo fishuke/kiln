@@ -3124,9 +3124,9 @@ Where device code login is blocked, run `codex login` on your own machine and ch
 | What | How it works |
 | --- | --- |
 | Which runs use it | Codex runs on a Kiln sandbox (not self-hosted workers) whose agent sets no `auth`. With several logins, each run gets the working one with the most left; your own come before the team's. |
-| Where it lives in the run | `auth.json` in a `CODEX_HOME` under `/tmp`, outside the repositories, so it is never committed. Its tokens are redacted from run output. |
-| Refreshes | Codex refreshes a login it has not refreshed for about 8 days and rewrites `auth.json`; the old refresh token then stops working. Kiln saves the refreshed file after every run (the audit log shows `chatgpt.refreshed` by the run). A login that is due for a refresh serves one run at a time; other runs wait and retry. Tokens a refresh produces mid-run are redacted from its output too. |
-| Usage limits | When the plan's limit is reached, the login shows as limited until the time Codex reports and runs use another one. |
+| Where it lives in the run | `auth.json` in a `CODEX_HOME` under `/tmp`, outside the repositories, so it is never committed. Its tokens are redacted from run output. Pausing a run gives its login back and removes the file; the resumed run gets a login again. |
+| Refreshes | Codex refreshes a login it has not refreshed for about 8 days and rewrites `auth.json`; the old refresh token then stops working. Kiln saves the refreshed file after every run (the audit log shows `chatgpt.refreshed` by the run). A login that is due for a refresh serves one run (or **Check now**) at a time; other runs wait and retry, and a check says to try again later. Tokens a refresh produces mid-run are redacted from its output, summary, error and result too. |
+| Usage limits | When the plan's limit is reached, the login shows as limited until the time Codex reports ("try again in 3 hours" or "try again at 3:04 PM", read in the Kiln server's time zone; an hour when the message gives no time) and runs use another one. After that time the exhausted limit no longer counts against the login. |
 | Signed out | A login OpenAI rejects shows as invalid. Sign in again with the same name to replace it. |
 
 To use ChatGPT logins, add `auth.openai.com` and `chatgpt.com` to `KILN_EGRESS_ALLOW` (they are not in the default list, because the list applies to every sandbox). Without them, sign-in fails with Codex's connection error.

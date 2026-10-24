@@ -98,7 +98,7 @@ const emulators: Record<string, Emulator> = {
       await sleep(30);
       io.out({ type: "item.completed", item: { type: "agent_message", text: "done" } });
     }
-    io.out({ type: "turn.completed", usage: { input_tokens: 1000, output_tokens: 100 } });
+    io.out({ type: "turn.completed", usage: { input_tokens: 1000, cached_input_tokens: 800, output_tokens: 100 } });
     io.end(0);
   },
   opencode: async (args, io) => {
@@ -420,5 +420,24 @@ describe("codex with a ChatGPT login", () => {
     ).toBe("2026-10-22T21:05:00.000Z");
     expect(codexUsageLimitReset("You've hit your usage limit. Try again later.", now)).toBe("2026-10-20T19:00:00.000Z");
     expect(codexUsageLimitReset("stream disconnected before completion", now)).toBeUndefined();
+  });
+
+  it("reads a reset given as a time of day or a date (in the server's time zone)", () => {
+    const local = (y: number, mo: number, d: number, h: number, mi: number) => new Date(y, mo, d, h, mi).toISOString();
+    const at = new Date(2026, 9, 20, 13, 0);
+    expect(codexUsageLimitReset("You've hit your usage limit. Upgrade to Plus or try again at 3:04 PM.", at)).toBe(local(2026, 9, 20, 15, 4));
+    // Earlier than now today: tomorrow at that time.
+    expect(codexUsageLimitReset("You've hit your usage limit. Try again at 9:30 AM.", at)).toBe(local(2026, 9, 21, 9, 30));
+    expect(codexUsageLimitReset("You've hit your usage limit. Try again at Oct 25th, 2026 3:04 PM.", at)).toBe(local(2026, 9, 25, 15, 4));
+    expect(codexUsageLimitReset("You've hit your usage limit. Try again at Nov 1st, 2026 12:15 AM.", at)).toBe(local(2026, 10, 1, 0, 15));
+    expect(codexUsageLimitReset("You've hit your usage limit. Try again at teatime.", at)).toBe(new Date(at.getTime() + 3_600_000).toISOString());
+  });
+
+  it("prices cached input tokens at the cached rate", async () => {
+    const { sandbox } = scriptedSandbox();
+    const session = await new CodexAdapter().start({ ...base, sandbox });
+    await collect(session.events);
+    // 200 uncached input at $1.25/M, 800 cached at $0.125/M, 100 output at $10/M.
+    expect((await session.result).costUsd).toBeCloseTo(0.00135, 10);
   });
 });

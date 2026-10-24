@@ -3119,6 +3119,8 @@ The agent's `secrets` list is passed the same way, one variable per secret. Cred
 
 Codex can run OpenAI models on a ChatGPT plan instead of an API key. Under **Team settings → Model keys**, choose **Sign in with ChatGPT**, give the login a name, then open the link Kiln shows and enter the one-time code. Kiln runs `codex login --device-auth` in a throwaway sandbox for this and stores the resulting `auth.json` as a `chatgpt_auth` secret. Admins sign in for the team; anyone can sign in for their own runs only. A sign-in in progress is visible only to whoever started it and to team admins, because whoever enters its code chooses the account. A personal login shadows a team login of the same name. If your ChatGPT workspace is a Business or Enterprise one, an admin may first need to allow device code login in its settings.
 
+Where device code login is blocked, run `codex login` on your own machine and choose **Paste auth.json** instead: paste `~/.codex/auth.json` under a name. Pasting with the name of an existing login replaces it. Then run `codex logout` on that machine, because Codex there and Kiln would refresh the same login and one of them would be signed out.
+
 | What | How it works |
 | --- | --- |
 | Which runs use it | Codex runs on a Kiln sandbox (not self-hosted workers) whose agent sets no `auth`. With several logins, each run gets the working one with the most left; your own come before the team's. |

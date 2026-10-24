@@ -10,15 +10,18 @@ import { SimpleSelect } from "@/components/kiln/simple-select";
 import { useAction } from "@/components/kiln/use-action";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { byHeadroom, resetsIn, tokenStatus } from "@/lib/claude-tokens";
 import * as A from "./actions";
 
 /**
  * ChatGPT logins: Codex runs OpenAI models on a ChatGPT plan. "Sign in with ChatGPT" shows a link and a
- * one-time code; once approved the login is stored and used like the Claude tokens above it.
+ * one-time code; once approved the login is stored and used like the Claude tokens above it. Where a
+ * workspace blocks device codes, "Paste auth.json" stores the file `codex login` wrote instead.
  */
 export function ChatgptLogins({ team, logins, isAdmin }: { team: string; logins: PoolEntry[]; isAdmin: boolean }) {
-  const [form, setForm] = useState(false);
+  const [form, setForm] = useState<"sign-in" | "paste">();
+  const [authJson, setAuthJson] = useState("");
   const [name, setName] = useState("CHATGPT_");
   const [scope, setScope] = useState<"team" | "personal">(isAdmin ? "team" : "personal");
   const [signIn, setSignIn] = useState<ChatgptSignIn>();
@@ -35,7 +38,7 @@ export function ChatgptLogins({ team, logins, isAdmin }: { team: string; logins:
       setSignIn(undefined);
       if (r.data.status === "succeeded") {
         toast.success(`Signed in${r.data.email ? ` as ${r.data.email}` : ""}${r.data.plan ? ` (${r.data.plan})` : ""}`);
-        setForm(false);
+        setForm(undefined);
         router.refresh();
       } else if (r.data.status === "failed") toast.error(`ChatGPT sign-in failed: ${r.data.error ?? "unknown error"}`);
     }, 2000);
@@ -48,14 +51,21 @@ export function ChatgptLogins({ team, logins, isAdmin }: { team: string; logins:
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold">ChatGPT logins</div>
           <div className="text-sm text-muted-foreground">
-            Codex runs OpenAI models on a ChatGPT plan instead of an API key. Sign in, approve the code on OpenAI&apos;s page, and runs use the working login
-            with the most left. The agent in a run can read the login, so use a dedicated ChatGPT account for team logins, within OpenAI&apos;s terms. Needs auth.openai.com and chatgpt.com in the egress allowlist.
+            Codex runs OpenAI models on a ChatGPT plan instead of an API key. Sign in and approve the code on OpenAI&apos;s page, or paste the{" "}
+            <code className="font-mono text-xs">~/.codex/auth.json</code> that <code className="font-mono text-xs">codex login</code> wrote if your workspace blocks
+            device codes. Runs use the working login with the most left. The agent in a run can read the login, so use a dedicated ChatGPT account for team logins,
+            within OpenAI&apos;s terms. Needs auth.openai.com and chatgpt.com in the server&apos;s <code className="font-mono text-xs">KILN_EGRESS_ALLOW</code>.
           </div>
         </div>
         {!form && (
-          <Button variant="outline" onClick={() => setForm(true)}>
-            Sign in with ChatGPT
-          </Button>
+          <span className="flex shrink-0 gap-2">
+            <Button variant="ghost" onClick={() => setForm("paste")}>
+              Paste auth.json
+            </Button>
+            <Button variant="outline" onClick={() => setForm("sign-in")}>
+              Sign in with ChatGPT
+            </Button>
+          </span>
         )}
       </div>
 
@@ -78,7 +88,7 @@ export function ChatgptLogins({ team, logins, isAdmin }: { team: string; logins:
                 {l.status === "limited" && l.resetsAt && <span className="text-xs text-muted-foreground">usable {resetsIn(l.resetsAt)}</span>}
                 {l.status === "invalid" && l.error && (
                   <span className="w-full truncate text-xs text-destructive" title={l.error}>
-                    Signed out: {l.error}. Sign in again with the same name to replace it.
+                    Signed out: {l.error}. Sign in again, or paste a new auth.json, with the same name to replace it.
                   </span>
                 )}
                 {canManage && (
@@ -113,7 +123,43 @@ export function ChatgptLogins({ team, logins, isAdmin }: { team: string; logins:
         </ul>
       )}
 
-      {form && !signIn && (
+      {form === "paste" && (
+        <form
+          className="mt-3 grid gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const replace = logins.some((l) => l.scope === scope && l.name === name.trim());
+            void run(() => A.addChatgptLogin(name, authJson, scope, replace), { onSuccess: () => (setForm(undefined), setAuthJson(""), router.refresh()) });
+          }}
+        >
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <Input autoFocus placeholder="CHATGPT_ALICE" value={name} onChange={(e) => setName(e.target.value.toUpperCase())} className="h-9 bg-background font-mono" aria-label="Login name" />
+            <ScopeSelect isAdmin={isAdmin} scope={scope} setScope={setScope} />
+          </div>
+          <Textarea
+            value={authJson}
+            onChange={(e) => setAuthJson(e.target.value)}
+            placeholder="Paste ~/.codex/auth.json"
+            className="min-h-28 bg-background font-mono text-xs"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label="auth.json"
+          />
+          <p className="text-xs text-muted-foreground">
+            Then run <code className="font-mono">codex logout</code> on that machine: Codex there and Kiln would refresh the same login, and one of them would be signed out.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setForm(undefined)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={pending || !validName || !authJson.trim()}>
+              {pending ? "Saving…" : "Add"}
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {form === "sign-in" && !signIn && (
         <form
           className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]"
           onSubmit={(e) => {
@@ -129,19 +175,8 @@ export function ChatgptLogins({ team, logins, isAdmin }: { team: string; logins:
             className="h-9 bg-background font-mono"
             aria-label="Login name"
           />
-          {isAdmin ? (
-            <SimpleSelect
-              value={scope}
-              onChange={(v: string) => setScope(v as "team" | "personal")}
-              options={[
-                { value: "team", label: "For the team" },
-                { value: "personal", label: "Only my runs" },
-              ]}
-            />
-          ) : (
-            <span className="self-center text-xs text-muted-foreground">Only your runs</span>
-          )}
-          <Button type="button" variant="ghost" onClick={() => setForm(false)}>
+          <ScopeSelect isAdmin={isAdmin} scope={scope} setScope={setScope} />
+          <Button type="button" variant="ghost" onClick={() => setForm(undefined)}>
             Cancel
           </Button>
           <Button type="submit" disabled={pending || !validName}>
@@ -184,5 +219,19 @@ export function ChatgptLogins({ team, logins, isAdmin }: { team: string; logins:
         </div>
       )}
     </div>
+  );
+}
+
+function ScopeSelect({ isAdmin, scope, setScope }: { isAdmin: boolean; scope: "team" | "personal"; setScope: (s: "team" | "personal") => void }) {
+  if (!isAdmin) return <span className="self-center text-xs text-muted-foreground">Only your runs</span>;
+  return (
+    <SimpleSelect
+      value={scope}
+      onChange={(v: string) => setScope(v as "team" | "personal")}
+      options={[
+        { value: "team", label: "For the team" },
+        { value: "personal", label: "Only my runs" },
+      ]}
+    />
   );
 }

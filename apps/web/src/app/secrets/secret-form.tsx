@@ -29,6 +29,8 @@ export function SecretForm({ existing, canTeam, initialScope, initialType }: { e
   const [fields, setFields] = useState<Record<string, string>>({});
   const [description, setDescription] = useState(existing?.description ?? "");
   const meta = secretType(type);
+  // Harness credentials reach runs on their own; other secrets only where an agent or MCP server names them.
+  const harnessCredential = meta.group === "Harness credentials";
   const editing = Boolean(existing);
 
   const hasValue = meta.fields ? meta.fields.every((f) => f.optional || fields[f.key]?.trim()) : value.length > 0;
@@ -133,7 +135,7 @@ export function SecretForm({ existing, canTeam, initialScope, initialType }: { e
           <div role="radiogroup" aria-label="Scope" className="grid gap-2 sm:grid-cols-2">
             {(
               [
-                ["team", "Team", "Runs of the team's factories get it when an agent lists it.", !canTeam],
+                ["team", "Team", harnessCredential ? "The team's runs use it when their agent sets no credential of its own." : "Runs of the team's factories get it when an agent lists it.", !canTeam],
                 ["personal", "Personal", "Only runs you start get it. Overrides a team secret of the same name.", meta.teamOnly],
               ] as const
             ).map(([v, label, hint, disabled]) => (
@@ -196,7 +198,13 @@ export function SecretForm({ existing, canTeam, initialScope, initialType }: { e
             <span className="font-mono text-xs text-muted-foreground">{meta.gives(name)}</span>
           </div>
           <p className="mt-2 text-muted-foreground">
-            Agents get this secret when their definition lists it, for example <code className="rounded bg-muted px-1 font-mono text-xs">secrets: [{name || "NAME"}]</code> in the agent file, or by name in an MCP server header as <code className="rounded bg-muted px-1 font-mono text-xs">{`{{${name || "NAME"}}}`}</code>.
+            {type === "chatgpt_auth" ? (
+              <>Codex runs on Kiln sandboxes use it when their agent sets no <code className="rounded bg-muted px-1 font-mono text-xs">auth</code>. With several logins, each run gets the working one with the most left. It also shows under Team settings → Model keys.</>
+            ) : harnessCredential ? (
+              <>Runs use it when their agent sets no <code className="rounded bg-muted px-1 font-mono text-xs">harness.auth</code>. An agent can also name it: <code className="rounded bg-muted px-1 font-mono text-xs">{`auth: { source: secret, secretName: ${name || "NAME"} }`}</code>.</>
+            ) : (
+              <>Agents get this secret when their definition lists it, for example <code className="rounded bg-muted px-1 font-mono text-xs">secrets: [{name || "NAME"}]</code> in the agent file, or by name in an MCP server header as <code className="rounded bg-muted px-1 font-mono text-xs">{`{{${name || "NAME"}}}`}</code>.</>
+            )}
           </p>
           {existing && (
             <p className="mt-2 text-xs text-muted-foreground">

@@ -263,10 +263,27 @@ describe("apps", () => {
     const { studio } = make({ sandboxes: new LocalSandboxProvider(root), templates: { test: { ...TEST, install } } });
     const p = await app(studio);
     const a = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    await studio.diff({ chatId: a.id });
     const b = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    await studio.diff({ chatId: b.id });
     const files = readdirSync(root, { recursive: true }) as string[];
     expect(files.some((f) => f.endsWith(`${a.path}/node_modules/.reused`))).toBe(false);
     expect(files.some((f) => f.endsWith(`${b.path}/node_modules/.reused`))).toBe(true);
+  });
+
+  it("opens a new chat before its worktree is installed, and its first message waits for the install", async () => {
+    const marker = join(mkdtempSync(join(tmpdir(), "kiln-marker-")), "go");
+    // A chat's install waits for the marker; the App's own install (in app/) doesn't.
+    const install = [`case "$PWD" in */chats/*) while [ ! -e ${marker} ]; do sleep 0.05; done ;; esac`];
+    const { studio } = make({ templates: { test: { ...TEST, install } } });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    expect(chat.status).toBe("idle");
+    const sent = studio.send(chat.id, { by: "me", via: "web", text: "write early.md hi" });
+    writeFileSync(marker, "");
+    await sent;
+    await studio.idle(chat.id);
+    expect(await studio.diff({ chatId: chat.id })).toContain("+hi");
   });
 
   it("gives a new chat its agent's harness and model from the App settings", async () => {

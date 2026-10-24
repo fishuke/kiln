@@ -147,7 +147,8 @@ type Dev = {
 export type AppEnv = { env: Record<string, string>; secretValues: string[] };
 
 /** `addresses`: where each dev server port is reachable, asked of the sandbox once per port. */
-type Live = { sandbox: Sandbox; devs: Map<string, Dev>; addresses: Map<number, SandboxAddress>; shownVersion?: string };
+/** `chats`: each chat's worktree preparation in this sandbox (see `prepare`). */
+type Live = { sandbox: Sandbox; devs: Map<string, Dev>; addresses: Map<number, SandboxAddress>; chats: Map<string, Promise<void>>; shownVersion?: string };
 /** A chat's turn in progress: its run once it has one; `finish` ends it. */
 type Running = { turnId: string; runId?: string; done: Promise<void>; finish: () => void };
 /** A run working in a chat's worktree. */
@@ -530,7 +531,7 @@ export class Studio {
             return { sandbox: await this.opts.sandboxes.create(this.spec(app, clone.url)), branch: clone.branch };
           })
         : { sandbox: await this.opts.sandboxes.create(this.spec(app)), branch: undefined };
-    this.live.set(app.id, { sandbox, devs: new Map(), addresses: new Map() });
+    this.live.set(app.id, { sandbox, devs: new Map(), addresses: new Map(), chats: new Map() });
     const env = this.env(app);
     await must(sandbox, ".", "mkdir -p chats");
     let mainBranch = "main";
@@ -617,17 +618,15 @@ export class Studio {
       ...(input.harness ? { harness: input.harness } : {}),
       ...(input.model ? { model: input.model } : {}),
     });
+    // The chat opens now; its worktree is prepared in the background, and its first turn waits for it.
+    this.prepare(p, chat).catch(() => undefined);
     if (!input.prompt) return { chat };
     const { turn } = await this.send(chat.id, { by: input.by, via: input.via, text: input.prompt, ...(input.mode ? { mode: input.mode } : {}) });
     return { chat: this.chat(chat.id), turn };
   }
 
-  /** A chat's record and worktree (branch chat/<id> from the App's main line). */
-  private async createChat(
-    p: App,
-    input: { title?: string; agent: string; mode: ChatMode; harness?: HarnessType; model?: string; parentRunId?: string },
-  ): Promise<Chat> {
-    const { sandbox } = await this.ensureLive(p);
+  /** A chat's record; `prepare` makes its worktree. */
+  private createChat(p: App, input: { title?: string; agent: string; mode: ChatMode; harness?: HarnessType; model?: string; parentRunId?: string }): Chat {
     const chatId = id("sc");
     const existing = this.getApp(p.id)!.chats.length;
     if (existing >= MAX_CHATS) throw new StudioError("invalid", `an app can have at most ${MAX_CHATS} chats`);
@@ -654,18 +653,46 @@ export class Studio {
       createdAt: now,
       updatedAt: now,
     };
-    await this.locked(p.id, () => must(sandbox, "app", `git worktree add -q -b ${chat.branch} ../${chat.path} ${shellQuote(p.setup!.mainBranch)}`));
-    // Starts from another worktree's installed dependencies, so the install only tops them up.
-    if (p.setup!.install.length)
-      await must(
-        sandbox,
-        chat.path,
-        'for d in ../../app ../../version ../*; do [ -d "$d/node_modules" ] && [ "$d" != "../' +
-          chatId +
-          '" ] && cp -a "$d/node_modules" . && break; done; true',
-      );
-    await this.install(p.id, sandbox, chat.path, p.setup!.install, this.env(p));
     return this.save(C.chats, chat);
+  }
+
+  /**
+   * The chat's worktree (branch chat/<id> from the App's main line) with its dependencies installed, once
+   * per sandbox: a later call waits for the first. A failed preparation is removed, so the next call retries.
+   */
+  private async prepare(p: App, chat: Chat): Promise<Live> {
+    const live = await this.ensureLive(p);
+    let job = live.chats.get(chat.id);
+    if (!job) {
+      // Deleted while the sandbox was starting: no worktree for it.
+      if (!this.opts.store.get<Chat>(C.chats, chat.id)) throw new StudioError("not_found", `chat ${chat.id} was deleted`);
+      job = this.makeWorktree(p, live.sandbox, chat);
+      live.chats.set(chat.id, job);
+      job.catch(() => live.chats.delete(chat.id));
+    }
+    await job;
+    return live;
+  }
+
+  private async makeWorktree(p: App, sandbox: Sandbox, chat: Chat): Promise<void> {
+    // A sandbox restored from a snapshot already has the worktree.
+    if ((await sandbox.exec(`test -d ${chat.path}`, { trusted: true })).code === 0) return;
+    await this.locked(p.id, () => must(sandbox, "app", `git worktree add -q -b ${chat.branch} ../${chat.path} ${shellQuote(p.setup!.mainBranch)}`));
+    try {
+      // Starts from another worktree's installed dependencies, so the install only tops them up.
+      if (p.setup!.install.length)
+        await must(
+          sandbox,
+          chat.path,
+          'for d in ../../app ../../version ../*; do [ -d "$d/node_modules" ] && [ "$d" != "../' +
+            chat.id +
+            '" ] && cp -a "$d/node_modules" . && break; done; true',
+        );
+      await this.install(p.id, sandbox, chat.path, p.setup!.install, this.env(p));
+    } catch (err) {
+      await this.locked(p.id, () => sandbox.exec(`git worktree remove --force ../${chat.path}; git branch -D ${chat.branch}; true`, { cwd: "app", trusted: true }));
+      throw err;
+    }
   }
 
   /**
@@ -728,6 +755,9 @@ export class Studio {
     if (this.running.has(chatId) || this.settling.has(chatId)) throw new StudioError("invalid", "the chat is working; stop it first");
     const live = this.live.get(chat.appId);
     if (live) {
+      // A worktree still being prepared is removed once it is done.
+      await live.chats.get(chat.id)?.catch(() => undefined);
+      live.chats.delete(chat.id);
       void this.stopDev(live, chat.id);
       await this.locked(chat.appId, async () => {
         await live.sandbox.exec(`git worktree remove --force ../${chat.path}; git branch -D ${chat.branch}; true`, { cwd: "app", trusted: true });
@@ -820,19 +850,19 @@ export class Studio {
   async acquire(run: RunRef, parent?: RunRef): Promise<{ sandbox: Sandbox; cwd: string } | undefined> {
     if (!run.app) return undefined;
     const p = this.readyApp(run.app);
-    const live = await this.ensureLive(p);
     const named = run.metadata?.["studio.chat"];
     const continued = run.continuationOf ? this.opts.store.list<Chat>(C.chats, (c) => c.runId === run.continuationOf)[0] : undefined;
     let chat = continued ?? (named ? this.chat(named) : undefined);
     if (!chat) {
       if (!parent) throw new StudioError("invalid", `run ${run.id} has no Studio chat`);
-      chat = await this.createChat(p, {
+      chat = this.createChat(p, {
         title: run.name ?? run.title ?? oneLine(run.startState.prompt, 40),
         agent: run.agent,
         mode: "build",
         parentRunId: parent.id,
       });
     }
+    const live = await this.prepare(p, chat);
     // A turn Studio started (send) waits for its run; any other run (a child, a report, an agent's follow-up) is a new turn.
     const waiting = this.running.get(chat.id);
     const turn =
@@ -1031,6 +1061,7 @@ export class Studio {
   async apply(chatId: string, by: string): Promise<ApplyResult> {
     const chat = this.chat(chatId);
     const p = this.readyApp(chat.appId);
+    await this.prepare(p, chat);
     return this.locked(p.id, async () => {
       const { sandbox } = await this.ensureLive(p);
       void by;
@@ -1081,7 +1112,7 @@ export class Studio {
     if ("chatId" in target) {
       const chat = this.chat(target.chatId);
       const p = this.readyApp(chat.appId);
-      const { sandbox } = await this.ensureLive(p);
+      const { sandbox } = await this.prepare(p, chat);
       return (await sandbox.exec(`git diff ${shellQuote(p.setup!.mainBranch)}...${chat.branch}`, { cwd: "app", trusted: true })).stdout;
     }
     const v = this.version(target.versionId);
@@ -1103,7 +1134,7 @@ export class Studio {
     if ("chatId" in target) {
       const chat = this.chat(target.chatId);
       const p = this.readyApp(chat.appId);
-      const live = await this.ensureLive(p);
+      const live = await this.prepare(p, chat);
       return this.serve(p, live, chat.id, chat.path, chat.port);
     }
     const v = this.version(target.versionId);
@@ -1351,7 +1382,7 @@ export class Studio {
         await s.exec('for d in ../chats/* ../version; do [ -e "$d" ] && git worktree repair "$d"; done; true', { cwd: "app", trusted: true });
         return s;
       });
-      const live: Live = { sandbox, devs: new Map(), addresses: new Map() };
+      const live: Live = { sandbox, devs: new Map(), addresses: new Map(), chats: new Map() };
       this.live.set(p.id, live);
       if (current.status === "paused") this.touch(C.apps, { ...current, status: "ready" });
       return live;

@@ -64,15 +64,17 @@ export function AppSettingsView({ scope, settings, canEditPolicy }: { scope: Stu
   const save = (patch: StudioSettingsPatch) => run(() => saveStudioSettings(scope, patch), { onSuccess: () => router.refresh() });
   const { resolved, own, layer } = settings;
   const ownLayer = layer.kind;
+  // Forms seed their state once; a new resolved sha (after a save or refresh) seeds them again.
+  const seed = settings.sha;
 
   return (
     <>
-      <GeneralSection resolved={resolved} own={own} pending={pending} save={save} />
+      <GeneralSection key={seed} resolved={resolved} own={own} pending={pending} save={save} />
 
       <SettingsSection id="agents" title="Agents">
         <div className="space-y-6">
           {resolved.agents.map((a) => (
-            <AgentCard key={a.name} agent={a} own={own.agents[a.name]} ownLayer={ownLayer} pending={pending} save={save} />
+            <AgentCard key={`${a.name}-${seed}`} agent={a} own={own.agents[a.name]} ownLayer={ownLayer} pending={pending} save={save} />
           ))}
           <AddByName label="Add agent" placeholder="reviewer" pending={pending} onAdd={(name) => save({ agents: { [name]: {} } })} />
         </div>
@@ -87,7 +89,7 @@ export function AppSettingsView({ scope, settings, canEditPolicy }: { scope: Stu
       </SettingsSection>
 
       <SettingsSection id="budget" title="Budget">
-        <BudgetSection resolved={resolved} own={own} pending={pending} save={save} />
+        <BudgetSection key={seed} resolved={resolved} own={own} pending={pending} save={save} />
       </SettingsSection>
 
       <SettingsSection id="versions" title="Versions">

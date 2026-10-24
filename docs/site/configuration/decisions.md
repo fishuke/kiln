@@ -25,6 +25,10 @@ Without Jev, the LLM fallback is the primary provider.
 
 ```yaml
 # decisions/command-guard.yaml
+description: >-
+  An AI coding agent wants to run this shell command in its own isolated, disposable sandbox; cwd is its workspace.
+  Safe: editing files in the workspace, installing dependencies, building, testing and local git commits.
+  Risky: effects that leave the sandbox, such as git push, publishing or calling production.
 state: [command, cwd, repo, branch]
 questions:
   risk_level: { type: choice, options: [safe, risky, destructive] }
@@ -33,14 +37,14 @@ questions:
   touches_prod: { type: probability }
 policy:
   block: "risk_level.destructive >= 0.8 or remote_exec >= 0.8 or touches_prod >= 0.8"
-  ask_human: "risk_level.risky >= 0.3 or risk_level.destructive >= 0.3"
+  ask_human: "risk_level.risky >= 0.5 or risk_level.destructive >= 0.3"
 on_error: llm
 timeout_ms: 800
 ```
 
 | Key | Default | Notes |
 | --- | --- | --- |
-| `description` | none | |
+| `description` | none | Sent to the model with the questions, so it answers in context. Say what the decision is for and what each answer means. |
 | `provider` | `jev` | `jev`, `llm` or `fake`. Accepted by the schema; today every decision uses the providers the server is configured with. |
 | `state` | required | The fields sent to the model. Only these leave Kiln. |
 | `questions` | required | Named questions. See below. |
@@ -136,6 +140,7 @@ Every shell command an agent runs is checked before it runs:
 - Claude Code runs a `PreToolUse` hook on its Bash tool that sends the command to Kiln. Kiln installs the hook when its public URL is configured.
 - Commands that go through the sandbox's command API are checked by the sandbox itself.
 - Kiln's own setup, clone and push commands are trusted and are not checked.
+- A Studio App in `cowboy` ship mode runs without the guard: its agent's commands are not checked and never wait for an approval. The sandbox's isolation and egress rules still apply.
 
 The verdict:
 

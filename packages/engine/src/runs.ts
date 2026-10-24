@@ -714,6 +714,8 @@ export class RunService {
     const provider = this.provider(input.backend ?? runner.backend);
     // Setup commands target the runner's image; when Kiln falls back to the host they are skipped.
     const effective: SandboxRunner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [], workspaceSetupCommands: [] };
+    // A cowboy App's owner accepted that its agent works unchecked (ADR-012): no guard, no approvals.
+    const unguarded = p.app?.unguarded === true;
     let sandbox: Sandbox | undefined;
     const guard = async (command: string) => {
       const { verdict, outcome } = await guardCommand(command, { cwd: sandbox?.workdir, branch: input.branch }, this.k.decide, decisions);
@@ -725,7 +727,7 @@ export class RunService {
     const provided = await this.k.options.workspaces?.acquire(run, run.parentRunId ? this.get(run.parentRunId) : undefined);
     if (provided) {
       // Someone else's sandbox: this run's guard still decides its agent's commands.
-      sandbox = withGuard(provided.sandbox, guard, askHuman);
+      sandbox = unguarded ? provided.sandbox : withGuard(provided.sandbox, guard, askHuman);
       this.borrowed.add(run.id);
     } else {
       sandbox = await provider.create({
@@ -735,8 +737,7 @@ export class RunService {
         env: { KILN_RUN_ID: run.id },
         labels: { "kiln.dev/run": run.id, "kiln.dev/factory": input.factory },
         deniedHosts: p.deniedHosts,
-        guard,
-        askHuman,
+        ...(unguarded ? {} : { guard, askHuman }),
       });
     }
     this.sandboxes.set(run.id, sandbox);
@@ -791,7 +792,7 @@ export class RunService {
       model,
       skills,
       mcpServers: agentEnv.mcpServers,
-      guardUrl: this.k.options.publicUrl ? `${this.k.options.publicUrl}/api/v1/guard` : undefined,
+      guardUrl: this.k.options.publicUrl && !unguarded ? `${this.k.options.publicUrl}/api/v1/guard` : undefined,
       env: { ...agentEnv.env, ...this.runEnv(run, input, agent.agentType, token) },
     });
     this.sessions.set(run.id, session);

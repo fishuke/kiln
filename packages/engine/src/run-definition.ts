@@ -50,6 +50,8 @@ export type AppRunDefinition = {
   /** Values people assigned to the App (team → Kiln Project → App), and which are secret. */
   env: Record<string, string>;
   secretValues: string[];
+  /** The App ships in cowboy mode: its runs skip the command guard and its approvals. */
+  unguarded?: boolean;
 };
 
 /** Studio gives the engine its Apps' definitions; the engine never imports Studio. */

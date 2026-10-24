@@ -1,4 +1,9 @@
-description: Command guardrail for every sandbox command
+description: >-
+  An AI coding agent wants to run this shell command in its own isolated, disposable sandbox; cwd is its workspace.
+  Safe: reading, creating, editing or deleting files in the workspace (by any tool, including python or node scripts and heredocs),
+  installing dependencies, building, testing, running dev servers and local git commits.
+  Risky: effects that leave the sandbox, such as git push, publishing packages, using credentials, or calling production or other remote systems.
+  Destructive: deleting outside the workspace, wiping git history, or destroying remote data.
 provider: jev
 state: [command, cwd, repo, branch]
 questions:
@@ -8,6 +13,6 @@ questions:
   touches_prod: { type: probability }
 policy:
   block: "risk_level.destructive >= 0.8 or remote_exec >= 0.8 or touches_prod >= 0.8"
-  ask_human: "risk_level.risky >= 0.3"
+  ask_human: "risk_level.risky >= 0.5"
 on_error: llm
 timeout_ms: 800

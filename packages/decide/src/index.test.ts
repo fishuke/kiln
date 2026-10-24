@@ -32,6 +32,21 @@ describe("command guardrail", () => {
     expect(logs).toHaveLength(1);
   });
 
+  it("lets the agent work on when the guard is only unsure, and asks once risky is at least as likely as not", async () => {
+    const answering = (risky: number): DecisionProvider => ({
+      name: "unsure",
+      ask: async () => ({ risk_level: { safe: 1 - risky, risky, destructive: 0 }, remote_exec: 0, deletes_files: 0, touches_prod: 0 }),
+    });
+    expect((await guardCommand("python3 - <<'E'\nopen('a.tsx','w')\nE", {}, { primary: answering(0.35) })).verdict).toBe("allow");
+    expect((await guardCommand("git push origin kiln/feature", {}, { primary: answering(0.5) })).verdict).toBe("ask_human");
+  });
+
+  it("tells the provider what the guard decides: a sandbox, where workspace edits are safe", async () => {
+    const provider = new FakeProvider();
+    await guardCommand("ls", {}, { primary: provider });
+    expect(provider.calls[0]!.description).toMatch(/sandbox/i);
+  });
+
   it("fails closed when every provider fails", async () => {
     const broken: DecisionProvider = { name: "broken", ask: async () => Promise.reject(new Error("down")) };
     const { verdict } = await guardCommand("ls", {}, { primary: broken, fallback: broken });
@@ -80,6 +95,14 @@ describe("Jev adapter", () => {
     }
   });
 
+  it("puts the decision's description in front of every question", async () => {
+    const seen: { body?: Record<string, any> } = {};
+    const jev = new JevProvider({ apiKey: "k", fetch: jevAt({}, seen) });
+    await runDecision("command-guard", BUILTIN_DECISIONS["command-guard"]!, { command: "ls" }, { primary: jev });
+    expect(seen.body!.questions.risk_level.instructions).toContain("disposable sandbox");
+    expect(seen.body!.questions.risk_level.instructions).toContain("command guard: risk level");
+  });
+
   it("fails with the status so the decision falls back", async () => {
     const jev = new JevProvider({ apiKey: "bad", fetch: (async () => new Response("unauthorized", { status: 401 })) as unknown as typeof fetch });
     await expect(jev.ask({ decision: "triage", state: {}, questions: BUILTIN_DECISIONS.triage!.questions, timeoutMs: 1000 })).rejects.toThrow("jev returned 401");
@@ -104,6 +127,7 @@ describe("Anthropic provider", () => {
     expect(verdict).toBe("allow");
     expect(body).toMatchObject({ model: "claude-haiku-5-5", output_config: { format: { type: "json_schema" } } });
     expect(JSON.stringify(body!.messages)).toContain("rm -rf node_modules");
+    expect(JSON.stringify(body!.messages)).toContain("disposable sandbox");
   });
 
   it("throws on a refusal so the decision fails closed", async () => {

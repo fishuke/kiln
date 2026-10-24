@@ -61,7 +61,13 @@ export const APP_SETTINGS_NAV = [
 export function AppSettingsView({ scope, settings, canEditPolicy }: { scope: StudioDefinitionScope; settings: StudioAppSettings; canEditPolicy: boolean }) {
   const router = useRouter();
   const [pending, run] = useAction();
-  const save = (patch: StudioSettingsPatch) => run(() => saveStudioSettings(scope, patch), { onSuccess: () => router.refresh() });
+  const save = (patch: StudioSettingsPatch, onSaved?: () => void) =>
+    run(() => saveStudioSettings(scope, patch), {
+      onSuccess: () => {
+        onSaved?.();
+        router.refresh();
+      },
+    });
   const { resolved, own, layer } = settings;
   const ownLayer = layer.kind;
   // Forms seed their state once; a new resolved sha (after a save or refresh) seeds them again.
@@ -76,7 +82,7 @@ export function AppSettingsView({ scope, settings, canEditPolicy }: { scope: Stu
           {resolved.agents.map((a) => (
             <AgentCard key={`${a.name}-${seed}`} agent={a} own={own.agents[a.name]} ownLayer={ownLayer} pending={pending} save={save} />
           ))}
-          <AddByName label="Add agent" placeholder="reviewer" pending={pending} onAdd={(name) => save({ agents: { [name]: {} } })} />
+          <AddByName label="Add agent" placeholder="reviewer" pending={pending} onAdd={(name, onAdded) => save({ agents: { [name]: {} } }, onAdded)} />
         </div>
       </SettingsSection>
 
@@ -128,7 +134,12 @@ export function AppSettingsView({ scope, settings, canEditPolicy }: { scope: Stu
   );
 }
 
-type SectionProps = { resolved: StudioAppSettings["resolved"]; own: StudioAppSettings["own"]; pending: boolean; save: (patch: StudioSettingsPatch) => unknown };
+type SectionProps = {
+  resolved: StudioAppSettings["resolved"];
+  own: StudioAppSettings["own"];
+  pending: boolean;
+  save: (patch: StudioSettingsPatch, onSaved?: () => void) => unknown;
+};
 
 function GeneralSection({ resolved, own, pending, save }: SectionProps) {
   const [name, setName] = useState(own.name ?? "");
@@ -283,10 +294,9 @@ function SkillsSection({ resolved, own, pending, save }: SectionProps) {
             </Button>
             <Button
               disabled={pending || !editing.name.trim() || !editing.description.trim()}
-              onClick={() => {
-                save({ skills: { upsert: [{ name: editing.name.trim(), description: editing.description.trim(), body: editing.body }] } });
-                setEditing(null);
-              }}
+              onClick={() =>
+                save({ skills: { upsert: [{ name: editing.name.trim(), description: editing.description.trim(), body: editing.body }] } }, () => setEditing(null))
+              }
             >
               Save skill
             </Button>
@@ -359,7 +369,7 @@ function BudgetSection({ resolved, own, pending, save }: SectionProps) {
   );
 }
 
-function AddByName({ label: text, placeholder, pending, onAdd }: { label: string; placeholder: string; pending: boolean; onAdd: (name: string) => unknown }) {
+function AddByName({ label: text, placeholder, pending, onAdd }: { label: string; placeholder: string; pending: boolean; onAdd: (name: string, onAdded: () => void) => unknown }) {
   const [name, setName] = useState("");
   const valid = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/.test(name.trim());
   return (
@@ -368,10 +378,7 @@ function AddByName({ label: text, placeholder, pending, onAdd }: { label: string
       <Button
         variant="outline"
         disabled={pending || !valid}
-        onClick={() => {
-          onAdd(name.trim());
-          setName("");
-        }}
+        onClick={() => onAdd(name.trim(), () => setName(""))}
       >
         {text}
       </Button>

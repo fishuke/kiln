@@ -699,8 +699,8 @@ export class Studio {
    * A message to a chat: steers its live run, or starts its next turn (a new run, or a follow-up that
    * continues the chat's finished run). Resolves once the run exists.
    */
-  async send(chatId: string, input: { by: string; via: Via; text: string; mode?: ChatMode }, resolve = false): Promise<{ turn: Turn; steered: boolean }> {
-    const chat = this.chat(chatId);
+  async send(chatId: string, input: { by: string; via: Via; text: string; mode?: ChatMode; model?: string }, resolve = false): Promise<{ turn: Turn; steered: boolean }> {
+    let chat = this.chat(chatId);
     const current = this.running.get(chatId);
     if (current?.runId) {
       const r = await this.opts.runs.followup(current.runId, { message: input.text, by: input.by });
@@ -713,6 +713,8 @@ export class Studio {
     const busy = this.getApp(chat.appId)!.chats.filter((c) => c.id !== chatId && this.running.has(c.id)).length;
     if (busy >= max) throw new StudioError("busy", `${max} chats are already working in this app`);
     const p = this.readyApp(chat.appId);
+    // A chat keeps its model; the person may still choose it with the first message.
+    if (input.model && !chat.runId && input.model !== chat.model) chat = this.touch(C.chats, { ...chat, model: input.model });
     const mode = input.mode ?? chat.mode;
     const turn = this.newTurn(p, chat, { prompt: input.text, mode, via: input.via, by: input.by, resolve });
     this.touch(C.chats, { ...chat, mode, status: "working", question: undefined });

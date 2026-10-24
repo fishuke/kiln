@@ -286,6 +286,18 @@ describe("apps", () => {
     expect(await studio.diff({ chatId: chat.id })).toContain("+hi");
   });
 
+  it("takes a model with a chat's first message, and keeps it afterwards", async () => {
+    const { studio } = make();
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.send(chat.id, { by: "me", via: "web", text: "hello", model: "claude-haiku-5-5" });
+    await studio.idle(chat.id);
+    expect(studio.getChat(chat.id)!.chat.model).toBe("claude-haiku-5-5");
+    await studio.send(chat.id, { by: "me", via: "web", text: "again", model: "claude-opus-5-5" });
+    await studio.idle(chat.id);
+    expect(studio.getChat(chat.id)!.chat.model).toBe("claude-haiku-5-5");
+  });
+
   it("gives a new chat its agent's harness and model from the App settings", async () => {
     const { studio, definitions } = make();
     const p = await app(studio);

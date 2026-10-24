@@ -29,6 +29,7 @@ import {
   versionNumber,
   reviewFor,
 } from "@/lib/studio/model";
+import { isTypingTarget } from "@/lib/studio/shortcuts";
 import type { Chat, ChatMode, MergeReview, Version } from "@/lib/studio/types";
 import { useVoice } from "@/lib/studio/voice";
 import { cn } from "@/lib/utils";
@@ -312,7 +313,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && previewVersion) setPreviewVersion(undefined);
-      if (!e.altKey || e.metaKey || e.ctrlKey) return;
+      if (!e.altKey || e.metaKey || e.ctrlKey || isTypingTarget(e.target)) return;
       if (e.code === "KeyP") setDraftMode((m) => nextMode(m));
       else if (e.code === "KeyH") setPanel((p) => (p === "history" ? undefined : "history"));
       else if (e.code === "KeyK") setPanel((p) => (p === "tasks" ? undefined : "tasks"));

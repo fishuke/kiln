@@ -298,6 +298,60 @@ describe("apps", () => {
     expect(studio.getChat(chat.id)!.chat.model).toBe("claude-haiku-5-5");
   });
 
+  it("ends a turn whose run fails before it reaches its worktree", async () => {
+    const install = ['case "$PWD" in */chats/*) echo "install broke" >&2; exit 1 ;; esac'];
+    const { studio } = make({ templates: { test: { ...TEST, install } } });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    const { turn } = await studio.send(chat.id, { by: "me", via: "web", text: "hello" });
+    await studio.idle(chat.id);
+    const after = studio.getChat(chat.id)!;
+    expect(after.turns.find((t) => t.id === turn.id)).toMatchObject({ status: "failed", reply: expect.stringContaining("install broke") });
+    expect(after.chat.status).toBe("needs_you");
+  });
+
+  it("starts a message sent while the last turn is still being saved only once that turn is done", async () => {
+    // Holds the first turn's checkpoint commit, so the second message arrives while it is saved.
+    let held = true;
+    let release!: () => void;
+    let reached!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const atCheckpoint = new Promise<void>((r) => (reached = r));
+    const local = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
+    const sandboxes = Object.assign(Object.create(local) as LocalSandboxProvider, {
+      create: async (spec: Parameters<LocalSandboxProvider["create"]>[0]) => {
+        const sandbox = await local.create(spec);
+        const exec = sandbox.exec.bind(sandbox);
+        sandbox.exec = async (command, opts) => {
+          if (held && command.startsWith("git add -A && git diff --cached --quiet")) {
+            held = false;
+            reached();
+            await gate;
+          }
+          return exec(command, opts);
+        };
+        return sandbox;
+      },
+    });
+    const { studio, harness } = make({ sandboxes });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.send(chat.id, { by: "me", via: "web", text: "write one.md 1" });
+    await atCheckpoint;
+    const second = studio.send(chat.id, { by: "me", via: "web", text: "write two.md 2" });
+    await new Promise((r) => setTimeout(r, 300));
+    // The second turn's agent must not work in the worktree while the first turn is committed.
+    expect(harness.started).toHaveLength(1);
+    release();
+    await second;
+    await studio.idle(chat.id);
+    const { turns } = studio.getChat(chat.id)!;
+    expect(turns.map((t) => [t.prompt, t.status])).toEqual([
+      ["write one.md 1", "succeeded"],
+      ["write two.md 2", "succeeded"],
+    ]);
+  });
+
   it("gives a new chat its agent's harness and model from the App settings", async () => {
     const { studio, definitions } = make();
     const p = await app(studio);

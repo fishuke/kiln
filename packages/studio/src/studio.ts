@@ -149,8 +149,8 @@ export type AppEnv = { env: Record<string, string>; secretValues: string[] };
 /** `addresses`: where each dev server port is reachable, asked of the sandbox once per port. */
 /** `chats`: each chat's worktree preparation in this sandbox (see `prepare`). */
 type Live = { sandbox: Sandbox; devs: Map<string, Dev>; addresses: Map<number, SandboxAddress>; chats: Map<string, Promise<void>>; shownVersion?: string };
-/** A chat's turn in progress: its run once it has one; `finish` ends it. */
-type Running = { turnId: string; runId?: string; done: Promise<void>; finish: () => void };
+/** A chat's turn in progress: its run once it works in the worktree (`started` is the run asked for before that); `finish` ends it. */
+type Running = { turnId: string; runId?: string; started?: string; done: Promise<void>; finish: () => void };
 /** A run working in a chat's worktree. */
 type Lent = { chatId: string; turnId: string; startHead: string };
 
@@ -239,6 +239,8 @@ export class Studio {
   private readonly lent = new Map<string, Lent>();
   /** A chat whose finished turn is still applying and snapshotting; idle waits for it too. */
   private readonly settling = new Map<string, Promise<void>>();
+  /** Why a chat's worktree last failed to prepare, for the turn that waited on it. */
+  private readonly prepareErrors = new Map<string, string>();
   private readonly turnWaiters = new Map<string, { resolve: (turn: Turn) => void; reject: (err: Error) => void }>();
   private readonly provisioning = new Map<string, Promise<void>>();
   private readonly locks = new Map<string, Promise<unknown>>();
@@ -256,10 +258,23 @@ export class Studio {
     });
     // A run that ended without a workspace (it failed to start) never becomes a turn.
     opts.bus.subscribe("run.finished", (e) => {
-      const waiter = this.turnWaiters.get(e.payload.runId);
-      if (!waiter || this.lent.has(e.payload.runId)) return;
-      this.turnWaiters.delete(e.payload.runId);
-      waiter.reject(new StudioError("unavailable", `run ${e.payload.runId} ended before it started working`));
+      const runId = e.payload.runId;
+      if (this.lent.has(runId)) return;
+      const message = `run ${runId} ended before it started working`;
+      const waiter = this.turnWaiters.get(runId);
+      if (waiter) {
+        this.turnWaiters.delete(runId);
+        waiter.reject(new StudioError("unavailable", message));
+      }
+      // A turn send started for this run (its worktree failed to prepare, or the run failed to start) ends here.
+      for (const [chatId, entry] of this.running) {
+        if (entry.started !== runId || entry.runId) continue;
+        const turn = this.opts.store.get<Turn>(C.turns, entry.turnId);
+        const chat = this.opts.store.get<Chat>(C.chats, chatId);
+        if (turn && chat) this.finishFailed(this.app(chat.appId), chatId, turn, this.prepareErrors.get(chatId) ?? message);
+        this.prepareErrors.delete(chatId);
+        entry.finish();
+      }
     });
   }
 
@@ -668,7 +683,11 @@ export class Studio {
       if (!this.opts.store.get<Chat>(C.chats, chat.id)) throw new StudioError("not_found", `chat ${chat.id} was deleted`);
       job = this.makeWorktree(p, live.sandbox, chat);
       live.chats.set(chat.id, job);
-      job.catch(() => live.chats.delete(chat.id));
+      this.prepareErrors.delete(chat.id);
+      job.catch((err: unknown) => {
+        live.chats.delete(chat.id);
+        this.prepareErrors.set(chat.id, `preparing the chat's workspace failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
     }
     await job;
     return live;
@@ -700,6 +719,9 @@ export class Studio {
    * continues the chat's finished run). Resolves once the run exists.
    */
   async send(chatId: string, input: { by: string; via: Via; text: string; mode?: ChatMode; model?: string }, resolve = false): Promise<{ turn: Turn; steered: boolean }> {
+    // The last turn is still being saved in the worktree: the next one starts after it. A resolve turn is
+    // started by that saving itself, once the worktree is free.
+    if (!resolve) await this.settling.get(chatId);
     let chat = this.chat(chatId);
     const current = this.running.get(chatId);
     if (current?.runId) {
@@ -720,9 +742,9 @@ export class Studio {
     this.touch(C.chats, { ...chat, mode, status: "working", question: undefined });
     const message = MODE_NOTES[mode] ? `${MODE_NOTES[mode]}\n\n${input.text}` : input.text;
     try {
-      if (chat.runId) await this.opts.runs.followup(chat.runId, { message, by: input.by });
-      else
-        await this.opts.runs.start({
+      const { runId } = chat.runId
+        ? await this.opts.runs.followup(chat.runId, { message, by: input.by })
+        : await this.opts.runs.start({
           appId: p.id,
           chatId,
           agent: chat.agent,
@@ -732,10 +754,12 @@ export class Studio {
           harness: chat.harness,
           ...(chat.model ? { model: chat.model } : {}),
         });
+      const entry = this.running.get(chatId);
+      if (entry?.turnId === turn.id && !entry.runId) entry.started = runId;
     } catch (err) {
       // The run never started (a budget, an unknown agent): the turn ends here.
       this.finishFailed(p, chatId, turn, err instanceof Error ? err.message : String(err));
-      this.running.get(chatId)?.finish();
+      this.finishRunning(chatId, turn.id);
       throw err;
     }
     return { turn: this.opts.store.get<Turn>(C.turns, turn.id)!, steered: false };
@@ -783,6 +807,12 @@ export class Studio {
     const lent = this.lent.get(runId);
     if (lent) return Promise.resolve(this.opts.store.get<Turn>(C.turns, lent.turnId)!);
     return new Promise<Turn>((resolve, reject) => this.turnWaiters.set(runId, { resolve, reject }));
+  }
+
+  /** Ends the chat's running turn if it is still `turnId`: a later turn that took its place keeps running. */
+  private finishRunning(chatId: string, turnId: string) {
+    const entry = this.running.get(chatId);
+    if (entry?.turnId === turnId) entry.finish();
   }
 
   /** A turn waiting for its run (send creates it; a run Studio didn't start gets one in acquire). */
@@ -865,6 +895,8 @@ export class Studio {
       });
     }
     const live = await this.prepare(p, chat);
+    // A run that continues the chat (a child's report, an agent's follow-up) starts after the last turn is saved.
+    await this.settling.get(chat.id);
     // A turn Studio started (send) waits for its run; any other run (a child, a report, an agent's follow-up) is a new turn.
     const waiting = this.running.get(chat.id);
     const turn =
@@ -907,7 +939,7 @@ export class Studio {
     } catch (err) {
       this.finishFailed(p, lent.chatId, turn, err instanceof Error ? err.message : String(err));
     }
-    this.running.get(lent.chatId)?.finish();
+    this.finishRunning(lent.chatId, lent.turnId);
     const after = this.opts.store.get<Turn>(C.turns, turn.id)!;
     const app = this.app(p.id);
     if (app.shipMode === "cowboy" && after.checkpoint && !this.running.has(lent.chatId)) {

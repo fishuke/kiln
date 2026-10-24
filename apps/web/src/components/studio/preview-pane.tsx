@@ -238,6 +238,7 @@ export function PreviewPane({
   const [nonce, setNonce] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [diff, setDiff] = useState<string>();
+  const [diffError, setDiffError] = useState<string>();
   const src = preview?.status === "ready" ? previewSrc(preview.url, route) : undefined;
   const frameKey = `${src}|${reload}|${nonce}`;
 
@@ -246,9 +247,10 @@ export function PreviewPane({
     if (view !== "code" || !loadDiff) return;
     let stop = false;
     setDiff(undefined);
+    setDiffError(undefined);
     loadDiff()
       .then((d) => !stop && setDiff(d.diff))
-      .catch(() => !stop && setDiff(""));
+      .catch((e: unknown) => !stop && setDiffError(e instanceof Error ? e.message : String(e)));
     return () => {
       stop = true;
     };
@@ -343,7 +345,7 @@ export function PreviewPane({
           ))}
       </TabsContent>
       <TabsContent value="code" className="flex min-h-0 flex-1 flex-col bg-background p-3">
-        {loadDiff ? <DiffView diff={diff} className="min-h-0 flex-1" /> : <EmptyPreview />}
+        {!loadDiff ? <EmptyPreview /> : diffError ? <p className="text-sm text-destructive">{diffError}</p> : <DiffView diff={diff} className="min-h-0 flex-1" />}
       </TabsContent>
     </Tabs>
   );

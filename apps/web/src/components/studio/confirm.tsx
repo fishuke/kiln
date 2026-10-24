@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { toast } from "@/lib/toast";
 
 /**
  * The Confirmation pattern in a popover: what will happen, and Cancel or the action. Used for
@@ -48,6 +49,8 @@ export function Confirm({
                 try {
                   await onConfirm();
                   setOpen(false);
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : String(err));
                 } finally {
                   setBusy(false);
                 }

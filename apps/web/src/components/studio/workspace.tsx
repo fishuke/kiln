@@ -29,6 +29,7 @@ import {
   versionNumber,
   reviewFor,
 } from "@/lib/studio/model";
+import { altTypes } from "@/lib/studio/shortcuts";
 import type { Chat, ChatMode, MergeReview, Version } from "@/lib/studio/types";
 import { useVoice } from "@/lib/studio/voice";
 import { cn } from "@/lib/utils";
@@ -252,10 +253,15 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
   }, [client, chatId, previewVersion]);
 
   useEffect(() => {
+    setRoutes(["/"]);
     if (!loadDiff) return;
+    let stop = false;
     loadDiff()
-      .then((d) => setRoutes(routesFrom(splitDiff(d.diff).map((f) => f.path))))
+      .then((d) => !stop && setRoutes(routesFrom(splitDiff(d.diff).map((f) => f.path))))
       .catch(() => undefined);
+    return () => {
+      stop = true;
+    };
   }, [loadDiff, finished]);
 
   const newChat = useCallback(
@@ -315,7 +321,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && previewVersion) setPreviewVersion(undefined);
-      if (!e.altKey || e.metaKey || e.ctrlKey) return;
+      if (!e.altKey || e.metaKey || e.ctrlKey || altTypes(e)) return;
       if (e.code === "KeyP") setDraftMode((m) => nextMode(m));
       else if (e.code === "KeyH") setPanel((p) => (p === "history" ? undefined : "history"));
       else if (e.code === "KeyK") setPanel((p) => (p === "tasks" ? undefined : "tasks"));
@@ -354,8 +360,12 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
     router.push("/studio");
   };
   const bookmark = async (v: Version, on: boolean) => {
-    await client.bookmark(v.id, on);
-    await refresh();
+    try {
+      await client.bookmark(v.id, on);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
   };
   const restore = async (v: Version) => {
     const r = await client.restore(v.id);

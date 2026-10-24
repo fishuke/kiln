@@ -352,8 +352,12 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
     router.push("/studio");
   };
   const bookmark = async (v: Version, on: boolean) => {
-    await client.bookmark(v.id, on);
-    await refresh();
+    try {
+      await client.bookmark(v.id, on);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
   };
   const restore = async (v: Version) => {
     const r = await client.restore(v.id);

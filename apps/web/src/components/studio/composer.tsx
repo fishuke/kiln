@@ -81,16 +81,16 @@ function ModelSelector({ model, onChange, locked, harness }: { model?: string; o
       variant="ghost"
       disabled={locked}
       aria-label={`Model: ${modelName(model, harness)}`}
-      className="gap-1 px-2 text-muted-foreground"
+      className="min-w-0 gap-1 px-2 text-muted-foreground"
     >
-      {modelName(model, harness)}
-      {!locked && <ChevronDown className="size-3 opacity-60" />}
+      <span className="truncate">{modelName(model, harness)}</span>
+      {!locked && <ChevronDown className="size-3 shrink-0 opacity-60" />}
     </InputGroupButton>
   );
   if (locked)
     return (
       <Tooltip>
-        <TooltipTrigger render={<span tabIndex={0} />}>{trigger}</TooltipTrigger>
+        <TooltipTrigger render={<span tabIndex={0} className="flex min-w-0" />}>{trigger}</TooltipTrigger>
         <TooltipContent>A chat keeps its model. Start a new chat to use another.</TooltipContent>
       </Tooltip>
     );

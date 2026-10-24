@@ -269,6 +269,38 @@ describe("apps", () => {
     expect(files.some((f) => f.endsWith(`${b.path}/node_modules/.reused`))).toBe(true);
   });
 
+  it("gives a new chat its agent's harness and model from the App settings", async () => {
+    const { studio, definitions } = make();
+    const p = await app(studio);
+    definitions.edit({ team: p.team, appId: p.id }, { agents: { general: { harness: "codex", model: "gpt-6" } } }, "me");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    expect(chat).toMatchObject({ harness: "codex", model: "gpt-6" });
+    expect(studio.getApp(p.id)!.app).toMatchObject({ harness: "codex", model: "gpt-6" });
+  });
+
+  it("lets a chat choose its own harness, without the agent's model for another harness", async () => {
+    const { studio, definitions } = make();
+    const p = await app(studio);
+    definitions.edit({ team: p.team, appId: p.id }, { agents: { general: { model: "claude-opus-5-5" } } }, "me");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web", harness: "codex" });
+    expect(chat.harness).toBe("codex");
+    expect(chat.model).toBeUndefined();
+  });
+
+  it("writes the harness an App is created with into its settings", async () => {
+    const { studio, definitions } = make();
+    const p = await studio.createApp({
+      team: teams.get(studio)!,
+      by: "me",
+      name: "Codex app",
+      source: { kind: "template", template: "test" },
+      harness: "codex",
+    });
+    await studio.ready(p.id);
+    expect(definitions.chatConfig({ team: p.team, appId: p.id }).harness).toBe("codex");
+    expect((await studio.newChat(p.id, { by: "me", via: "web" })).chat.harness).toBe("codex");
+  });
+
   it("may belong to a Kiln Project, and needs no factory", async () => {
     const { studio } = make();
     const created = await studio.createApp({ team: "t1", by: "me", name: "Frontend", projectId: "prj_shop", source: { kind: "template", template: "test" } });

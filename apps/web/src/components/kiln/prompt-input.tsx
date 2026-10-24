@@ -88,7 +88,8 @@ export function PromptInput({
             </InputGroupButton>
           )}
           {tools}
-          <span className="ml-auto flex items-center gap-1">
+          {/* Tools shrink before the send button does, so a narrow composer never hides it. */}
+          <span className="ml-auto flex shrink-0 items-center gap-1">
             {trailing}
             <InputGroupButton type="submit" size="icon-xs" variant="default" aria-label={sendLabel} disabled={!canSend}>
               <ArrowUp />

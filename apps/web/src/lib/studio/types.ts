@@ -199,7 +199,7 @@ export const AppPullRequest = z.object({
   versionId: z.string(),
   builtInPreview: z.string().optional(),
   previewUrl: z.string().optional(),
-  reasons: z.array(z.string()).optional(),
+  reviewReasons: z.array(z.string()).optional(),
   createdBy: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

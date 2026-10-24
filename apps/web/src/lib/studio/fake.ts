@@ -457,7 +457,7 @@ export class FakeStudioClient implements StudioClient {
               ? {
                   ...next,
                   state: "waiting_for_review",
-                  reasons: ["Changes authentication code in app/api/auth", "Adds a dependency: stripe"],
+                  reviewReasons: ["Changes authentication code in app/api/auth", "Adds a dependency: stripe"],
                   updatedAt: this.iso(),
                 }
               : { ...next, state: "merged", updatedAt: this.iso() };
@@ -504,7 +504,7 @@ export class FakeStudioClient implements StudioClient {
         author: p.createdBy,
         by: p.createdBy,
         state: p.state === "merged" ? "merged" : "needs_review",
-        reasons: p.reasons ?? [],
+        reasons: p.reviewReasons ?? [],
         decision: { action: p.state === "merged" ? "merge" : "review" },
         mergedBy: p.state === "merged" ? "kiln-merge-gate" : undefined,
         previewUrl: p.previewUrl,

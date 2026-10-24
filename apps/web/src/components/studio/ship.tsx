@@ -54,7 +54,7 @@ export function ShipControl({
 }) {
   const primary = useRef<HTMLButtonElement>(null);
   const live = pullRequest && pullRequest.state !== "merged" && pullRequest.state !== "cancelled" ? pullRequest : undefined;
-  const reasons = pullRequest?.reasons?.length ? pullRequest.reasons : (review?.reasons ?? []);
+  const reasons = pullRequest?.reviewReasons?.length ? pullRequest.reviewReasons : (review?.reasons ?? []);
   const run = async (state?: "uat" | "ready_for_review" | "cancelled") => {
     try {
       const pr = await onShip(state);

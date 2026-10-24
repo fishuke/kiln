@@ -58,7 +58,15 @@ describe("ChatGPT logins", () => {
 function setup(lastRefresh = "2026-10-20T10:00:00.000Z") {
   const seen: { home?: string; auth?: string }[] = [];
   let release: (() => void) | undefined;
-  const behaviour = { refreshTo: undefined as string | undefined, writeAuth: undefined as string | undefined, usageLimit: false, hold: false };
+  const behaviour = {
+    refreshTo: undefined as string | undefined,
+    writeAuth: undefined as string | undefined,
+    usageLimit: false,
+    hold: false,
+    fail: undefined as string | undefined,
+    /** Quotes the (refreshed) auth.json in result.json and in its summary or its error. */
+    quoteAuth: undefined as "summary" | "error" | undefined,
+  };
   const harness = new FakeHarness(async (ctx) => {
     const home = ctx.opts.env?.CODEX_HOME;
     const auth = home ? await ctx.opts.sandbox.readFile(`${home}/auth.json`) : undefined;
@@ -72,14 +80,21 @@ function setup(lastRefresh = "2026-10-20T10:00:00.000Z") {
       ctx.emit({ type: "rate_limit", status: "rejected", fiveHour: { utilization: 1, resetsAt: "2026-10-20T15:00:00.000Z" } });
       throw new Error("You've hit your usage limit. Try again in 3 hours.");
     }
+    if (behaviour.fail) throw new Error(behaviour.fail);
+    if (home && behaviour.quoteAuth) {
+      const file = (await ctx.opts.sandbox.readFile(`${home}/auth.json`))!;
+      await ctx.opts.sandbox.writeFile(`${ctx.opts.cwd ? `${ctx.opts.cwd}/` : ""}.kiln/result.json`, JSON.stringify({ auth: JSON.parse(file) }));
+      if (behaviour.quoteAuth === "error") throw new Error(`could not finish: ${file}`);
+      return { summary: `cat auth.json → ${file}` };
+    }
     return { summary: "ok" };
   });
   const clock = new FakeClock(new Date("2026-10-20T12:00:00.000Z"));
   const { kiln } = createTestKiln({ harness: () => harness, clock });
-  kiln.accounts.signup({ email: "olga@acme.test", password: "correct horse battery" });
+  const { user } = kiln.accounts.signup({ email: "olga@acme.test", password: "correct horse battery" });
   const team = kiln.teams.ensureDefaultTeam();
   kiln.vault.set({ scope: "team", owner: team.id, name: "CHATGPT_OLGA", type: "chatgpt_auth", value: authJson("rt-1", lastRefresh) }, "olga@acme.test");
-  const run = () =>
+  const run = (extra: { triggeredBy?: string } = {}) =>
     kiln.runs.execute({
       factory: "webapp",
       sha: kiln.defs.require("webapp").appliedSha!,
@@ -88,9 +103,10 @@ function setup(lastRefresh = "2026-10-20T10:00:00.000Z") {
       push: false,
       maxAttempts: 1,
       overrides: { harness: "codex" },
+      ...extra,
     });
   const stored = () => kiln.vault.typedValue("team", team.id, "CHATGPT_OLGA", "chatgpt_auth") as string;
-  return { kiln, team, run, seen, behaviour, clock, stored, release: () => release?.() };
+  return { kiln, team, run, seen, behaviour, clock, stored, userId: user.id, release: () => release?.() };
 }
 
 describe("Codex runs with a ChatGPT login", () => {
@@ -162,6 +178,103 @@ describe("Codex runs with a ChatGPT login", () => {
     expect(parseChatgptAuth(seen[0]!.auth!)?.refreshToken).toBe("rt-1");
     kiln.vault.set({ scope: "personal", owner: "usr_amy", name: "CHATGPT_OLGA", type: "chatgpt_auth", value: authJson("rt-amy", "2026-10-20T10:00:00.000Z") }, "amy@acme.test");
     expect(kiln.credentialPool.list(team.id, "usr_amy", "chatgpt").map((l) => l.scope)).toEqual(["personal"]);
+  });
+
+  it("records an outcome on the login the run was given, never on a Claude token of the same name", async () => {
+    const { kiln, team, run, behaviour, userId } = setup();
+    kiln.vault.set({ scope: "personal", owner: userId, name: "CHATGPT_OLGA", type: "claude_oauth_token", value: "sk-ant-oat-olga" }, "olga@acme.test");
+    behaviour.fail = "401 Unauthorized: your refresh token has been revoked";
+    expect((await run({ triggeredBy: userId })).credential).toBe("CHATGPT_OLGA");
+    expect(kiln.credentialPool.list(team.id, userId, "chatgpt")[0]).toMatchObject({ scope: "team", status: "invalid" });
+    expect(kiln.credentialPool.list(team.id, userId).find((c) => c.name === "CHATGPT_OLGA")).toMatchObject({ scope: "personal", status: "unknown" });
+  });
+
+  it("saves and releases the login a run was given even when a personal login of the same name appears mid-run", async () => {
+    for (const refreshTo of ["rt-2", undefined]) {
+      const { kiln, run, seen, behaviour, stored, userId, release } = setup("2026-10-01T00:00:00.000Z");
+      behaviour.hold = true;
+      behaviour.refreshTo = refreshTo;
+      const first = run({ triggeredBy: userId });
+      await waitUntil(() => seen.length === 1);
+      const personal = authJson("rt-personal", "2026-10-01T00:00:00.000Z");
+      kiln.vault.set({ scope: "personal", owner: userId, name: "CHATGPT_OLGA", type: "chatgpt_auth", value: personal }, "olga@acme.test");
+      release();
+      expect((await first).status).toBe("succeeded");
+      if (refreshTo) {
+        expect(parseChatgptAuth(stored())?.refreshToken).toBe("rt-2");
+        expect(kiln.vault.typedValue("personal", userId, "CHATGPT_OLGA", "chatgpt_auth")).toBe(personal);
+      } else {
+        // The team login (still due) was released: another run can hold it.
+        kiln.vault.delete("personal", userId, "CHATGPT_OLGA", "olga@acme.test");
+        behaviour.hold = false;
+        expect((await run({ triggeredBy: userId })).status).toBe("succeeded");
+      }
+    }
+  });
+
+  it("redacts tokens a refresh produced mid-run from the run's summary, error and result", async () => {
+    const { run, behaviour } = setup();
+    behaviour.refreshTo = "rt-secret-2";
+    behaviour.quoteAuth = "summary";
+    const done = await run();
+    expect(done.summary).toContain("[redacted]");
+    expect(JSON.stringify([done.summary, done.result])).not.toMatch(/rt-secret-2|h\.eyJ/);
+    behaviour.refreshTo = "rt-secret-3";
+    behaviour.quoteAuth = "error";
+    const failed = await run();
+    expect(failed.status).toBe("failed");
+    expect(JSON.stringify([failed.summary, failed.error, failed.result])).not.toMatch(/rt-secret-3|h\.eyJ/);
+  });
+
+  it("takes the login for a check like a run does, so a due login is never refreshed by both", async () => {
+    const { kiln, team, run, seen, behaviour, release } = setup("2026-10-01T00:00:00.000Z");
+    behaviour.hold = true;
+    const checking = kiln.credentialPool.check({ teamId: team.id }, "CHATGPT_OLGA", "chatgpt");
+    await waitUntil(() => seen.length === 1);
+    behaviour.hold = false;
+    expect((await run()).error).toMatchObject({ code: "resource_unavailable" });
+    release();
+    expect(await checking).toMatchObject({ status: "ok" });
+
+    behaviour.hold = true;
+    const running = run();
+    await waitUntil(() => seen.length === 2);
+    await expect(kiln.credentialPool.check({ teamId: team.id }, "CHATGPT_OLGA", "chatgpt")).rejects.toMatchObject({ code: "resource_unavailable" });
+    release();
+    expect((await running).status).toBe("succeeded");
+  });
+
+  it("ranks a login that was limited by what it has left once its window has reset", async () => {
+    const { kiln, team, run, behaviour, clock } = setup();
+    kiln.vault.set({ scope: "team", owner: team.id, name: "CHATGPT_ZED", type: "chatgpt_auth", value: authJson("rt-zed", "2026-10-20T10:00:00.000Z", "zed@acme.test", "acct_2") }, "olga@acme.test");
+    behaviour.usageLimit = true;
+    expect((await run()).credential).toBe("CHATGPT_OLGA");
+    behaviour.usageLimit = false;
+    expect((await run()).credential).toBe("CHATGPT_ZED");
+    clock.advance(4 * 3_600_000);
+    expect(kiln.credentialPool.list(team.id, undefined, "chatgpt")[0]).toMatchObject({ name: "CHATGPT_OLGA", status: "unknown" });
+    expect(kiln.credentialPool.list(team.id, undefined, "chatgpt")[0]!.fiveHour).toBeUndefined();
+    // Both have everything left; the one used longest ago goes first.
+    expect((await run()).credential).toBe("CHATGPT_OLGA");
+  });
+
+  it("gives a resumed run its login again, and saves and releases it when the run ends", async () => {
+    const { kiln, run, seen, behaviour, stored, release } = setup();
+    behaviour.hold = true;
+    const first = run();
+    await waitUntil(() => seen.length === 1);
+    const runId = kiln.runs.list().find((r) => r.status === "running")!.id;
+    await kiln.runs.pause(runId, "olga@acme.test");
+    release();
+    expect((await first).status).toBe("paused");
+    behaviour.hold = false;
+    behaviour.refreshTo = "rt-2";
+    const resumed = await kiln.runs.resume(runId, "olga@acme.test");
+    expect(resumed.status).toBe("succeeded");
+    expect(seen[1]!.home).toMatch(new RegExp(`^/tmp/kiln-codex-${runId}-[0-9a-f]{12}$`));
+    expect(parseChatgptAuth(seen[1]!.auth!)?.refreshToken).toBe("rt-1");
+    expect(parseChatgptAuth(stored())?.refreshToken).toBe("rt-2");
+    expect(homesOf(runId)).toEqual([]);
   });
 });
 

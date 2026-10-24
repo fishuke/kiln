@@ -511,7 +511,24 @@ describe("turns and versions", () => {
     await waitFor(async () => expect(studio.getChat(a.id)!.chat.runId).toBeDefined());
     expect((await studio.send(a.id, { by: "me", via: "web", text: "also this" })).steered).toBe(true);
     await expect(studio.send(b.id, { by: "me", via: "web", text: "work" })).rejects.toMatchObject({ code: "busy" });
+    // A new chat with a prompt is refused before it is made, so no empty chat is left behind.
+    await expect(studio.newChat(p.id, { by: "me", via: "web", prompt: "work" })).rejects.toMatchObject({ code: "busy" });
+    expect(studio.getApp(p.id)!.chats).toHaveLength(2);
     await studio.idle(a.id);
+  });
+
+  it("refuses a message to a chat that is being deleted", async () => {
+    const marker = join(mkdtempSync(join(tmpdir(), "kiln-marker-")), "go");
+    const install = [`case "$PWD" in */chats/*) while [ ! -e ${marker} ]; do sleep 0.05; done ;; esac`];
+    const { studio } = make({ templates: { test: { ...TEST, install } } });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    // The delete waits for the chat's worktree to be prepared.
+    const deleted = studio.deleteChat(chat.id);
+    await expect(studio.send(chat.id, { by: "me", via: "web", text: "hello" })).rejects.toMatchObject({ code: "busy" });
+    writeFileSync(marker, "");
+    await deleted;
+    expect(studio.getApp(p.id)!.chats).toEqual([]);
   });
 });
 

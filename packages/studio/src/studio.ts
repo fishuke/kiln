@@ -239,6 +239,8 @@ export class Studio {
   private readonly lent = new Map<string, Lent>();
   /** A chat whose finished turn is still applying and snapshotting; idle waits for it too. */
   private readonly settling = new Map<string, Promise<void>>();
+  /** Chats a deleteChat is removing: they take no new messages. */
+  private readonly deleting = new Set<string>();
   /** Why a chat's worktree last failed to prepare, for the turn that waited on it. */
   private readonly prepareErrors = new Map<string, string>();
   private readonly turnWaiters = new Map<string, { resolve: (turn: Turn) => void; reject: (err: Error) => void }>();
@@ -624,8 +626,9 @@ export class Studio {
     await this.ready(appId);
     const p = this.readyApp(appId);
     const agent = input.agent ?? DEFAULT_AGENT;
-    // Fails early for an agent the App doesn't define.
+    // Fails early for an agent the App doesn't define, or a first turn beyond the running-chat limit.
     this.opts.definitions.chatConfig(targetOf(p), { agent });
+    if (input.prompt) this.mayStartTurn(appId);
     const chat = await this.createChat(p, {
       title: input.title ?? (input.prompt ? oneLine(input.prompt, 40) : undefined),
       agent,
@@ -731,9 +734,8 @@ export class Studio {
       return { turn: await this.turnOf(r.runId), steered: false };
     }
     if (current) throw new StudioError("busy", "the chat's turn is starting; try again in a moment");
-    const max = this.opts.maxRunningChats ?? 3;
-    const busy = this.getApp(chat.appId)!.chats.filter((c) => c.id !== chatId && this.running.has(c.id)).length;
-    if (busy >= max) throw new StudioError("busy", `${max} chats are already working in this app`);
+    if (this.deleting.has(chatId)) throw new StudioError("busy", "the chat is being deleted");
+    this.mayStartTurn(chat.appId, chatId);
     const p = this.readyApp(chat.appId);
     // A chat keeps its model; the person may still choose it with the first message.
     if (input.model && !chat.runId && input.model !== chat.model) chat = this.touch(C.chats, { ...chat, model: input.model });
@@ -779,6 +781,16 @@ export class Studio {
   async deleteChat(chatId: string): Promise<void> {
     const chat = this.chat(chatId);
     if (this.running.has(chatId) || this.settling.has(chatId)) throw new StudioError("invalid", "the chat is working; stop it first");
+    if (this.deleting.has(chatId)) return;
+    this.deleting.add(chatId);
+    try {
+      await this.removeChat(chat);
+    } finally {
+      this.deleting.delete(chatId);
+    }
+  }
+
+  private async removeChat(chat: Chat): Promise<void> {
     const live = this.live.get(chat.appId);
     if (live) {
       // A worktree still being prepared is removed once it is done.
@@ -807,6 +819,13 @@ export class Studio {
     const lent = this.lent.get(runId);
     if (lent) return Promise.resolve(this.opts.store.get<Turn>(C.turns, lent.turnId)!);
     return new Promise<Turn>((resolve, reject) => this.turnWaiters.set(runId, { resolve, reject }));
+  }
+
+  /** Refuses a turn beyond the App's running-chat limit (`chatId`'s own running turn doesn't count). */
+  private mayStartTurn(appId: string, chatId?: string) {
+    const max = this.opts.maxRunningChats ?? 3;
+    const busy = this.getApp(appId)!.chats.filter((c) => c.id !== chatId && this.running.has(c.id)).length;
+    if (busy >= max) throw new StudioError("busy", `${max} chats are already working in this app`);
   }
 
   /** Ends the chat's running turn if it is still `turnId`: a later turn that took its place keeps running. */

@@ -75,6 +75,7 @@ mergeGate: false # Ready for review goes through the merge gate
 The App's policies are the only place these settings live. Ship modes and the merge gate read them from here.
 
 - Ship modes go from `safe` to `review` to `cowboy`. A person picks a ship mode up to the lowest cap that applies to them.
+- In `cowboy` mode the App's agents run without the [command guard](decisions.md#command-guard), so no command waits for an approval.
 - `pushDefaultBranch` and `mergeGate` are off unless a policy turns them on, and any policy that turns one off wins. With the merge gate off, a person reviews every Studio pull request.
 - Only team owners and admins change an App's policies. The Kiln MCP can't change them.
 - Kiln records who changed each setting and when.

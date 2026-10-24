@@ -449,6 +449,38 @@ describe("Studio App runs", () => {
     await expect(go()).rejects.toMatchObject({ code: "budget_exceeded" });
   });
 
+  it("skips the command guard for a cowboy App's run: no guard call, no guard hook", async () => {
+    const shared = await new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-cowboy-"))).create({
+      runner: { image: "node:22", backend: "local", setupCommands: [], egress: [] },
+      repos: [],
+    });
+    await shared.exec("mkdir -p work", { trusted: true });
+    const seen: StartOptions[] = [];
+    const outputs: string[] = [];
+    const harness = new FakeHarness(async (ctx) => {
+      seen.push(ctx.opts);
+      // The guard would block this; the command itself only prints.
+      outputs.push((await ctx.opts.sandbox.exec("echo git push --force origin main", { cwd: ctx.opts.cwd })).stdout);
+      return { summary: "done" };
+    });
+    const decide = new FakeProvider();
+    let kiln!: ReturnType<typeof createTestKiln>["kiln"];
+    const base = host(() => kiln.teams.ensureDefaultTeam().id);
+    ({ kiln } = createTestKiln({
+      harness: () => harness,
+      decide: { primary: decide },
+      publicUrl: "http://kiln.test",
+      apps: { definition: (id) => ({ ...base.definition(id), unguarded: true }) },
+      workspaces: { acquire: async () => ({ sandbox: shared, cwd: "work" }), release: async () => {} },
+    }));
+    const run = await kiln.runs.execute({ factory: "app:sa_1", app: "sa_1", sha: "", agent: "general", prompt: "build", push: false });
+    expect(run.status).toBe("succeeded");
+    expect(outputs).toEqual(["git push --force origin main\n"]);
+    expect(decide.calls.filter((c) => c.decision === "command-guard")).toEqual([]);
+    expect(seen[0]!.guardUrl).toBeUndefined();
+    await shared.destroy();
+  });
+
   it("refuses an App run on a server without Studio", async () => {
     const { kiln } = createTestKiln({});
     await expect(kiln.runs.execute({ factory: "app:sa_1", app: "sa_1", sha: "", agent: "general", prompt: "x", push: false })).rejects.toThrow(/no Studio/);

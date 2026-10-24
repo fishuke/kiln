@@ -130,6 +130,14 @@ async function say(studio: Studio, chatId: string, text: string, mode?: "build" 
 }
 
 describe("apps", () => {
+  it("runs a cowboy App's agents without the command guard, and other ship modes with it", async () => {
+    const { studio } = make();
+    const cowboy = await app(studio);
+    expect(studio.definition(cowboy.id).unguarded).toBe(true);
+    studio.updateApp(cowboy.id, { shipMode: "review" });
+    expect(studio.definition(cowboy.id).unguarded).toBeUndefined();
+  });
+
   it("scaffolds a template app with an initial version on main", async () => {
     const { studio } = make();
     const p = await app(studio);

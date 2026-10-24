@@ -89,6 +89,7 @@ export type AppRunDefinition = {
   monthlyUsd?: number;
   env: Record<string, string>;
   secretValues: string[];
+  unguarded?: boolean;
 };
 
 export type StudioOptions = {
@@ -790,6 +791,7 @@ export class Studio {
       ...(r.monthlyUsd !== undefined ? { monthlyUsd: r.monthlyUsd } : {}),
       env,
       secretValues,
+      ...(p.shipMode === "cowboy" ? { unguarded: true } : {}),
     };
   }
 

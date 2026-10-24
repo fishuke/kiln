@@ -226,6 +226,8 @@ describe("Studio API", () => {
     const { app, client, kiln } = setup();
     const created = await client.studioCreateApp({ name: "Guarded", source: { kind: "template", template: "test" } });
     await studioFor(kiln)!.ready(created.id);
+    // A cowboy App runs unguarded; the guard asks in the other ship modes.
+    await client.studioSetShipMode(created.id, "review");
     const { chat } = await client.studioNewChat(created.id, {});
     await client.studioSend(chat.id, { text: "clean up" });
     let waiting: StudioTurn | undefined;

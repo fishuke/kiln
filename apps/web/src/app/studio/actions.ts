@@ -55,7 +55,7 @@ const ChatInput = z.object({
   model: z.string().optional(),
   title: z.string().optional(),
 });
-const SendInput = z.object({ text: z.string().trim().min(1), mode: ChatMode.optional() });
+const SendInput = z.object({ text: z.string().trim().min(1), mode: ChatMode.optional(), model: z.string().optional() });
 const ShipInput = z.object({ title: z.string().max(200).optional(), state: z.enum(["uat", "ready_for_review", "cancelled"]).optional() });
 const AppDetailWire = z.object({ app: StudioApp, chats: z.array(Chat), versions: z.array(Version), pullRequest: AppPullRequest.optional() });
 

@@ -257,8 +257,9 @@ export class FakeStudioClient implements StudioClient {
     if (t) this.turns.set(id, { ...t, ...patch });
   }
 
-  async send(chatId: string, input: { text: string; mode?: ChatMode }): Promise<SendResult> {
+  async send(chatId: string, input: { text: string; mode?: ChatMode; model?: string }): Promise<SendResult> {
     const chat = this.must(this.chats.get(chatId), "Chat");
+    if (input.model && !chat.runId) this.patchChat(chatId, { model: input.model });
     const running = [...this.turns.values()].find((t) => t.chatId === chatId && t.status === "running");
     if (running) {
       this.patchTurn(running.id, { activity: [...running.activity, { kind: "message", text: `Got it, also: ${input.text}`, at: this.iso() }] });

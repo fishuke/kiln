@@ -251,10 +251,15 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
   }, [client, chatId, previewVersion]);
 
   useEffect(() => {
+    setRoutes(["/"]);
     if (!loadDiff) return;
+    let stop = false;
     loadDiff()
-      .then((d) => setRoutes(routesFrom(splitDiff(d.diff).map((f) => f.path))))
+      .then((d) => !stop && setRoutes(routesFrom(splitDiff(d.diff).map((f) => f.path))))
       .catch(() => undefined);
+    return () => {
+      stop = true;
+    };
   }, [loadDiff, finished]);
 
   const newChat = useCallback(

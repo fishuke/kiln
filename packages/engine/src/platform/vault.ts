@@ -176,7 +176,7 @@ export class SecretVault {
     let sealed = existing?.value;
     if (input.value !== undefined) {
       const parsed = SECRET_VALUE[type].safeParse(input.value);
-      if (!parsed.success) throw new PlatformError(400, `invalid ${type} value: ${parsed.error.issues.map((i) => `${i.path.join(".") || "value"}: ${i.message}`).join("; ")}`);
+      if (!parsed.success) throw new PlatformError(400, `invalid ${type} value: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join("; ")}`);
       if (Buffer.byteLength(JSON.stringify(parsed.data)) > MAX_SECRET_BYTES) throw new PlatformError(400, "secret values are limited to 128 KiB");
       sealed = this.seal(parsed.data);
     }

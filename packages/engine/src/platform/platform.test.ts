@@ -119,6 +119,7 @@ describe("secrets", () => {
     expect(meta).not.toHaveProperty("value");
     expect(JSON.stringify(kiln.vault.list({ teamId: team.id }))).not.toContain("npm_secret_value");
     expect(() => kiln.vault.set({ scope: "team", owner: team.id, name: "REG", type: "docker_registry", value: { host: "ghcr.io" } }, "a")).toThrow("invalid docker_registry value");
+    expect(() => kiln.vault.set({ scope: "team", owner: team.id, name: "CHATGPT", type: "chatgpt_auth", value: "not json" }, "a")).toThrow("invalid chatgpt_auth value: expected Codex's auth.json");
     expect(() => kiln.vault.set({ scope: "personal", owner: "usr_1", name: "ECR", type: "aws_ecr", value: { roleArn: "arn:aws:iam::123456789012:role/x", region: "eu-west-1" } }, "a")).toThrow("team secrets");
     expect(() => kiln.vault.set({ scope: "team", owner: team.id, name: "BIG", value: "x".repeat(129 * 1024) }, "a")).toThrow("128 KiB");
     expect(() => kiln.vault.set({ scope: "team", owner: team.id, name: "bad-name", value: "x" }, "a")).toThrow();

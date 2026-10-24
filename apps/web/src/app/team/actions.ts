@@ -156,6 +156,19 @@ export async function cancelChatgptSignIn(team: string, id: string): Promise<Act
   return plain(await attempt(() => api.cancelChatgptSignIn(team, id)));
 }
 
+/** Codex's ~/.codex/auth.json from `codex login`, for workspaces that block device-code sign-in. `replace` updates a login of that name. */
+export async function addChatgptLogin(name: string, value: string, scope: "team" | "personal", replace: boolean): Promise<ActionResult> {
+  const r = await attempt(
+    () =>
+      replace
+        ? api.updateManagedSecret(scope, name.trim(), { value: value.trim() })
+        : api.createManagedSecret({ scope, name: name.trim(), type: "chatgpt_auth", value: value.trim(), description: "ChatGPT login pasted from auth.json" }),
+    replace ? "Login replaced" : "Login added",
+  );
+  if (r.ok) refresh();
+  return plain(r);
+}
+
 export async function deleteChatgptLogin(scope: "team" | "personal", name: string): Promise<ActionResult> {
   const r = await attempt(() => api.deleteManagedSecret(scope, name), "Login removed");
   if (r.ok) refresh();

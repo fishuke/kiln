@@ -399,7 +399,7 @@ export class KilnClient {
   async studioDeleteChat(id: string): Promise<void> {
     await this.request<undefined>("DELETE", `/api/v1/studio/chats/${encodeURIComponent(id)}`);
   }
-  studioSend(chatId: string, input: { text: string; mode?: StudioChatMode }) {
+  studioSend(chatId: string, input: { text: string; mode?: StudioChatMode; model?: string }) {
     return this.request<{ turn: StudioTurn; steered: boolean }>("POST", `/api/v1/studio/chats/${encodeURIComponent(chatId)}/messages`, input);
   }
   studioApply(chatId: string) {

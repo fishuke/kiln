@@ -39,7 +39,7 @@ export interface StudioClient {
   chat(id: string): Promise<ChatDetail>;
   /** `DELETE /chats/{id}`: deletes a chat that isn't working, with its worktree, preview and turns. */
   deleteChat(id: string): Promise<void>;
-  send(chatId: string, input: { text: string; mode?: ChatMode }): Promise<SendResult>;
+  send(chatId: string, input: { text: string; mode?: ChatMode; model?: string }): Promise<SendResult>;
   apply(chatId: string): Promise<ApplyResult>;
   chatDiff(chatId: string): Promise<{ diff: string }>;
   chatPreview(chatId: string): Promise<Preview>;

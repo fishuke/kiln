@@ -149,7 +149,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
   const [draftModel, setDraftModel] = useState<string>();
   const [routes, setRoutes] = useState<string[]>(["/"]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  // One new chat at a time: it takes a worktree and an install, and repeat clicks would each make one.
+  // One new chat at a time: repeat clicks would each make one, and each chat prepares a worktree and an install.
   const [creating, setCreating] = useState(false);
   const creatingRef = useRef(false);
 
@@ -186,6 +186,8 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
     (id: string | undefined) => {
       setActiveChat(id);
       setPreviewVersion(undefined);
+      // A model picked for one empty chat isn't meant for another.
+      setDraftModel(undefined);
       const q = new URLSearchParams(params.toString());
       if (id) q.set("chat", id);
       else q.delete("chat");
@@ -279,9 +281,10 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
 
   const send = useCallback(
     async (text: string, m: ChatMode = mode) => {
-      if (!chatId || !turns.length) return newChat(text, m);
+      if (!chatId) return newChat(text, m);
       try {
-        const r = await client.send(chatId, { text, mode: m });
+        // An empty chat takes the model picked in the composer with its first message.
+        const r = await client.send(chatId, { text, mode: m, ...(!turns.length && draftModel ? { model: draftModel } : {}) });
         if (r.steered) toast("Sent to the running turn");
         await loadChat(chatId);
         void refresh();
@@ -291,7 +294,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
         return false;
       }
     },
-    [client, chatId, turns.length, mode, newChat, loadChat, refresh],
+    [client, chatId, turns.length, mode, draftModel, newChat, loadChat, refresh],
   );
 
   /** Allow or block the command a turn's run waits on; the person's own identity decides the gate. */
@@ -475,7 +478,7 @@ export function Workspace({ client, appId }: { client: StudioClient; appId: stri
             <Composer
               mode={mode}
               onModeChange={setDraftMode}
-              model={chat?.model ?? draftModel ?? app?.model}
+              model={turns.length ? chat?.model : (draftModel ?? chat?.model ?? app?.model)}
               harness={chat?.harness ?? app?.harness}
               onModelChange={setDraftModel}
               modelLocked={turns.length > 0}

@@ -263,10 +263,93 @@ describe("apps", () => {
     const { studio } = make({ sandboxes: new LocalSandboxProvider(root), templates: { test: { ...TEST, install } } });
     const p = await app(studio);
     const a = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    await studio.diff({ chatId: a.id });
     const b = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    await studio.diff({ chatId: b.id });
     const files = readdirSync(root, { recursive: true }) as string[];
     expect(files.some((f) => f.endsWith(`${a.path}/node_modules/.reused`))).toBe(false);
     expect(files.some((f) => f.endsWith(`${b.path}/node_modules/.reused`))).toBe(true);
+  });
+
+  it("opens a new chat before its worktree is installed, and its first message waits for the install", async () => {
+    const marker = join(mkdtempSync(join(tmpdir(), "kiln-marker-")), "go");
+    // A chat's install waits for the marker; the App's own install (in app/) doesn't.
+    const install = [`case "$PWD" in */chats/*) while [ ! -e ${marker} ]; do sleep 0.05; done ;; esac`];
+    const { studio } = make({ templates: { test: { ...TEST, install } } });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    expect(chat.status).toBe("idle");
+    const sent = studio.send(chat.id, { by: "me", via: "web", text: "write early.md hi" });
+    writeFileSync(marker, "");
+    await sent;
+    await studio.idle(chat.id);
+    expect(await studio.diff({ chatId: chat.id })).toContain("+hi");
+  });
+
+  it("takes a model with a chat's first message, and keeps it afterwards", async () => {
+    const { studio } = make();
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.send(chat.id, { by: "me", via: "web", text: "hello", model: "claude-haiku-5-5" });
+    await studio.idle(chat.id);
+    expect(studio.getChat(chat.id)!.chat.model).toBe("claude-haiku-5-5");
+    await studio.send(chat.id, { by: "me", via: "web", text: "again", model: "claude-opus-5-5" });
+    await studio.idle(chat.id);
+    expect(studio.getChat(chat.id)!.chat.model).toBe("claude-haiku-5-5");
+  });
+
+  it("ends a turn whose run fails before it reaches its worktree", async () => {
+    const install = ['case "$PWD" in */chats/*) echo "install broke" >&2; exit 1 ;; esac'];
+    const { studio } = make({ templates: { test: { ...TEST, install } } });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    const { turn } = await studio.send(chat.id, { by: "me", via: "web", text: "hello" });
+    await studio.idle(chat.id);
+    const after = studio.getChat(chat.id)!;
+    expect(after.turns.find((t) => t.id === turn.id)).toMatchObject({ status: "failed", reply: expect.stringContaining("install broke") });
+    expect(after.chat.status).toBe("needs_you");
+  });
+
+  it("starts a message sent while the last turn is still being saved only once that turn is done", async () => {
+    // Holds the first turn's checkpoint commit, so the second message arrives while it is saved.
+    let held = true;
+    let release!: () => void;
+    let reached!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const atCheckpoint = new Promise<void>((r) => (reached = r));
+    const local = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
+    const sandboxes = Object.assign(Object.create(local) as LocalSandboxProvider, {
+      create: async (spec: Parameters<LocalSandboxProvider["create"]>[0]) => {
+        const sandbox = await local.create(spec);
+        const exec = sandbox.exec.bind(sandbox);
+        sandbox.exec = async (command, opts) => {
+          if (held && command.startsWith("git add -A && git diff --cached --quiet")) {
+            held = false;
+            reached();
+            await gate;
+          }
+          return exec(command, opts);
+        };
+        return sandbox;
+      },
+    });
+    const { studio, harness } = make({ sandboxes });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.send(chat.id, { by: "me", via: "web", text: "write one.md 1" });
+    await atCheckpoint;
+    const second = studio.send(chat.id, { by: "me", via: "web", text: "write two.md 2" });
+    await new Promise((r) => setTimeout(r, 300));
+    // The second turn's agent must not work in the worktree while the first turn is committed.
+    expect(harness.started).toHaveLength(1);
+    release();
+    await second;
+    await studio.idle(chat.id);
+    const { turns } = studio.getChat(chat.id)!;
+    expect(turns.map((t) => [t.prompt, t.status])).toEqual([
+      ["write one.md 1", "succeeded"],
+      ["write two.md 2", "succeeded"],
+    ]);
   });
 
   it("gives a new chat its agent's harness and model from the App settings", async () => {
@@ -428,7 +511,35 @@ describe("turns and versions", () => {
     await waitFor(async () => expect(studio.getChat(a.id)!.chat.runId).toBeDefined());
     expect((await studio.send(a.id, { by: "me", via: "web", text: "also this" })).steered).toBe(true);
     await expect(studio.send(b.id, { by: "me", via: "web", text: "work" })).rejects.toMatchObject({ code: "busy" });
+    // A new chat with a prompt is refused before it is made, so no empty chat is left behind.
+    await expect(studio.newChat(p.id, { by: "me", via: "web", prompt: "work" })).rejects.toMatchObject({ code: "busy" });
+    expect(studio.getApp(p.id)!.chats).toHaveLength(2);
     await studio.idle(a.id);
+  });
+
+  it("numbers a new chat after the highest chat number, so a deleted chat's number isn't reused", async () => {
+    const { studio } = make();
+    const p = await app(studio, "safe");
+    const one = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.deleteChat(one.id);
+    const third = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    expect(studio.getApp(p.id)!.chats.map((c) => c.title)).toEqual(["Chat 2", "Chat 3"]);
+    expect(third.title).toBe("Chat 3");
+  });
+
+  it("refuses a message to a chat that is being deleted", async () => {
+    const marker = join(mkdtempSync(join(tmpdir(), "kiln-marker-")), "go");
+    const install = [`case "$PWD" in */chats/*) while [ ! -e ${marker} ]; do sleep 0.05; done ;; esac`];
+    const { studio } = make({ templates: { test: { ...TEST, install } } });
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    // The delete waits for the chat's worktree to be prepared.
+    const deleted = studio.deleteChat(chat.id);
+    await expect(studio.send(chat.id, { by: "me", via: "web", text: "hello" })).rejects.toMatchObject({ code: "busy" });
+    writeFileSync(marker, "");
+    await deleted;
+    expect(studio.getApp(p.id)!.chats).toEqual([]);
   });
 });
 

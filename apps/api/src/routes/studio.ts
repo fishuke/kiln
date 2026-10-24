@@ -53,7 +53,8 @@ export const NewChat = z
     title: z.string().trim().max(100).optional(),
   })
   .strict();
-export const SendMessage = z.object({ text: z.string().min(1), mode: ChatMode.optional() }).strict();
+/** `model` only counts on a chat's first message: a chat keeps its model. */
+export const SendMessage = z.object({ text: z.string().min(1), mode: ChatMode.optional(), model: z.string().trim().max(120).optional() }).strict();
 export const Bookmark = z.object({ on: z.boolean() }).strict();
 export const SetShipMode = z.object({ mode: ShipMode }).strict();
 export const Ship = z

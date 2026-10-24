@@ -155,6 +155,8 @@ type Running = { turnId: string; runId?: string; started?: string; done: Promise
 type Lent = { chatId: string; turnId: string; startHead: string };
 
 const STUDIO_FILE = ".kiln/studio.json";
+/** One more than the highest "Chat N" title (or the chat count), so a deleted chat's number isn't given out again. */
+const nextChatNumber = (chats: { title: string }[]) => Math.max(chats.length, ...chats.map((c) => Number(/^Chat (\d+)$/.exec(c.title)?.[1] ?? 0))) + 1;
 /** The dev server's recent output, in the worktree it serves (.kiln/ is git-excluded), so the agent can troubleshoot. */
 const DEV_LOG = ".kiln/dev.log";
 /** The dev server's shell, so Studio can stop its whole process tree inside the sandbox. */
@@ -658,7 +660,7 @@ export class Studio {
     const chat: Chat = {
       id: chatId,
       appId: p.id,
-      title: input.title ?? `Chat ${existing + 1}`,
+      title: input.title ?? `Chat ${nextChatNumber(this.getApp(p.id)!.chats)}`,
       agent: input.agent,
       mode: input.mode,
       harness,

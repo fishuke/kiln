@@ -517,6 +517,17 @@ describe("turns and versions", () => {
     await studio.idle(a.id);
   });
 
+  it("numbers a new chat after the highest chat number, so a deleted chat's number isn't reused", async () => {
+    const { studio } = make();
+    const p = await app(studio, "safe");
+    const one = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.deleteChat(one.id);
+    const third = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
+    expect(studio.getApp(p.id)!.chats.map((c) => c.title)).toEqual(["Chat 2", "Chat 3"]);
+    expect(third.title).toBe("Chat 3");
+  });
+
   it("refuses a message to a chat that is being deleted", async () => {
     const marker = join(mkdtempSync(join(tmpdir(), "kiln-marker-")), "go");
     const install = [`case "$PWD" in */chats/*) while [ ! -e ${marker} ]; do sleep 0.05; done ;; esac`];

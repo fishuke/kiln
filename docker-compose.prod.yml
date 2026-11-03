@@ -26,6 +26,13 @@ services:
       - "traefik.http.routers.kiln-studio-preview.tls.certresolver=${KILN_TRAEFIK_CERT_RESOLVER:-letsencrypt}"
       - "traefik.http.routers.kiln-studio-preview.tls.domains[0].main=*.${KILN_STUDIO_PREVIEW_DOMAIN:-preview.invalid}"
       - "traefik.http.routers.kiln-studio-preview.service=kiln-studio-preview"
+      # Home-server cutover: a Cloudflare Tunnel sends plain HTTP to Traefik on :80, and the free one-level
+      # wildcard cert (*.inofy.co) can't cover *.preview.inofy.co, so preview hosts are <id>-preview.inofy.co.
+      # This HTTP router (no TLS, tunnel terminates it) routes them to the same preview proxy. Matches nothing
+      # until KILN_STUDIO_PREVIEW_SUFFIX is set. The https router above stays for the Coolify/Hetzner deployment.
+      - "traefik.http.routers.kiln-studio-preview-suffix.rule=HostRegexp(`^[a-z0-9-]+${KILN_STUDIO_PREVIEW_SUFFIX:--preview.invalid}$$`)"
+      - "traefik.http.routers.kiln-studio-preview-suffix.entrypoints=http"
+      - "traefik.http.routers.kiln-studio-preview-suffix.service=kiln-studio-preview"
       - "traefik.http.services.kiln-studio-preview.loadbalancer.server.port=4000"
     environment:
       KILN_PUBLIC_URL: ${KILN_PUBLIC_URL:?the API's public URL, e.g. https://api.kiln.example.com}
@@ -48,6 +55,9 @@ services:
       KILN_EGRESS_PROXY: http://kiln-egress-proxy:3128
       # Studio previews on <id>.<domain>: needs wildcard DNS and a wildcard certificate (see self-hosting.md).
       KILN_STUDIO_PREVIEW_DOMAIN: ${KILN_STUDIO_PREVIEW_DOMAIN:-}
+      # Set to e.g. -preview.inofy.co to serve previews on <id>-preview.inofy.co instead, one DNS level under a
+      # one-level wildcard cert (home-server + Cloudflare Tunnel). Empty keeps the <id>.<domain> form above.
+      KILN_STUDIO_PREVIEW_SUFFIX: ${KILN_STUDIO_PREVIEW_SUFFIX:-}
       # Studio sandboxes also join the preview network, where the API reaches their dev servers. The API
       # drops every connection and egress-log datagram that comes from its subnet.
       KILN_PREVIEW_NETWORK: ${KILN_PREVIEW_NETWORK:-kiln-preview}

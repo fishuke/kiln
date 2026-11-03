@@ -14,7 +14,7 @@ import type { RouteContext } from "../app";
 
 /** What the proxy needs from Studio; `Studio` satisfies it. */
 export type PreviewResolver = { resolvePreview(target: string): Promise<SandboxAddress | undefined> };
-export type PreviewConfig = { domain: string; port?: string; scheme: "http" | "https" };
+export type PreviewConfig = { domain: string; port?: string; scheme: "http" | "https"; suffix?: string };
 
 const resolvers = new WeakMap<object, PreviewResolver>();
 /** routes/studio.ts calls this when it builds the Studio service for a `Kiln`. */
@@ -25,7 +25,13 @@ export function getPreviewResolver(kiln: object): PreviewResolver | undefined {
   return resolvers.get(kiln);
 }
 
-/** `KILN_STUDIO_PREVIEW_DOMAIN`, e.g. `preview.kiln.example.com`, or `preview.localhost:4000` (http) for local development. */
+/**
+ * `KILN_STUDIO_PREVIEW_DOMAIN`, e.g. `preview.kiln.example.com`, or `preview.localhost:4000` (http) for local development.
+ *
+ * `KILN_STUDIO_PREVIEW_SUFFIX` (optional, e.g. `-preview.inofy.co`) switches preview hosts to `<label><suffix>`
+ * (`sc-<id>-preview.inofy.co`): one DNS level, so a one-level wildcard certificate (`*.inofy.co`) covers it. It
+ * needs a preview domain to be set as well; the domain sets the scheme and stays the default form when no suffix is given.
+ */
 export function previewConfig(env: Record<string, string | undefined> = process.env): PreviewConfig | undefined {
   const raw = env.KILN_STUDIO_PREVIEW_DOMAIN?.trim()
     .toLowerCase()
@@ -33,23 +39,31 @@ export function previewConfig(env: Record<string, string | undefined> = process.
   if (!raw) return undefined;
   const [domain, port] = raw.split(":") as [string, string | undefined];
   const local = domain === "localhost" || domain.endsWith(".localhost");
-  return { domain, port, scheme: local ? "http" : "https" };
+  const suffix = env.KILN_STUDIO_PREVIEW_SUFFIX?.trim().toLowerCase().replace(/\.+$/, "") || undefined;
+  return { domain, port, scheme: local ? "http" : "https", suffix };
 }
 
 /** The `previewUrl` option for `Studio`: a preview origin when a domain is set, else the sandbox address itself. */
 export function previewUrlFor(env: Record<string, string | undefined> = process.env): (target: string, address: SandboxAddress) => string {
   const config = previewConfig(env);
   if (!config) return (_target, a) => `http://${a.host}:${a.port}`;
-  return (target) => `${config.scheme}://${target.replace("_", "-").toLowerCase()}.${config.domain}${config.port ? `:${config.port}` : ""}`;
+  return (target) => {
+    const label = target.replace("_", "-").toLowerCase();
+    if (config.suffix) return `${config.scheme}://${label}${config.suffix}`;
+    return `${config.scheme}://${label}.${config.domain}${config.port ? `:${config.port}` : ""}`;
+  };
 }
 
-// "sc-<lowercase letters and digits>": a DNS label (no "_", at most 63 characters) for the id "sc_<…>".
-const LABEL = /^([a-z]{1,8})-([a-z0-9]{1,54})$/;
+// "sc-<lowercase letters and digits>" for the id "sc_<…>": a DNS label with no "_". Real ids are "sc_" + 16
+// random bytes (32 hex), so "sc-<32>" is 35 characters. The id part is capped at 52 so that even with a short
+// suffix like "-preview" the leftmost label ("sc-<id>-preview") stays within the 63-character DNS-label limit.
+const LABEL = /^([a-z]{1,8})-([a-z0-9]{1,52})$/;
 
 /** The target id for a preview host; `undefined` for any other host, `null` for a preview host with a malformed label. */
 export function previewTarget(config: PreviewConfig, host: string | undefined): string | null | undefined {
   const name = (host ?? "").toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
-  const suffix = `.${config.domain}`;
+  // With a suffix set, hosts are "<label><suffix>"; otherwise the default "<label>.<domain>".
+  const suffix = config.suffix ?? `.${config.domain}`;
   if (!name.endsWith(suffix)) return undefined;
   const m = LABEL.exec(name.slice(0, -suffix.length));
   return m ? `${m[1]}_${m[2]}` : null;

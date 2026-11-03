@@ -54,7 +54,7 @@ if (preview) {
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     if (!upgrade(req, socket, head)) socket.destroy();
   });
-  console.log(`Studio previews on *.${preview.domain}`);
+  console.log(`Studio previews on ${preview.suffix ? `*${preview.suffix}` : `*.${preview.domain}`}`);
 }
 
 if (process.env.KILN_DEMO !== "0") {

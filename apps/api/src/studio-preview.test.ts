@@ -23,6 +23,11 @@ const LABEL = "sc-0123456789abcdef0123456789abcdef";
 const HOST = `${LABEL}.${DOMAIN}`;
 const config = previewConfig({ KILN_STUDIO_PREVIEW_DOMAIN: DOMAIN })!;
 
+const SUFFIX = "-preview.inofy.co";
+const SUFFIX_HOST = `${LABEL}${SUFFIX}`;
+const suffixEnv = { KILN_STUDIO_PREVIEW_DOMAIN: "inofy.co", KILN_STUDIO_PREVIEW_SUFFIX: SUFFIX };
+const suffixConfig = previewConfig(suffixEnv)!;
+
 const servers: Server[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();
@@ -92,6 +97,33 @@ describe("preview URLs and hosts", () => {
     expect(previewTarget(config, `evil.${HOST}`)).toBeNull();
     expect(previewTarget(config, `sc_abc.${DOMAIN}`)).toBeNull();
     expect(previewTarget(config, `nodash.${DOMAIN}`)).toBeNull();
+  });
+
+  describe("with KILN_STUDIO_PREVIEW_SUFFIX set", () => {
+    it("reads the suffix into the config and keeps the domain's scheme", () => {
+      expect(suffixConfig).toMatchObject({ domain: "inofy.co", suffix: SUFFIX, scheme: "https" });
+      expect(previewConfig({ KILN_STUDIO_PREVIEW_DOMAIN: DOMAIN })!.suffix).toBeUndefined();
+    });
+
+    it("builds preview URLs as https://<label><suffix>", () => {
+      expect(previewUrlFor(suffixEnv)(ID, { host: "10.0.0.5", port: 4101 })).toBe(`https://${SUFFIX_HOST}`);
+    });
+
+    it("maps a suffix host back to its target, ignoring case and port", () => {
+      expect(previewTarget(suffixConfig, `${SUFFIX_HOST.toUpperCase()}:443`)).toBe(ID);
+    });
+
+    it("returns undefined for the API and app hosts that share the base domain", () => {
+      expect(previewTarget(suffixConfig, "kiln-api.inofy.co")).toBeUndefined();
+      expect(previewTarget(suffixConfig, "kiln.inofy.co")).toBeUndefined();
+      expect(previewTarget(suffixConfig, "inofy.co")).toBeUndefined();
+    });
+
+    it("returns null for a host that ends in the suffix but has a malformed label", () => {
+      expect(previewTarget(suffixConfig, `x${SUFFIX}`)).toBeNull();
+      expect(previewTarget(suffixConfig, `sc_abc${SUFFIX}`)).toBeNull();
+      expect(previewTarget(suffixConfig, `evil.${SUFFIX_HOST}`)).toBeNull();
+    });
   });
 });
 

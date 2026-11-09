@@ -300,7 +300,7 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
     if (!clientId || !clientSecret) throw new HttpError(400, "GitHub account linking is not configured");
     try {
       const base = (kiln.options.publicUrl ?? new URL(c.req.url).origin).replace(/\/$/, "");
-      const user = await githubExchangeCode({ clientId, clientSecret, code: c.req.query("code") ?? "", redirectUri: `${base}/oauth/github-user/callback` });
+      const user = await githubExchangeCode({ clientId, clientSecret, code: c.req.query("code") ?? "", redirectUri: `${base}/oauth/github-user/callback`, webUrl: kiln.options.githubUrl, apiUrl: kiln.options.githubApiUrl });
       kiln.identities.completeOAuthLink(c.req.query("state") ?? "", "github", user.login, user.login, user.accessToken);
       return c.redirect(kiln.link(`/integrations?linked=github`));
     } catch (err) {

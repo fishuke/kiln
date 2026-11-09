@@ -3592,14 +3592,15 @@ Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscrip
 
 ### Accounts and login
 
-| Variable                                   | What it does                                                                                                                                                                                 |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KILN_OPEN_SIGNUP=1`                       | Anyone may sign up and join the default team. Otherwise, after the first owner, signup needs an invite.                                                                                      |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Turn on GitHub login. The OAuth app's callback URL is `<KILN_PUBLIC_URL>/api/v1/auth/github/callback`. `GITHUB_OAUTH_URL` and `GITHUB_API_URL` point at GitHub Enterprise.                   |
-| `KILN_SECRET_KEY`                          | Seals team and personal secrets with AES-256-GCM, and signs run tokens. Set it, and keep it stable across restarts. To rotate it, see [Secrets](../management/secrets-mcps-environments.md). |
-| `KILN_ADMIN_EMAILS`                        | Comma-separated emails of server admins. They see every team's audit log, tokens and server secrets. Team owners and admins see only their own team.                                         |
-| `KILN_SMTP_URL`, `KILN_MAIL_FROM`          | Email notifications, for example `smtp://user:pass@mail.acme.test:587?from=kiln@acme.test`.                                                                                                  |
-| `KILN_DEV_AUTH=1`                          | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team.                                                                                         |
+| Variable                                   | What it does                                                                                                                                                                                                                  |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KILN_OPEN_SIGNUP=1`                       | Anyone may sign up and join the default team. Otherwise, after the first owner, signup needs an invite.                                                                                                                       |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Turn on GitHub login. The OAuth app's callback URL is `<KILN_PUBLIC_URL>/api/v1/auth/github/callback`. Login follows `GITHUB_URL`; `GITHUB_OAUTH_URL` overrides it.                                                           |
+| `GITHUB_URL`, `GITHUB_API_URL`             | A GitHub Enterprise Server for the forge, apps and login, such as `https://github.acme.test`. The API defaults to `<GITHUB_URL>/api/v3`. Unset: github.com. See [GitHub](../integrations/github.md#github-enterprise-server). |
+| `KILN_SECRET_KEY`                          | Seals team and personal secrets with AES-256-GCM, and signs run tokens. Set it, and keep it stable across restarts. To rotate it, see [Secrets](../management/secrets-mcps-environments.md).                                  |
+| `KILN_ADMIN_EMAILS`                        | Comma-separated emails of server admins. They see every team's audit log, tokens and server secrets. Team owners and admins see only their own team.                                                                          |
+| `KILN_SMTP_URL`, `KILN_MAIL_FROM`          | Email notifications, for example `smtp://user:pass@mail.acme.test:587?from=kiln@acme.test`.                                                                                                                                   |
+| `KILN_DEV_AUTH=1`                          | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team.                                                                                                                          |
 
 ### Identities
 
@@ -3929,7 +3930,7 @@ Kiln refreshes the Linear (teams, projects, states, users) and Jira (projects) d
 
 | Provider | Variables |
 | --- | --- |
-| GitHub | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_SLUG`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, or `GITHUB_TOKEN` |
+| GitHub | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_SLUG`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, or `GITHUB_TOKEN`; `GITHUB_URL` and `GITHUB_API_URL` for GitHub Enterprise Server |
 | GitLab | `GITLAB_TOKEN`, `GITLAB_BASE_URL`, `GITLAB_WEBHOOK_TOKEN`, `GITLAB_BOT_USERNAMES` |
 | Azure DevOps | `AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_TOKEN`, `AZURE_DEVOPS_WEBHOOK_PASSWORD`, `AZURE_DEVOPS_WEBHOOK_USER`, `AZURE_DEVOPS_IDENTITIES` |
 | Bitbucket | `BITBUCKET_TOKEN`, `BITBUCKET_USERNAME`, `BITBUCKET_WEBHOOK_SECRET`, `BITBUCKET_BOT_ACCOUNTS` |
@@ -4168,6 +4169,12 @@ Kiln verifies `X-Hub-Signature-256` on every call and ignores repeated `X-GitHub
 Connect more accounts and organizations with **Add a GitHub account or organization** in the same panel: each gets its own private app, and Kiln uses the app installed on each repository's owner (`GET /api/v1/connections/github/apps` lists them). An app created by mistake can be removed with the trash button next to it (`DELETE /api/v1/connections/github/apps/{slug}`): Kiln forgets its key and stops using it, and you delete the app itself on GitHub. A public app installed on several accounts works the same way. A sandbox never gets the app's own credentials: it clones and pushes with an installation token limited to that one repository (contents write, metadata read) that expires within the hour. Protect your default branch, because contents write can push to any branch that is not protected.
 
 Studio pushes the same way. Each push asks for a fresh token for the App's one repository, and every push is in the audit log. An imported App pushes only its `studio/<app id>` branch. It pushes the default branch only in Cowboy mode, when a team owner or admin turned on default-branch pushes in the App's policy and no factory uses the repository. To let Studio create a repository for a template App on its first push, give the app **Administration: read and write** on the organization. Without it, template Apps aren't pushed.
+
+### GitHub Enterprise Server
+
+Set `GITHUB_URL` to your server's web address, for example `GITHUB_URL=https://github.acme.test`. Kiln then uses that server for everything it does on GitHub: cloning and pushing `kiln/*` branches, pull requests, comments and checks, GitHub App installation tokens, the merge gate, creating and installing the app from the web app, GitHub login, and linking people's GitHub accounts. The API defaults to `<GITHUB_URL>/api/v3`; set `GITHUB_API_URL` only if yours lives elsewhere. Without `GITHUB_URL`, Kiln uses github.com.
+
+Create the app (or token) on that server, not on github.com. With the egress proxy, add the server's host to `KILN_EGRESS_ALLOW` so sandboxes can clone and push.
 
 ## Mention the factory
 

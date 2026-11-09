@@ -126,6 +126,10 @@ export type KilnOptions = {
   browserMcp?: { command: string; args?: string[] } | false;
   /** GitHub App manifest conversion (default: api.github.com). */
   githubManifests?: GitHubManifestClient;
+  /** The GitHub web host for app manifests and install links (GITHUB_URL; default https://github.com). */
+  githubUrl?: string;
+  /** Its REST API (GITHUB_API_URL; default api.github.com, or <githubUrl>/api/v3). */
+  githubApiUrl?: string;
   /** Called when an admin creates Kiln's GitHub App, so the server can switch its forge to it. */
   onGitHubApp?: (app: GitHubAppCredentials) => void;
   /** An admin removed one of Kiln's own GitHub Apps: stop using it. */

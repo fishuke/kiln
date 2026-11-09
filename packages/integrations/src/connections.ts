@@ -1,5 +1,6 @@
 import { discordInstallUrl } from "./discord";
 import { githubAppInstallUrl, HttpGitHubAppAuth } from "./github";
+import { githubHosts } from "./forge";
 import { jsonRequest, type Fetch } from "./http";
 import { jiraAuthorizeUrl, jiraExchangeCode } from "./jira";
 import { linearAuthorizeUrl, linearExchangeCode } from "./linear";
@@ -65,7 +66,8 @@ export class FakeConnectionProvider implements ConnectionProvider {
 
 /** OAuth app / app credentials for each provider, from the environment or the secrets store. */
 export type ConnectionConfig = {
-  github?: { appSlug?: string; appId?: string; privateKey?: string; clientId?: string; clientSecret?: string };
+  /** `webUrl`/`apiUrl`: a GitHub Enterprise Server host (default github.com / api.github.com). */
+  github?: { appSlug?: string; appId?: string; privateKey?: string; clientId?: string; clientSecret?: string; webUrl?: string; apiUrl?: string };
   slack?: { clientId?: string; clientSecret?: string };
   linear?: { clientId?: string; clientSecret?: string };
   jira?: { clientId?: string; clientSecret?: string };
@@ -82,12 +84,13 @@ const need = <K extends string>(params: Record<string, string> | undefined, ...n
 /** The real providers. Each works with the credentials a self-hoster creates for their own apps. */
 export function connectionProviders(config: ConnectionConfig = {}): Record<ConnectionProviderId, ConnectionProvider> {
   const doFetch = config.fetch ?? fetch;
+  const gh = () => githubHosts({ web: config.github?.webUrl, api: config.github?.apiUrl });
   const github: ConnectionProvider = {
     id: "github",
     label: "GitHub",
     mode: "install",
     start: ({ state, webhookUrl }) => ({
-      url: config.github?.appSlug ? githubAppInstallUrl(config.github.appSlug, state) : undefined,
+      url: config.github?.appSlug ? githubAppInstallUrl(config.github.appSlug, state, gh().web) : undefined,
       steps: [
         "Create a GitHub App (Settings → Developer settings → GitHub Apps) with Contents, Issues, Pull requests, Checks: read & write, Metadata: read.",
         `Set its webhook URL to ${webhookUrl.replace(/\/[^/]+$/, "/github")} and subscribe to Issues, Issue comment, Pull request, Pull request review, Pull request review comment, Check suite, Check run, Status, Workflow run and Push.`,
@@ -101,18 +104,18 @@ export function connectionProviders(config: ConnectionConfig = {}): Record<Conne
       const key = config.github?.privateKey;
       let account = p.account ?? `installation ${p.installation_id}`;
       if (appId && key) {
-        const auth = new HttpGitHubAppAuth({ appId, privateKey: key, installationId: p.installation_id, fetch: doFetch });
+        const auth = new HttpGitHubAppAuth({ appId, privateKey: key, installationId: p.installation_id, baseUrl: gh().api, fetch: doFetch });
         const token = await auth.installationToken();
-        const r = await jsonRequest<{ repositories: { owner: { login: string } }[] }>("GitHub", doFetch, "GET", "https://api.github.com/installation/repositories?per_page=1", { authorization: `Bearer ${token}` });
+        const r = await jsonRequest<{ repositories: { owner: { login: string } }[] }>("GitHub", doFetch, "GET", `${gh().api}/installation/repositories?per_page=1`, { authorization: `Bearer ${token}` });
         account = r?.repositories?.[0]?.owner.login ?? account;
       }
-      return { account: { id: p.installation_id, name: account, url: `https://github.com/${account}` }, scopes: ["contents", "issues", "pull_requests", "checks"], installation: { installationId: p.installation_id }, secrets: {} };
+      return { account: { id: p.installation_id, name: account, url: `${gh().web}/${account}` }, scopes: ["contents", "issues", "pull_requests", "checks"], installation: { installationId: p.installation_id }, secrets: {} };
     },
     test: async ({ installation }) => {
       const appId = config.github?.appId;
       const key = config.github?.privateKey;
       if (!appId || !key) return { ok: false, message: "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are not set" };
-      await new HttpGitHubAppAuth({ appId, privateKey: key, installationId: String(installation.installationId), fetch: doFetch }).installationToken();
+      await new HttpGitHubAppAuth({ appId, privateKey: key, installationId: String(installation.installationId), baseUrl: gh().api, fetch: doFetch }).installationToken();
       return { ok: true, message: "minted an installation token" };
     },
   };

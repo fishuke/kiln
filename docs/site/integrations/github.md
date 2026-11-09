@@ -41,6 +41,12 @@ Connect more accounts and organizations with **Add a GitHub account or organizat
 
 Studio pushes the same way. Each push asks for a fresh token for the App's one repository, and every push is in the audit log. An imported App pushes only its `studio/<app id>` branch. It pushes the default branch only in Cowboy mode, when a team owner or admin turned on default-branch pushes in the App's policy and no factory uses the repository. To let Studio create a repository for a template App on its first push, give the app **Administration: read and write** on the organization. Without it, template Apps aren't pushed.
 
+### GitHub Enterprise Server
+
+Set `GITHUB_URL` to your server's web address, for example `GITHUB_URL=https://github.acme.test`. Kiln then uses that server for everything it does on GitHub: cloning and pushing `kiln/*` branches, pull requests, comments and checks, GitHub App installation tokens, the merge gate, creating and installing the app from the web app, GitHub login, and linking people's GitHub accounts. The API defaults to `<GITHUB_URL>/api/v3`; set `GITHUB_API_URL` only if yours lives elsewhere. Without `GITHUB_URL`, Kiln uses github.com.
+
+Create the app (or token) on that server, not on github.com. With the egress proxy, add the server's host to `KILN_EGRESS_ALLOW` so sandboxes can clone and push.
+
 ## Mention the factory
 
 Mention `@kiln-factory` in a new issue, pull request, comment or review. Edits and mentions inside code blocks are ignored.

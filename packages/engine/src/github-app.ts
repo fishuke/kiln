@@ -34,6 +34,11 @@ export class GitHubAppService {
     this.client = k.options.githubManifests ?? new HttpGitHubManifests();
   }
 
+  /** The GitHub host apps are created and installed on (github.com, or a GitHub Enterprise Server). */
+  private web() {
+    return (this.k.options.githubUrl ?? "https://github.com").replace(/\/+$/, "");
+  }
+
   /** The manifest and the URL the browser posts it to. */
   start(by: string, opts: { org?: string; name?: string } = {}) {
     const publicUrl = this.k.options.publicUrl;
@@ -45,7 +50,7 @@ export class GitHubAppService {
       publicUrl,
       webUrl: this.k.options.webUrl ?? publicUrl,
     });
-    return { action: githubManifestAction(state, opts.org), manifest, state };
+    return { action: githubManifestAction(state, opts.org, this.web()), manifest, state };
   }
 
   /** GitHub's redirect after Create: turn the code into the app, keep it, and continue to installation. */
@@ -64,7 +69,7 @@ export class GitHubAppService {
     } satisfies Stored);
     this.k.audit(s.by, "github_app.created", creds.slug, { appId: creds.appId, owner: creds.owner });
     this.k.options.onGitHubApp?.(creds);
-    const installUrl = githubAppInstallUrl(creds.slug, this.newState("install", s.by, creds.slug));
+    const installUrl = githubAppInstallUrl(creds.slug, this.newState("install", s.by, creds.slug), this.web());
     return { installUrl, app: this.list().find((a) => a.slug === creds.slug)! };
   }
 
@@ -92,7 +97,7 @@ export class GitHubAppService {
 
   /** Every app, oldest first, without secrets. */
   list(): GitHubAppInfo[] {
-    return this.stored().map((s) => ({ appId: s.appId, slug: s.slug, owner: s.owner, installationId: s.installationId, createdBy: s.createdBy, createdAt: s.createdAt, installUrl: `https://github.com/apps/${s.slug}/installations/new` }));
+    return this.stored().map((s) => ({ appId: s.appId, slug: s.slug, owner: s.owner, installationId: s.installationId, createdBy: s.createdBy, createdAt: s.createdAt, installUrl: `${this.web()}/apps/${s.slug}/installations/new` }));
   }
 
   /** The first app (the one most installs have). */

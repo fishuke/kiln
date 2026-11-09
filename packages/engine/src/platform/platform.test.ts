@@ -154,6 +154,18 @@ describe("secrets", () => {
     expect(rotated.githubApp.credentials()?.privateKey).toBe("pem");
   });
 
+  it("GitHub App links point at the configured GitHub host (Enterprise Server), github.com by default", async () => {
+    const make = (githubUrl?: string) => {
+      const { kiln } = createTestKiln({ secretKey: "k".repeat(32), publicUrl: "https://kiln.test", githubUrl });
+      kiln.store.put("github_app", { id: "kiln", sealed: kiln.vault.seal({ appId: "1", slug: "kiln", privateKey: "pem", webhookSecret: "whsec" }), slug: "kiln", appId: "1", createdBy: "a", createdAt: "2026-01-01T00:00:00.000Z" });
+      return kiln;
+    };
+    const ghe = make("https://ghe.example.com/");
+    expect(ghe.githubApp.info()?.installUrl).toBe("https://ghe.example.com/apps/kiln/installations/new");
+    expect(ghe.githubApp.start("a", { org: "acme" }).action).toMatch(/^https:\/\/ghe\.example\.com\/organizations\/acme\/settings\/apps\/new\?/);
+    expect(make().githubApp.info()?.installUrl).toBe("https://github.com/apps/kiln/installations/new");
+  });
+
   it("personal secrets reach only the runs their owner triggers; typed harness keys map to provider variables; output is redacted", async () => {
     const seen: StartOptions[] = [];
     const harness = new FakeHarness(async (ctx) => {

@@ -1,5 +1,6 @@
 import { createSign } from "node:crypto";
 import { mentionsIn, uniq, type IncomingEvent } from "./events";
+import { githubHosts } from "./forge";
 import { jsonRequest } from "./http";
 
 /** The handle people mention on GitHub, and the prefix of the routing label (`factory:<alias>`). */
@@ -297,20 +298,23 @@ export function githubOAuthUrl(input: { clientId: string; redirectUri: string; s
   return `${input.baseUrl ?? "https://github.com"}/login/oauth/authorize?${q}`;
 }
 
-export function githubAppInstallUrl(appSlug: string, state: string) {
-  return `https://github.com/apps/${appSlug}/installations/new?state=${encodeURIComponent(state)}`;
+/** Where an app is installed; `webUrl` is the GitHub host (default https://github.com). */
+export function githubAppInstallUrl(appSlug: string, state: string, webUrl = "https://github.com") {
+  return `${webUrl.replace(/\/+$/, "")}/apps/${appSlug}/installations/new?state=${encodeURIComponent(state)}`;
 }
 
-export async function githubExchangeCode(input: { clientId: string; clientSecret: string; code: string; redirectUri: string; fetch?: Fetch }): Promise<{ accessToken: string; login: string; email?: string }> {
+/** `webUrl`/`apiUrl`: a GitHub Enterprise Server (default github.com / api.github.com). */
+export async function githubExchangeCode(input: { clientId: string; clientSecret: string; code: string; redirectUri: string; webUrl?: string; apiUrl?: string; fetch?: Fetch }): Promise<{ accessToken: string; login: string; email?: string }> {
   const doFetch = input.fetch ?? fetch;
-  const res = await doFetch("https://github.com/login/oauth/access_token", {
+  const hosts = githubHosts({ web: input.webUrl, api: input.apiUrl });
+  const res = await doFetch(`${hosts.web}/login/oauth/access_token`, {
     method: "POST",
     headers: { accept: "application/json", "content-type": "application/json" },
     body: JSON.stringify({ client_id: input.clientId, client_secret: input.clientSecret, code: input.code, redirect_uri: input.redirectUri }),
   });
   const body = (await res.json()) as { access_token?: string; error?: string };
   if (!body.access_token) throw new Error(`GitHub OAuth failed: ${body.error ?? res.status}`);
-  const me = (await (await doFetch("https://api.github.com/user", { headers: { authorization: `Bearer ${body.access_token}`, accept: "application/vnd.github+json" } })).json()) as { login: string; email?: string };
+  const me = (await (await doFetch(`${hosts.api}/user`, { headers: { authorization: `Bearer ${body.access_token}`, accept: "application/vnd.github+json" } })).json()) as { login: string; email?: string };
   return { accessToken: body.access_token, login: me.login, email: me.email ?? undefined };
 }
 

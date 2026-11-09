@@ -79,7 +79,7 @@ export function registerConnectionRoutes({ app, kiln, need, who, user }: RouteCo
     if (!clientId) throw new HttpError(400, "GitHub account linking needs GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET");
     const state = kiln.identities.startOAuthLink("github", user(c).id);
     const base = (kiln.options.publicUrl ?? new URL(c.req.url).origin).replace(/\/$/, "");
-    return c.json({ url: githubOAuthUrl({ clientId, redirectUri: `${base}/oauth/github-user/callback`, state }) });
+    return c.json({ url: githubOAuthUrl({ clientId, redirectUri: `${base}/oauth/github-user/callback`, state, baseUrl: kiln.options.githubUrl }) });
   });
   app.post("/api/v1/me/linked-accounts/claim", async (c) => {
     const { token } = IdentityClaim.parse(await c.req.json());

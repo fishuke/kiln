@@ -67,6 +67,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # GitHub Enterprise Server: its web URL; the API defaults to <GITHUB_URL>/api/v3. Empty: github.com.
+      GITHUB_URL: ${GITHUB_URL:-}
+      GITHUB_API_URL: ${GITHUB_API_URL:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}

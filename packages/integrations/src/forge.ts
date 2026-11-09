@@ -484,6 +484,18 @@ done
 
 type Fetch = typeof fetch;
 
+const trimSlash = (url: string) => url.replace(/\/+$/, "");
+
+/**
+ * The web host and REST API of a GitHub: github.com (api.github.com) by default, or a GitHub
+ * Enterprise Server, whose API lives under `<host>/api/v3`. Either one is derived from the other.
+ */
+export function githubHosts(input: { web?: string; api?: string } = {}): { web: string; api: string } {
+  const api = input.api ? trimSlash(input.api) : undefined;
+  const web = input.web ? trimSlash(input.web) : api && api !== "https://api.github.com" ? api.replace(/\/api\/v3$/, "") : "https://github.com";
+  return { web, api: api ?? (web === "https://github.com" ? "https://api.github.com" : `${web}/api/v3`) };
+}
+
 /** GitHub REST v3. Tokens come from the secrets broker and are scoped to kiln/* branches. */
 export class GitHubForge implements Forge {
   readonly name = "github";
@@ -498,10 +510,17 @@ export class GitHubForge implements Forge {
       sandboxToken?: (repo: RepoRef) => Promise<string>;
       /** Every repository the credentials can reach, for pickers (GitHub Apps: across their installations). */
       repositories?: () => Promise<{ owner: string; name: string }[]>;
+      /** REST API root (default https://api.github.com; GitHub Enterprise Server: `<host>/api/v3`). */
       baseUrl?: string;
+      /** Web host repositories are cloned from (default: derived from `baseUrl`). */
+      webUrl?: string;
       fetch?: Fetch;
     },
   ) {}
+
+  private hosts() {
+    return githubHosts({ web: this.options.webUrl, api: this.options.baseUrl });
+  }
 
   async listRepositories(): Promise<{ owner: string; name: string }[]> {
     return this.options.repositories ? this.options.repositories() : [];
@@ -514,7 +533,7 @@ export class GitHubForge implements Forge {
 
   private async api<T>(method: string, path: string, body?: unknown): Promise<T> {
     const doFetch = this.options.fetch ?? fetch;
-    const res = await doFetch(`${this.options.baseUrl ?? "https://api.github.com"}${path}`, {
+    const res = await doFetch(`${this.hosts().api}${path}`, {
       method,
       headers: {
         authorization: `Bearer ${typeof this.options.token === "string" ? this.options.token : await this.options.token(path)}`,
@@ -549,7 +568,12 @@ export class GitHubForge implements Forge {
   }
 
   cloneUrl(repo: RepoRef, token?: string) {
-    return token ? `https://x-access-token:${token}@github.com/${repoKey(repo)}.git` : `https://github.com/${repoKey(repo)}.git`;
+    const web = new URL(this.hosts().web);
+    if (token) {
+      web.username = "x-access-token";
+      web.password = token;
+    }
+    return `${trimSlash(web.toString())}/${repoKey(repo)}.git`;
   }
 
   private readonly defaultBranches = new Map<string, string>();
@@ -685,7 +709,7 @@ export class GitHubForge implements Forge {
   }
 
   asPerson(token: string): PersonForge {
-    const as = new GitHubForge({ token, baseUrl: this.options.baseUrl, fetch: this.options.fetch });
+    const as = new GitHubForge({ token, baseUrl: this.options.baseUrl, webUrl: this.options.webUrl, fetch: this.options.fetch });
     let me: Promise<string> | undefined;
     const login = () =>
       (me ??= as.api<{ login: string; type?: string }>("GET", "/user").then((u) => {

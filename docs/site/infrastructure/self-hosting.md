@@ -9,15 +9,15 @@ Kiln runs on your own infrastructure: a single host with Docker for small instal
 
 ## Requirements
 
-| Component                                          | Purpose                                                                                                                                                                 |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node 22 and pnpm 10                                | Kiln's services are TypeScript on Node.                                                                                                                                 |
-| A data directory (a volume)                        | Runtime state (work items, runs, gates, scores, tokens, audit log) in `kiln.json`, and objects (videos, reports, snapshots) under `objects/`. Back it up by copying it. |
-| Docker, or Kubernetes with a `gvisor` RuntimeClass | Sandboxes for agent runs. Without either, runs use host directories (development only).                                                                                 |
-| An egress proxy                                    | Enforces each runner's `egress` host list. Included in `docker-compose.yml` and the Helm chart. See [Sandboxes](sandboxes.md#egress).                                   |
-| Optional: an OpenAI-compatible gateway (LiteLLM)   | The LLM fallback for typed decisions and judges.                                                                                                                        |
+| Component                                          | Purpose                                                                                                                                                                                                |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Node 22.13+ and pnpm 10                            | Kiln's services are TypeScript on Node.                                                                                                                                                                |
+| A data directory (a volume)                        | Runtime state (work items, runs, gates, scores, tokens, audit log) in the SQLite file `kiln.db`, and objects (videos, reports, snapshots) under `objects/`. See [Data and backups](#data-and-backups). |
+| Docker, or Kubernetes with a `gvisor` RuntimeClass | Sandboxes for agent runs. Without either, runs use host directories (development only).                                                                                                                |
+| An egress proxy                                    | Enforces each runner's `egress` host list. Included in `docker-compose.yml` and the Helm chart. See [Sandboxes](sandboxes.md#egress).                                                                  |
+| Optional: an OpenAI-compatible gateway (LiteLLM)   | The LLM fallback for typed decisions and judges.                                                                                                                                                       |
 
-Postgres, Temporal, NATS and S3 are not required in v1; see ADR-002 and ADR-005 for why and for the path to them.
+Postgres, Temporal, NATS and S3 are not required in v1; see ADR-002, ADR-005 and ADR-015 for why and for the path to them.
 
 ## Install
 
@@ -203,6 +203,24 @@ Kiln runs a timer pass that:
 - `GET /api/v1/health` returns `ok`, the number of factories and the server time.
 - Each run records a trace ID, so you can match its events with your logs and traces.
 - The audit log lists who applied definitions, decided gates, steered runs, issued tokens and set secrets.
+
+## Data and backups
+
+The data directory (`KILN_DATA_DIR`, `.data` by default) holds everything Kiln keeps between restarts:
+
+- `kiln.db` (with `kiln.db-wal` and `kiln.db-shm` while the API runs): runtime state in SQLite. One API process per data directory.
+- `objects/`, `storage/`, `forge/`, `sandboxes/`: objects, team storage, the local forge and sandbox folders.
+- `admin-token`: the bootstrap admin token.
+
+**Backups.** Take a consistent copy of the database while the API runs with SQLite's backup command, then copy the rest of the directory:
+
+```bash
+sqlite3 .data/kiln.db ".backup '/backups/kiln-$(date +%F).db'"
+```
+
+Or stop the API and copy the whole directory. Copying `kiln.db` alone while the API runs can miss recent writes that are still in `kiln.db-wal`. To restore, stop the API, put the backup in place as `kiln.db`, delete any `kiln.db-wal` and `kiln.db-shm`, and start it again.
+
+**Upgrading from `kiln.json`.** Older installs kept runtime state in `kiln.json`. On the first start with SQLite, Kiln imports it into `kiln.db` in one transaction and renames it to `kiln.json.imported`; delete that file once you are happy. To stay on the JSON file for now, set `KILN_STORE=file`. That switch goes away in a later release.
 
 ## Disk space
 

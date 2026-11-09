@@ -37,7 +37,8 @@ import {
   type Forge,
 } from "@kiln/integrations";
 import { composeProjectOfSelf, DEFAULT_EGRESS, DockerJanitor, DockerSandboxProvider, KubernetesSandboxProvider, LocalSandboxProvider } from "@kiln/sandbox";
-import { FileObjectStore, FileStore } from "@kiln/store";
+import { FileObjectStore } from "@kiln/store";
+import { openRuntimeStore } from "./runtime-store";
 import { AnthropicThinker, GptLiveProvider } from "@kiln/voice";
 import { diskGuard } from "./janitor";
 
@@ -116,7 +117,7 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     tracker,
     chat,
     preview,
-    store: new FileStore(join(dataDir, "kiln.json")),
+    store: openRuntimeStore(dataDir, env),
     objects: new FileObjectStore(join(dataDir, "objects")),
     decide,
     gateMerger,

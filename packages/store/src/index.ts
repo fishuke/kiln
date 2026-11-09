@@ -129,5 +129,6 @@ export class FileObjectStore implements ObjectStore {
   }
 }
 
+export * from "./sqlite";
 export * from "./s3";
 export * from "./fake-s3";

@@ -350,10 +350,11 @@ describe("linear", () => {
 
 describe("jira", () => {
   it("turns assignment to the factory into an agent session and reads labels and status changes", () => {
-    const issue = { key: "ENG-7", self: "https://acme.atlassian.net/rest/api/3/issue/1", fields: { summary: "S", project: { key: "ENG" }, labels: ["a", "b"], assignee: { accountId: "bot" } } };
+    const issue = { key: "ENG-7", self: "https://acme.atlassian.net/rest/api/3/issue/1", fields: { summary: "S", project: { key: "ENG" }, issuetype: { name: "Service Issue" }, labels: ["a", "b"], assignee: { accountId: "bot" } } };
     const evs = normalizeJiraEvents({ webhookEvent: "jira:issue_updated", issue, user: { accountId: "u1" }, changelog: { items: [{ field: "assignee", to: "bot" }, { field: "labels", fromString: "a", toString: "a b" }, { field: "status", from: "1", to: "3", toString: "Done" }] } }, "j1", { botAccountId: "bot" });
     expect(evs.map((e) => e.event)).toEqual(["agent_session_created", "issue_labeled", "status_changed"]);
-    expect(evs[2]!.data).toMatchObject({ status_id: "3", project_keys: ["ENG"], url: "https://acme.atlassian.net/browse/ENG-7" });
+    expect(evs[2]!.data).toMatchObject({ status_id: "3", project_keys: ["ENG"], issue_type: "Service Issue", url: "https://acme.atlassian.net/browse/ENG-7" });
+    expect(evs.every((e) => e.data.issue_type === "Service Issue")).toBe(true);
     const mention = normalizeJiraEvents({ webhookEvent: "comment_created", issue, comment: { body: { type: "doc", content: [{ type: "paragraph", content: [{ type: "mention", attrs: { id: "bot", text: "@Kiln" } }, { type: "text", text: " investigate" }] }] } } }, "j2", { botAccountId: "bot" });
     expect(mention[0]).toMatchObject({ event: "agent_session_created", data: { text: "@Kiln investigate" } });
   });

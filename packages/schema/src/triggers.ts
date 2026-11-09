@@ -108,10 +108,10 @@ export const TRIGGER_CATALOG = {
     push: { branches: S, repos: S },
   },
   jira: {
-    agent_session_created: { keywords: S, labels: S, project_keys: S },
-    issue_created: { labels: S, project_keys: S },
-    issue_labeled: { labels: S, project_keys: S },
-    status_changed: { project_keys: S, status_ids: S },
+    agent_session_created: { issue_types: S, keywords: S, labels: S, project_keys: S },
+    issue_created: { issue_types: S, labels: S, project_keys: S },
+    issue_labeled: { issue_types: S, labels: S, project_keys: S },
+    status_changed: { issue_types: S, project_keys: S, status_ids: S },
   },
   kiln: {},
   linear: {

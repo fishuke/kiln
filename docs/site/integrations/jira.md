@@ -34,7 +34,7 @@ For the tracker features below (comments, states, planning), Kiln reads `JIRA_BA
 | `issue_labeled` | Labels are added. |
 | `status_changed` | An issue changes status. `status_id` is the new status. |
 
-Filter on `project_keys` and `labels`; sessions also take `keywords` (case-insensitive), and `status_changed` takes `status_ids`. See [Automation triggers](../configuration/automation-triggers.md).
+Filter on `project_keys`, `labels` and `issue_types`; sessions also take `keywords` (case-insensitive), and `status_changed` takes `status_ids`. `issue_types` matches the issue type name (`issue.fields.issuetype.name`, such as `Bug` or `Service Issue`), case-insensitively. See [Automation triggers](../configuration/automation-triggers.md).
 
 ```markdown
 ---
@@ -45,6 +45,15 @@ triggers:
       project_keys: [ENG]
       keywords: [investigate, fix]
 ---
+```
+
+Only new service issues in one project:
+
+```yaml
+triggers:
+  - provider: jira
+    event: issue_created
+    filter: { project_keys: [FNLF], issue_types: ["Service Issue"] }
 ```
 
 The issue key, such as `ENG-42`, links the work item to the issue. Other comments on that issue continue the work item. Jira events reach every factory that opted in to Jira, so filter on `project_keys`.

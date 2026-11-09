@@ -24,6 +24,16 @@ describe("trigger matching", () => {
     expect(t({ assignees: ["alice"] })).toBe(false);
   });
 
+  it("matches Jira issue types by name, case-insensitively", () => {
+    const e = ev("jira", "issue_created", { project_keys: ["FNLF"], issue_type: "Service Issue" });
+    const t = (filter: Record<string, unknown>) => evaluateTrigger({ provider: "jira", event: "issue_created", filter }, e).ok;
+    expect(t({ project_keys: ["FNLF"], issue_types: ["Service Issue"] })).toBe(true);
+    expect(t({ issue_types: ["service issue"] })).toBe(true);
+    expect(t({ issue_types: ["Bug"] })).toBe(false);
+    expect(t({ issue_types: { not_in: ["SERVICE ISSUE"] } })).toBe(false);
+    expect(evaluateTrigger({ provider: "jira", event: "issue_created", filter: { issue_types: ["Bug"] } }, ev("jira", "issue_created", { project_keys: ["FNLF"] })).ok).toBe(false);
+  });
+
   it("skips bots by default on GitHub and only Kiln itself elsewhere", () => {
     const bot = (provider: IncomingEvent["provider"], event: string, self = false) => ev(provider, event, { authorIsBot: true, authorIsSelf: self });
     expect(evaluateTrigger({ provider: "github", event: "issue_created" }, bot("github", "issue_created")).ok).toBe(false);

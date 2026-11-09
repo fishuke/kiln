@@ -29,7 +29,7 @@ function adfMentions(node: any): string[] {
 /**
  * Jira Cloud webhooks → automation events. Assigning or mentioning the factory's app user is
  * `agent_session_created`; label additions are `issue_labeled`; status changes are
- * `status_changed` (with `status_id`). `comment_created` continues the work item of that issue.
+ * `status_changed` (with `status_id`). Every event carries `issue_type` (the issue type name). `comment_created` continues the work item of that issue.
  */
 export function normalizeJiraEvents(payload: Payload, deliveryId?: string, options: JiraNormalizeOptions = {}): IncomingEvent[] {
   const issue = payload.issue ?? {};
@@ -51,6 +51,7 @@ export function normalizeJiraEvents(payload: Payload, deliveryId?: string, optio
     project: f.project?.key,
     project_keys: uniq([f.project?.key]),
     status_id: f.status?.id,
+    issue_type: f.issuetype?.name as string | undefined,
     url: issue.self && issue.key ? `${String(issue.self).replace(/\/rest\/api\/.*$/, "")}/browse/${issue.key}` : undefined,
     author: actor.displayName ?? actor.emailAddress ?? actor.accountId,
     authorAccountId: actor.accountId,

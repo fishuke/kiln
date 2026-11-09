@@ -19,6 +19,14 @@ describe("trigger catalogue", () => {
     expect(msgs({ provider: "github", event: "pull_request_opened", filter: { labels: { in: ["a"], not_in: ["wip"] }, base_branches: ["main"], pr_numbers: [1, 2] } })).toEqual([]);
   });
 
+  it("accepts issue_types on Jira issue events", () => {
+    for (const event of ["issue_created", "issue_labeled", "status_changed", "agent_session_created"]) {
+      expect(msgs({ provider: "jira", event, filter: { project_keys: ["FNLF"], issue_types: ["Service Issue"] } })).toEqual([]);
+    }
+    expect(msgs({ provider: "jira", event: "issue_created", filter: { issue_types: { in: ["Bug"], not_in: ["Epic"] } } })).toEqual([]);
+    expect(msgs({ provider: "jira", event: "issue_created", filter: { issue_types: [1] } })[0]).toMatch(/strings/);
+  });
+
   it("checks matcher grammar", () => {
     expect(msgs({ provider: "github", event: "pull_request_merged", filter: { pr_numbers: ["one"] } })[0]).toMatch(/integers/);
     expect(msgs({ provider: "github", event: "issue_labeled", filter: { labels: { any: ["x"] } } })[0]).toMatch(/unknown operator any/);

@@ -85,6 +85,8 @@ const DISCORD_MESSAGE = [F("guild_ids", "Servers", "free", "add server ids"), F(
 
 const ADO_PR = [repos, baseBranches, F("source_repos", "Source repositories", "repos", "select repositories")];
 const ADO_WI = [F("work_item_types", "Work item types", "free", "add work item types"), F("assignees", "Assignees", "users", "select users"), F("authors", "Authors", "users", "select users"), labels];
+const jiraProjects = F("project_keys", "Projects", "projects", "select projects");
+const jiraIssueTypes = F("issue_types", "Issue types", "free", "add issue type names");
 
 export type EventDef = { id: string; label: string; group?: string; filters: FilterField[]; /** shown in the Add trigger menu */ menu?: boolean };
 
@@ -242,10 +244,10 @@ export const PROVIDERS: ProviderDef[] = [
     label: "Jira",
     integration: "jira",
     events: [
-      E("issue_created", "Issue created", [F("project_keys", "Projects", "projects", "select projects"), labels]),
-      E("issue_labeled", "Issue labeled", [F("project_keys", "Projects", "projects", "select projects"), labels]),
-      E("status_changed", "Status changed", [F("project_keys", "Projects", "projects", "select projects"), F("status_ids", "Statuses", "free", "add status ids")]),
-      E("agent_session_created", "Agent session created", [F("project_keys", "Projects", "projects", "select projects"), labels, keywords]),
+      E("issue_created", "Issue created", [jiraProjects, jiraIssueTypes, labels]),
+      E("issue_labeled", "Issue labeled", [jiraProjects, jiraIssueTypes, labels]),
+      E("status_changed", "Status changed", [jiraProjects, jiraIssueTypes, F("status_ids", "Statuses", "free", "add status ids")]),
+      E("agent_session_created", "Agent session created", [jiraProjects, jiraIssueTypes, labels, keywords]),
     ],
   },
   {

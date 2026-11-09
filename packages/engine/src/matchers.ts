@@ -43,6 +43,7 @@ const FIELD_OF: Record<string, string> = {
   emojis: "emoji",
   schedule_ids: "schedule_id",
   work_item_types: "work_item_type",
+  issue_types: "issue_type",
   source_repos: "source_repo",
 };
 

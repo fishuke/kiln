@@ -89,10 +89,10 @@ Generated from `packages/schema/src/triggers.ts`. A trigger names a `provider` a
 
 | Event | Filter keys |
 | --- | --- |
-| `agent_session_created` | `keywords` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `project_keys` (list or `{in, not_in}`) |
-| `issue_created` | `labels` (list or `{in, not_in}`), `project_keys` (list or `{in, not_in}`) |
-| `issue_labeled` | `labels` (list or `{in, not_in}`), `project_keys` (list or `{in, not_in}`) |
-| `status_changed` | `project_keys` (list or `{in, not_in}`), `status_ids` (list or `{in, not_in}`) |
+| `agent_session_created` | `issue_types` (list or `{in, not_in}`), `keywords` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `project_keys` (list or `{in, not_in}`) |
+| `issue_created` | `issue_types` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `project_keys` (list or `{in, not_in}`) |
+| `issue_labeled` | `issue_types` (list or `{in, not_in}`), `labels` (list or `{in, not_in}`), `project_keys` (list or `{in, not_in}`) |
+| `status_changed` | `issue_types` (list or `{in, not_in}`), `project_keys` (list or `{in, not_in}`), `status_ids` (list or `{in, not_in}`) |
 
 ## linear
 

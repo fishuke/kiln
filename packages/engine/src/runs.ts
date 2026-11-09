@@ -12,6 +12,7 @@ import { appRunDefinition, factoryRunDefinition, type AppRunDefinition, type Run
 import { fileUrl, mediaOf } from "./media";
 import { codexHome, parseChatgptAuth, redactChatgptTokens } from "./platform/chatgpt";
 import type { PoolCredential } from "./platform/credential-pool";
+import { isolatePinCommand } from "./pin-isolation";
 import { registryAuthFor } from "./platform/registry";
 import { checkMetadata, isTerminal, sourceFor } from "./run-state";
 import {
@@ -759,7 +760,12 @@ export class RunService {
         `git config user.name "kiln-agent[bot]" && git config user.email "agent@kiln.local" && mkdir -p .git/info && echo ".kiln/" >> .git/info/exclude`,
       );
       const pin = input.pinned?.[r.name];
-      if (pin) await sh(`git checkout -q -B ${input.branch ?? "kiln/replay"} ${pin}`);
+      if (pin) {
+        const branch = input.branch ?? "kiln/replay";
+        await sh(`git checkout -q -B ${branch} ${pin}`);
+        // A benchmark trial must not see history after its pin (later fixes, tags, branches).
+        if (input.kind === "benchmark") await sh(isolatePinCommand(branch));
+      }
       else if (input.branch) {
         await sh(`git fetch -q origin ${input.branch} 2>/dev/null && git checkout -q -B ${input.branch} FETCH_HEAD || git checkout -q -B ${input.branch}`);
       }

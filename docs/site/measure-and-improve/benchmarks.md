@@ -63,7 +63,7 @@ Any finished run can be saved as a benchmark task. Kiln takes the run's prompt, 
 
 ## Running a suite
 
-`kiln bench run <suite>` runs every task under every configuration, at the pinned commits, without pushing anything. Each run is judged against the task's success criteria with the labels `success` and `failure`. A task succeeds when the run succeeded and the judge says `success`.
+`kiln bench run <suite>` runs every task under every configuration, at the pinned commits, without pushing anything. A trial sees history up to its pin only: after checkout Kiln deletes every other branch, tag and remote and prunes the later commits, so the agent cannot read a fix that landed afterwards. The local backend still runs on the host and can read the host's files; use the Docker or Kubernetes backend when the host holds newer clones. Each run is judged against the task's success criteria with the labels `success` and `failure`. A task succeeds when the run succeeded and the judge says `success`.
 
 For each configuration, Kiln reports the number of tasks, the success rate, the average cost and the average duration, and marks whether it is on the **Pareto frontier**: no other configuration is at least as good on both success rate and cost and better on one.
 

@@ -29,9 +29,20 @@ export type TaskInput = {
 export type RunInput = {
   configurations?: BenchmarkConfiguration[];
   repetitions: number;
+  /** Trials that run at the same time (1–16, default 1). */
+  concurrency?: number;
   scorers?: string[];
   tasks?: string[];
 };
+
+/** Runs `fn` over `items` with at most `limit` in flight, starting them in order. */
+async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await fn(items[next++]!);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
 
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "task";
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -204,9 +215,11 @@ export class BenchmarkAdmin {
     for (const t of tasks) if (!suite.taskDetails[t]) throw new KilnError("resource_not_found", `suite ${suiteSlug} has no task ${t}`);
     if (!tasks.length) throw new KilnError("operation_not_supported", "the suite has no tasks to run");
     if (input.repetitions < 1 || input.repetitions > 10) throw new KilnError("invalid_request", "repetitions must be 1–10");
+    const concurrency = input.concurrency ?? 1;
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) throw new KilnError("invalid_request", "concurrency must be 1–16");
     for (const s of input.scorers ?? []) if (!resolved.parsed.scorers[s]) throw new KilnError("resource_not_found", `factory ${factory} has no scorer ${s}`);
     const now = this.k.clock.now().toISOString();
-    const run: BenchmarkRun = { id: newId("bench_run"), factory, suite: suiteSlug, agent: suite.agent, state: "pending", configurations, tasks, repetitions: input.repetitions, scorers: input.scorers ?? [], creator: by, createdAt: now };
+    const run: BenchmarkRun = { id: newId("bench_run"), factory, suite: suiteSlug, agent: suite.agent, state: "pending", configurations, tasks, repetitions: input.repetitions, concurrency, scorers: input.scorers ?? [], creator: by, createdAt: now };
     this.k.store.put(C.benchmarkRuns, run);
     for (const c of configurations)
       for (const task of tasks)
@@ -234,10 +247,11 @@ export class BenchmarkAdmin {
     const suite = resolved.parsed.benchmarks[run.suite];
     if (!suite) throw new Error(`suite ${run.suite} no longer exists`);
     const agentRuns = new Map<string, Run>();
-    for (const trial of this.trials(id)) {
+    const limit = run.concurrency ?? 1;
+    await pool(this.trials(id), limit, async (trial) => {
       if (this.run(id).cancelRequested) {
         this.saveTrial({ ...trial, state: "cancelled", scoring: { state: "not_scoreable", scores: [] } });
-        continue;
+        return;
       }
       const task = suite.tasks[trial.task]!;
       const config = run.configurations.find((c) => c.name === trial.configuration)!;
@@ -278,20 +292,21 @@ export class BenchmarkAdmin {
         scoring: { state: "pending", scores: [] },
       };
       this.saveTrial(t);
-    }
+    });
     run = { ...this.run(id), state: this.run(id).cancelRequested ? "cancelled" : "scoring" };
     this.k.store.put(C.benchmarkRuns, run);
     if (run.state === "scoring") {
-      for (const trial of this.trials(id)) {
+      const scoring = run;
+      await pool(this.trials(id), limit, async (trial) => {
         const agentRun = agentRuns.get(trial.id) ?? (trial.agentRunId ? this.k.runs.get(trial.agentRunId) : undefined);
         if (!agentRun || trial.state === "cancelled") {
           this.saveTrial({ ...trial, scoring: { state: "not_scoreable", scores: [] } });
-          continue;
+          return;
         }
         this.saveTrial({ ...trial, scoring: { state: "judging", scores: [] } });
-        const scores = await this.scoreTrial(run, suite.tasks[trial.task]!.successCriteria, agentRun);
+        const scores = await this.scoreTrial(scoring, suite.tasks[trial.task]!.successCriteria, agentRun);
         this.saveTrial({ ...this.trial(trial.id), scoring: { state: "scored", scores }, judgeCostUsd: scores.reduce((s, x) => s + x.costUsd, 0) });
-      }
+      });
       // Keep the flat result rows the older benchmark summary reads.
       for (const trial of this.trials(id)) {
         const c = trial.scoring.scores.find((s) => s.scorer === "task-correctness");

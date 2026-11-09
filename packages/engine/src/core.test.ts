@@ -974,6 +974,41 @@ describe("metrics, scorers and benchmarks", () => {
     expect(kiln.runs.get(trial.agentRunId!)!.startState.prompt).toContain("The footer has a link");
   });
 
+  it("runs trials in parallel up to the run's concurrency", async () => {
+    const { kiln, forge } = createTestKiln();
+    const sha = forge.branchSha({ owner: "acme", name: "web" }, "main")!;
+    await kiln.benchmarkAdmin.createSuite(
+      "webapp",
+      {
+        name: "wide",
+        agent: "implement",
+        configurations: [{ name: "a" }, { name: "b" }],
+        firstTask: { title: "One", prompt: "Add a footer link", successCriteria: ["ok"], startingRepoRefs: [`github.com:acme/web@${sha}`] },
+      },
+      "lead",
+    );
+    let active = 0;
+    let peak = 0;
+    const execute = kiln.runs.execute.bind(kiln.runs);
+    kiln.runs.execute = async (input) => {
+      peak = Math.max(peak, ++active);
+      try {
+        await new Promise((r) => setTimeout(r, 20));
+        return await execute(input);
+      } finally {
+        active--;
+      }
+    };
+    await expect(kiln.benchmarkAdmin.start("webapp", "wide", { repetitions: 2, concurrency: 17 }, "lead")).rejects.toThrow(/concurrency/);
+    const run = await kiln.benchmarkAdmin.start("webapp", "wide", { repetitions: 2, concurrency: 3 }, "lead", { wait: true });
+    expect(kiln.benchmarkAdmin.run(run.id)).toMatchObject({ state: "completed", concurrency: 3 });
+    expect(kiln.benchmarkAdmin.trials(run.id).every((t) => t.state === "succeeded")).toBe(true);
+    expect(peak).toBe(3);
+    peak = 0;
+    await kiln.benchmarkAdmin.start("webapp", "wide", { repetitions: 2 }, "lead", { wait: true });
+    expect(peak).toBe(1);
+  });
+
   it("judge-only success criteria never reach the agent", async () => {
     const { kiln, forge } = createTestKiln();
     const sha = forge.branchSha({ owner: "acme", name: "web" }, "main")!;

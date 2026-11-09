@@ -33,6 +33,7 @@ export const StartBenchmark = z.object({
     .max(6)
     .optional(),
   repetitions: z.number().int().min(1).max(10).default(1),
+  concurrency: z.number().int().min(1).max(16).optional(),
   scorers: z.array(z.string()).optional(),
   tasks: z.array(z.string()).optional(),
 });

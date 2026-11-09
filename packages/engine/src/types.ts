@@ -473,6 +473,8 @@ export type BenchmarkRun = {
   configurations: BenchmarkConfiguration[];
   tasks: string[];
   repetitions: number;
+  /** Trials run at the same time; absent means 1. */
+  concurrency?: number;
   scorers: string[];
   creator: string;
   cancelRequested?: boolean;

@@ -394,6 +394,8 @@ export const PipelineStage = z
     on_fail: z.string().optional(),
     max_loops: z.number().int().min(1).max(10).optional(),
     advisory: z.boolean().optional(),
+    /** Triage stages only. false always runs the stage's agent, even when the triage decision is confident. Default true. */
+    fast_path: z.boolean().optional(),
   })
   .strict()
   .refine((s) => Boolean(s.agent) !== Boolean(s.action), { message: "a stage needs exactly one of agent or action" });

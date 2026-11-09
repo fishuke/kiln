@@ -1224,6 +1224,28 @@ describe("multi-repository factories", () => {
   });
 });
 
+describe("pipeline triage fast path", () => {
+  const confident: FakeRule = (r) => (r.decision === "triage" ? { kind: { bug: 0.95, feature: 0.05 }, size: { s: 0.9, m: 0.1 } } : undefined);
+  const withPipeline = (fastPath?: boolean) =>
+    sampleTree({
+      "pipelines/service.yaml": `stages:\n  - { id: triage, agent: triage${fastPath === undefined ? "" : `, fast_path: ${fastPath}`} }\n  - { id: implement, agent: implement }\n  - { id: handoff, action: handoff }\n`,
+    });
+  const triageRuns = async (fastPath?: boolean) => {
+    const { kiln } = createTestKiln({ tree: withPipeline(fastPath), decide: { primary: new FakeProvider([confident, heuristicRule]) }, preview: false });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Checkout returns 500", body: "", source: { provider: "api" }, requester: "a@acme.test", pipeline: "service" });
+    await kiln.workflow.advance(wi.id);
+    return kiln.runs.list({ workItemId: wi.id }).filter((r) => r.agent === "triage");
+  };
+
+  it("runs the triage agent with fast_path: false even when the decision is confident", async () => {
+    expect(await triageRuns(false)).toHaveLength(1);
+  });
+
+  it("skips the triage agent by default when the decision is confident", async () => {
+    expect(await triageRuns()).toHaveLength(0);
+  });
+});
+
 describe("spec stage failures", () => {
   it("does not ask to approve a spec the agent could not write: it retries once, then parks and asks why", async () => {
     const failing = new FakeHarness(async () => {

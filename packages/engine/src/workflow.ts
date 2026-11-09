@@ -917,7 +917,9 @@ export class Workflow {
     const size = top(outcome.answers.size);
     const repos = r.factory.repositories;
     let agentRepo: string | undefined;
-    if (kind && size && kind.p >= 0.6 && size.p >= 0.6) {
+    // fast_path: false makes a confident decision no reason to skip the stage's agent.
+    const fastPath = stage.fast_path !== false || !stage.agent;
+    if (fastPath && kind && size && kind.p >= 0.6 && size.p >= 0.6) {
       wi.triage = { kind: kind.option, size: size.option, confidence: Math.min(kind.p, size.p) };
     } else if (stage.agent) {
       const open = this.list({ factory: wi.factory })

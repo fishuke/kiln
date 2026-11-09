@@ -47,6 +47,7 @@ stages:
 | `on_fail` | An earlier stage's `id` to go back to when this stage fails. |
 | `max_loops` | 1–10. Default 3. |
 | `advisory` | For review stages. When `true`, review findings never park the work item. See below. |
+| `fast_path` | For triage stages. Default `true`: when the built-in `triage` decision is confident about kind and size, Kiln skips the stage's agent. Set `false` to always run the agent, for example when it also finds the root cause. Other stages ignore it. |
 
 ### What each stage does
 

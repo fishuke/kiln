@@ -179,6 +179,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `stages[].on_fail` | string |  |  |
 | `stages[].max_loops` | integer |  | min 1, max 10 |
 | `stages[].advisory` | boolean |  |  |
+| `stages[].fast_path` | boolean |  |  |
 | `budget` | object |  |  |
 | `budget.maxUsd` | number | yes |  |
 

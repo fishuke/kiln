@@ -47,6 +47,8 @@ At the start of a run, Kiln writes each skill to the harness's skills folder in 
 | Codex | `.agents/skills/<name>/SKILL.md` |
 | OpenCode | `.opencode/skills/<name>/SKILL.md` |
 
+Kiln adds each file it writes to the clone's `.git/info/exclude`, so the skills never end up in a commit or pull request. Only those files are excluded: the repository's own skills in the same folder stay under version control, and changes to them are committed as usual. If the repository already has a skill with the same name, Kiln does not overwrite it, and the agent uses the repository's version.
+
 The run's start state records the skill names, so a [replay](../measure-and-improve/replay-and-canary.md) uses the same set.
 
 ## Sharing skills between factories

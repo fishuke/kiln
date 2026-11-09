@@ -203,6 +203,21 @@ describe.each(adapters)("harness contract: %s", (_name, adapter, skillPath) => {
     expect((await session.result).outcome).toBe("succeeded");
   });
 
+  it("keeps a repository's own skill of the same name and excludes only the skills it wrote", async () => {
+    const { sandbox, files } = scriptedSandbox();
+    const execs: string[] = [];
+    sandbox.exec = async (cmd) => (execs.push(cmd), { code: 0, stdout: "", stderr: "" });
+    files[`app/${skillPath}`] = "the repository's own";
+    const session = await adapter.start({ ...base, sandbox, cwd: "app", skills: [...base.skills, { name: "extra", body: "More." }] });
+    await collect(session.events);
+    expect(files[`app/${skillPath}`]).toBe("the repository's own");
+    const extra = skillPath.replace("testing", "extra");
+    expect(files[`app/${extra}`]).toContain("More.");
+    const exclude = execs.find((c) => c.includes("info/exclude"))!;
+    expect(exclude).toContain(`/${extra}`);
+    expect(exclude).not.toContain(`/${skillPath}`);
+  });
+
   it("reports failure", async () => {
     const { sandbox } = scriptedSandbox(true);
     const session = await adapter.start({ ...base, sandbox });

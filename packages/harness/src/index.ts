@@ -161,11 +161,28 @@ process.stdin.on("end", async () => {
 `;
 }
 
-async function writeSkills(opts: StartOptions, dir: string) {
+/**
+ * Writes the factory's skills into the harness's skills folder and git-excludes exactly those files, so a
+ * run's auto-commit never puts them in the pull request. A skill file the repository already has (its own
+ * skill of the same name) is left alone: the repository's version wins and stays under version control.
+ */
+export async function writeSkills(opts: StartOptions, dir: string) {
+  const prefix = opts.cwd ? `${opts.cwd}/` : "";
+  const written: string[] = [];
   for (const s of opts.skills ?? []) {
+    const path = `${dir}/${s.name}/SKILL.md`;
+    if ((await opts.sandbox.readFile(`${prefix}${path}`)) !== undefined) continue;
     const fm = `---\nname: ${s.name}\ndescription: ${JSON.stringify(s.description ?? s.name)}\n---\n`;
-    await opts.sandbox.writeFile(`${opts.cwd ? `${opts.cwd}/` : ""}${dir}/${s.name}/SKILL.md`, `${fm}${s.body}\n`);
+    await opts.sandbox.writeFile(`${prefix}${path}`, `${fm}${s.body}\n`);
+    written.push(path);
   }
+  if (!written.length) return;
+  const lines = written.map((p) => `/${p}`).join("\n");
+  const quoted = `'${lines.replace(/'/g, `'\\''`)}'`;
+  await opts.sandbox.exec(
+    `f=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$f")" && printf '%s\\n' ${quoted} >> "$f" || true`,
+    { ...(opts.cwd ? { cwd: opts.cwd } : {}), trusted: true },
+  );
 }
 
 function parseJson(line: string): Record<string, any> | undefined {

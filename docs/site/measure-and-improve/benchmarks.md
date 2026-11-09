@@ -52,6 +52,7 @@ tags: [easy]
 | --- | --- |
 | `title`, `prompt` | Required. |
 | `successCriteria` | At least one. |
+| `criteriaVisibility` | Optional. `agent` (default): the trial prompt lists the success criteria. `judge`: only the judge sees them. Use `judge` for backtests on past tickets, where the criteria describe the real cause and fix and would give the answer away. |
 | `startingRepoRefs` | At least one, in the form `github.com:<owner>/<repo>@<40-character commit SHA>` (or `gitlab.com:`). |
 | `sourceRunId` | Optional. The run the task was saved from. |
 | `tags` | Optional. Used to group tasks when suggesting routing rules. |

@@ -305,6 +305,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `title` | string | yes |  |
 | `prompt` | string | yes |  |
 | `successCriteria` | list of string | yes |  |
+| `criteriaVisibility` | `agent` \| `judge` |  | default `"agent"` |
 | `startingRepoRefs` | list of string | yes |  |
 | `sourceRunId` | string |  |  |
 | `tags` | list of string |  |  |

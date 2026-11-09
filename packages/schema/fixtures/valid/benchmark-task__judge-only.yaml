@@ -1,0 +1,5 @@
+title: Old ticket
+prompt: Renewal stalls without an error
+successCriteria: [The root cause names the script]
+criteriaVisibility: judge
+startingRepoRefs: ["github.com:acme/web-app@0123456789abcdef0123456789abcdef01234567"]

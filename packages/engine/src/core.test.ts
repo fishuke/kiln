@@ -971,6 +971,35 @@ describe("metrics, scorers and benchmarks", () => {
     expect(res.narrative.availability).toBe("available");
     const trial = kiln.benchmarkAdmin.trials(run.id)[0]!;
     expect(kiln.runs.get(trial.agentRunId!)).toMatchObject({ kind: "benchmark", source: "BENCHMARK_TRIAL", metadata: { benchmarkRun: run.id } });
+    expect(kiln.runs.get(trial.agentRunId!)!.startState.prompt).toContain("The footer has a link");
+  });
+
+  it("judge-only success criteria never reach the agent", async () => {
+    const { kiln, forge } = createTestKiln();
+    const sha = forge.branchSha({ owner: "acme", name: "web" }, "main")!;
+    await kiln.benchmarkAdmin.createSuite(
+      "webapp",
+      {
+        name: "backtest",
+        agent: "implement",
+        firstTask: {
+          title: "Old ticket",
+          prompt: "Renewal stalls without an error",
+          successCriteria: ["Root cause: empty(0) turns 0 into null in setRelativeAmount.jexl"],
+          criteriaVisibility: "judge",
+          startingRepoRefs: [`github.com:acme/web@${sha}`],
+        },
+      },
+      "lead",
+    );
+    expect(kiln.benchmarkAdmin.suite("webapp", "backtest").taskDetails["old-ticket"]).toMatchObject({ criteriaVisibility: "judge" });
+    const run = await kiln.benchmarkAdmin.start("webapp", "backtest", { repetitions: 1 }, "lead", { wait: true });
+    const trial = kiln.benchmarkAdmin.trials(run.id)[0]!;
+    const prompt = kiln.runs.get(trial.agentRunId!)!.startState.prompt;
+    expect(prompt).toContain("Renewal stalls without an error");
+    expect(prompt).not.toContain("setRelativeAmount");
+    const viaCli = await kiln.benchmarks.run("webapp", "backtest");
+    expect(kiln.runs.get(viaCli.results[0]!.runId)!.startState.prompt).not.toContain("setRelativeAmount");
   });
 });
 

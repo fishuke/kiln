@@ -1,6 +1,6 @@
 import type { HarnessType } from "@kiln/schema";
 import { parse, stringify } from "yaml";
-import { paretoFrontier } from "./benchmarks";
+import { paretoFrontier, trialPrompt } from "./benchmarks";
 import { KilnError } from "./errors";
 import type { Kiln } from "./kiln";
 import { C, newId, type BenchmarkConfiguration, type BenchmarkRun, type BenchmarkTrial, type Run } from "./types";
@@ -19,6 +19,7 @@ export type TaskInput = {
   title: string;
   prompt: string;
   successCriteria: string[];
+  criteriaVisibility?: "agent" | "judge";
   startingRepoRefs: (string | { codeForge?: string; owner: string; repo: string; ref: string })[];
   sourceRunId?: string;
   tags?: string[];
@@ -116,6 +117,7 @@ export class BenchmarkAdmin {
       title: input.title,
       prompt: input.prompt,
       successCriteria: input.successCriteria,
+      ...(input.criteriaVisibility === "judge" ? { criteriaVisibility: "judge" } : {}),
       startingRepoRefs: input.startingRepoRefs.map(refString),
       ...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}),
       ...(input.tags?.length ? { tags: input.tags } : {}),
@@ -251,7 +253,7 @@ export class BenchmarkAdmin {
         factory: run.factory,
         sha: binding.appliedSha!,
         agent: run.agent,
-        prompt: `${task.prompt}\n\nSuccess criteria:\n${task.successCriteria.map((c) => `- ${c}`).join("\n")}`,
+        prompt: trialPrompt(task),
         kind: "benchmark",
         stage: `bench:${run.suite}`,
         repos: repos.map(({ owner, name }) => ({ owner, name })),

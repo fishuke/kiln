@@ -9,6 +9,12 @@ export function paretoFrontier<T extends { successRate: number; avgCostUsd: numb
   return rows.filter((a) => !rows.some((b) => b !== a && b.successRate >= a.successRate && b.avgCostUsd <= a.avgCostUsd && (b.successRate > a.successRate || b.avgCostUsd < a.avgCostUsd)));
 }
 
+/** What a trial's agent is told: the task prompt, plus the success criteria unless they are for the judge only. */
+export function trialPrompt(task: { prompt: string; successCriteria: string[]; criteriaVisibility?: "agent" | "judge" }): string {
+  if (task.criteriaVisibility === "judge") return task.prompt;
+  return `${task.prompt}\n\nSuccess criteria:\n${task.successCriteria.map((c) => `- ${c}`).join("\n")}`;
+}
+
 export class BenchmarkService {
   constructor(private readonly k: Kiln) {}
 
@@ -36,7 +42,7 @@ export class BenchmarkService {
           factory,
           sha: binding.appliedSha!,
           agent: suite.suite.agent,
-          prompt: `${task.prompt}\n\nSuccess criteria:\n${task.successCriteria.map((c) => `- ${c}`).join("\n")}`,
+          prompt: trialPrompt(task),
           kind: "benchmark",
           stage: `bench:${suiteName}`,
           repos: repos.map(({ owner, name }) => ({ owner, name })),

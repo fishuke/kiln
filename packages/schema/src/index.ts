@@ -621,6 +621,8 @@ export const BenchmarkTask = z
     title: z.string(),
     prompt: z.string(),
     successCriteria: z.array(z.string()).min(1),
+    /** `agent`: the trial prompt lists the criteria. `judge`: only the judge sees them (backtests on past tickets, where criteria give the answer away). */
+    criteriaVisibility: z.enum(["agent", "judge"]).default("agent"),
     startingRepoRefs: z.array(z.string().regex(/^(github|gitlab)\.com:[^/]+\/[^@]+@[0-9a-f]{40}$/)).min(1),
     sourceRunId: z.string().optional(),
     tags: z.array(z.string()).optional(),

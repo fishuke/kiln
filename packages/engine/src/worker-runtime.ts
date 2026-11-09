@@ -2,6 +2,7 @@ import type { HarnessAdapter, HarnessSession } from "@kiln/harness";
 import { hashDir, type GuardVerdict, type Sandbox, type SandboxProvider } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import { mediaOf } from "./media";
+import { pushableHead } from "./push-head";
 import type { WorkerEvent, WorkerJob, WorkerResult } from "./workers";
 
 export type JobHandle = { steer(text: string): Promise<void>; stop(): Promise<void>; result: Promise<WorkerResult> };
@@ -105,9 +106,10 @@ export function startWorkerJob(job: WorkerJob, deps: JobDeps): JobHandle {
         for (const repo of job.repos) {
           const sh = (cmd: string, env?: Record<string, string>) => sb.exec(cmd, { cwd: repo.name, trusted: true, env });
           if ((await sh("git status --porcelain")).stdout.trim()) await sh(`git add -A && git commit -q -m ${JSON.stringify(`kiln: ${job.agent} (${job.runId})`)}`);
-          const head = (await sh("git rev-parse HEAD")).stdout.trim();
           const start = base.startRepos.find((x) => x.name === repo.name)?.sha;
           const remote = (await sh(`git ls-remote origin refs/heads/${job.branch}`)).stdout.split(/\s/)[0];
+          const label = `kiln: ${job.agent} (${job.runId})`;
+          const head = await pushableHead(sh, { branch: job.branch, head: (await sh("git rev-parse HEAD")).stdout.trim(), start, remote, label });
           if (start && start !== head) {
             for (const line of (await sh(`git diff --numstat ${start} ${head}`)).stdout.split("\n").filter(Boolean)) {
               const [a, d] = line.split("\t");

@@ -14,6 +14,7 @@ import { codexHome, parseChatgptAuth, redactChatgptTokens } from "./platform/cha
 import type { PoolCredential } from "./platform/credential-pool";
 import { isolatePinCommand } from "./pin-isolation";
 import { registryAuthFor } from "./platform/registry";
+import { pushableHead } from "./push-head";
 import { checkMetadata, isTerminal, sourceFor } from "./run-state";
 import {
   C,
@@ -1212,8 +1213,12 @@ export class RunService {
       const sh = (cmd: string, env?: Record<string, string>) => sandbox.exec(cmd, { cwd: r.name, trusted: true, env });
       const dirty = (await sh("git status --porcelain")).stdout.trim();
       if (dirty) await sh(`git add -A && git commit -q -m ${JSON.stringify(`kiln: ${run.stage ?? run.agent} (${run.id})`)}`);
-      const head = (await sh("git rev-parse HEAD")).stdout.trim();
+      let head = (await sh("git rev-parse HEAD")).stdout.trim();
       const start = run.startState.repos.find((x) => x.name === r.name)?.sha;
+      const remote = (await sh(`git ls-remote origin refs/heads/${branch}`)).stdout.split(/\s/)[0];
+      const pushable = await pushableHead(sh, { branch, head, start, remote, label: `kiln: ${run.stage ?? run.agent} (${run.id})` });
+      const rewritten = pushable !== head;
+      head = pushable;
       if (start && start !== head) {
         for (const line of (await sh(`git diff --numstat ${start} ${head}`)).stdout.split("\n").filter(Boolean)) {
           const [a, d] = line.split("\t");
@@ -1222,7 +1227,6 @@ export class RunService {
           diffStat.files += 1;
         }
       }
-      const remote = (await sh(`git ls-remote origin refs/heads/${branch}`)).stdout.split(/\s/)[0];
       if (head === start && !remote) continue;
       if (remote === head) continue;
       const auth = this.k.secrets.authorize(token, "push", repoKey(r), branch);
@@ -1230,7 +1234,7 @@ export class RunService {
       const res = await sh(`git push -q origin HEAD:refs/heads/${branch}`, { KILN_PUSH_AS: `agent:${run.id}` });
       if (res.code !== 0) throw new Error(`git push failed: ${res.stderr}`);
       pushed.push({ repo: repoKey(r), branch, sha: head });
-      this.record(run, "pushed", `${repoKey(r)} ${branch} @ ${head.slice(0, 7)}`);
+      this.record(run, "pushed", `${repoKey(r)} ${branch} @ ${head.slice(0, 7)}${rewritten ? " (the agent rewrote the branch history; kept as one commit on top)" : ""}`);
     }
     return { pushed, diffStat: diffStat.files ? diffStat : undefined };
   }

@@ -34,7 +34,7 @@ Every external system sits behind an interface with a fake for tests: forge, tra
 2. The runner creates a sandbox from the agent's runner file: image, CPU and memory, setup commands and egress allowlist. See [Sandboxes](sandboxes.md).
 3. Kiln clones the repositories with the run token and checks out the work item's `kiln/*` branch.
 4. The harness starts inside the sandbox with the instructions, skills and a Kiln MCP connection that uses the same run token.
-5. When the run ends, Kiln reads `.kiln/result.json`. If the run succeeded and the stage changes code, Kiln commits leftovers and pushes the branch with the run token. Then it destroys the sandbox. A paused run keeps a snapshot instead.
+5. When the run ends, Kiln reads `.kiln/result.json`. If the run succeeded and the stage changes code, Kiln commits leftovers and pushes the branch with the run token. Kiln never force-pushes: if the agent rewrote history the branch already has (a rebase or an amend) and nobody else pushed since the run started, Kiln pushes the agent's final files as one commit on top of the branch. If someone else pushed in the meantime, the push fails and the branch is left as it is. Then it destroys the sandbox. A paused run keeps a snapshot instead.
 
 ## Security controls
 

@@ -105,6 +105,11 @@ export function parseRange(params: { range?: string; from?: string; to?: string 
   return { key: `${days}d` as RangeKey, start, end, prevEnd: new Date(start.getTime() - 1), prevStart: new Date(start.getTime() - days * DAY), label: `Last ${days} days` };
 }
 
+/** The range as the Measure API takes it: ISO datetimes, end exclusive. */
+export function apiRange(r: DateRange): { startDate: string; endDate: string } {
+  return { startDate: r.start.toISOString(), endDate: new Date(r.end.getTime() + 1).toISOString() };
+}
+
 /** Evenly spaced label indexes so at most `max` x-axis labels show (first and last always). */
 export function labelIndexes(n: number, max = 7): number[] {
   if (n <= max) return Array.from({ length: n }, (_, i) => i);

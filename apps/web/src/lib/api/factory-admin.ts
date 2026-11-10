@@ -88,7 +88,7 @@ export function prSize(additions?: number, deletions?: number): PerPrCost["size"
   return lines < 100 ? "S" : lines < 500 ? "M" : lines < 1000 ? "L" : "XL";
 }
 
-/** The most expensive PRs in a date range (`YYYY-MM-DD`); null when the report is unavailable. */
+/** The most expensive PRs in a range (ISO datetimes, end exclusive); null when the report is unavailable. */
 export async function topPrCosts(factory: string, start: string, end: string): Promise<PerPrCost[] | null> {
   const r = await safe(() => api.topPrCosts(factory, { startDate: start, endDate: end, limit: 20 }), null);
   if (!r) return null;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areaPath, bucket, dayKeys, dayLabel, delta, labelIndexes, linePath, niceScale, parseRange, scaleLinear, stack } from "./chart";
+import { apiRange, areaPath, bucket, dayKeys, dayLabel, delta, labelIndexes, linePath, niceScale, parseRange, scaleLinear, stack } from "./chart";
 import { toAlias, validateAlias } from "./alias";
 
 describe("niceScale", () => {
@@ -89,5 +89,12 @@ describe("foreman name", () => {
     expect(validateAlias("@shop", ["Shop"])).toMatch(/already used/);
     expect(validateAlias("shop", ["shop"], "shop")).toBeNull();
     expect(validateAlias("kiln", ["shop"])).toBeNull();
+  });
+});
+
+describe("apiRange", () => {
+  it("gives the Measure API ISO datetimes with an exclusive end", () => {
+    const r = parseRange({ from: "2026-10-01", to: "2026-10-10" });
+    expect(apiRange(r)).toEqual({ startDate: "2026-10-01T00:00:00.000Z", endDate: "2026-10-11T00:00:00.000Z" });
   });
 });

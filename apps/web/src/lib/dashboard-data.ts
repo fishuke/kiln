@@ -11,7 +11,7 @@ export type WorkItemLite = {
   state: string;
   requester: string;
   source: { provider: string };
-  pr?: { repo: string; number: number; url: string };
+  pr?: { repo: string; number: number; url: string; openedAt?: string; firstReviewAt?: string; mergedAt?: string };
   triage?: { size?: string };
   humanTouches: number;
   completion?: { by: string };
@@ -62,6 +62,15 @@ const inferenceOf = (r: Costed) => (PLATFORM_KINDS.has(r.kind ?? "") ? 0 : r.cos
 const costOf = (r: Costed) => r.costUsd + r.judging + (r.computeCostUsd ?? 0);
 const empty = (name: string): Breakdown => ({ name, cost: 0, compute: 0, platform: 0, inference: 0, runs: 0 });
 const within = (iso: string | undefined, a: Date, b: Date) => !!iso && iso >= a.toISOString() && iso <= b.toISOString();
+const hoursBetween = (a?: string, b?: string) => (a && b ? Math.max(0, Date.parse(b) - Date.parse(a)) / 3_600_000 : null);
+/** Median hours between two timestamps over the PRs where both were recorded. */
+const medianHours = (ws: WorkItemLite[], from: (w: WorkItemLite) => string | undefined, to: (w: WorkItemLite) => string | undefined) => {
+  const m = median(ws.map((w) => hoursBetween(from(w), to(w))).filter((h): h is number => h !== null));
+  return m === null ? null : r2(m);
+};
+const mergedAt = (w: WorkItemLite) => w.pr?.mergedAt ?? w.completedAt;
+/** Human touches after the original request, which counts as the first touch. */
+const interactionsOf = (w: WorkItemLite) => Math.max(0, w.humanTouches - 1);
 const isMerged = (w: WorkItemLite) => w.state === "complete" && (w.completion?.by === "merge" || !!w.pr);
 const prStatus = (w: WorkItemLite): PrRow["status"] => (isMerged(w) ? "merged" : w.state === "cancelled" || w.state === "failed" ? "closed" : "open");
 export const sizeOf = (w: WorkItemLite) => {
@@ -73,13 +82,13 @@ function periodStats(runs: Costed[], items: WorkItemLite[], a: Date, b: Date) {
   const opened = items.filter((w) => w.pr && within(w.createdAt, a, b));
   const merged = items.filter((w) => isMerged(w) && within(w.completedAt ?? w.updatedAt, a, b));
   const autonomous = merged.filter((w) => w.humanTouches <= 1);
-  const cycle = median(merged.filter((w) => w.completedAt).map((w) => (Date.parse(w.completedAt!) - Date.parse(w.createdAt)) / 3_600_000));
+  const cycle = medianHours(merged, (w) => w.createdAt, mergedAt);
   const prIds = new Set(opened.map((w) => w.id));
   const prCost = runs.filter((r) => r.workItemId && prIds.has(r.workItemId)).reduce((s, r) => s + costOf(r), 0);
   const periodRuns = runs.filter((r) => within(r.startedAt, a, b));
   return {
     autonomy: merged.length ? autonomous.length / merged.length : null,
-    cycle: cycle === null ? null : r2(cycle),
+    cycle,
     costPerPr: opened.length ? r2(prCost / opened.length) : null,
     runs: periodRuns.length,
     opened: opened.length,
@@ -125,7 +134,7 @@ export function buildDashboard(input: { runs: RunLite[]; items: WorkItemLite[]; 
 
   // Productivity
   const merged = items.filter((w) => isMerged(w) && within(w.completedAt ?? w.updatedAt, range.start, range.end));
-  const inter = bucket(merged, days, (w) => w.completedAt ?? w.updatedAt, () => "interactions", (w) => w.humanTouches, ["interactions"]);
+  const inter = bucket(merged, days, (w) => w.completedAt ?? w.updatedAt, () => "interactions", interactionsOf, ["interactions"]);
   const mergedCount = bucket(merged, days, (w) => w.completedAt ?? w.updatedAt, () => "n", () => 1, ["n"]);
   inter.rows.forEach((r, i) => {
     const n = Number(mergedCount.rows[i]!.n);
@@ -229,8 +238,13 @@ export function buildDashboard(input: { runs: RunLite[]; items: WorkItemLite[]; 
   return {
     days,
     kpis,
-    interactions: { value: merged.length ? r2(merged.reduce((s, w) => s + w.humanTouches, 0) / merged.length) : 0, rows: inter.rows },
-    cycle: { kickoffToMerge: cur.cycle, kickoffToPr: null, prToReview: null, reviewToMerge: null },
+    interactions: { value: merged.length ? r2(merged.reduce((s, w) => s + interactionsOf(w), 0) / merged.length) : 0, rows: inter.rows },
+    cycle: {
+      kickoffToMerge: cur.cycle,
+      kickoffToPr: medianHours(merged, (w) => w.createdAt, (w) => w.pr?.openedAt),
+      prToReview: medianHours(merged, (w) => w.pr?.openedAt, (w) => w.pr?.firstReviewAt),
+      reviewToMerge: medianHours(merged, (w) => w.pr?.firstReviewAt, mergedAt),
+    },
     prs: { opened: opened.length, merged: merged.length, rows: prRows },
     runs: { total: runs.length, topLevel: runs.filter((r) => !r.parentRunId).length, groups },
     cost: { total: r2(prCostTotal), perPr: prItems.length ? r2(prCostTotal / prItems.length) : null, prCount: prItems.length, breakdown: costBreakdown, bySize: sizeSeries },
@@ -245,4 +259,56 @@ export function buildDashboard(input: { runs: RunLite[]; items: WorkItemLite[]; 
     byComponent: groupPrs((p) => p.component).sort((a, b) => b.cost - a.cost),
     scores,
   };
+}
+
+/** Every item of a cursor-paged list, at most `maxPages` pages. */
+export async function allPages<P extends { pageInfo: { hasNextPage: boolean; nextCursor?: string } }, T>(fetch: (cursor?: string) => Promise<P>, items: (page: P) => T[], maxPages = 20): Promise<T[]> {
+  const out: T[] = [];
+  let cursor: string | undefined;
+  for (let i = 0; i < maxPages; i++) {
+    const page = await fetch(cursor);
+    out.push(...items(page));
+    if (!page.pageInfo.hasNextPage || !page.pageInfo.nextCursor) break;
+    cursor = page.pageInfo.nextCursor;
+  }
+  return out;
+}
+
+/** A row of the API's per-PR cost report (`/costs/per-pr/top`). */
+export type ReportedPr = {
+  pr: { repo: string; number: number; url: string; title: string; state: PrRow["status"] };
+  creator?: string;
+  source?: string;
+  models?: { model: string; share: number }[];
+  additions?: number;
+  deletions?: number;
+  files?: number;
+  costUsd: number;
+  size?: string;
+  components?: string[];
+};
+
+/** The report's rows, filling creator, source and models the report lacks from the locally built row of the same PR. */
+export function withReportedPrs(local: PrRow[], reported: ReportedPr[]): PrRow[] {
+  const byPr = new Map(local.map((p) => [`${p.repo}#${p.number}`, p]));
+  return reported.map((t, i) => {
+    const l = byPr.get(`${t.pr.repo}#${t.pr.number}`);
+    return {
+      id: `${t.pr.repo}#${t.pr.number}#${i}`,
+      title: t.pr.title,
+      repo: t.pr.repo,
+      number: t.pr.number,
+      url: t.pr.url,
+      status: t.pr.state,
+      creator: t.creator ?? l?.creator ?? "—",
+      source: (t.source ? (SOURCE_LABEL[t.source] ?? t.source) : l?.source) ?? "—",
+      models: t.models ?? l?.models ?? [],
+      additions: t.additions,
+      deletions: t.deletions,
+      files: t.files,
+      cost: t.costUsd,
+      size: t.size ?? l?.size ?? "M",
+      component: t.components?.[0] ?? t.pr.repo,
+    };
+  });
 }

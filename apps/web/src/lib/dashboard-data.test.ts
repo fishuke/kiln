@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseRange } from "./chart";
-import { buildDashboard, type RunLite, type WorkItemLite } from "./dashboard-data";
+import { allPages, buildDashboard, withReportedPrs, type RunLite, type WorkItemLite } from "./dashboard-data";
 
 const range = parseRange({ range: "7d" }, new Date("2026-10-20T12:00:00Z"));
 const wi = (id: string, extra: Partial<WorkItemLite>): WorkItemLite => ({ id, title: id, state: "building", requester: "ann@x", source: { provider: "kiln" }, humanTouches: 1, createdAt: "2026-10-19T08:00:00Z", updatedAt: "2026-10-19T08:00:00Z", ...extra });
@@ -61,9 +61,57 @@ describe("buildDashboard", () => {
     expect(p.topPrs[0]!.cost).toBe(4.5);
   });
 
-  it("averages human interactions over merged PRs", () => {
-    expect(d.interactions.value).toBe(1);
+  it("averages human interactions over merged PRs, not counting the original request", () => {
+    expect(d.interactions.value).toBe(0);
+    const two = buildDashboard({ runs, items: [...items, wi("c", { pr: { repo: "o/r", number: 3, url: "u" }, state: "complete", completion: { by: "merge" }, completedAt: "2026-10-20T08:00:00Z", humanTouches: 3 })], scores: [], range });
+    expect(two.interactions.value).toBe(1);
+    expect(two.interactions.rows.at(-1)).toMatchObject({ interactions: 1 });
     expect(d.prs.rows.at(-2)).toMatchObject({ opened: 2, merged: 0 });
     expect(d.prs.rows.at(-1)).toMatchObject({ opened: 0, merged: 1 });
+  });
+
+  it("measures every cycle-time stage from the PR timestamps", () => {
+    const pr = (n: number, t: { openedAt?: string; firstReviewAt?: string; mergedAt?: string }) => ({ repo: "o/r", number: n, url: "u", ...t });
+    const c = buildDashboard({
+      runs: [],
+      scores: [],
+      range,
+      items: [
+        wi("x", { createdAt: "2026-10-19T00:00:00Z", state: "complete", completion: { by: "merge" }, completedAt: "2026-10-19T12:00:00Z", pr: pr(1, { openedAt: "2026-10-19T02:00:00Z", firstReviewAt: "2026-10-19T05:00:00Z", mergedAt: "2026-10-19T10:00:00Z" }) }),
+        wi("y", { createdAt: "2026-10-19T00:00:00Z", state: "complete", completion: { by: "merge" }, completedAt: "2026-10-19T08:00:00Z", pr: pr(2, { openedAt: "2026-10-19T04:00:00Z" }) }),
+      ],
+    }).cycle;
+    // Kickoff → merge prefers the PR's merge time: 10h and 8h.
+    expect(c).toEqual({ kickoffToMerge: 9, kickoffToPr: 3, prToReview: 3, reviewToMerge: 5 });
+  });
+});
+
+describe("allPages", () => {
+  it("follows cursors until the last page", async () => {
+    const pages: Record<string, { runs: number[]; pageInfo: { hasNextPage: boolean; nextCursor?: string } }> = {
+      start: { runs: [1, 2], pageInfo: { hasNextPage: true, nextCursor: "b" } },
+      b: { runs: [3], pageInfo: { hasNextPage: false } },
+    };
+    const seen: (string | undefined)[] = [];
+    const all = await allPages(async (cursor) => {
+      seen.push(cursor);
+      return pages[cursor ?? "start"]!;
+    }, (p) => p.runs);
+    expect(all).toEqual([1, 2, 3]);
+    expect(seen).toEqual([undefined, "b"]);
+  });
+
+  it("stops at the page cap", async () => {
+    const all = await allPages(async () => ({ runs: [1], pageInfo: { hasNextPage: true, nextCursor: "again" } }), (p) => p.runs, 3);
+    expect(all).toEqual([1, 1, 1]);
+  });
+});
+
+describe("withReportedPrs", () => {
+  it("keeps the report's cost and diff and fills creator, source and models from the local row", () => {
+    const local = buildDashboard({ runs: [run("1", { workItemId: "p", costUsd: 2 })], scores: [], range, items: [wi("p", { pr: { repo: "o/r", number: 7, url: "u" }, source: { provider: "slack" } })] }).topPrs;
+    const [row] = withReportedPrs(local, [{ pr: { repo: "o/r", number: 7, url: "u", title: "T", state: "open" }, additions: 10, deletions: 2, costUsd: 5 }]);
+    expect(row).toMatchObject({ title: "T", cost: 5, additions: 10, creator: "ann@x", source: "Slack", models: [{ model: "claude-sonnet-5-5", share: 1 }] });
+    expect(row!.files).toBeUndefined();
   });
 });

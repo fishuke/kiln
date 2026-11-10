@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/kiln/ui";
 import { topPrCosts } from "@/lib/api/factory-admin";
-import { parseRange } from "@/lib/chart";
-import { buildDashboard, SOURCE_LABEL, type RunLite, type WorkItemLite } from "@/lib/dashboard-data";
+import { apiRange, parseRange } from "@/lib/chart";
+import { allPages, buildDashboard, withReportedPrs, type RunLite, type WorkItemLite } from "@/lib/dashboard-data";
 import { agentDisplayName } from "@/lib/agent-catalog";
 import { api, safe } from "@/lib/kiln";
 import { DashboardTabs, DashboardView, RangeSelect, type ImprovementPr, type ScorerCard, type Tab } from "./dashboard-view";
@@ -23,38 +23,21 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
   const sp = await searchParams;
   const tab: Tab = sp.tab === "spending" || sp.tab === "scorers" ? sp.tab : "productivity";
   const range = parseRange(sp);
-  const day = (d: Date) => d.toISOString().slice(0, 10);
+  const { startDate, endDate } = apiRange(range);
   const [f, runs, items, scores, si, top] = await Promise.all([
     safe(() => api.factory(factory), null),
-    safe(() => api.runs({ factory, limit: 500 }), []),
+    // The runs list pages at 500; the previous period feeds the KPI deltas.
+    safe(() => allPages((cursor) => api.runsPage({ factory, limit: 500, cursor, createdAfter: range.prevStart.toISOString() }), (p) => p.runs), []),
     safe(() => api.workItems({ factory }), []),
     safe(() => api.scores(factory), []),
     safe(() => api.selfImprovement(factory), { proposals: [], failures: [] }),
-    tab === "spending" ? topPrCosts(factory, day(range.start), day(range.end)) : Promise.resolve(null),
+    tab === "spending" ? topPrCosts(factory, startDate, endDate) : Promise.resolve(null),
   ]);
   if (!f) notFound();
 
   const data = buildDashboard({ runs: runs as unknown as RunLite[], items: items as unknown as WorkItemLite[], scores, range });
-  if (top?.length) {
-    // The per-PR cost endpoint knows diffs and real sizes; prefer it when it is available.
-    data.topPrs = top.map((t, i) => ({
-      id: `${t.pr.repo}#${t.pr.number}#${i}`,
-      title: t.pr.title,
-      repo: t.pr.repo,
-      number: t.pr.number,
-      url: t.pr.url,
-      status: t.pr.state,
-      creator: t.creator ?? "—",
-      source: SOURCE_LABEL[t.source ?? ""] ?? t.source ?? "—",
-      models: t.models ?? [],
-      additions: t.additions,
-      deletions: t.deletions,
-      files: t.files,
-      cost: t.costUsd,
-      size: t.size ?? "M",
-      component: t.components?.[0] ?? t.pr.repo,
-    }));
-  }
+  // The per-PR cost report knows diffs and real sizes; prefer it when it is available.
+  if (top?.length) data.topPrs = withReportedPrs(data.topPrs, top);
 
   const agentName = (name: string) => {
     const a = f.agents.find((x) => x.name === name);

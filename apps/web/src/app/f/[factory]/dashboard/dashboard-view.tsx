@@ -351,7 +351,7 @@ function PrTable({ rows }: { rows: PrRow[] }) {
               {p.additions !== undefined ? (
                 <>
                   <span className="text-emerald-600 dark:text-emerald-400">+{p.additions}</span> <span className="text-red-600 dark:text-red-400">−{p.deletions ?? 0}</span>
-                  <div className="text-muted-foreground">{p.files ?? 0} files</div>
+                  {p.files !== undefined && <div className="text-muted-foreground">{p.files} files</div>}
                 </>
               ) : (
                 <span className="text-muted-foreground">—</span>

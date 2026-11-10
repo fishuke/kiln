@@ -44,19 +44,19 @@ export function RunsView({ rows, me, factories, setup }: { rows: RunRow[]; me: s
   }, []);
 
   const update = (next: Partial<RunFilters>, opts: { createdChip?: boolean } = {}) => {
-    const merged = { ...filters, ...next };
+    const merged = { ...filters, q: q || undefined, ...next };
     startTransition(() => router.replace(`/runs${runFiltersToQuery(merged, { createdChip: opts.createdChip ?? createdChip })}`, { scroll: false }));
   };
 
-  // Debounce search into the URL.
+  // Filter on the typed text right away; mirror it into the URL without a server render (#139).
   useEffect(() => {
     if ((filters.q ?? "") === q) return;
-    const t = setTimeout(() => update({ q: q || undefined }), 200);
+    const t = setTimeout(() => window.history.replaceState(null, "", `/runs${runFiltersToQuery({ ...filters, q: q || undefined }, { createdChip })}`), 200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
-  const shown = useMemo(() => filterRows(rows, { ...filters, me }), [rows, filters, me]);
+  const shown = useMemo(() => filterRows(rows, { ...filters, q, me }), [rows, filters, q, me]);
   const agents = useMemo(() => [...new Set(collectAgents(rows))].sort(), [rows]);
   const creators = useMemo(() => [...new Set(rows.map((r) => r.creator).filter(Boolean))].sort(), [rows]);
 

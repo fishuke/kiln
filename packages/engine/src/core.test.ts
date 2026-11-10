@@ -14,7 +14,7 @@ import { validateFiles } from "./factory-files";
 import { runState, taskStage } from "./run-state";
 import { parseTicketRef } from "./tasks";
 import type { AppRunHost } from "./run-definition";
-import { C } from "./types";
+import { C, type Run } from "./types";
 import { createTestKiln, sampleTree, waitFor } from "./testing";
 
 const fake = new FakeHarness(fakeAgentScript);
@@ -946,6 +946,27 @@ describe("metrics, scorers and benchmarks", () => {
     const prs = kiln.factoryMetrics.pullRequests("webapp", { state: ["merged"] }).pullRequests;
     expect(prs[0]).toMatchObject({ number: pr.number, state: "merged", humanCodeChange: false });
     expect(prs[0]!.additions).toBeGreaterThan(0);
+  });
+
+  it("splits cost into platform (judging, improver and benchmark runs) and inference", async () => {
+    const { kiln } = createTestKiln({ preview: false });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix typo", body: "", source: { provider: "api" }, requester: "a@acme.test" });
+    await kiln.workflow.advance(wi.id);
+    const runs = kiln.store.list<Run>(C.runs, (r) => r.workItemId === wi.id);
+    for (const r of runs) kiln.store.put(C.runs, { ...r, costUsd: 1 });
+    const scored = runs[0]!;
+    const now = kiln.clock.now().toISOString();
+    const score = { runId: scored.id, factory: "webapp", agent: scored.agent, scorer: "s", label: "pass", score: 1, passed: true, judge: "fake", definitionSha: "x", selfImprovement: false, reviewed: false, createdAt: now };
+    kiln.store.put(C.scores, { ...score, id: "score_a", costUsd: 0.5 });
+    kiln.store.put(C.scores, { ...score, id: "score_b", costUsd: 0.25 });
+    kiln.store.put(C.runs, { ...scored, id: "run_improver", kind: "improver", agent: "improver", workItemId: undefined, rootRunId: undefined, costUsd: 2 });
+
+    const perPr = kiln.factoryMetrics.costPerPr("webapp", {});
+    expect(perPr.dollars).toEqual({ compute: 0, platform: 0.75, inference: runs.length, total: runs.length + 0.75 });
+    expect(kiln.factoryMetrics.topPrs("webapp", {}).prs[0]!.dollars.platform).toBe(0.75);
+    const byAgent = kiln.factoryMetrics.costBreakdown("webapp", "agent", {}).groups;
+    expect(byAgent.find((g) => g.key === "improver")!.dollars).toEqual({ compute: 0, platform: 2, inference: 0, total: 2 });
+    expect(byAgent.find((g) => g.key === scored.agent)!.dollars.platform).toBe(0.75);
   });
 
   it("scorer CRUD, manual dispatch, results and metrics", async () => {

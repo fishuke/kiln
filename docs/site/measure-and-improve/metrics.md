@@ -60,12 +60,22 @@ The dashboard reads these endpoints. All take `start_date` (inclusive) and `end_
 | Endpoint | What it returns |
 | --- | --- |
 | `GET /factories/{id}/metrics` | `runCount`, `prCount`, `mergedPrCount`, `autonomy`, the autonomy funnel (merged, merged without a human code change, per repo), impact (additions and deletions of merged PRs), PR latency medians (kickoff → PR → first review → merge), average human interactions per PR. |
-| `GET /factories/{id}/costs/per-pr` | PRs opened in the range, total, mean and median cost. With your own keys all spend is `inference`. |
+| `GET /factories/{id}/costs/per-pr` | PRs opened in the range, total, mean and median cost, split into the cost components below. |
 | `GET /factories/{id}/costs/breakdown?group_by=source\|user\|agent\|model` | Spend per group. `source` and `user` roll up to the root run. |
 | `GET /factories/{id}/costs/per-pr/top?limit=20` | The most expensive PRs. |
 | `GET /factories/{id}/costs/per-pr/by-size` | Cost by PR size: S < 100, M < 500, L < 1000, XL ≥ 1000 changed lines. |
 | `GET /factories/{id}/metrics/run-breakdown?group_by=agent_type\|status\|source\|root_vs_subrun\|model\|harness` | Run counts per group (source counts top-level runs only). |
 | `GET /factories/{id}/pull-requests` | Every PR the factory produced: state, timing, size, human interactions, runs and cycle times; filter by `repo`, `state`, opened/merged dates and `updated_after` for incremental sync. |
+
+### Cost components
+
+Every cost endpoint returns `dollars` with three components, and `total` adds them up. The dashboard's Spending tab shows the same split.
+
+| Component | What it counts |
+| --- | --- |
+| `compute` | Sandbox time. Sandboxes run on your own machines and Kiln does not price them, so this is 0 unless a run reports a compute cost. |
+| `platform` | Kiln's own machinery rather than the work: the judge cost of every [score](scorers.md) recorded on a run, and the whole cost of improver and benchmark runs. A PR's platform cost is the judge cost of its runs' scores. |
+| `inference` | The agents' own model spend for every other run. |
 
 A PR counts as autonomous when no person pushed code to it; handing a task back from a local worktree marks its PR as changed by a person.
 

@@ -20,8 +20,31 @@ export default async function NewRun({ searchParams }: { searchParams: Promise<{
   return (
     <div className="flex min-h-screen flex-col">
       <PageHeader crumbs={[{ label: "Runs", href: "/runs" }, { label: "New run" }]} />
-      <div className="flex flex-1 flex-col items-center justify-center px-4 pb-[12vh]">
-        <h2 className="mb-6 text-center text-2xl font-semibold tracking-tight">
+      <div className="kiln-hero relative isolate flex flex-1 flex-col items-center justify-center px-4 pb-[12vh]">
+        <div aria-hidden className="kiln-hero-bg">
+          <svg className="kiln-hero-logo" viewBox="0 0 32 32" fill="none">
+            <defs>
+              <linearGradient id="kiln-hero-stroke" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" className="lit" />
+                <stop offset="0.55" className="dim" />
+              </linearGradient>
+              <linearGradient id="kiln-hero-fill" x1="0" y1="0" x2="0.6" y2="1">
+                <stop offset="0" className="fill-lit" />
+                <stop offset="1" className="fill-dim" />
+              </linearGradient>
+            </defs>
+            <rect x="0.5" y="0.5" width="31" height="31" rx="7" stroke="url(#kiln-hero-stroke)" strokeWidth="0.12" fill="url(#kiln-hero-fill)" />
+            <path
+              transform="translate(6.4 6.4) scale(1.2)"
+              d="M3 13.5 6.2 2.5h2.6L5.6 13.5zM7.4 13.5l3.2-11h2.6l-3.2 11z"
+              stroke="url(#kiln-hero-stroke)"
+              strokeWidth="0.1"
+              fill="url(#kiln-hero-fill)"
+            />
+          </svg>
+          <div className="kiln-hero-logo-fade" />
+        </div>
+        <h2 className="kiln-hero-title mb-6 text-center text-3xl font-semibold tracking-tight">
           {greeting()}, {name}
         </h2>
         {factories.length === 0 ? (

@@ -171,7 +171,7 @@ const TIPS = {
   prs: "PRs opened by this factory, and how many of each period’s PRs went on to merge. Opened and merged are tracked by different pipelines, so a period’s merged count can occasionally exceed its opened count.",
   runs: "Runs executed by this factory’s agents in the range, bucketed by creation time. Subruns count individually except in the By source view, where only top-level runs have a source.",
   costPerPr:
-    "The average cost of the PRs opened in the range, merged or not. Each PR carries its whole run tree — the runs plus their subruns — with the cost split evenly when one tree produced several PRs.",
+    "The average cost of the PRs opened in the range, merged or not. Each PR carries its whole run tree — the runs plus their subruns — with the cost split evenly when one tree produced several PRs. Compute is sandbox time (Kiln does not price your machines), platform is Kiln judging the runs, inference is the agents' own model spend.",
   source: "Each run tree’s cost rolls up to the trigger that started the root run — Linear, Slack, API, and so on.",
   user: "Each run tree’s cost rolls up to the person who started the root run.",
   agent: "Each run keeps its own cost, attributed to the configured agent that executed it.",
@@ -383,7 +383,7 @@ function CostTable({ rows, label = "Name", detail }: { rows: Breakdown[]; label?
               <div className="font-medium">{r.name}</div>
               {detail && (
                 <div className="text-xs text-muted-foreground">
-                  {usd(r.compute)} compute · {usd(r.inference)} inference
+                  {usd(r.compute)} compute · {usd(r.platform)} platform · {usd(r.inference)} inference
                 </div>
               )}
             </TableCell>
@@ -422,7 +422,7 @@ function Spending({ data }: { data: DashboardData }) {
   const [mode, setMode] = useState<"breakdown" | "size">("breakdown");
   const [hidden, toggle] = useHidden();
   const src = mode === "breakdown" ? data.cost.breakdown : data.cost.bySize;
-  const series = mode === "breakdown" ? [{ key: "Compute", label: "Compute", color: "#2563eb" }, { key: "Inference", label: "Inference", color: "#8b5cf6" }] : colorize(["S", "M", "L", "XL"]);
+  const series = mode === "breakdown" ? [{ key: "Compute", label: "Compute", color: "#2563eb" }, { key: "Platform", label: "Platform", color: "#f59e0b" }, { key: "Inference", label: "Inference", color: "#8b5cf6" }] : colorize(["S", "M", "L", "XL"]);
   const modes = [
     { value: "breakdown", label: "Cost breakdown" },
     { value: "size", label: "By PR size" },

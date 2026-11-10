@@ -178,3 +178,100 @@ html.dark {
 .markdown th, .markdown td { border: 1px solid var(--border); padding: 0.3em 0.6em; text-align: left; }
 .markdown img { max-width: 100%; border-radius: 6px; }
 .markdown hr { border-color: var(--border); }
+
+/* New run hero: top light, a faint lit ring and a glow under the composer */
+.kiln-hero {
+  --hero-light: oklch(0.55 0.02 264 / 0.10);
+  --hero-ring: oklch(0.2 0 0 / 0.10);
+  --hero-ring-lit: oklch(0.2 0 0 / 0.28);
+  --hero-glow: oklch(0.62 0.12 264 / 0.18);
+  --hero-dot: oklch(0.2 0 0 / 0.07);
+  --hero-logo-fill: oklch(0.2 0 0 / 0.04);
+}
+.dark .kiln-hero {
+  --hero-light: oklch(0.85 0.04 264 / 0.14);
+  --hero-ring: oklch(1 0 0 / 0.05);
+  --hero-ring-lit: oklch(1 0 0 / 0.3);
+  --hero-glow: oklch(0.6 0.16 264 / 0.32);
+  --hero-dot: oklch(1 0 0 / 0.05);
+  --hero-logo-fill: oklch(1 0 0 / 0.05);
+}
+.kiln-hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* Light falling from the top edge */
+.kiln-hero-bg::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -25%;
+  width: 120%;
+  height: 100%;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, var(--hero-light), transparent);
+}
+/* Faint dot grid that fades out toward the edges */
+.kiln-hero-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--hero-dot) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 60% 50% at 50% 40%, black, transparent 75%);
+}
+/* Large outlined Kiln logo behind the greeting, lit from the upper left */
+.kiln-hero-logo {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: min(520px, 90vw);
+  aspect-ratio: 1;
+  transform: translate(-50%, -74%) rotate(-8deg);
+  overflow: visible;
+}
+.kiln-hero-logo .lit { stop-color: var(--hero-ring-lit); }
+.kiln-hero-logo .dim { stop-color: var(--hero-ring); }
+.kiln-hero-logo .fill-lit { stop-color: var(--hero-logo-fill); }
+.kiln-hero-logo .fill-dim { stop-color: transparent; }
+.kiln-hero-logo-fade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 30%, var(--background) 62%);
+}
+/* Glow and lift under the composer */
+.kiln-hero-composer { position: relative; }
+.kiln-hero-composer::before {
+  content: "";
+  position: absolute;
+  inset: 10% 8% -10%;
+  z-index: -1;
+  border-radius: 9999px;
+  background: var(--hero-glow);
+  filter: blur(48px);
+}
+.kiln-hero-composer [data-slot="input-group"] {
+  background: color-mix(in oklch, var(--background) 82%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 0.06),
+    0 1px 2px oklch(0 0 0 / 0.08),
+    0 12px 32px -8px oklch(0 0 0 / 0.25);
+}
+.dark .kiln-hero-composer [data-slot="input-group"] {
+  background: color-mix(in oklch, var(--card) 72%, transparent);
+  border-color: oklch(1 0 0 / 0.1);
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 0.08),
+    0 1px 2px oklch(0 0 0 / 0.4),
+    0 20px 48px -12px oklch(0 0 0 / 0.6);
+}
+.kiln-hero-title {
+  background: linear-gradient(to bottom, var(--foreground) 40%, color-mix(in oklch, var(--foreground) 55%, transparent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

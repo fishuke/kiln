@@ -47,6 +47,20 @@ describe("buildDashboard", () => {
     expect(d.cost.perPr).toBe(3);
   });
 
+  it("splits cost into compute, platform and inference", () => {
+    const scores = [{ scorer: "q", agent: "implement", runId: "1", score: 1, passed: true, costUsd: 0.5, createdAt: "2026-10-19T10:00:00Z" }];
+    const extra = [...runs, run("5", { agent: "improver", kind: "improver", costUsd: 2 })];
+    const p = buildDashboard({ runs: extra, items, scores, range });
+    expect(p.cost.breakdown.series).toEqual(["Compute", "Platform", "Inference"]);
+    const day = p.cost.breakdown.rows.find((r) => r.key === "2026-10-19")!;
+    // Two PRs opened that day: (3 + 1 + 2) inference and 0.5 judging over 2 PRs.
+    expect(day).toMatchObject({ Compute: 0, Platform: 0.25, Inference: 3 });
+    expect(p.cost.perPr).toBe(3.25);
+    expect(p.spend.agent.table.find((t) => t.name === "improver")).toMatchObject({ cost: 2, platform: 2, inference: 0 });
+    expect(p.spend.agent.table.find((t) => t.name === "implement")).toMatchObject({ cost: 3.5, platform: 0.5, inference: 3 });
+    expect(p.topPrs[0]!.cost).toBe(4.5);
+  });
+
   it("averages human interactions over merged PRs", () => {
     expect(d.interactions.value).toBe(1);
     expect(d.prs.rows.at(-2)).toMatchObject({ opened: 2, merged: 0 });

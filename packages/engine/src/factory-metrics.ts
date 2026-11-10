@@ -1,7 +1,7 @@
 import { KilnError } from "./errors";
 import type { Kiln } from "./kiln";
 import { page, runState } from "./run-state";
-import { C, type Run, type WorkItem } from "./types";
+import { C, type Run, type Score, type WorkItem } from "./types";
 
 export type Period = "day" | "week" | "month";
 export type Range = { start: string; end: string; groupByPeriod?: Period };
@@ -70,6 +70,12 @@ export type PrRecord = {
   costUsd: number;
 };
 
+/** A run's cost split: platform is Kiln's own machinery (judging, improver and benchmark runs), inference the rest (#152). */
+export type CostSplit = { platform: number; inference: number };
+const PLATFORM_KINDS = new Set<Run["kind"]>(["improver", "benchmark"]);
+const addSplit = (a: CostSplit, b: CostSplit): CostSplit => ({ platform: a.platform + b.platform, inference: a.inference + b.inference });
+const ZERO: CostSplit = { platform: 0, inference: 0 };
+
 const secs = (a?: string, b?: string) => (a && b ? Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 1000) : null);
 
 /** Factory metrics, costs and pull requests: computed from stored tasks and runs, with periods and period-over-period deltas. */
@@ -115,7 +121,19 @@ export class FactoryMetricsService {
     return w.pr?.mergedAt ?? (w.completion?.by === "merge" ? w.completedAt : undefined);
   }
 
-  prRecord(w: WorkItem, runs: Run[]): PrRecord {
+  /** Judge cost of the scores recorded on each run. */
+  private judging(factory: string): Map<string, number> {
+    const m = new Map<string, number>();
+    for (const s of this.k.store.list<Score>(C.scores, (x) => x.factory === factory)) m.set(s.runId, (m.get(s.runId) ?? 0) + (s.costUsd ?? 0));
+    return m;
+  }
+
+  private split(run: Run, judging: Map<string, number>): CostSplit {
+    const judged = judging.get(run.id) ?? 0;
+    return PLATFORM_KINDS.has(run.kind) ? { platform: run.costUsd + judged, inference: 0 } : { platform: judged, inference: run.costUsd };
+  }
+
+  prRecord(w: WorkItem, runs: Run[], judging = new Map<string, number>()): PrRecord & { cost: CostSplit } {
     const pr = w.pr!;
     const own = runs.filter((r) => r.workItemId === w.id);
     const openedAt = pr.openedAt ?? own.find((r) => r.artifacts.some((a) => a.kind === "pr"))?.finishedAt;
@@ -144,14 +162,16 @@ export class FactoryMetricsService {
       kickoffAt: w.createdAt,
       cycleTime: { kickoffToPr: secs(w.createdAt, openedAt), prToFirstReview: secs(openedAt, pr.firstReviewAt), firstReviewToMerge: secs(pr.firstReviewAt, mergedAt), kickoffToMerge: secs(w.createdAt, mergedAt) },
       costUsd: round(own.reduce((s, r) => s + r.costUsd, 0)),
+      cost: own.reduce((s, r) => addSplit(s, this.split(r, judging)), ZERO),
     };
   }
 
-  private prs(factory: string): PrRecord[] {
+  private prs(factory: string) {
     const runs = this.runs(factory);
+    const judging = this.judging(factory);
     return this.items(factory)
       .filter((w) => w.pr)
-      .map((w) => this.prRecord(w, runs));
+      .map((w) => this.prRecord(w, runs, judging));
   }
 
   private core(factory: string, r: Range) {
@@ -210,10 +230,11 @@ export class FactoryMetricsService {
     };
   }
 
-  private dollars(total: number) {
-    // Self-hosted with your own keys: everything is inference spend; compute and platform are yours.
-    return { compute: 0, platform: 0, inference: round(total), total: round(total) };
+  private dollars(c: CostSplit) {
+    // Sandboxes run on your own machines, so Kiln does not price compute.
+    return { compute: 0, platform: round(c.platform), inference: round(c.inference), total: round(c.platform + c.inference) };
   }
+  private static total = (c: CostSplit) => c.platform + c.inference;
 
   private prCosts(factory: string, r: Range) {
     return this.prs(factory).filter((p) => within(p.openedAt ?? p.kickoffAt, r));
@@ -225,8 +246,9 @@ export class FactoryMetricsService {
     const r = this.range(input);
     const calc = (rr: Range) => {
       const prs = this.prCosts(factory, rr);
-      const total = prs.reduce((s, p) => s + p.costUsd, 0);
-      return { prCount: prs.length, dollars: this.dollars(total), mean: prs.length ? round(total / prs.length) : null, median: median(prs.map((p) => p.costUsd)) };
+      const cost = prs.reduce((s, p) => addSplit(s, p.cost), ZERO);
+      const total = FactoryMetricsService.total(cost);
+      return { prCount: prs.length, dollars: this.dollars(cost), mean: prs.length ? round(total / prs.length) : null, median: median(prs.map((p) => FactoryMetricsService.total(p.cost))) };
     };
     const cur = calc(r);
     const prev = calc(this.previous(r));
@@ -247,12 +269,13 @@ export class FactoryMetricsService {
       if (groupBy === "agent") return run.agent;
       return run.model ?? "UNKNOWN";
     };
+    const judging = this.judging(factory);
     const group = (rr: Range) => {
-      const m = new Map<string, { dollars: number; runCount: number }>();
+      const m = new Map<string, { dollars: CostSplit; runCount: number }>();
       for (const run of all.filter((x) => within(x.startedAt, rr))) {
         const k = keyOf(run);
-        const row = m.get(k) ?? { dollars: 0, runCount: 0 };
-        row.dollars += run.costUsd;
+        const row = m.get(k) ?? { dollars: ZERO, runCount: 0 };
+        row.dollars = addSplit(row.dollars, this.split(run, judging));
         row.runCount += 1;
         m.set(k, row);
       }
@@ -267,8 +290,9 @@ export class FactoryMetricsService {
     this.k.defs.require(factory);
     const r = this.range(input);
     const limit = Math.min(Math.max(input.limit ?? 20, 1), 50);
-    const prs = this.prCosts(factory, r).sort((a, b) => b.costUsd - a.costUsd).slice(0, limit);
-    return { ...this.envelope(factory, r), prs: prs.map((p) => ({ repo: p.repo, number: p.number, url: p.url, title: p.title, taskId: p.taskId, state: p.state, dollars: this.dollars(p.costUsd), additions: p.additions, deletions: p.deletions })) };
+    const t = FactoryMetricsService.total;
+    const prs = this.prCosts(factory, r).sort((a, b) => t(b.cost) - t(a.cost)).slice(0, limit);
+    return { ...this.envelope(factory, r), prs: prs.map((p) => ({ repo: p.repo, number: p.number, url: p.url, title: p.title, taskId: p.taskId, state: p.state, dollars: this.dollars(p.cost), additions: p.additions, deletions: p.deletions })) };
   }
 
   /** Cost per PR by size: S < 100, M < 500, L < 1000, XL ≥ 1000 changed lines. */
@@ -282,9 +306,11 @@ export class FactoryMetricsService {
     };
     const prs = this.prCosts(factory, r);
     const buckets = ["S", "M", "L", "XL", "UNKNOWN"].map((bucket) => {
-      const xs = prs.filter((p) => size(p) === bucket).map((p) => p.costUsd);
-      const total = xs.reduce((s, x) => s + x, 0);
-      return { bucket, prCount: xs.length, dollars: this.dollars(total), mean: xs.length ? round(total / xs.length) : null, median: median(xs) };
+      const inBucket = prs.filter((p) => size(p) === bucket);
+      const cost = inBucket.reduce((s, p) => addSplit(s, p.cost), ZERO);
+      const xs = inBucket.map((p) => FactoryMetricsService.total(p.cost));
+      const total = FactoryMetricsService.total(cost);
+      return { bucket, prCount: xs.length, dollars: this.dollars(cost), mean: xs.length ? round(total / xs.length) : null, median: median(xs) };
     });
     return { ...this.envelope(factory, r), buckets };
   }
@@ -332,6 +358,6 @@ export class FactoryMetricsService {
       .filter((p) => !f.updatedAfter || p.updatedAt >= f.updatedAfter)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const { items, pageInfo } = page(rows, Math.min(Math.max(f.limit ?? 50, 1), 500), f.cursor);
-    return { pullRequests: items, pageInfo };
+    return { pullRequests: items.map(({ cost: _cost, ...p }) => p), pageInfo };
   }
 }

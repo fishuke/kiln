@@ -4,7 +4,7 @@ import { bucket, dayKeys, delta, type DateRange, type Row } from "./chart";
  * Builds every dashboard series from runs, work items and scores, so the page works before the
  * dedicated metrics endpoints exist. Pure; tested in dashboard-data.test.ts.
  */
-export type RunLite = { id: string; agent: string; agentType: string; status: string; harness: string; model?: string; workItemId?: string; parentRunId?: string; costUsd: number; computeCostUsd?: number; startedAt: string };
+export type RunLite = { id: string; agent: string; agentType: string; status: string; harness: string; model?: string; workItemId?: string; parentRunId?: string; kind?: string; costUsd: number; computeCostUsd?: number; startedAt: string };
 export type WorkItemLite = {
   id: string;
   title: string;
@@ -19,12 +19,12 @@ export type WorkItemLite = {
   completedAt?: string;
   updatedAt: string;
 };
-export type ScoreLite = { scorer: string; agent: string; score: number; passed: boolean; createdAt: string };
+export type ScoreLite = { scorer: string; agent: string; runId?: string; score: number; passed: boolean; costUsd?: number; createdAt: string };
 
 export type Kpi = { key: string; label: string; value: number | null; previous: number | null; delta: number | null; format: "pct" | "hours" | "usd" | "count"; goodWhenUp: boolean; tip: string };
 export type SeriesData = { rows: Row[]; series: string[] };
 export type PrRow = { id: string; title: string; repo: string; number: number; url: string; status: "open" | "merged" | "closed"; creator: string; source: string; models: { model: string; share: number }[]; additions?: number; deletions?: number; files?: number; cost: number; size: string; component: string };
-export type Breakdown = { name: string; cost: number; compute: number; inference: number; runs: number };
+export type Breakdown = { name: string; cost: number; compute: number; platform: number; inference: number; runs: number };
 
 export type DashboardData = {
   days: string[];
@@ -53,6 +53,14 @@ const median = (xs: number[]) => {
   return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
 };
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Platform cost is Kiln's own machinery: judging a run, and improver and benchmark runs (#152). */
+type Costed = RunLite & { judging: number };
+const PLATFORM_KINDS = new Set(["improver", "benchmark"]);
+const platformOf = (r: Costed) => r.judging + (PLATFORM_KINDS.has(r.kind ?? "") ? r.costUsd : 0);
+const inferenceOf = (r: Costed) => (PLATFORM_KINDS.has(r.kind ?? "") ? 0 : r.costUsd);
+const costOf = (r: Costed) => r.costUsd + r.judging + (r.computeCostUsd ?? 0);
+const empty = (name: string): Breakdown => ({ name, cost: 0, compute: 0, platform: 0, inference: 0, runs: 0 });
 const within = (iso: string | undefined, a: Date, b: Date) => !!iso && iso >= a.toISOString() && iso <= b.toISOString();
 const isMerged = (w: WorkItemLite) => w.state === "complete" && (w.completion?.by === "merge" || !!w.pr);
 const prStatus = (w: WorkItemLite): PrRow["status"] => (isMerged(w) ? "merged" : w.state === "cancelled" || w.state === "failed" ? "closed" : "open");
@@ -61,13 +69,13 @@ export const sizeOf = (w: WorkItemLite) => {
   return s === "XS" || s === "S" ? "S" : s === "M" ? "M" : s === "L" ? "L" : s === "XL" ? "XL" : "M";
 };
 
-function periodStats(runs: RunLite[], items: WorkItemLite[], a: Date, b: Date) {
+function periodStats(runs: Costed[], items: WorkItemLite[], a: Date, b: Date) {
   const opened = items.filter((w) => w.pr && within(w.createdAt, a, b));
   const merged = items.filter((w) => isMerged(w) && within(w.completedAt ?? w.updatedAt, a, b));
   const autonomous = merged.filter((w) => w.humanTouches <= 1);
   const cycle = median(merged.filter((w) => w.completedAt).map((w) => (Date.parse(w.completedAt!) - Date.parse(w.createdAt)) / 3_600_000));
   const prIds = new Set(opened.map((w) => w.id));
-  const prCost = runs.filter((r) => r.workItemId && prIds.has(r.workItemId)).reduce((s, r) => s + r.costUsd, 0);
+  const prCost = runs.filter((r) => r.workItemId && prIds.has(r.workItemId)).reduce((s, r) => s + costOf(r), 0);
   const periodRuns = runs.filter((r) => within(r.startedAt, a, b));
   return {
     autonomy: merged.length ? autonomous.length / merged.length : null,
@@ -79,18 +87,19 @@ function periodStats(runs: RunLite[], items: WorkItemLite[], a: Date, b: Date) {
   };
 }
 
-function breakdown(runs: RunLite[], key: (r: RunLite) => string): Breakdown[] {
+function breakdown(runs: Costed[], key: (r: Costed) => string): Breakdown[] {
   const m = new Map<string, Breakdown>();
   for (const r of runs) {
     const k = key(r);
-    const b = m.get(k) ?? { name: k, cost: 0, compute: 0, inference: 0, runs: 0 };
-    b.cost += r.costUsd + (r.computeCostUsd ?? 0);
+    const b = m.get(k) ?? empty(k);
+    b.cost += costOf(r);
     b.compute += r.computeCostUsd ?? 0;
-    b.inference += r.costUsd;
+    b.platform += platformOf(r);
+    b.inference += inferenceOf(r);
     b.runs += 1;
     m.set(k, b);
   }
-  return [...m.values()].map((b) => ({ ...b, cost: r2(b.cost), compute: r2(b.compute), inference: r2(b.inference) })).sort((a, b) => b.cost - a.cost);
+  return [...m.values()].map((b) => ({ ...b, cost: r2(b.cost), compute: r2(b.compute), platform: r2(b.platform), inference: r2(b.inference) })).sort((a, b) => b.cost - a.cost);
 }
 
 export function buildDashboard(input: { runs: RunLite[]; items: WorkItemLite[]; scores: ScoreLite[]; range: DateRange }): DashboardData {
@@ -98,9 +107,12 @@ export function buildDashboard(input: { runs: RunLite[]; items: WorkItemLite[]; 
   const days = dayKeys(range.start, range.end);
   const items = input.items;
   const byId = new Map(items.map((w) => [w.id, w]));
-  const runs = input.runs.filter((r) => within(r.startedAt, range.start, range.end));
-  const cur = periodStats(input.runs, items, range.start, range.end);
-  const prev = periodStats(input.runs, items, range.prevStart, range.prevEnd);
+  const judging = new Map<string, number>();
+  for (const s of input.scores) if (s.runId) judging.set(s.runId, (judging.get(s.runId) ?? 0) + (s.costUsd ?? 0));
+  const allRuns: Costed[] = input.runs.map((r) => ({ ...r, judging: judging.get(r.id) ?? 0 }));
+  const runs = allRuns.filter((r) => within(r.startedAt, range.start, range.end));
+  const cur = periodStats(allRuns, items, range.start, range.end);
+  const prev = periodStats(allRuns, items, range.prevStart, range.prevEnd);
 
   const kpis: Kpi[] = [
     { key: "autonomy", label: "Autonomy", value: cur.autonomy, previous: prev.autonomy, delta: delta(cur.autonomy, prev.autonomy), format: "pct", goodWhenUp: true, tip: "Share of merged PRs that needed no human touch beyond the original request." },
@@ -124,11 +136,11 @@ export function buildDashboard(input: { runs: RunLite[]; items: WorkItemLite[]; 
   const prMerged = bucket(merged, days, (w) => w.completedAt ?? w.updatedAt, () => "merged", () => 1, ["merged"]);
   const prRows = prOpen.rows.map((r, i) => ({ ...r, merged: Number(prMerged.rows[i]!.merged) }));
 
-  const sourceOf = (r: RunLite) => {
+  const sourceOf = (r: Costed) => {
     const w = r.workItemId ? byId.get(r.workItemId) : undefined;
     return SOURCE_LABEL[w?.source.provider ?? "api"] ?? w?.source.provider ?? "API";
   };
-  const groupKey: Record<RunGroup, (r: RunLite) => string | null> = {
+  const groupKey: Record<RunGroup, (r: Costed) => string | null> = {
     agentType: (r) => TYPE_LABEL[r.agentType] ?? r.agentType,
     status: (r) => r.status.charAt(0).toUpperCase() + r.status.slice(1),
     source: (r) => (r.parentRunId ? null : sourceOf(r)),
@@ -143,12 +155,12 @@ export function buildDashboard(input: { runs: RunLite[]; items: WorkItemLite[]; 
 
   // Spending
   const prItems = items.filter((w) => w.pr && within(w.createdAt, range.start, range.end));
-  const prRuns = (w: WorkItemLite) => input.runs.filter((r) => r.workItemId === w.id);
-  const prCostTotal = prItems.reduce((s, w) => s + prRuns(w).reduce((a, r) => a + r.costUsd + (r.computeCostUsd ?? 0), 0), 0);
-  const costRunsOfPrs = input.runs.filter((r) => r.workItemId && prItems.some((w) => w.id === r.workItemId));
+  const prRuns = (w: WorkItemLite) => allRuns.filter((r) => r.workItemId === w.id);
+  const prCostTotal = prItems.reduce((s, w) => s + prRuns(w).reduce((a, r) => a + costOf(r), 0), 0);
+  const costRunsOfPrs = allRuns.filter((r) => r.workItemId && prItems.some((w) => w.id === r.workItemId));
   const prDay = new Map(prItems.map((w) => [w.id, w.createdAt.slice(0, 10)]));
   const prsPerDay = bucket(prItems, days, (w) => w.createdAt, () => "n", () => 1, ["n"]);
-  const perDay = (value: (r: RunLite) => number, series: (r: RunLite) => string | null, seeds: string[]) => {
+  const perDay = (value: (r: Costed) => number, series: (r: Costed) => string | null, seeds: string[]) => {
     const b = bucket(costRunsOfPrs, days, (r) => prDay.get(r.workItemId!), series, value, seeds);
     b.rows.forEach((row, i) => {
       const n = Number(prsPerDay.rows[i]!.n);
@@ -156,24 +168,21 @@ export function buildDashboard(input: { runs: RunLite[]; items: WorkItemLite[]; 
     });
     return b;
   };
-  const costBreakdown = perDay((r) => r.costUsd, () => "Inference", ["Compute", "Inference"]);
-  const computeSeries = bucket(costRunsOfPrs, days, (r) => prDay.get(r.workItemId!), () => "Compute", (r) => r.computeCostUsd ?? 0, ["Compute"]);
-  costBreakdown.rows.forEach((row, i) => {
-    const n = Number(prsPerDay.rows[i]!.n);
-    row.Compute = n ? r2(Number(computeSeries.rows[i]!.Compute) / n) : 0;
-  });
-  const sizeSeries = perDay((r) => r.costUsd + (r.computeCostUsd ?? 0), (r) => sizeOf(byId.get(r.workItemId!)!), ["S", "M", "L", "XL"]);
+  const components = { Compute: (r: Costed) => r.computeCostUsd ?? 0, Platform: platformOf, Inference: inferenceOf };
+  const parts = Object.entries(components).map(([name, value]) => [name, perDay(value, () => name, [name])] as const);
+  const costBreakdown = { series: Object.keys(components), rows: parts[0]![1].rows.map((row, i) => ({ ...row, ...Object.fromEntries(parts.map(([name, p]) => [name, p.rows[i]![name]])) })) };
+  const sizeSeries = perDay(costOf, (r) => sizeOf(byId.get(r.workItemId!)!), ["S", "M", "L", "XL"]);
 
-  const spendOf = (key: (r: RunLite) => string) => {
+  const spendOf = (key: (r: Costed) => string) => {
     const table = breakdown(runs, key);
-    const series = bucket(runs, days, (r) => r.startedAt, key, (r) => r.costUsd + (r.computeCostUsd ?? 0), table.map((t) => t.name));
+    const series = bucket(runs, days, (r) => r.startedAt, key, costOf, table.map((t) => t.name));
     return { total: r2(table.reduce((s, t) => s + t.cost, 0)), series, table };
   };
 
   const topPrs: PrRow[] = prItems
     .map((w) => {
       const rs = prRuns(w);
-      const cost = rs.reduce((s, r) => s + r.costUsd + (r.computeCostUsd ?? 0), 0);
+      const cost = rs.reduce((s, r) => s + costOf(r), 0);
       const byModel = breakdown(rs, (r) => r.model ?? r.harness);
       return {
         id: w.id,
@@ -194,9 +203,9 @@ export function buildDashboard(input: { runs: RunLite[]; items: WorkItemLite[]; 
     .slice(0, 20);
 
   const groupPrs = (key: (p: PrRow) => string, seed: string[] = []): Breakdown[] => {
-    const m = new Map<string, Breakdown>(seed.map((s) => [s, { name: s, cost: 0, compute: 0, inference: 0, runs: 0 }]));
+    const m = new Map<string, Breakdown>(seed.map((s) => [s, empty(s)]));
     for (const p of topPrs) {
-      const b = m.get(key(p)) ?? { name: key(p), cost: 0, compute: 0, inference: 0, runs: 0 };
+      const b = m.get(key(p)) ?? empty(key(p));
       b.cost = r2(b.cost + p.cost);
       b.runs += 1;
       m.set(key(p), b);

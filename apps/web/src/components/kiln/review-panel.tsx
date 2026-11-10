@@ -1,13 +1,16 @@
 "use client";
 
 import type { PullRequestFileView, ReviewSubmission, TaskReview } from "@kiln/sdk-ts";
-import { ChevronDown, ChevronRight, GitMerge, GitPullRequest, MessageSquarePlus, Sparkles, X } from "lucide-react";
+import { ChevronRight, FileDiff as FileDiffIcon, GitMerge, GitPullRequest, MessageSquarePlus, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "@/lib/toast";
 import { loadReview, mergeTask, startGitHubLink, submitReview } from "@/app/inbox/review-actions";
 import { GitHubIcon } from "@/components/kiln/brand-icons";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockHeader, CodeBlockLine, CodeBlockTitle } from "@/components/ui/code-block";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { commentTarget, parsePatch, type DiffLine } from "@/lib/diff";
 import { cn } from "@/lib/utils";
 
@@ -16,9 +19,10 @@ const key = (d: Pick<Draft, "path" | "line" | "side">) => `${d.path}:${d.side}:$
 
 /**
  * Review a factory pull request without leaving Kiln: the diff per file, comments on lines, and
- * Approve / Request changes / Merge as the person's linked GitHub account.
+ * Approve / Request changes / Merge as the person's linked GitHub account. `embedded` is for a
+ * page that already shows the totals and the review agent's notes (the review page).
  */
-export function ReviewPanel({ taskId, onDone }: { taskId: string; onDone?: () => void }) {
+export function ReviewPanel({ taskId, onDone, embedded }: { taskId: string; onDone?: () => void; embedded?: boolean }) {
   const router = useRouter();
   const [review, setReview] = useState<TaskReview | null>(null);
   const [error, setError] = useState<string>();
@@ -84,11 +88,14 @@ export function ReviewPanel({ taskId, onDone }: { taskId: string; onDone?: () =>
       else toast.error("Could not start linking GitHub", { description: r.error });
     });
 
+  // Files with lines to read come first; binary ones (no patch) are one quiet row at the end.
+  const readable = review.files.filter((f) => f.patch || f.status === "removed");
+  const binary = review.files.filter((f) => !f.patch && f.status !== "removed");
   const totals = review.files.reduce((t, f) => ({ add: t.add + f.additions, del: t.del + f.deletions }), { add: 0, del: 0 });
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex flex-col gap-4">
+      <div className={cn("flex flex-wrap items-center gap-2 text-xs text-muted-foreground", embedded && "hidden")}>
         <span>
           {review.files.length} file{review.files.length === 1 ? "" : "s"} · <span className="text-emerald-600 dark:text-emerald-400">+{totals.add}</span>{" "}
           <span className="text-red-600 dark:text-red-400">−{totals.del}</span>
@@ -100,7 +107,7 @@ export function ReviewPanel({ taskId, onDone }: { taskId: string; onDone?: () =>
         )}
       </div>
 
-      {review.findings.length > 0 && (
+      {!embedded && review.findings.length > 0 && (
         <div className="rounded-lg border bg-muted/40 p-3 text-sm">
           <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Sparkles className="size-3.5 text-violet-500" /> The reviewer agent flagged
@@ -123,8 +130,8 @@ export function ReviewPanel({ taskId, onDone }: { taskId: string; onDone?: () =>
         </div>
       )}
 
-      <div className="flex flex-col gap-2">
-        {review.files.map((f) => (
+      <div className="flex flex-col gap-4">
+        {readable.map((f) => (
           <FileDiff
             key={f.path}
             file={f}
@@ -135,6 +142,8 @@ export function ReviewPanel({ taskId, onDone }: { taskId: string; onDone?: () =>
             onDrafts={(next) => setDrafts((all) => [...all.filter((d) => d.path !== f.path), ...next])}
           />
         ))}
+        {binary.length > 0 && <BinaryFiles files={binary} />}
+        {review.files.length === 0 && <p className="text-sm text-muted-foreground">This pull request changes no files.</p>}
       </div>
 
       {review.account.linked && (
@@ -190,31 +199,42 @@ function FileDiff({
   onDrafts: (d: Draft[]) => void;
 }) {
   const [open, setOpen] = useState(file.additions + file.deletions <= 400);
+  const [viewed, setViewed] = useState(false);
   const lines = parsePatch(file.patch);
   const byKey = new Map(drafts.map((d) => [key(d), d]));
   const setBody = (d: Draft, body: string) => onDrafts([...drafts.filter((x) => key(x) !== key(d)), { ...d, body }]);
   const remove = (d: Draft) => onDrafts(drafts.filter((x) => key(x) !== key(d)));
+  const shown = open && !viewed;
 
   return (
-    <div className="overflow-hidden rounded-lg border">
-      <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 bg-muted/50 px-3 py-2 text-left text-xs hover:bg-muted">
-        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-        <span className="min-w-0 flex-1 truncate font-mono">{file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}</span>
-        {drafts.length > 0 && <span className="rounded-full bg-violet-500/10 px-1.5 text-violet-700 dark:text-violet-300">{drafts.length}</span>}
-        <span className="text-emerald-600 dark:text-emerald-400">+{file.additions}</span>
-        <span className="text-red-600 dark:text-red-400">−{file.deletions}</span>
-      </button>
-      {open &&
+    <CodeBlock size="sm" className={cn(viewed && "opacity-70")}>
+      <CodeBlockHeader className={cn(!shown && "pb-2.5")}>
+        <button type="button" aria-expanded={shown} aria-label={shown ? "Collapse file" : "Expand file"} onClick={() => (viewed ? setViewed(false) : setOpen(!open))} className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground">
+          <ChevronRight className={cn("size-3.5 transition-transform", shown && "rotate-90")} />
+        </button>
+        <CodeBlockTitle className="font-mono">{file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}</CodeBlockTitle>
+        <CodeBlockActions className="ml-auto flex shrink-0 items-center gap-3 font-mono text-xs">
+          {drafts.length > 0 && <span className="rounded-full bg-violet-500/10 px-1.5 font-sans text-violet-700 dark:text-violet-300">{drafts.length}</span>}
+          <span>
+            <span className="text-emerald-600 dark:text-emerald-400">+{file.additions}</span> <span className="text-red-600 dark:text-red-400">−{file.deletions}</span>
+          </span>
+          <label className="flex cursor-pointer items-center gap-1.5 font-sans text-muted-foreground hover:text-foreground">
+            <Checkbox checked={viewed} onCheckedChange={(v) => setViewed(Boolean(v))} />
+            Viewed
+          </label>
+        </CodeBlockActions>
+      </CodeBlockHeader>
+      {shown &&
         (lines.length === 0 ? (
-          <p className="px-3 py-2 text-xs text-muted-foreground">{file.status === "removed" ? "File removed." : "No text diff (binary or too large)."}</p>
+          <p className="px-3 pb-3 text-xs text-muted-foreground">File removed.</p>
         ) : (
-          <div className="overflow-x-auto font-mono text-xs leading-5">
+          <CodeBlockContent className="text-xs">
             {lines.map((l, i) => {
               const t = commentTarget(l);
               const k = t ? key({ path: file.path, ...t }) : undefined;
               const draft = k ? byKey.get(k) : undefined;
               return (
-                <div key={i}>
+                <span key={i} className="contents">
                   <Line line={l} canComment={canComment && Boolean(t)} onComment={() => k && onEdit(k)} />
                   {t && (draft || editing === k) && (
                     <LineComment
@@ -227,42 +247,63 @@ function FileDiff({
                       }}
                     />
                   )}
-                </div>
+                </span>
               );
             })}
-          </div>
+          </CodeBlockContent>
         ))}
-    </div>
+    </CodeBlock>
+  );
+}
+
+/** Files Git cannot show line by line (Word templates, images): one row, the names on request. */
+function BinaryFiles({ files }: { files: PullRequestFileView[] }) {
+  return (
+    <Collapsible className="rounded-lg border border-input dark:bg-input/30">
+      <CollapsibleTrigger className="group/binary flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight className="size-3.5 transition-transform group-data-panel-open/binary:rotate-90" />
+        <FileDiffIcon className="size-3.5" />
+        <span>
+          {files.length} binary file{files.length === 1 ? "" : "s"} changed. Git has no line-by-line diff for {files.length === 1 ? "it" : "them"}.
+        </span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <ul className="flex flex-col gap-1 px-3 pb-3 pl-9 font-mono text-xs text-muted-foreground">
+          {files.map((f) => (
+            <li key={f.path} className="truncate">
+              {f.path}
+            </li>
+          ))}
+        </ul>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
 function Line({ line, canComment, onComment }: { line: DiffLine; canComment: boolean; onComment: () => void }) {
-  if (line.kind === "hunk") return <div className="bg-sky-500/5 px-3 text-muted-foreground">{line.text}</div>;
+  if (line.kind === "hunk") return <CodeBlockLine className="py-0.5 text-muted-foreground">{line.text}</CodeBlockLine>;
   return (
-    <div className={cn("group/line flex min-w-max", line.kind === "add" && "bg-emerald-500/10", line.kind === "del" && "bg-red-500/10")}>
-      <span className="w-10 shrink-0 select-none pr-1 text-right text-muted-foreground/70">{line.oldLine ?? ""}</span>
-      <span className="w-10 shrink-0 select-none pr-1 text-right text-muted-foreground/70">{line.newLine ?? ""}</span>
-      <span className="relative w-5 shrink-0 select-none text-center text-muted-foreground">
-        {canComment ? (
-          <button
-            type="button"
-            aria-label="Comment on this line"
-            onClick={onComment}
-            className="absolute inset-0 hidden items-center justify-center rounded bg-violet-600 text-white group-hover/line:flex"
-          >
-            <MessageSquarePlus className="size-3" />
-          </button>
-        ) : null}
-        {line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "}
+    <CodeBlockLine variant={line.kind === "add" ? "added" : line.kind === "del" ? "removed" : "default"} className={cn("group/line after:hidden", line.kind === "add" && "bg-emerald-500/10")}>
+      <span className="flex">
+        <span className="w-9 shrink-0 pr-2 text-right text-muted-foreground/70 select-none">{line.oldLine ?? ""}</span>
+        <span className="w-9 shrink-0 pr-2 text-right text-muted-foreground/70 select-none">{line.newLine ?? ""}</span>
+        <span className="relative w-5 shrink-0 text-center text-muted-foreground select-none">
+          {canComment ? (
+            <button type="button" aria-label="Comment on this line" onClick={onComment} className="absolute inset-0 hidden items-center justify-center rounded bg-violet-600 text-white group-hover/line:flex">
+              <MessageSquarePlus className="size-3" />
+            </button>
+          ) : null}
+          {line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "}
+        </span>
+        <span className="pr-4 whitespace-pre">{line.text}</span>
       </span>
-      <span className="whitespace-pre pr-4">{line.text}</span>
-    </div>
+    </CodeBlockLine>
   );
 }
 
 function LineComment({ value, autoFocus, onChange, onRemove }: { value: string; autoFocus: boolean; onChange: (v: string) => void; onRemove: () => void }) {
   return (
-    <div className="flex items-start gap-2 border-y bg-background px-3 py-2 font-sans">
+    <span className="-mx-2.5 flex items-start gap-2 border-y bg-background px-3 py-2 font-sans whitespace-normal">
       <textarea
         value={value}
         autoFocus={autoFocus}
@@ -279,6 +320,6 @@ function LineComment({ value, autoFocus, onChange, onRemove }: { value: string; 
       >
         <X className="size-4" />
       </button>
-    </div>
+    </span>
   );
 }

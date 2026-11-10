@@ -151,7 +151,7 @@ export function ReviewView({ model, factory }: { model: ReviewModel; factory: { 
 
           {model.pr && (
             <TabsContent value="changes">
-              <ReviewPanel taskId={model.id} onDone={() => router.refresh()} />
+              <ReviewPanel taskId={model.id} onDone={() => router.refresh()} embedded />
             </TabsContent>
           )}
         </Tabs>

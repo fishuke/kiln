@@ -479,7 +479,9 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     if (!g) throw new HttpError(404, "unknown gate");
     need(c, GATE_SCOPE[g.kind], g.factory);
     const body = S.Decide.parse(await c.req.json());
-    return c.json(await kiln.gates.decide(g.id, { ...body, by: who(c), via: body.via ?? "web" }));
+    // Only the gate's assignees decide it; a factory admin may decide any gate.
+    const override = can(access(c).token, "admin", g.factory);
+    return c.json(await kiln.gates.decide(g.id, { ...body, by: who(c), via: body.via ?? "web", override }));
   });
 
   /** The team listings are limited to: the current team for people, agent keys and explicit X-Kiln-Team; none for server-wide tokens. */

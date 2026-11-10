@@ -309,7 +309,7 @@ export async function seedDemo(kiln: Kiln, root: string) {
   await kiln.workflow.advance(previewItem.id);
   const specGate = kiln.gates.list({ workItemId: previewItem.id, state: "open" }).find((g) => g.kind === "spec");
   if (specGate) {
-    await kiln.gates.decide(specGate.id, { decision: "approve", by: "po@kiln.local", via: "web" });
+    await kiln.gates.decide(specGate.id, { decision: "approve", by: "po@kiln.local", via: "web", override: true });
     await kiln.workflow.advance(previewItem.id);
   }
 

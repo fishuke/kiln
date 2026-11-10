@@ -100,7 +100,7 @@ expire: 72h -> park
 | Key | Notes |
 | --- | --- |
 | `kind` | `approval`, `question`, `preview`, `merge` or `custom`. |
-| `approvers` | At least one. `requester` is the person who sent the work. `role:<name>` expands to the people in that role, set in Kiln's server configuration. Anything else is taken as a user ID or email. |
+| `approvers` | At least one. `requester` is the person who sent the work. `role:<name>` expands to the people in that role, set in Kiln's server configuration. Anything else is taken as a user ID or email. Only these people (and factory admins) can decide the gate. |
 | `evidence` | Labels for the evidence a decider needs. |
 | `nudge` | A duration (`30m`, `24h`, `3d`). Kiln reminds the approvers in the source thread at this interval. |
 | `expire` | A duration, optionally followed by `-> park`, `-> reject` or `-> approve`. Without an action, the gate parks the item. |

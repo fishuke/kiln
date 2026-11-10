@@ -52,6 +52,22 @@ describe("API", () => {
     expect(detail.decisions.some((d) => d.decision === "triage")).toBe(true);
   });
 
+  it("lets only a gate's assignees decide it, and factory admins override", async () => {
+    const { kiln, token, client } = setup();
+    const requester = client(token("read:webapp,send:webapp,decide:spec:webapp"));
+    const wi = await requester.send({ factory: "webapp", title: "Team invites", body: "- Admins invite by email\n- Invites expire" });
+    await waitFor(kiln, wi.id, ["awaiting_spec"]);
+    const gate = kiln.gates.list({ workItemId: wi.id, state: "open" })[0]!;
+    expect(gate.assignees).toContain("read@acme.test");
+    expect(gate.assignees).not.toContain("decide@acme.test");
+    const outsider = client(token("decide:spec:webapp,read:webapp"));
+    await expect(outsider.decide(gate.id, "approve")).rejects.toMatchObject({ status: 403 });
+    expect(kiln.gates.get(gate.id)!.state).toBe("open");
+    const admin = client(token("admin:webapp"));
+    await admin.decide(gate.id, "reject", "Cover expiry");
+    expect(kiln.gates.get(gate.id)).toMatchObject({ state: "rejected", decidedBy: "admin@acme.test" });
+  });
+
   it("stopping a task from the work-item route stops the agent run it is running", async () => {
     const harness = new FakeHarness(async (ctx) => {
       if (ctx.opts.prompt.includes("[hold]")) {

@@ -1,5 +1,6 @@
 import { BUILTIN_DECISIONS, runDecision } from "@kiln/decide";
 import type { Gate as GateDef } from "@kiln/schema";
+import { KilnError } from "./errors";
 import type { Kiln } from "./kiln";
 import { C, newId, type Gate, type GateKind, type WorkItem } from "./types";
 
@@ -16,7 +17,8 @@ export const BUILTIN_GATES: Record<string, GateDef> = {
   merge: { kind: "merge", approvers: ["role:code-owners", "requester"], nudge: "48h" },
 };
 
-export type Decision = { decision: "approve" | "reject" | "answer"; answer?: string; by: string; via: string };
+/** `override`: the caller checked that `by` may decide any gate of this factory (a factory admin, or the server itself). */
+export type Decision = { decision: "approve" | "reject" | "answer"; answer?: string; by: string; via: string; override?: boolean };
 
 export class GateService {
   private readonly waiters = new Map<string, ((g: Gate) => void)[]>();
@@ -93,11 +95,17 @@ export class GateService {
     return gate;
   }
 
+  /** A gate with assignees is decided by one of them; a gate without assignees by anyone who can reach it. */
+  mayDecide(gate: Pick<Gate, "assignees">, by: string): boolean {
+    return gate.assignees.length === 0 || gate.assignees.includes(by);
+  }
+
   /** Approve, reject or answer from any surface (web, Slack, MCP, CLI): one code path, one result. */
   async decide(id: string, d: Decision): Promise<Gate> {
     const gate = this.get(id);
     if (!gate) throw new Error(`unknown gate ${id}`);
     if (gate.state !== "open") return gate;
+    if (!d.override && !this.mayDecide(gate, d.by)) throw new KilnError("not_authorized", `only the gate's assignees (${gate.assignees.join(", ")}) can decide "${gate.title}"`);
     const wi = this.k.workflow.get(gate.workItemId);
     if (d.decision === "answer" && gate.kind !== "question") throw new Error("only question gates take answers");
     const next: Gate = {
@@ -140,7 +148,7 @@ export class GateService {
       const wi = this.k.workflow.get(g.workItemId);
       if (g.expireAt && new Date(g.expireAt) <= now) {
         if (g.expireAction === "approve" || g.expireAction === "reject") {
-          await this.decide(g.id, { decision: g.expireAction, by: "kiln:expiry", via: "timer" });
+          await this.decide(g.id, { decision: g.expireAction, by: "kiln:expiry", via: "timer", override: true });
         } else {
           this.k.store.put(C.gates, { ...g, state: "expired", decidedAt: now.toISOString(), decidedBy: "kiln:expiry" });
           if (wi) this.k.workflow.park(wi.id, `${g.title} expired without a decision`);

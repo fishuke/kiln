@@ -718,6 +718,30 @@ describe("tasks", () => {
     await waitFor(kiln, wi.id, ["complete"]);
   });
 
+  it("only a gate's assignees decide it unless overridden; a stranger's message does not answer a question", async () => {
+    const { kiln } = createTestKiln({ preview: false });
+    const d = await kiln.tasks.dispatch("webapp", { prompt: "Fix typo in nav", mode: "plan", by: "po@acme.test" });
+    const wi = await waitFor(kiln, d.taskId, ["awaiting_spec"]);
+    const gate = kiln.gates.list({ workItemId: wi.id, state: "open" })[0]!;
+    expect(gate.assignees).toContain("po@acme.test");
+    expect(kiln.gates.mayDecide(gate, "mallory@acme.test")).toBe(false);
+    await expect(kiln.gates.decide(gate.id, { decision: "approve", by: "mallory@acme.test", via: "web" })).rejects.toMatchObject({ code: "not_authorized" });
+    expect(kiln.gates.get(gate.id)!.state).toBe("open");
+    expect((await kiln.gates.decide(gate.id, { decision: "reject", answer: "no", by: "admin@acme.test", via: "web", override: true })).state).toBe("rejected");
+
+    // Kiln's own timer still expires an assigned gate.
+    const timed = await kiln.gates.open({ workItem: kiln.workflow.get(wi.id)!, kind: "custom", name: "t", title: "Timed", command: "noop", assignees: ["po@acme.test"] });
+    kiln.store.put("gates", { ...kiln.gates.get(timed.id)!, expireAt: new Date(0).toISOString(), expireAction: "approve" });
+    await kiln.gates.tick();
+    expect(kiln.gates.get(timed.id)).toMatchObject({ state: "approved", decidedBy: "kiln:expiry" });
+
+    const q = await kiln.gates.open({ workItem: kiln.workflow.get(wi.id)!, kind: "question", name: "q", title: "Which page?", assignees: ["po@acme.test"] });
+    await kiln.workflow.message(wi.id, { by: "mallory@acme.test", text: "the admin page" });
+    expect(kiln.gates.get(q.id)!.state).toBe("open");
+    await kiln.workflow.message(wi.id, { by: "po@acme.test", text: "the nav" });
+    expect(kiln.gates.get(q.id)).toMatchObject({ state: "answered", answer: "the nav" });
+  });
+
   it("plan mode always stops for an approved plan first", async () => {
     const { kiln } = createTestKiln({ preview: false });
     const d = await kiln.tasks.dispatch("webapp", { prompt: "Fix typo in nav", mode: "plan", by: "po@acme.test" });

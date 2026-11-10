@@ -247,7 +247,8 @@ export class Workflow {
     if (!wi) throw new KilnError("resource_not_found", `unknown work item ${id}`);
     const attachments = input.attachments ?? [];
     const open = this.k.gates.list({ workItemId: id, state: "open" });
-    const question = input.fromRun ? undefined : open.find((g) => g.kind === "question" && !g.command);
+    // Only someone who may decide the question answers it; anyone else's message joins the conversation.
+    const question = input.fromRun ? undefined : open.find((g) => g.kind === "question" && !g.command && this.k.gates.mayDecide(g, input.by));
     if (question) {
       if (attachments.length) this.addMessage(id, input.by, `Attached ${attachments.map((a) => a.name).join(", ")}`, attachments);
       await this.k.gates.decide(question.id, { decision: "answer", answer: input.text, by: input.by, via: input.via ?? "web" });

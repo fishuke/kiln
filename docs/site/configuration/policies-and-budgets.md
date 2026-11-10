@@ -71,6 +71,8 @@ Codex and OpenCode report cost after each turn, so Kiln can stop them during a r
 
 Who may approve a gate is set by the gate's `approvers` (see [Pipelines and gates](pipelines-and-gates.md#gates)) and by the scopes on the person's token (see [Admin, RBAC and audit](../management/admin-rbac-audit.md)).
 
+Both must hold. A person needs the gate's `decide:*` scope on the factory, and must be one of the gate's assignees, on every surface: web, API, CLI, MCP, Slack, Discord and Teams. A gate without assignees can be decided by anyone with the scope. A token with `admin` on the factory may decide any of its gates. Anyone else gets HTTP 403, and a message from them in the task's thread joins the conversation instead of answering an open question.
+
 ## Related pages
 
 - [Pipelines and gates](pipelines-and-gates.md)

@@ -430,7 +430,7 @@ export class AutomationService {
     const author = this.person(event.provider, String(d.author ?? event.provider));
     const open = this.k.gates.list({ workItemId: match.id, state: "open" });
     // Text in a thread or comment is content, not authority: only a gate's assignees decide it.
-    const mayDecide = (g: { assignees: string[] }) => g.assignees.length === 0 || g.assignees.includes(author);
+    const mayDecide = (g: { assignees: string[] }) => this.k.gates.mayDecide(g, author);
     const question = open.find((g) => g.kind === "question" && !g.command && mayDecide(g));
     const approval = open.find((g) => (g.kind === "spec" || g.kind === "preview") && mayDecide(g));
     if (approval && /^(approve|approved|lgtm|ship it|accept)\b/i.test(text)) {

@@ -29,6 +29,8 @@ type StepResult = "continue" | "wait" | "done";
 
 /** A run ended on a temporary platform error (network, restart) after its own retries: the stage runs again later. */
 class TemporaryError extends Error {}
+/** A person stopped the stage's run (cancel, interrupt or pause): not the agent's failure, so nothing is retried. */
+class StoppedError extends Error {}
 
 /** Waits between stage retries after temporary errors (1, 2, 5, 10, 20, 30 minutes); past the last one the task stops. */
 const STAGE_RETRY_MS = [1, 2, 5, 10, 20, 30].map((m) => m * 60_000);
@@ -82,6 +84,8 @@ function section(title: string, items: string[] | undefined): string[] {
  */
 export class Workflow {
   private readonly locks = new Map<string, Promise<void>>();
+  /** Work items being cancelled right now. */
+  private readonly cancelling = new Set<string>();
 
   constructor(private readonly k: Kiln) {}
 
@@ -318,7 +322,13 @@ export class Workflow {
 
   /** Cancel the work item and stop every run of it (and their subagents) that is still going. */
   async cancel(id: string, by: string) {
-    for (const r of this.k.runs.list({ workItemId: id })) await this.k.runs.cancelTree(r.id, by);
+    // While its runs stop, the stage that waits on them must not open a could-not-finish gate or park the task.
+    this.cancelling.add(id);
+    try {
+      for (const r of this.k.runs.list({ workItemId: id })) await this.k.runs.cancelTree(r.id, by);
+    } finally {
+      this.cancelling.delete(id);
+    }
     const wi = this.get(id);
     if (!wi || !isActive(wi.state)) return wi;
     for (const g of this.k.gates.list({ workItemId: id, state: "open" })) this.k.store.put(C.gates, { ...g, state: "expired", decidedBy: by });
@@ -331,6 +341,7 @@ export class Workflow {
     const prev = this.locks.get(id) ?? Promise.resolve();
     const next = prev.then(() => this.run(id)).catch((err) => {
       const wi = this.get(id);
+      if (err instanceof StoppedError && (this.cancelling.has(id) || !wi || !isActive(wi.state))) return;
       if (wi && isActive(wi.state) && err instanceof TemporaryError) {
         const n = wi.loops["temporary-errors"] ?? 0;
         const wait = (this.k.options.stageRetryDelaysMs ?? STAGE_RETRY_MS)[n];
@@ -504,6 +515,12 @@ export class Workflow {
       Object.assign(wi, fresh);
       throw new TemporaryError(run.error!.message);
     }
+    if (run.status === "cancelled" || run.status === "blocked" || run.status === "paused") {
+      this.save(fresh);
+      Object.assign(wi, fresh);
+      const how = run.status === "cancelled" ? "cancelled" : run.status === "paused" ? "paused" : "interrupted";
+      throw new StoppedError(`${agent} was stopped (${how}) in ${stage}. Retry or send a message to continue.`);
+    }
     if (run.status === "succeeded") delete fresh.loops["temporary-errors"];
     if (!opts.silent) this.say(fresh, agent, "agent", run.summary || `${agent} ${run.status}`);
     this.save(fresh);
@@ -578,7 +595,12 @@ export class Workflow {
       await this.k.gates.open({ workItem: wi, kind: "question", name: "foreman-stuck", title: `The foreman needs help with "${wi.title}"`, question: `It took ${st.turns} turns without finishing. Reply with guidance, or reject to stop.` });
       return "wait";
     }
-    for (const e of events) if (e.type === "run_finished" && e.runId) await this.absorbRun(wi, e.runId);
+    // Absorbed once: after a failed turn the events stay queued, and the run's cost must not count twice.
+    for (const e of events) {
+      if (e.type !== "run_finished" || !e.runId || e.absorbed) continue;
+      await this.absorbRun(wi, e.runId);
+      this.k.store.put<ForemanEvent>(C.foremanEvents, { ...e, absorbed: true });
+    }
     st.turns += 1;
     if (wi.state === "received") wi = this.move(wi, "triaging", "the foreman is on it");
     this.save(wi);
@@ -811,6 +833,8 @@ export class Workflow {
     }
     const visits = (wi.loops[`bp:${stage.id}`] ?? 0) + 1;
     wi.loops[`bp:${stage.id}`] = visits;
+    // Saved now: the stage's run refetches the item, and an unsaved count would never reach the limit.
+    this.save(wi);
     if (visits > 5) {
       this.park(wi.id, `blueprint stage ${stage.id} ran ${visits - 1} times without finishing`);
       return "wait";
@@ -1016,6 +1040,7 @@ export class Workflow {
     const failing = await this.checkCriteria(wi, res.criteria ?? []);
     if (failing.length && (wi.loops.spec ?? 0) < 1 && !planOnly) {
       wi.loops.spec = (wi.loops.spec ?? 0) + 1;
+      this.save(wi);
       run = await this.agentRun(wi, stage.agent!, "spec", this.briefing(wi, ["", "These acceptance criteria are not testable or are ambiguous; rewrite them:", ...failing.map((c) => `- ${c}`)], wi.specRetry?.messagesFrom), { model });
       if (run.status !== "succeeded") return this.specFailed(wi, stage, run);
       res = (run.result ?? res) as typeof res;

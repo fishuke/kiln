@@ -223,6 +223,10 @@ export class RunService {
   private readonly specs = new Map<string, SandboxRunner>();
   /** The in-memory record of each live run, so steering and cost updates land on the copy that is saved last. */
   private readonly live = new Map<string, Run>();
+  /** Runs waiting to try again after a platform error: wakes the wait early (cancel, interrupt). */
+  private readonly retryWaits = new Map<string, () => void>();
+  /** Continuations being started, per run they continue: follow-ups meanwhile steer them instead of starting more. */
+  private readonly continuing = new Map<string, Promise<Run>>();
   /** Secret values each live run was given; redacted from its events and summary. */
   private readonly redactions = new Map<string, string[]>();
   /** Runs holding a ChatGPT login: saved back (Codex may have refreshed it) and released when the run ends. */
@@ -470,7 +474,20 @@ export class RunService {
       const delays = this.k.options.retryDelaysMs ?? [5_000, 20_000, 60_000];
       const wait = delays[Math.min((run.attempt ?? 1) - 1, delays.length - 1)] ?? 0;
       this.record(run, "retry", `attempt ${(run.attempt ?? 1) + 1} in ${Math.round(wait / 1000)}s after ${run.error!.code}: ${run.error!.message}`);
-      if (wait) await new Promise((r) => setTimeout(r, wait));
+      // The run stays live while it waits, so a cancel stops it and a follow-up steers the next attempt.
+      if (wait)
+        await new Promise<void>((r) => {
+          const timer = setTimeout(r, wait);
+          this.retryWaits.set(run.id, () => (clearTimeout(timer), r()));
+        });
+      this.retryWaits.delete(run.id);
+      const stop = this.k.stopping.get(run.id);
+      if (stop) {
+        run.status = stop === "interrupt" ? "blocked" : "cancelled";
+        run.summary = `stopped while waiting to retry after ${run.error!.code}`;
+        await this.finish(run);
+        return run;
+      }
       run = await this.executeOnce(input, run);
     }
     return run;
@@ -659,6 +676,7 @@ export class RunService {
         prior.status = runStatusFor(error);
         prior.error = error;
         this.save(prior);
+        if (!this.retrying(prior, input)) await this.finish(prior);
         return prior;
       }
       throw err;
@@ -683,7 +701,6 @@ export class RunService {
       this.forgeTokens.delete(run.id);
       this.sessions.delete(run.id);
       this.remotes.delete(run.id);
-      this.live.delete(run.id);
       run.finishedAt = this.k.clock.now().toISOString();
       if (this.borrowed.delete(run.id)) {
         // The lender keeps the sandbox; the run only gives its workspace back.
@@ -699,25 +716,35 @@ export class RunService {
       }
       this.k.stopping.delete(run.id);
       this.save(run);
-      const retrying =
-        run.status === "error" && retriesAutomatically(run.error) && (run.attempt ?? 1) < Math.max(1, input.maxAttempts ?? this.k.options.maxRunAttempts ?? 3);
       if (pooled)
         this.k.credentialPool.recordOutcome(pooled, {
           ok: run.status === "succeeded",
           message: run.error?.message ?? run.summary,
         });
-      if (!retrying) {
-        this.record(run, "finished", run.status, { costUsd: run.costUsd });
-        await this.saveTranscript(run);
-        this.k.bus.publish("run.finished", {
-          runId: run.id,
-          outcome: run.status === "succeeded" ? "succeeded" : run.status === "failed" || run.status === "error" ? "failed" : "cancelled",
-          costUsd: run.costUsd,
-        });
-        if (run.reportToParent && run.parentRunId) await this.reportToParent(run, reportReason(run));
-      }
+      if (!this.retrying(run, input)) await this.finish(run);
     }
     return run;
+  }
+
+  /** `execute` will try the run again after a pause. */
+  private retrying(run: Run, input: ExecuteInput) {
+    return run.status === "error" && retriesAutomatically(run.error) && (run.attempt ?? 1) < Math.max(1, input.maxAttempts ?? this.k.options.maxRunAttempts ?? 3);
+  }
+
+  /** The run is over for good: it leaves the live set, and its end is recorded, published and reported. */
+  private async finish(run: Run) {
+    this.live.delete(run.id);
+    this.k.stopping.delete(run.id);
+    run.finishedAt ??= this.k.clock.now().toISOString();
+    this.save(run);
+    this.record(run, "finished", run.status, { costUsd: run.costUsd });
+    await this.saveTranscript(run);
+    this.k.bus.publish("run.finished", {
+      runId: run.id,
+      outcome: run.status === "succeeded" ? "succeeded" : run.status === "failed" || run.status === "error" ? "failed" : "cancelled",
+      costUsd: run.costUsd,
+    });
+    if (run.reportToParent && run.parentRunId) await this.reportToParent(run, reportReason(run));
   }
 
   private finalStatus(run: Run, outcome: "succeeded" | "failed" | "cancelled"): Run["status"] {
@@ -1288,6 +1315,14 @@ export class RunService {
   ): Promise<{ delivered: "steered" | "continued"; run: Run }> {
     const run = this.get(runId);
     if (!run) throw new KilnError("resource_not_found", `unknown run ${runId}`);
+    // A continuation of this run already going (or starting) gets the message instead of a second one in parallel.
+    const starting = this.continuing.get(runId);
+    if (starting) {
+      await starting.catch(() => undefined);
+      return this.followup(runId, input);
+    }
+    const going = this.liveContinuation(runId);
+    if (going) return this.followup(going, input);
     if (this.isActive(runId) || this.live.has(runId)) {
       const sandbox = this.sandboxes.get(runId);
       const cwd = run.startState.repos[0]?.name;
@@ -1301,7 +1336,7 @@ export class RunService {
     }
     if (run.workItemId) this.k.workflow.addMessage(run.workItemId, input.by, input.message, input.attachments ?? []);
     const branch = run.startState.repos[0]?.branch;
-    const next = await this.startInBackground({
+    const started = this.startInBackground({
       factory: run.factory,
       sha: run.definitionSha,
       agent: run.agent,
@@ -1323,17 +1358,35 @@ export class RunService {
       creator: input.by,
       mode: input.mode ?? run.mode,
     });
+    this.continuing.set(runId, started);
+    const next = await started.finally(() => this.continuing.delete(runId));
     this.k.audit(input.by, "run.followup", runId, { continuedIn: next.id });
     return { delivered: "continued", run: next };
+  }
+
+  /** The live run that continues `runId`, directly or through finished continuations, if one is going. */
+  private liveContinuation(runId: string): string | undefined {
+    const seen = new Set([runId]);
+    for (let id: string | undefined = runId; id; ) {
+      const next = [...this.live.values()].find((r) => r.continuationOf === id);
+      if (next) return next.id;
+      id = this.k.store
+        .list<Run>(C.runs, (r) => r.continuationOf === id && !seen.has(r.id))
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]?.id;
+      if (id) seen.add(id);
+    }
+    return undefined;
   }
 
   /** Stop what the agent is doing; the run waits (BLOCKED) for a follow-up. */
   async interrupt(runId: string, by: string) {
     const session = this.sessions.get(runId);
     const remote = this.remotes.get(runId);
-    if (!session && !remote) throw new KilnError("operation_not_supported", `run ${runId} is not running`);
+    const waiting = this.retryWaits.get(runId);
+    if (!session && !remote && !waiting) throw new KilnError("operation_not_supported", `run ${runId} is not running`);
     this.k.stopping.set(runId, "interrupt");
-    await (session ?? remote)!.stop();
+    if (waiting) waiting();
+    else await (session ?? remote)!.stop();
     this.k.audit(by, "run.interrupted", runId);
   }
 
@@ -1347,6 +1400,7 @@ export class RunService {
     if (!session && !this.live.has(runId)) return;
     // A run still preparing its sandbox stops as soon as its agent starts.
     this.k.stopping.set(runId, "cancel");
+    this.retryWaits.get(runId)?.();
     await session?.stop();
     this.k.audit(by, "run.cancelled", runId);
   }

@@ -935,6 +935,8 @@ blueprint:
 
 Each stage runs its staffed agent with the stage prompt. The agent can name the edge that holds (`next` in its result); with several edges and no answer the foreman decides; with one edge it is taken. A stage with no edge that holds ends the workflow, with the pull request handed off to a person.
 
+Edges may loop back to an earlier stage. A stage that is entered more than five times stops the task as `blocked` with the reason "blueprint stage <id> ran 5 times without finishing", so a cycle cannot spend the whole budget.
+
 ## Related pages
 
 - [Importing v1alpha1 definitions](../overview/importing-definitions.md)
@@ -1471,6 +1473,10 @@ A gate can be approved or rejected from the [inbox](../management/inbox.md), a r
 When a gate expires with `park`, it closes as `expired` and the item moves to `blocked`. A message on a blocked item with nothing left open (for example, a follow-up after its question expired) resumes it at the stage that stopped. The task page also shows why it stopped, with a **Retry** button that restarts it there without a message.
 
 Runs live in the API process, so a restart (for example a deploy) cuts off whatever was running. On startup Kiln stops those runs as `blocked`, closes the command questions they were waiting on, and moves their tasks to `blocked` with the reason "Kiln restarted while this task was working". Retry, or a message, continues the task; a follow-up continues the run.
+
+A person who cancels, interrupts or pauses a stage's run stops the task too: it moves to `blocked` with the reason "<agent> was stopped (cancelled) in <stage>", and Kiln does not count it as the agent failing, start the agent again or open a question gate. Retry, or a message, continues it. Cancelling the task itself stops its runs and cancels it without opening a gate. A cancel also works while a run waits to retry after a platform error: the run ends as cancelled without another attempt.
+
+A follow-up on a finished run starts one continuation. Further follow-ups on that run, while the continuation is starting or going, steer it instead of starting more runs on the same branch; a follow-up sent while a run waits to retry reaches its next attempt.
 
 ## Related pages
 

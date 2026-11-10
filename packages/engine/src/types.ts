@@ -523,7 +523,7 @@ export type WorkerRecord = {
 
 export type ForemanTask = { title: string; status: "todo" | "active" | "done" | "blocked" };
 /** Something that happened since the agent foreman's last turn. */
-export type ForemanEvent = { id: string; workItemId: string; at: string; type: "start" | "run_finished" | "message" | "gate_decided" | "ci" | "restarted" | "nudge" | "error"; text: string; runId?: string };
+export type ForemanEvent = { id: string; workItemId: string; at: string; type: "start" | "run_finished" | "message" | "gate_decided" | "ci" | "restarted" | "nudge" | "error"; text: string; runId?: string; /** Its run was counted on the work item (cost, PR, proposals). */ absorbed?: boolean };
 
 export const C = {
   workItems: "work_items",

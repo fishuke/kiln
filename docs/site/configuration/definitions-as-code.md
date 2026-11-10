@@ -263,6 +263,8 @@ blueprint:
 
 Each stage runs its staffed agent with the stage prompt. The agent can name the edge that holds (`next` in its result); with several edges and no answer the foreman decides; with one edge it is taken. A stage with no edge that holds ends the workflow, with the pull request handed off to a person.
 
+Edges may loop back to an earlier stage. A stage that is entered more than five times stops the task as `blocked` with the reason "blueprint stage <id> ran 5 times without finishing", so a cycle cannot spend the whole budget.
+
 ## Related pages
 
 - [Importing v1alpha1 definitions](../overview/importing-definitions.md)

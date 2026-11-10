@@ -132,6 +132,10 @@ When a gate expires with `park`, it closes as `expired` and the item moves to `b
 
 Runs live in the API process, so a restart (for example a deploy) cuts off whatever was running. On startup Kiln stops those runs as `blocked`, closes the command questions they were waiting on, and moves their tasks to `blocked` with the reason "Kiln restarted while this task was working". Retry, or a message, continues the task; a follow-up continues the run.
 
+A person who cancels, interrupts or pauses a stage's run stops the task too: it moves to `blocked` with the reason "<agent> was stopped (cancelled) in <stage>", and Kiln does not count it as the agent failing, start the agent again or open a question gate. Retry, or a message, continues it. Cancelling the task itself stops its runs and cancels it without opening a gate. A cancel also works while a run waits to retry after a platform error: the run ends as cancelled without another attempt.
+
+A follow-up on a finished run starts one continuation. Further follow-ups on that run, while the continuation is starting or going, steer it instead of starting more runs on the same branch; a follow-up sent while a run waits to retry reaches its next attempt.
+
 ## Related pages
 
 - [How Kiln works](../overview/how-kiln-works.md)

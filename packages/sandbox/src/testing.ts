@@ -6,6 +6,23 @@ import { checkPort, guarded, hashDir, newSandboxId, runSetup, type Sandbox, type
 import { NodeCommandRunner, type CommandRunner } from "./process";
 
 /**
+ * The shell the Fake runs commands with. On macOS `/bin/sh` is a shim that starts bash a second
+ * time, and under load that costs ~0.5 s per command; bash in POSIX mode is the same shell without it.
+ */
+export const FAKE_SHELL: readonly string[] = process.platform === "darwin" && existsSync("/bin/bash") ? ["/bin/bash", "--posix"] : ["sh"];
+
+const shellArgs = (cmd: string, args: string[]): [string, string[]] =>
+  cmd === "sh" ? [FAKE_SHELL[0]!, [...FAKE_SHELL.slice(1), ...args]] : [cmd, args];
+
+/** Words with no shell syntax: a trusted command made only of these needs no shell. */
+const PLAIN = /^[\w@%+=:,./^-]+( [\w@%+=:,./^-]+)*$/;
+
+const roots = new Set<string>();
+process.once("exit", () => {
+  for (const root of roots) rmSync(root, { recursive: true, force: true });
+});
+
+/**
  * The Fake for `SandboxProvider`: the workspace is a temporary directory and commands are plain
  * processes on this machine, so tests need no Docker. It isolates nothing. It is not a backend:
  * no runner definition, server setting or worker option can select it (ADR-017).
@@ -13,12 +30,19 @@ import { NodeCommandRunner, type CommandRunner } from "./process";
 export class FakeSandboxProvider implements SandboxProvider {
   readonly name = "fake";
   private readonly live = new Set<string>();
+  private readonly root: string;
 
+  /**
+   * Without a `root`, each provider gets its own temporary directory, removed when the process
+   * exits, so `sweep` never deletes another provider's (or another test worker's) sandboxes.
+   */
   constructor(
-    private readonly root = join(tmpdir(), "kiln-sandboxes"),
+    root?: string,
     private readonly runner: CommandRunner = new NodeCommandRunner(),
   ) {
-    mkdirSync(root, { recursive: true });
+    if (root) mkdirSync(root, { recursive: true });
+    else roots.add((root = mkdtempSync(join(tmpdir(), "kiln-sandboxes-"))));
+    this.root = root;
   }
 
   async create(spec: SandboxSpec): Promise<Sandbox> {
@@ -115,14 +139,17 @@ class FakeSandbox implements Sandbox {
 
   async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
     if (!opts.trusted) await guarded(this.spec, command);
-    return this.runner.run("sh", ["-c", command], {
-      cwd: opts.cwd ? this.resolvePath(opts.cwd) : this.workdir,
-      env: { ...this.spec.env, ...opts.env },
-    });
+    const run = { cwd: opts.cwd ? this.resolvePath(opts.cwd) : this.workdir, env: { ...this.spec.env, ...opts.env } };
+    // Kiln's own plain commands (`git rev-parse HEAD`, `git push ...`) skip the shell: one process, not two.
+    if (opts.trusted && PLAIN.test(command)) {
+      const [cmd, ...args] = command.split(" ");
+      return this.runner.run(cmd!, args, run);
+    }
+    return this.runner.run(...shellArgs("sh", ["-c", command]), run);
   }
 
   spawn(cmd: string, args: string[], opts: { cwd?: string; env?: Record<string, string> } = {}) {
-    return this.runner.spawn(cmd, args, {
+    return this.runner.spawn(...shellArgs(cmd, args), {
       cwd: opts.cwd ? this.resolvePath(opts.cwd) : this.workdir,
       env: { ...this.spec.env, ...opts.env },
     });

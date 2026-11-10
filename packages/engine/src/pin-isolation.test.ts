@@ -2,10 +2,11 @@ import { execSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FAKE_SHELL } from "@kiln/sandbox/testing";
 import { describe, expect, it } from "vitest";
 import { isolatePinCommand } from "./pin-isolation";
 
-const sh = (cmd: string, cwd: string) => execSync(cmd, { cwd, encoding: "utf8", shell: "/bin/sh" }).trim();
+const sh = (cmd: string, cwd: string) => execSync(cmd, { cwd, encoding: "utf8", shell: FAKE_SHELL[0] }).trim();
 
 describe("isolatePinCommand", () => {
   it("leaves only the pin and its ancestors in the clone", () => {

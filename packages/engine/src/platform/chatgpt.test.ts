@@ -313,7 +313,7 @@ describe("Sign in with ChatGPT", () => {
   it("shows the device code, then stores the login once the person approves it", async () => {
     let approve!: () => void;
     const approved = new Promise<void>((r) => (approve = r));
-    const { kiln } = createTestKiln({ sandboxes: { docker: new FakeSandboxProvider(join(tmpdir(), "kiln-sandboxes"), fakeCodexRunner(approved)) } });
+    const { kiln } = createTestKiln({ sandboxes: { docker: new FakeSandboxProvider(undefined, fakeCodexRunner(approved)) } });
     const team = kiln.teams.ensureDefaultTeam();
     const started = await kiln.chatgptSignIn.start({ teamId: team.id, scope: "team", owner: team.id, name: "CHATGPT_TED", by: "ted@acme.test" });
     expect(started).toMatchObject({ status: "pending", verificationUrl: "https://auth.openai.com/codex/device", userCode: "WXYZ-98765" });
@@ -329,7 +329,7 @@ describe("Sign in with ChatGPT", () => {
 
   it("is only for whoever started it (or an admin), and can be cancelled while it waits", async () => {
     const { kiln } = createTestKiln({
-      sandboxes: { docker: new FakeSandboxProvider(join(tmpdir(), "kiln-sandboxes"), fakeCodexRunner(new Promise(() => {}))) },
+      sandboxes: { docker: new FakeSandboxProvider(undefined, fakeCodexRunner(new Promise(() => {}))) },
     });
     const team = kiln.teams.ensureDefaultTeam();
     const started = await kiln.chatgptSignIn.start({ teamId: team.id, scope: "team", owner: team.id, name: "CHATGPT_X", by: "a", userId: "usr_ted" });

@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import { BUILTIN_DECISIONS, guardCommand, runDecision, type GuardVerdict } from "@kiln/decide";
 import type { DefinitionTree, ResolvedAgent, ResolvedFactory } from "@kiln/definitions";
@@ -872,20 +874,22 @@ export class RunService {
     for (const r of provided ? [] : repos) {
       const dir = r.name;
       const sh = (cmd: string) => sandbox!.exec(cmd, { cwd: dir, trusted: true });
-      await sh(
-        `git config user.name "kiln-agent[bot]" && git config user.email "agent@kiln.local" && mkdir -p .git/info && echo ".kiln/" >> .git/info/exclude`,
-      );
+      // One script per step, not one exec per command: each exec is a process (or a `docker exec`).
+      // The identity is appended to .git/config directly: same result as two `git config` calls, no git processes.
+      const steps = [`printf '[user]\\n\\tname = kiln-agent[bot]\\n\\temail = agent@kiln.local\\n' >> .git/config && mkdir -p .git/info && echo ".kiln/" >> .git/info/exclude`];
       const pin = input.pinned?.[r.name];
       if (pin) {
         const branch = input.branch ?? "kiln/replay";
+        await sh(steps.pop()!);
         await sh(`git checkout -q -B ${branch} ${pin}`);
         // A benchmark trial must not see history after its pin (later fixes, tags, branches).
         if (input.kind === "benchmark") await sh(isolatePinCommand(branch));
       }
       else if (input.branch) {
-        await sh(`git fetch -q origin ${input.branch} 2>/dev/null && git checkout -q -B ${input.branch} FETCH_HEAD || git checkout -q -B ${input.branch}`);
+        steps.push(`{ git fetch -q origin ${input.branch} 2>/dev/null && git checkout -q -B ${input.branch} FETCH_HEAD || git checkout -q -B ${input.branch}; }`);
       }
-      const head = (await sh("git rev-parse HEAD")).stdout.trim();
+      steps.push("git rev-parse HEAD");
+      const head = (await sh(steps.join("\n"))).stdout.trim().split("\n").at(-1) ?? "";
       run.startState.repos.push({ name: r.name, url: repoKey(r), branch: input.branch, sha: head });
     }
     for (const [path, content] of Object.entries(input.files ?? {})) await sandbox.writeFile(path, content);
@@ -1242,8 +1246,10 @@ export class RunService {
   /** Upload what the agent saved in .kiln/artifacts/ (and lists in result.artifacts) for reviewers. */
   private async collectArtifacts(run: Run, sandbox: Sandbox, cwd: string | undefined) {
     const base = cwd ? `${cwd}/` : "";
+    // A workspace on this machine is checked without an exec; most runs save no artifacts.
+    const none = sandbox.hostDir !== undefined && !existsSync(join(sandbox.hostDir, base, ".kiln", "artifacts"));
     const listed = (
-      await sandbox.exec(`[ -d ${base}.kiln/artifacts ] && cd ${base}.kiln/artifacts && find . -type f -size -50M | sed 's|^./||' || true`, { trusted: true })
+      none ? { stdout: "" } : await sandbox.exec(`[ -d ${base}.kiln/artifacts ] && cd ${base}.kiln/artifacts && find . -type f -size -50M | sed 's|^./||' || true`, { trusted: true })
     ).stdout
       .split("\n")
       .filter(Boolean);
@@ -1348,11 +1354,19 @@ export class RunService {
     const diffStat = { additions: 0, deletions: 0, files: 0 };
     for (const r of repos) {
       const sh = (cmd: string, env?: Record<string, string>) => sandbox.exec(cmd, { cwd: r.name, trusted: true, env });
-      const dirty = (await sh("git status --porcelain")).stdout.trim();
-      if (dirty) await sh(`git add -A && git commit -q -m ${JSON.stringify(`kiln: ${run.stage ?? run.agent} (${run.id})`)}`);
-      let head = (await sh("git rev-parse HEAD")).stdout.trim();
+      // Commit leftovers, then read HEAD and the remote branch, in one exec.
+      const message = JSON.stringify(`kiln: ${run.stage ?? run.agent} (${run.id})`);
+      const state = await sh(
+        [
+          `if [ -n "$(git status --porcelain)" ]; then git add -A && git commit -q -m ${message} >/dev/null; fi`,
+          "echo HEAD $(git rev-parse HEAD)",
+          `echo REMOTE $(git ls-remote origin refs/heads/${branch})`,
+        ].join("\n"),
+      );
+      const field = (name: string) => new RegExp(`^${name} ?(\\S*)`, "m").exec(state.stdout)?.[1] || undefined;
+      let head = field("HEAD") ?? "";
       const start = run.startState.repos.find((x) => x.name === r.name)?.sha;
-      const remote = (await sh(`git ls-remote origin refs/heads/${branch}`)).stdout.split(/\s/)[0];
+      const remote = field("REMOTE");
       const pushable = await pushableHead(sh, { branch, head, start, remote, label: `kiln: ${run.stage ?? run.agent} (${run.id})` });
       const rewritten = pushable !== head;
       head = pushable;

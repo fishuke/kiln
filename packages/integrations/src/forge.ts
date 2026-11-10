@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -134,6 +134,44 @@ export type CheckRunInput = {
 const git = (cwd: string, args: string[], env: Record<string, string> = {}) =>
   execFileSync("git", args, { cwd, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] }).toString();
 
+/** On macOS `/bin/sh` is a shim that starts bash a second time; hooks skip it. */
+const HOOK_SHELL = process.platform === "darwin" && existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh";
+
+/** Temporary directories the Fakes made in this process; removed when it exits. */
+const scratch = new Set<string>();
+process.once("exit", () => {
+  for (const dir of scratch) rmSync(dir, { recursive: true, force: true });
+});
+
+/**
+ * Seeded bare repositories by their files, built once per process. A new repository is a copy of
+ * one (no git processes), so every test setup does not init, commit and push again.
+ */
+const seeds = new Map<string, string>();
+
+function seedTemplate(files: Record<string, string>): string {
+  const key = JSON.stringify(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)));
+  const cached = seeds.get(key);
+  if (cached && existsSync(cached)) return cached;
+  const dir = mkdtempSync(join(tmpdir(), "kiln-seed-"));
+  scratch.add(dir);
+  const bare = join(dir, "seed.git");
+  const work = join(dir, "work");
+  mkdirSync(work);
+  git(dir, ["init", "-q", "--bare", "-b", "main", bare]);
+  git(work, ["init", "-q", "-b", "main"]);
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(work, path, ".."), { recursive: true });
+    writeFileSync(join(work, path), content);
+  }
+  git(work, ["add", "-A"]);
+  git(work, ["-c", "user.name=seed", "-c", "user.email=seed@kiln.test", "commit", "-q", "-m", "initial commit"]);
+  git(work, ["push", "-q", bare, "main"]);
+  rmSync(work, { recursive: true, force: true });
+  seeds.set(key, bare);
+  return bare;
+}
+
 /**
  * A code forge backed by real bare git repositories on disk, so tests push, branch and merge
  * actual commits. Agent pushes to protected branches are rejected by a pre-receive hook, the
@@ -156,7 +194,8 @@ export class FakeForge implements Forge {
     private readonly protectedBranches = ["main"],
     private readonly persistState = false,
   ) {
-    this.root = root ?? mkdtempSync(join(tmpdir(), "kiln-forge-"));
+    if (root) this.root = root;
+    else scratch.add((this.root = mkdtempSync(join(tmpdir(), "kiln-forge-"))));
     const state = join(this.root, "forge.json");
     if (persistState && existsSync(state)) {
       const saved = JSON.parse(readFileSync(state, "utf8")) as {
@@ -206,27 +245,23 @@ export class FakeForge implements Forge {
   createRepo(repo: RepoRef, files: Record<string, string> = { "README.md": `# ${repo.name}\n` }): string {
     const bare = this.bare(repo);
     if (this.hasRepo(repo)) return bare;
-    this.initBare(bare, this.protectedBranches);
-    const work = mkdtempSync(join(tmpdir(), "kiln-seed-"));
-    git(work, ["init", "-q", "-b", "main"]);
-    for (const [path, content] of Object.entries(files)) {
-      mkdirSync(join(work, path, ".."), { recursive: true });
-      writeFileSync(join(work, path), content);
-    }
-    git(work, ["add", "-A"]);
-    git(work, ["-c", "user.name=seed", "-c", "user.email=seed@kiln.test", "commit", "-q", "-m", "initial commit"]);
-    git(work, ["push", "-q", bare, "main"], { KILN_PUSH_AS: "human" });
-    rmSync(work, { recursive: true, force: true });
+    cpSync(seedTemplate(files), bare, { recursive: true });
+    this.protect(bare, this.protectedBranches);
     return bare;
   }
 
   private initBare(bare: string, protectedBranches: string[]) {
     mkdirSync(bare, { recursive: true });
     git(bare, ["init", "-q", "--bare", "-b", "main"]);
+    this.protect(bare, protectedBranches);
+  }
+
+  private protect(bare: string, protectedBranches: string[]) {
     const hook = join(bare, "hooks", "pre-receive");
+    mkdirSync(join(bare, "hooks"), { recursive: true });
     writeFileSync(
       hook,
-      `#!/bin/sh
+      `#!${HOOK_SHELL}
 # Branch protection: agents may only push kiln/* branches.
 while read old new ref; do
   case "$KILN_PUSH_AS" in agent*)
@@ -448,6 +483,7 @@ done
     const pr = await this.getPullRequest(repo, number);
     if (!pr || pr.state !== "open") throw new Error(`pull request ${number} is not open`);
     const work = mkdtempSync(join(tmpdir(), "kiln-merge-"));
+    scratch.add(work);
     git(work, ["clone", "-q", this.bare(repo), "."]);
     git(work, ["checkout", "-q", pr.base]);
     git(work, [

@@ -4976,6 +4976,18 @@ A Review item opens the diff in the side pane, file by file. Hover a line and cl
 
 Kiln acts as your own GitHub account, never as the Kiln app (agents never approve or merge; see ADR-010). Link GitHub once from the pane or your linked accounts. If you merged elsewhere, **Confirm it landed** closes the task. On the run page, **Request changes** on the merge gate (or a follow-up message) sends your note to the agents without a GitHub review.
 
+## The review page
+
+A task with a pull request also has a page of its own at `/review/<task id>`; the run page links to it with **Review**. It answers "what happened, and can I approve it" before you read any chat:
+
+- **What was wrong**: the triage summary.
+- **Proof**: one before/after image pair (or one image) and one video, taken from the latest run that attached any. Click an image to compare the pair at full size. Everything else is behind **Show N more**.
+- **Checks**: the verify agent's test lines and the review agent's verdict. **Limits of the proof** shows what the verify agent said its proof does not cover.
+- **Review notes**: the review agent's findings, three at a time.
+- **Changes**: the same diff and review as the inbox pane.
+
+**Approve** and **Request changes** at the top right work as in the inbox; Request changes needs a note.
+
 ## Ready to merge
 
 When the `review-risk` decision finds a change low risk and the reviewer agent has no findings, nobody needs to read the code, so no inbox item opens. The pull request appears under **Ready to merge** at the top of the inbox, and one click merges it as you. See [Decisions](../configuration/decisions.md).

@@ -29,7 +29,7 @@ import { useAttachments } from "@/components/kiln/attachments";
 import { PromptInput } from "@/components/kiln/prompt-input";
 import { AgentIcon, StatusSquare } from "@/components/kiln/run-visuals";
 import { PageHeader } from "@/components/kiln/ui";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -153,6 +153,11 @@ export function RunDetailView({ model }: { model: RunDetailModel }) {
           <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-6">
             <AgentSwitcher model={model} />
             <div role="group" aria-label="Chat actions" className="flex items-center gap-1">
+              {model.workItem?.prUrl && (
+                <Link href={`/review/${model.workItem.id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
+                  Review
+                </Link>
+              )}
               <StopButton model={model} />
               <RunActionsMenu
                 model={model}

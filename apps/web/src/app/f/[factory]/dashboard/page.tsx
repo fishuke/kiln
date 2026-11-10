@@ -26,7 +26,7 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
   const day = (d: Date) => d.toISOString().slice(0, 10);
   const [f, runs, items, scores, si, top] = await Promise.all([
     safe(() => api.factory(factory), null),
-    safe(() => api.runs({ factory, limit: 5000 }), []),
+    safe(() => api.runs({ factory, limit: 500 }), []),
     safe(() => api.workItems({ factory }), []),
     safe(() => api.scores(factory), []),
     safe(() => api.selfImprovement(factory), { proposals: [], failures: [] }),

@@ -83,6 +83,10 @@ export function sandboxUrl(env: { KILN_SANDBOX_URL?: string }, publicUrl: string
 }
 
 export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
+  const allowUnsignedWebhooks = env.KILN_ALLOW_UNSIGNED_WEBHOOKS === "1";
+  if (allowUnsignedWebhooks && env.NODE_ENV === "production") {
+    throw new Error("KILN_ALLOW_UNSIGNED_WEBHOOKS=1 is for local development and is refused when NODE_ENV=production: set each provider's webhook secret instead.");
+  }
   const dataDir = resolve(env.KILN_DATA_DIR ?? ".data");
   mkdirSync(dataDir, { recursive: true });
   const port = Number(env.PORT ?? 4000);
@@ -155,6 +159,7 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     ...(env.KILN_COMPUTER_USE === "0" ? { browserMcp: false as const } : {}),
     publicUrl,
     sandboxUrl: sandboxUrl(env, publicUrl, backend),
+    allowUnsignedWebhooks,
     webUrl: env.KILN_WEB_URL ?? "http://localhost:3000",
     roles: parseRoles(env.KILN_ROLES ?? "po=po@kiln.local;code-owners=lead@kiln.local;admins=admin@kiln.local"),
     secretKey: env.KILN_SECRET_KEY,

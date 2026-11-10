@@ -110,6 +110,8 @@ export type KilnOptions = {
   sandboxUrl?: string;
   /** Where people open links (inbox, runs). */
   webUrl?: string;
+  /** Local development only (KILN_ALLOW_UNSIGNED_WEBHOOKS=1): provider webhooks without a configured secret are accepted unsigned. */
+  allowUnsignedWebhooks?: boolean;
   roles?: Record<string, string[]>;
   /** Maps provider identities to people, e.g. { "slack:U024BE7LH": "po@acme.test", "github:alice": "alice@acme.test" }. */
   identities?: Record<string, string>;

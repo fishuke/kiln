@@ -10,7 +10,7 @@ Linear can start work items, receives the factory's updates as comments on the i
 ## Set up
 
 1. Create an OAuth application in Linear (Settings → API) with the redirect URL `<public URL>/oauth/linear/callback` and set `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET`. Kiln asks for `actor=app`, so the factory appears in Linear as an app you can assign, mention and delegate to.
-2. Enable the app's webhook to `POST /webhooks/linear` for Issues, Comments and Agent session events, and store its signing secret as `LINEAR_WEBHOOK_SECRET`. Kiln checks the `Linear-Signature` header and ignores repeated `Linear-Delivery` IDs.
+2. Enable the app's webhook to `POST /webhooks/linear` for Issues, Comments and Agent session events, and store its signing secret as `LINEAR_WEBHOOK_SECRET`. Kiln checks the `Linear-Signature` header, refuses every call until the secret is set, and ignores repeated `Linear-Delivery` IDs.
 3. Connect Linear once for the workspace. See [Connections](connections.md). Instead of the OAuth flow you can set `LINEAR_ACCESS_TOKEN` to an app token.
 4. Add `linear` to the factory's `integrations`, with the teams it works in:
 

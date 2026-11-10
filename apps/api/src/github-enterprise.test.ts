@@ -31,3 +31,14 @@ describe("the API's URL for sandboxes (#156)", () => {
     expect(kilnFromEnv(env({})).kiln.options.sandboxUrl).toBe("http://host.docker.internal:4000");
   });
 });
+
+describe("KILN_ALLOW_UNSIGNED_WEBHOOKS", () => {
+  it("lets provider webhooks skip signatures outside production", () => {
+    expect(kilnFromEnv(env({ KILN_ALLOW_UNSIGNED_WEBHOOKS: "1" })).kiln.options.allowUnsignedWebhooks).toBe(true);
+    expect(kilnFromEnv(env({})).kiln.options.allowUnsignedWebhooks).toBe(false);
+  });
+
+  it("stops the server at start in production", () => {
+    expect(() => kilnFromEnv(env({ KILN_ALLOW_UNSIGNED_WEBHOOKS: "1", NODE_ENV: "production" }))).toThrow(/production/);
+  });
+});

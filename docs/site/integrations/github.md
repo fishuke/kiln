@@ -27,7 +27,7 @@ This needs `KILN_PUBLIC_URL` (GitHub calls it) and `KILN_SECRET_KEY` (the key is
 | `GITHUB_APP_PRIVATE_KEY`                   | The app's private key, as PEM (`\n` escapes are fine) or base64.                                  |
 | `GITHUB_APP_INSTALLATION_ID`               | The installation on your organization. Kiln mints a short-lived installation token for each call. |
 | `GITHUB_APP_SLUG`                          | Lets Kiln link to the install page and recognize its own `<slug>[bot]` events.                    |
-| `GITHUB_WEBHOOK_SECRET`                    | The webhook secret.                                                                               |
+| `GITHUB_WEBHOOK_SECRET`                    | The webhook secret. Without it (or a GitHub App created in Kiln), Kiln refuses GitHub webhooks.   |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The app's OAuth credentials, for people to link their GitHub accounts.                            |
 
 A plain `GITHUB_TOKEN` still works instead of an app. You can also connect GitHub from the API; see [Connections](connections.md).

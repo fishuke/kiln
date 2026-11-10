@@ -12,7 +12,7 @@ In Slack, you mention a factory's alias to start work, and the whole work item t
 1. Create a Slack app with a bot user and these bot scopes: `app_mentions:read`, `channels:history`, `channels:read`, `chat:write`, `chat:write.customize`, `groups:history`, `im:history`, `im:write`, `mpim:history`, `reactions:read`, `reactions:write`, `users:read`, `users:read.email`.
 2. Turn on Event Subscriptions with the request URL `POST /webhooks/slack`. Kiln answers Slack's URL verification challenge.
 3. Subscribe to the bot events `app_mention`, `message.channels`, `message.groups`, `message.im`, `message.mpim`, `member_joined_channel`, `reaction_added` and `app_home_opened`, and enable the Home tab.
-4. Store the app's signing secret in Kiln as `SLACK_SIGNING_SECRET`.
+4. Store the app's signing secret in Kiln as `SLACK_SIGNING_SECRET`. Until it is set, Kiln refuses Slack events.
 5. Install the app:
    - **Add to Slack.** Set `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`, add `<public URL>/oauth/slack/callback` as a redirect URL, and start the connection. If your workspace requires admin approval, an admin approves the request first. See [Connections](connections.md).
    - **Or a token.** Install the app yourself and set `SLACK_BOT_TOKEN`, or paste the token and signing secret when you connect.

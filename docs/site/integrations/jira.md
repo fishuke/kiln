@@ -13,7 +13,7 @@ Jira Cloud only.
 
 1. Create an OAuth 2.0 (3LO) app in the Atlassian developer console with the callback URL `<public URL>/oauth/jira/callback` and the scopes `read:jira-work`, `write:jira-work`, `read:jira-user`, `manage:jira-webhook` and `offline_access`. Set `JIRA_CLIENT_ID` and `JIRA_CLIENT_SECRET`.
 2. Connect Jira for the workspace. A Jira site admin approves the app. If that is someone else, send them an approval link: it expires in 7 days, and you can resend or revoke it. See [Connections](connections.md#approval-links).
-3. Add a Jira webhook pointing at `POST /webhooks/jira?token=<token>` for issue created, issue updated and comment created events, and store the token as `JIRA_WEBHOOK_TOKEN`. Once it is set, Kiln refuses calls that do not carry it. Kiln also ignores repeated `X-Atlassian-Webhook-Identifier` values.
+3. Add a Jira webhook pointing at `POST /webhooks/jira?token=<token>` for issue created, issue updated and comment created events, and store the token as `JIRA_WEBHOOK_TOKEN`. Kiln refuses calls that do not carry it, and refuses every call until it is set. Kiln also ignores repeated `X-Atlassian-Webhook-Identifier` values.
 4. Set `JIRA_BOT_ACCOUNT_ID` to the Atlassian account ID that represents the factory. Assigning it, or mentioning it, starts an agent session.
 5. Add `jira` to the factory's `integrations`, with its projects. A factory uses Linear or Jira, not both:
 

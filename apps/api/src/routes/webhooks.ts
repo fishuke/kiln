@@ -44,6 +44,17 @@ const json = async (c: Context<Env>) => {
   }
 };
 
+/**
+ * The secret a provider endpoint verifies with. Without one the endpoint refuses every call
+ * (fail closed), unless the server allows unsigned webhooks for local development.
+ * Returns undefined only in that development mode, meaning "skip verification".
+ */
+function requireSecret<T extends string | string[]>(kiln: Kiln, secret: T | undefined, name: string): T | undefined {
+  if (secret?.length) return secret;
+  if (kiln.options.allowUnsignedWebhooks) return undefined;
+  throw new HttpError(401, `webhook secret not configured: set ${name}`);
+}
+
 const isSignIn = (text: unknown) => String(text ?? "").replace(/<@[^>]+>/g, "").replace(/@\S+/g, "").trim().toLowerCase() === "sign in";
 
 /** Events that start or continue work in chat get a 👀 acknowledgement. */
@@ -79,8 +90,8 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
     // The environment's app, or any app created here (one per account or organization).
     const ownApps = kiln.githubApp.allCredentials();
     const envSecret = serverSecret(kiln, "GITHUB_WEBHOOK_SECRET");
-    const secrets = envSecret ? [envSecret] : ownApps.map((a) => a.webhookSecret);
-    if (secrets.length && !secrets.some((s) => verifyGitHub(s, body, c.req.header("x-hub-signature-256")))) throw new HttpError(401, "bad signature");
+    const secrets = requireSecret(kiln, envSecret ? [envSecret] : ownApps.map((a) => a.webhookSecret).filter(Boolean), "GITHUB_WEBHOOK_SECRET or connect a GitHub App");
+    if (secrets && !secrets.some((s) => verifyGitHub(s, body, c.req.header("x-hub-signature-256")))) throw new HttpError(401, "bad signature");
     const slugs = [serverSecret(kiln, "GITHUB_APP_SLUG"), ...ownApps.map((a) => a.slug)].filter((s): s is string => Boolean(s));
     const events = normalizeGitHubEvents(c.req.header("x-github-event") ?? "", payload, c.req.header("x-github-delivery"), slugs.length ? { selfLogins: [...slugs.flatMap((s) => [`${s}[bot]`, s]), "kiln-factory[bot]"] } : {});
     if (!events.length) return c.json({ ignored: true });
@@ -122,7 +133,7 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
   app.post("/webhooks/slack", async (c) => {
     const { body, payload } = await json(c);
     if (payload.type === "url_verification") return c.json({ challenge: payload.challenge });
-    const secret = credential(kiln, "slack", "signingSecret", "SLACK_SIGNING_SECRET");
+    const secret = requireSecret(kiln, credential(kiln, "slack", "signingSecret", "SLACK_SIGNING_SECRET"), "SLACK_SIGNING_SECRET");
     if (secret && !verifySlack(secret, body, c.req.header("x-slack-request-timestamp"), c.req.header("x-slack-signature"))) throw new HttpError(401, "bad signature");
     const events = normalizeSlackEvents(payload, { botUserId: installation(kiln, "slack").botUserId as string | undefined });
     const home = events.find((e) => e.event === "app_home_opened");
@@ -188,7 +199,12 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
     const body = await c.req.text();
     const publicKey = serverSecret(kiln, "DISCORD_PUBLIC_KEY") ?? (installation(kiln, "discord").publicKey as string | undefined);
     if (!publicKey || !verifyDiscord(publicKey, c.req.header("x-signature-ed25519"), c.req.header("x-signature-timestamp"), body, kiln.clock.now().getTime())) throw new HttpError(401, "invalid request signature");
-    const interaction = JSON.parse(body) as Record<string, any>;
+    let interaction: Record<string, any>;
+    try {
+      interaction = JSON.parse(body) as Record<string, any>;
+    } catch {
+      throw new HttpError(400, "body is not valid JSON");
+    }
     if (interaction.type === InteractionType.PING) return c.json({ type: InteractionResponse.PONG });
     const ev = normalizeDiscordInteraction(interaction);
     if (!ev) return c.json({ type: InteractionResponse.CHANNEL_MESSAGE, data: { content: "Kiln doesn't handle this interaction.", flags: 64 } });
@@ -244,7 +260,7 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
   // ---- Linear ----
   app.post("/webhooks/linear", async (c) => {
     const { body, payload } = await json(c);
-    const secret = serverSecret(kiln, "LINEAR_WEBHOOK_SECRET");
+    const secret = requireSecret(kiln, serverSecret(kiln, "LINEAR_WEBHOOK_SECRET"), "LINEAR_WEBHOOK_SECRET");
     if (secret && !verifyLinear(secret, body, c.req.header("linear-signature"))) throw new HttpError(401, "bad signature");
     const events = normalizeLinearEvents(payload, c.req.header("linear-delivery"), { appUserId: installation(kiln, "linear").appUserId as string | undefined });
     if (!events.length) return c.json({ ignored: true });
@@ -256,8 +272,8 @@ export function registerWebhookRoutes({ app, kiln }: RouteContext) {
 
   // ---- Jira Cloud ----
   app.post("/webhooks/jira", async (c) => {
-    const secret = serverSecret(kiln, "JIRA_WEBHOOK_TOKEN");
-    if (secret && c.req.query("token") !== secret) throw new HttpError(401, "bad token");
+    const secret = requireSecret(kiln, serverSecret(kiln, "JIRA_WEBHOOK_TOKEN"), "JIRA_WEBHOOK_TOKEN");
+    if (secret && !safeEqual(c.req.query("token") ?? "", secret)) throw new HttpError(401, "bad token");
     const { payload } = await json(c);
     const events = normalizeJiraEvents(payload, c.req.header("x-atlassian-webhook-identifier"), { botAccountId: serverSecret(kiln, "JIRA_BOT_ACCOUNT_ID") ?? (installation(kiln, "jira").botAccountId as string | undefined) });
     return c.json(events.length ? summarize(await kiln.automations.handle(events)) : { ignored: true });

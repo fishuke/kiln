@@ -258,6 +258,7 @@ describe("provider webhooks", () => {
     expect(kiln.automations.person("slack", "U9")).toBe("u9@acme.test");
 
     kiln.secrets.setSecret("JIRA_BOT_ACCOUNT_ID", "kiln-bot");
+    kiln.secrets.setSecret("JIRA_WEBHOOK_TOKEN", "jt");
     const jira = JSON.stringify({
       webhookEvent: "jira:issue_updated",
       issue: {
@@ -266,7 +267,8 @@ describe("provider webhooks", () => {
       },
       changelog: { items: [{ field: "assignee", to: "kiln-bot" }] },
     });
-    expect((await (await post("/webhooks/jira", jira, { "x-atlassian-webhook-identifier": "j1" })).json()).started).toHaveLength(1);
+    expect((await post("/webhooks/jira", jira, { "x-atlassian-webhook-identifier": "j1" })).status).toBe(401);
+    expect((await (await post("/webhooks/jira?token=jt", jira, { "x-atlassian-webhook-identifier": "j1" })).json()).started).toHaveLength(1);
 
     kiln.secrets.setSecret("LINEAR_WEBHOOK_SECRET", "lin");
     const lin = JSON.stringify({ type: "AgentSessionEvent", action: "created", agentSession: { id: "s1", issue: { id: "i1", title: "T", teamId: "t1" } } });
@@ -278,6 +280,34 @@ describe("provider webhooks", () => {
         ).json()
       ).started,
     ).toHaveLength(1);
+  });
+});
+
+describe("provider webhooks without a secret", () => {
+  const unsigned: [string, string][] = [
+    ["/webhooks/github", JSON.stringify({ zen: "ok" })],
+    ["/webhooks/slack", JSON.stringify({ type: "event_callback", event_id: "Ev9", event: { type: "app_mention", channel: "C1", ts: "1.1", user: "U1", text: "<@UBOT> @webapp fix" } })],
+    ["/webhooks/linear", JSON.stringify({ type: "AgentSessionEvent", action: "created", agentSession: { id: "s1", issue: { id: "i1", title: "T", teamId: "t1" } } })],
+    ["/webhooks/jira", JSON.stringify({ webhookEvent: "jira:issue_updated", issue: { key: "ENG-4", fields: { summary: "x", project: { key: "ENG" } } } })],
+  ];
+
+  it.each(unsigned)("%s refuses every call until its secret is set", async (path, body) => {
+    const { post, kiln } = setup();
+    const res = await post(path, body, { "x-github-event": "ping" });
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toMatch(/not configured/);
+    expect(kiln.automations.deliveries()).toHaveLength(0);
+  });
+
+  it.each(unsigned)("%s accepts unsigned calls when the server allows them (local development)", async (path, body) => {
+    const t = createTestKiln({ tree: sampleTree(automations), allowUnsignedWebhooks: true });
+    const res = await createApp(t.kiln).request(path, { method: "POST", body, headers: { "content-type": "application/json", "x-github-event": "ping" } });
+    expect(res.status).toBe(200);
+  });
+
+  it("still answers Slack URL verification before a secret is set", async () => {
+    const { post } = setup();
+    expect(await (await post("/webhooks/slack", JSON.stringify({ type: "url_verification", challenge: "c" }))).json()).toEqual({ challenge: "c" });
   });
 });
 

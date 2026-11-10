@@ -18,6 +18,8 @@ export type EventDelivery = {
   started: string[];
   continued: string[];
   duplicate: boolean;
+  /** Set when routing threw; the delivery is not marked seen, so the provider's retry is routed. */
+  error?: string;
 };
 
 export type HandleResult = {
@@ -129,7 +131,15 @@ export class AutomationService {
     }
     if (key) this.markSeen(key);
 
-    const result = await this.route(events, opts);
+    let result: Omit<HandleResult, "duplicate">;
+    try {
+      result = await this.route(events, opts);
+    } catch (err) {
+      // Forget the delivery so the provider's retry is routed instead of dropped as a duplicate.
+      if (key) this.k.store.delete(C.deliveriesSeen, key);
+      this.k.store.put(C.eventDeliveries, { ...record, error: err instanceof Error ? err.message : String(err) });
+      throw err;
+    }
     this.k.store.put(C.eventDeliveries, { ...record, started: result.started.map((w) => w.id), continued: result.continued });
     return { ...result, duplicate: false, deliveryRecord: record.id };
   }

@@ -3633,7 +3633,9 @@ Point each provider's webhooks at Kiln and set the matching secret. For the prov
 | Jira            | `POST /webhooks/jira?token=<token>`                        | `JIRA_WEBHOOK_TOKEN`                         |
 | Custom          | `POST /webhooks/w/<uid>` (or `/webhooks/<factory>/<name>`) | The webhook's secret                         |
 
-GitLab, Azure DevOps, Bitbucket, Teams and Discord refuse every call until their secret is set. For GitHub, Slack, Linear and Jira, Kiln accepts webhooks without checking signatures when the secret is not set. Set every secret before you expose Kiln to the internet.
+Every provider endpoint refuses calls until its secret is set (HTTP 401, "webhook secret not configured"), and refuses calls whose signature or token does not match. Slack's URL verification challenge is the one call answered without a secret. For local development without secrets, set `KILN_ALLOW_UNSIGNED_WEBHOOKS=1`; the server refuses to start with it when `NODE_ENV=production`.
+
+If Kiln fails while routing a delivery, it answers with an error and forgets the delivery ID, so the provider's retry is routed instead of being ignored as a duplicate. The delivery log records the error.
 
 OAuth providers redirect to `GET /oauth/<provider>/callback` on the public URL; register that URL in each OAuth app. Every provider's variables are listed on [Connections](../integrations/connections.md#environment-variables).
 
@@ -3654,6 +3656,7 @@ Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscrip
 | `KILN_ADMIN_EMAILS`                        | Comma-separated emails of server admins. They see every team's audit log, tokens and server secrets. Team owners and admins see only their own team.                                                                          |
 | `KILN_SMTP_URL`, `KILN_MAIL_FROM`          | Email notifications, for example `smtp://user:pass@mail.acme.test:587?from=kiln@acme.test`.                                                                                                                                   |
 | `KILN_DEV_AUTH=1`                          | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team.                                                                                                                          |
+| `KILN_ALLOW_UNSIGNED_WEBHOOKS=1`           | Local development only: provider webhooks without a configured secret are accepted unsigned. Refused when `NODE_ENV=production`.                                                                                              |
 
 ### Identities
 
@@ -4228,7 +4231,7 @@ This needs `KILN_PUBLIC_URL` (GitHub calls it) and `KILN_SECRET_KEY` (the key is
 | `GITHUB_APP_PRIVATE_KEY`                   | The app's private key, as PEM (`\n` escapes are fine) or base64.                                  |
 | `GITHUB_APP_INSTALLATION_ID`               | The installation on your organization. Kiln mints a short-lived installation token for each call. |
 | `GITHUB_APP_SLUG`                          | Lets Kiln link to the install page and recognize its own `<slug>[bot]` events.                    |
-| `GITHUB_WEBHOOK_SECRET`                    | The webhook secret.                                                                               |
+| `GITHUB_WEBHOOK_SECRET`                    | The webhook secret. Without it (or a GitHub App created in Kiln), Kiln refuses GitHub webhooks.   |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | The app's OAuth credentials, for people to link their GitHub accounts.                            |
 
 A plain `GITHUB_TOKEN` still works instead of an app. You can also connect GitHub from the API; see [Connections](connections.md).
@@ -4414,7 +4417,7 @@ Jira Cloud only.
 
 1. Create an OAuth 2.0 (3LO) app in the Atlassian developer console with the callback URL `<public URL>/oauth/jira/callback` and the scopes `read:jira-work`, `write:jira-work`, `read:jira-user`, `manage:jira-webhook` and `offline_access`. Set `JIRA_CLIENT_ID` and `JIRA_CLIENT_SECRET`.
 2. Connect Jira for the workspace. A Jira site admin approves the app. If that is someone else, send them an approval link: it expires in 7 days, and you can resend or revoke it. See [Connections](connections.md#approval-links).
-3. Add a Jira webhook pointing at `POST /webhooks/jira?token=<token>` for issue created, issue updated and comment created events, and store the token as `JIRA_WEBHOOK_TOKEN`. Once it is set, Kiln refuses calls that do not carry it. Kiln also ignores repeated `X-Atlassian-Webhook-Identifier` values.
+3. Add a Jira webhook pointing at `POST /webhooks/jira?token=<token>` for issue created, issue updated and comment created events, and store the token as `JIRA_WEBHOOK_TOKEN`. Kiln refuses calls that do not carry it, and refuses every call until it is set. Kiln also ignores repeated `X-Atlassian-Webhook-Identifier` values.
 4. Set `JIRA_BOT_ACCOUNT_ID` to the Atlassian account ID that represents the factory. Assigning it, or mentioning it, starts an agent session.
 5. Add `jira` to the factory's `integrations`, with its projects. A factory uses Linear or Jira, not both:
 
@@ -4491,7 +4494,7 @@ Linear can start work items, receives the factory's updates as comments on the i
 ## Set up
 
 1. Create an OAuth application in Linear (Settings → API) with the redirect URL `<public URL>/oauth/linear/callback` and set `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET`. Kiln asks for `actor=app`, so the factory appears in Linear as an app you can assign, mention and delegate to.
-2. Enable the app's webhook to `POST /webhooks/linear` for Issues, Comments and Agent session events, and store its signing secret as `LINEAR_WEBHOOK_SECRET`. Kiln checks the `Linear-Signature` header and ignores repeated `Linear-Delivery` IDs.
+2. Enable the app's webhook to `POST /webhooks/linear` for Issues, Comments and Agent session events, and store its signing secret as `LINEAR_WEBHOOK_SECRET`. Kiln checks the `Linear-Signature` header, refuses every call until the secret is set, and ignores repeated `Linear-Delivery` IDs.
 3. Connect Linear once for the workspace. See [Connections](connections.md). Instead of the OAuth flow you can set `LINEAR_ACCESS_TOKEN` to an app token.
 4. Add `linear` to the factory's `integrations`, with the teams it works in:
 
@@ -4765,7 +4768,7 @@ In Slack, you mention a factory's alias to start work, and the whole work item t
 1. Create a Slack app with a bot user and these bot scopes: `app_mentions:read`, `channels:history`, `channels:read`, `chat:write`, `chat:write.customize`, `groups:history`, `im:history`, `im:write`, `mpim:history`, `reactions:read`, `reactions:write`, `users:read`, `users:read.email`.
 2. Turn on Event Subscriptions with the request URL `POST /webhooks/slack`. Kiln answers Slack's URL verification challenge.
 3. Subscribe to the bot events `app_mention`, `message.channels`, `message.groups`, `message.im`, `message.mpim`, `member_joined_channel`, `reaction_added` and `app_home_opened`, and enable the Home tab.
-4. Store the app's signing secret in Kiln as `SLACK_SIGNING_SECRET`.
+4. Store the app's signing secret in Kiln as `SLACK_SIGNING_SECRET`. Until it is set, Kiln refuses Slack events.
 5. Install the app:
    - **Add to Slack.** Set `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`, add `<public URL>/oauth/slack/callback` as a redirect URL, and start the connection. If your workspace requires admin approval, an admin approves the request first. See [Connections](connections.md).
    - **Or a token.** Install the app yourself and set `SLACK_BOT_TOKEN`, or paste the token and signing secret when you connect.

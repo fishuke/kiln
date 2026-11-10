@@ -157,7 +157,9 @@ Point each provider's webhooks at Kiln and set the matching secret. For the prov
 | Jira            | `POST /webhooks/jira?token=<token>`                        | `JIRA_WEBHOOK_TOKEN`                         |
 | Custom          | `POST /webhooks/w/<uid>` (or `/webhooks/<factory>/<name>`) | The webhook's secret                         |
 
-GitLab, Azure DevOps, Bitbucket, Teams and Discord refuse every call until their secret is set. For GitHub, Slack, Linear and Jira, Kiln accepts webhooks without checking signatures when the secret is not set. Set every secret before you expose Kiln to the internet.
+Every provider endpoint refuses calls until its secret is set (HTTP 401, "webhook secret not configured"), and refuses calls whose signature or token does not match. Slack's URL verification challenge is the one call answered without a secret. For local development without secrets, set `KILN_ALLOW_UNSIGNED_WEBHOOKS=1`; the server refuses to start with it when `NODE_ENV=production`.
+
+If Kiln fails while routing a delivery, it answers with an error and forgets the delivery ID, so the provider's retry is routed instead of being ignored as a duplicate. The delivery log records the error.
 
 OAuth providers redirect to `GET /oauth/<provider>/callback` on the public URL; register that URL in each OAuth app. Every provider's variables are listed on [Connections](../integrations/connections.md#environment-variables).
 
@@ -178,6 +180,7 @@ Runs use your own model keys. Store `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscrip
 | `KILN_ADMIN_EMAILS`                        | Comma-separated emails of server admins. They see every team's audit log, tokens and server secrets. Team owners and admins see only their own team.                                                                          |
 | `KILN_SMTP_URL`, `KILN_MAIL_FROM`          | Email notifications, for example `smtp://user:pass@mail.acme.test:587?from=kiln@acme.test`.                                                                                                                                   |
 | `KILN_DEV_AUTH=1`                          | Local development only: requests without a token act as `dev@kiln.local`, owner of the default team.                                                                                                                          |
+| `KILN_ALLOW_UNSIGNED_WEBHOOKS=1`           | Local development only: provider webhooks without a configured secret are accepted unsigned. Refused when `NODE_ENV=production`.                                                                                              |
 
 ### Identities
 

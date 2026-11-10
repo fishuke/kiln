@@ -93,6 +93,20 @@ describe("automation routing", () => {
     expect(log[1]!.events.map((e) => e.event)).toEqual(["issue_commented", "issue_mentioned"]);
   });
 
+  it("lets the provider retry a delivery whose routing threw", async () => {
+    const { kiln } = createTestKiln({ tree: both });
+    const events = normalizeGitHubEvents("issue_comment", { action: "created", repository: { full_name: "acme/web" }, sender: { login: "alice" }, issue: { number: 5, title: "Q" }, comment: { body: "hi" } }, "gh-err");
+    const list = kiln.defs.list.bind(kiln.defs);
+    kiln.defs.list = () => {
+      throw new Error("store unavailable");
+    };
+    await expect(kiln.automations.handle(events)).rejects.toThrow("store unavailable");
+    kiln.defs.list = list;
+    const retry = await kiln.automations.handle(events);
+    expect(retry.duplicate).toBe(false);
+    expect(retry.started.filter((w) => w.source.automation === "comments")).toHaveLength(1);
+  });
+
   it("carries execution overrides to the work item", async () => {
     const tree = sampleTree({
       "runners/big.yaml": "image: node:22\nbackend: docker\n",

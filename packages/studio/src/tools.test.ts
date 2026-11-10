@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestKiln } from "@kiln/engine";
 import { FakeHarness } from "@kiln/harness";
-import { LocalSandboxProvider } from "@kiln/sandbox";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppDefinitions } from "./app-definitions";
 import { studioEngineHooks, studioRuns } from "./engine-port";
@@ -28,7 +28,7 @@ function make() {
     objects: kiln.objects,
     bus: kiln.bus,
     clock,
-    sandboxes: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-tools-"))),
+    sandboxes: new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-tools-"))),
     definitions: new AppDefinitions({ store: kiln.store, clock }),
     runs: studioRuns(kiln.runs),
     templates: { test: { id: "test", name: "Test", scaffold: ["echo hi > README.md"], install: [], dev: "sleep 60", egress: [] } },

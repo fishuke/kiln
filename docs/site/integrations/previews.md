@@ -68,7 +68,7 @@ Each preview gets its own origin, `<id>.<KILN_STUDIO_PREVIEW_DOMAIN>`, never Kil
 | --- | --- |
 | `KILN_STUDIO_PREVIEW_DOMAIN` | The preview domain, for example `preview.kiln.example.com`. Point a wildcard DNS record and a wildcard certificate for `*.<domain>` at the API. For local development, `preview.localhost:4000` gives `http://` URLs, because browsers send `*.localhost` to your own machine. |
 
-When the variable is unset, the preview URL is the sandbox's own address, such as `http://127.0.0.1:4101`. That works only with local sandboxes.
+When the variable is unset, the preview URL is the sandbox's own address, such as `http://127.0.0.1:4101`. That works only where your browser can reach the sandbox's address.
 
 A dev server that exits stays stopped, and the preview shows why with its last output lines. **Restart** (in the preview's toolbar, or under the error) starts it again. Dev servers read the App's environment variables when they start, so restart after you change them. Changing the dev command during an import restarts it for you.
 

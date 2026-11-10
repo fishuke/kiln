@@ -4,7 +4,7 @@ import { BUILTIN_DECISIONS, guardCommand, runDecision, type GuardVerdict } from 
 import type { DefinitionTree, ResolvedAgent, ResolvedFactory } from "@kiln/definitions";
 import type { HarnessSession } from "@kiln/harness";
 import { repoKey, type RepoRef } from "@kiln/integrations";
-import { hashDir, HOST_BLOCKED, settleVerdict, withGuard, type RegistryAuth, type Sandbox, type SandboxProvider, type SandboxRunner, type SnapshotRef } from "@kiln/sandbox";
+import { hashDir, settleVerdict, withGuard, type RegistryAuth, type Sandbox, type SandboxProvider, type SandboxRunner, type SnapshotRef } from "@kiln/sandbox";
 import type { HarnessType, Runner } from "@kiln/schema";
 import { classifyError, KilnError, retriesAutomatically, runStatusFor } from "./errors";
 import type { Kiln } from "./kiln";
@@ -75,7 +75,7 @@ export type ExecuteInput = {
   /** See Run.name and Run.reportToParent. */
   name?: string;
   reportToParent?: boolean;
-  backend?: "local" | "docker" | "kubernetes";
+  backend?: "docker" | "kubernetes";
   source?: RunSource;
   title?: string;
   creator?: string;
@@ -180,6 +180,10 @@ export function modeInstructions(mode: RunMode | undefined): string {
     ].join("\n");
   return "";
 }
+
+/** What a runner stored with `backend: local` gets when a run starts on it (new applies are rejected by validation). */
+export const LOCAL_BACKEND_REMOVED =
+  "This runner says `backend: local`, which Kiln no longer has: Kiln runs agents in Docker or Kubernetes sandboxes only (ADR-017). Set the runner's backend to docker or kubernetes and apply the definition again.";
 
 const DEFAULT_RUNNER = (backend: Runner["backend"]): SandboxRunner => ({ image: "node:22-bookworm", backend, setupCommands: [], egress: [] });
 
@@ -417,10 +421,19 @@ export class RunService {
     ).then((o) => (o.action === "easy" ? router.routing.easy : o.action === "hard" ? router.routing.hard : router.routing.medium) ?? router.default);
   }
 
-  private provider(backend: Runner["backend"] | undefined): SandboxProvider {
-    const p = this.k.sandboxes[backend ?? this.k.options.defaultBackend ?? "local"] ?? this.k.sandboxes.local;
-    if (!p) throw new Error(`no sandbox provider for ${backend}`);
-    return p;
+  /** The sandbox backend a run starts in. There is no host backend and no fall back to the host (ADR-017): a missing backend is an error. */
+  sandboxProvider(backend: Runner["backend"] | undefined): SandboxProvider {
+    const name = backend ?? this.k.options.defaultBackend ?? "docker";
+    if (name === "local") throw new KilnError("environment_setup_failed", LOCAL_BACKEND_REMOVED);
+    const p = this.k.sandboxes[name];
+    if (p) return p;
+    const has = Object.keys(this.k.sandboxes).join(", ") || "none";
+    throw new KilnError(
+      "environment_setup_failed",
+      name === "docker"
+        ? `Kiln needs Docker running to start a sandbox: this server has no docker sandbox backend (it has: ${has}). Start the API with KILN_SANDBOX=docker on a host with Docker, or set the runner's backend to one the server has.`
+        : `Kiln needs a reachable Kubernetes cluster to start a sandbox: this server has no kubernetes sandbox backend (it has: ${has}). Start the API with KILN_SANDBOX=kubernetes, or set the runner's backend to one the server has.`,
+    );
   }
 
   /** Start a run and resolve as soon as its record exists; the run continues in the background. */
@@ -484,10 +497,11 @@ export class RunService {
     const declared: Runner | undefined = runnerName ? resolved.runners[runnerName] : undefined;
     const teamSettings = team ? this.k.teams.settings(team) : undefined;
     const host = teamSettings?.defaultSandboxHost;
-    const teamBackend = host === "local" || host === "docker" || host === "kubernetes" ? host : undefined;
+    // A team setting saved as "local" before ADR-017 is ignored: the server's backend is used.
+    const teamBackend = host === "docker" || host === "kubernetes" ? host : undefined;
     // The image: the runner's own, else the team environment's, else the server's runner image (KILN_RUNNER_IMAGE).
     const image = declared?.image ?? environment?.image ?? this.k.options.defaultImage ?? DEFAULT_RUNNER_IMAGE;
-    const base: SandboxRunner = declared ? { ...declared, image } : { ...DEFAULT_RUNNER(teamBackend ?? this.k.options.defaultBackend ?? "local"), image };
+    const base: SandboxRunner = declared ? { ...declared, image } : { ...DEFAULT_RUNNER(teamBackend ?? this.k.options.defaultBackend ?? "docker"), image };
     const policy = agent.networkPolicy;
     // Environment setup commands run after the runner's own, in the workspace root (the runner's run in each repository); the team's egress allowlist and the agent's allowed hosts add to the runner's.
     // Kiln's own host is always allowed: the command guard and the Kiln MCP server live there.
@@ -715,38 +729,28 @@ export class RunService {
   }
 
   /**
-   * What a guard verdict does to a command of `run`: nobody is asked (ADR-016). `ask_human` runs in an
-   * isolated sandbox and is blocked on the host. Every verdict but a plain allow goes on the live run's events.
+   * What a guard verdict does to a command of `run`: nobody is asked (ADR-016). Every run is in an isolated
+   * sandbox (ADR-017), so `ask_human` runs and only `block` stops a command. Every verdict but a plain allow
+   * goes on the live run's events, so a reviewer sees which risky commands ran.
    */
-  settleGuard(run: Run, verdict: GuardVerdict, command: string, backend = this.backendOf(run)): { verdict: "allow" | "block"; reason?: string } {
-    const settled = settleVerdict(verdict, backend);
+  settleGuard(run: Run, verdict: GuardVerdict, command: string): { verdict: "allow" | "block" } {
     // The live record counts the run's events; a copy from the store would reuse an event's number.
     const live = this.live.get(run.id);
-    const note = (text: string) => live && this.record(live, "guard", `${text}: ${command}`);
-    if (verdict === "block") note("block");
-    if (verdict !== "ask_human") return { verdict: settled };
-    note(settled === "allow" ? `ask_human, allowed in the ${backend} sandbox` : `ask_human, blocked on the host (${backend ?? "unknown"})`);
-    return settled === "allow" ? { verdict: settled } : { verdict: settled, reason: HOST_BLOCKED };
-  }
-
-  /** Where the run's commands execute: its sandbox's backend, or its worker's. */
-  private backendOf(run: Run): string | undefined {
-    return this.sandboxes.get(run.id)?.provider ?? (run.workerId ? this.k.workers.get(run.workerId)?.backend : undefined);
+    if (live && verdict !== "allow") this.record(live, "guard", `${verdict === "block" ? "block" : "ask_human, allowed in the sandbox"}: ${command}`);
+    return { verdict: settleVerdict(verdict) };
   }
 
   private async runLocal(p: Prepared): Promise<Sandbox> {
     const { run, input, resolved, agent, harnessType, model, runner, repos, token, instructions, attachments } = p;
     const decisions = resolved.decisions["command-guard"] ?? BUILTIN_DECISIONS["command-guard"]!;
-    const provider = this.provider(input.backend ?? runner.backend);
-    // Setup commands target the runner's image; when Kiln falls back to the host they are skipped.
-    const effective: SandboxRunner = provider.name === runner.backend ? runner : { ...runner, setupCommands: [], workspaceSetupCommands: [] };
+    const provider = this.sandboxProvider(input.backend ?? runner.backend);
     // A cowboy App's owner accepted that its agent works unchecked (ADR-012): no guard, no approvals.
     const unguarded = p.app?.unguarded === true;
     let sandbox: Sandbox | undefined;
     const guard = async (command: string) => {
       const { verdict, outcome } = await guardCommand(command, { cwd: sandbox?.workdir, branch: input.branch }, this.k.decide, decisions);
       this.k.logDecision(outcome, { command }, { workItemId: input.workItem?.id, runId: run.id });
-      this.settleGuard(run, verdict, command, sandbox?.provider);
+      this.settleGuard(run, verdict, command);
       return verdict;
     };
     const provided = await this.k.options.workspaces?.acquire(run, run.parentRunId ? this.get(run.parentRunId) : undefined);
@@ -757,7 +761,7 @@ export class RunService {
     } else {
       sandbox = await provider.create({
         registryAuth: p.registryAuth,
-        runner: effective,
+        runner,
         repos: await Promise.all(repos.map(async (r) => ({ name: r.name, url: this.k.forge.cloneUrl(r, await this.cloneToken(run.id, r, token)) }))),
         env: { KILN_RUN_ID: run.id },
         labels: { "kiln.dev/run": run.id, "kiln.dev/factory": input.factory },
@@ -797,7 +801,7 @@ export class RunService {
       const bytes = await this.k.objects.get(a.key);
       if (bytes) await sandbox.writeBytes(`${cwd ? `${cwd}/` : ""}.kiln/attachments/${a.name}`, bytes);
     }
-    if (sandbox.provider === "local" && !provided) run.startState.workspaceSha = hashDir(sandbox.workdir);
+    if (sandbox.hostDir && !provided) run.startState.workspaceSha = hashDir(sandbox.hostDir);
     this.save(run);
     this.k.skills.recordUsage(input.factory, agent.skills);
 
@@ -1392,13 +1396,13 @@ export class RunService {
       await old.destroy().catch(() => {});
       this.sandboxes.delete(runId);
     }
-    const runner = this.specs.get(runId) ?? DEFAULT_RUNNER("local");
-    const sandbox = await (provider ?? this.provider(runner.backend)).resume(ref, { runner, repos: [] }, this.k.objects);
+    const runner = this.specs.get(runId) ?? DEFAULT_RUNNER(this.k.options.defaultBackend ?? "docker");
+    const sandbox = await (provider ?? this.sandboxProvider(runner.backend)).resume(ref, { runner, repos: [] }, this.k.objects);
     const agent = this.definitionOf({ ...(run.app ? { app: run.app } : {}), sha: run.definitionSha }).def.agents[run.agent]!;
     const cwd = run.startState.repos[0]?.name;
     run.status = "running";
     this.save(run);
-    this.record(run, "resumed", `on ${sandbox.provider} ${sandbox.id}`, { workspaceSha: sandbox.provider === "local" ? hashDir(sandbox.workdir) : undefined });
+    this.record(run, "resumed", `on ${sandbox.provider} ${sandbox.id}`, { workspaceSha: sandbox.hostDir ? hashDir(sandbox.hostDir) : undefined });
     const env: Record<string, string> = { KILN_RUN_ID: run.id, KILN_AGENT_TYPE: agent.agentType, KILN_RESUMED: "1" };
     let result: Awaited<HarnessSession["result"]>;
     try {

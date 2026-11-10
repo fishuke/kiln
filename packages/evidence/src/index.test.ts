@@ -1,4 +1,4 @@
-import { LocalSandboxProvider } from "@kiln/sandbox";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import { MemoryObjectStore } from "@kiln/store";
 import { describe, expect, it } from "vitest";
 import { collectPlaywrightEvidence, criteriaCovered, parseJUnit, previewCard } from "./index";
@@ -18,8 +18,8 @@ describe("test reports", () => {
 
 describe("playwright evidence", () => {
   it("uploads a video per acceptance criterion to object storage", async () => {
-    const sandbox = await new LocalSandboxProvider().create({
-      runner: { image: "node:22", backend: "local", setupCommands: [], egress: [] },
+    const sandbox = await new FakeSandboxProvider().create({
+      runner: { image: "node:22", backend: "docker", setupCommands: [], egress: [] },
       repos: [],
     });
     // A sample web app run: the reporter output and recorded videos, as Playwright writes them.

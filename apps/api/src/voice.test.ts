@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestKiln, FakeClock, type Kiln } from "@kiln/engine";
 import { FakeHarness } from "@kiln/harness";
-import { LocalSandboxProvider } from "@kiln/sandbox";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import { studioEngineHooks } from "@kiln/studio";
 import {
   AnthropicThinker,
@@ -32,7 +32,7 @@ function setup(script: ConductorCall[][] = [], thinker: Thinker & { inputs?: Thi
     clock,
     preview: false,
     harness: () => agent,
-    sandboxes: { local: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-api-voice-"))) },
+    sandboxes: { docker: new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-api-voice-"))) },
     ...studioEngineHooks(() => studioFor(t.kiln)),
   });
   configureStudio(t.kiln, {

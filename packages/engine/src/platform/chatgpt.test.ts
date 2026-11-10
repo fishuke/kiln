@@ -2,7 +2,8 @@ import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventStream, FakeHarness } from "@kiln/harness";
-import { LocalSandboxProvider, NodeCommandRunner, type CommandRunner, type Proc } from "@kiln/sandbox";
+import { NodeCommandRunner, type CommandRunner, type Proc } from "@kiln/sandbox";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import { describe, expect, it } from "vitest";
 import { createTestKiln } from "../testing";
 import { FakeClock } from "../types";
@@ -312,7 +313,7 @@ describe("Sign in with ChatGPT", () => {
   it("shows the device code, then stores the login once the person approves it", async () => {
     let approve!: () => void;
     const approved = new Promise<void>((r) => (approve = r));
-    const { kiln } = createTestKiln({ sandboxes: { local: new LocalSandboxProvider(join(tmpdir(), "kiln-sandboxes"), fakeCodexRunner(approved)) } });
+    const { kiln } = createTestKiln({ sandboxes: { docker: new FakeSandboxProvider(join(tmpdir(), "kiln-sandboxes"), fakeCodexRunner(approved)) } });
     const team = kiln.teams.ensureDefaultTeam();
     const started = await kiln.chatgptSignIn.start({ teamId: team.id, scope: "team", owner: team.id, name: "CHATGPT_TED", by: "ted@acme.test" });
     expect(started).toMatchObject({ status: "pending", verificationUrl: "https://auth.openai.com/codex/device", userCode: "WXYZ-98765" });
@@ -328,7 +329,7 @@ describe("Sign in with ChatGPT", () => {
 
   it("is only for whoever started it (or an admin), and can be cancelled while it waits", async () => {
     const { kiln } = createTestKiln({
-      sandboxes: { local: new LocalSandboxProvider(join(tmpdir(), "kiln-sandboxes"), fakeCodexRunner(new Promise(() => {}))) },
+      sandboxes: { docker: new FakeSandboxProvider(join(tmpdir(), "kiln-sandboxes"), fakeCodexRunner(new Promise(() => {}))) },
     });
     const team = kiln.teams.ensureDefaultTeam();
     const started = await kiln.chatgptSignIn.start({ teamId: team.id, scope: "team", owner: team.id, name: "CHATGPT_X", by: "a", userId: "usr_ted" });

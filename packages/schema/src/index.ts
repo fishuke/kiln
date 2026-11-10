@@ -510,7 +510,8 @@ const RunnerInput = z
     description: z.string().optional(),
     /** Container image. Optional when `platform.linux.dockerImage` names it. */
     image: z.string().min(1).optional(),
-    backend: z.enum(["docker", "kubernetes", "local"]).default("docker"),
+    /** `local` (the host) was removed by ADR-017. It still parses so stored definitions load; validation rejects it on apply. */
+    backend: z.enum(["docker", "kubernetes", "local"]).default("docker").describe("`local` is no longer supported and is rejected on apply: agents run in Docker or Kubernetes sandboxes only"),
     shape: Shape.optional(),
     /** v1alpha1 name for `shape`. */
     instanceShape: Shape.optional(),

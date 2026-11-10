@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Bot, Cloud, Container, Eye, EyeOff, KeyRound, Laptop, Pencil, Plug, Plus, Search, Server, X } from "lucide-react";
+import { Bot, Cloud, Container, Eye, EyeOff, KeyRound, Pencil, Plug, Plus, Search, Server, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { createMcpServers, createTeamSecret } from "@/app/f/[factory]/settings/actions";
 import { McpFields, useMcpFields, VariantChoice } from "@/components/kiln/mcp-fields";
@@ -130,7 +130,7 @@ export function ModelSelect({ value, onChange, harness, routers = [], inheritLab
   );
 }
 
-const HOST_ICON = { local: Laptop, docker: Container, kubernetes: Cloud, worker: Server } as const;
+const HOST_ICON = { docker: Container, kubernetes: Cloud, worker: Server } as const;
 
 export function HostSelect({ value, onChange, workers, defaultHost = "docker", inherit, disabled }: { value: string; onChange: (v: string) => void; workers: WorkerOption[]; defaultHost?: string; inherit?: boolean; disabled?: boolean }) {
   const hosts = hostOptions(workers);

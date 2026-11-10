@@ -56,7 +56,7 @@ export function startWorkerJob(job: WorkerJob, deps: JobDeps): JobHandle {
       }
       for (const [path, content] of Object.entries(job.files)) await sb.writeFile(path, content);
       for (const a of job.attachments) await sb.writeBytes(`${cwd ? `${cwd}/` : ""}.kiln/attachments/${a.name}`, Buffer.from(a.base64, "base64"));
-      if (sb.provider === "local") base.workspaceSha = hashDir(sb.workdir);
+      if (sb.hostDir) base.workspaceSha = hashDir(sb.hostDir);
       if (stopped) return { ...base, outcome: "cancelled", summary: "cancelled before the agent started" };
 
       session = await deps.harness(job.harness, job.agentType).start({

@@ -65,12 +65,11 @@ export function modelsFor(harness: string, routers: string[] = [], current?: str
   return list;
 }
 
-export type HostOption = { id: string; label: string; kind: "local" | "docker" | "kubernetes" | "worker" };
+export type HostOption = { id: string; label: string; kind: "docker" | "kubernetes" | "worker" };
 
 export const BUILTIN_HOSTS: HostOption[] = [
   { id: "docker", label: "Docker", kind: "docker" },
   { id: "kubernetes", label: "Kubernetes", kind: "kubernetes" },
-  { id: "local", label: "Local", kind: "local" },
 ];
 
 export function hostOptions(workers: { id: string; name?: string }[]): HostOption[] {

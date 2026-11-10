@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createTestKiln } from "@kiln/engine";
 import { FakeHarness } from "@kiln/harness";
 import { FakeForge, type Forge } from "@kiln/integrations";
-import { LocalSandboxProvider } from "@kiln/sandbox";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import { Studio } from "../studio";
 import type { App } from "../types";
 import { FakeStudioMergeGate } from "./merge-gate";
@@ -48,7 +48,7 @@ export async function shipFixture(opts: ShipFixtureOptions = {}) {
     objects: kiln.objects,
     bus,
     clock,
-    sandboxes: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-ship-"))),
+    sandboxes: new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-ship-"))),
     definitions: new AppDefinitions({ store, clock }),
     runs: studioRuns(kiln.runs),
     image: "kiln-runner-studio:test",

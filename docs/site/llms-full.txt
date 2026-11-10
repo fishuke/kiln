@@ -625,10 +625,10 @@ The verdict:
 | Action | Result |
 | --- | --- |
 | `allow` (no entry matched) | The command runs. |
-| `ask_human` | Nobody is asked. In an isolated sandbox (`docker`, `kubernetes`) the command runs. On the host (the `local` backend, also when Kiln falls back to it, and a `direct` worker) the command is blocked, and the agent is told it runs on the host outside a sandbox and to find another way inside its workspace. |
+| `ask_human` | The "risky, logged" tier. Nobody is asked and the command runs: every run is in an isolated sandbox (ADR-017), and the sandbox, its egress rules and the run token's limits are the protection. The run records it as a `guard` event. |
 | `block` | The command does not run. The agent sees "Blocked by the Kiln guardrail". |
 
-The guard never opens an inbox question: people cannot judge a raw shell command (ADR-016). The run's events show every command the guard blocked and every `ask_human` command it let through in a sandbox, so a reviewer can check them afterwards.
+The guard never opens an inbox question: people cannot judge a raw shell command (ADR-016). The run's events show every command the guard blocked and every `ask_human` command it let through, so a reviewer can check them afterwards. To stop a command, put it under `block` in your factory's `command-guard` policy; `ask_human` only records it.
 
 If the Claude Code hook cannot reach Kiln, it blocks the command.
 
@@ -1161,7 +1161,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | --- | --- | --- | --- |
 | `description` | string |  |  |
 | `image` | string |  |  |
-| `backend` | `docker` \| `kubernetes` \| `local` |  | default `"docker"` |
+| `backend` | `docker` \| `kubernetes` \| `local` |  | default `"docker"`, `local` is no longer supported and is rejected on apply: agents run in Docker or Kubernetes sandboxes only |
 | `shape` | object |  |  |
 | `shape.vcpus` | integer | yes | max 9007199254740991 |
 | `shape.memoryGb` | number | yes |  |
@@ -2327,7 +2327,7 @@ Factory (needs KILN_URL and KILN_TOKEN)
   kiln token create --name <n> --subject <email> --grants read:*,send:webapp
 
 Self-hosted worker (connects out to KILN_URL with a token that has the worker scope)
-  kiln worker --worker-id <id> [--api-key <key>] [--backend docker|kubernetes|direct]
+  kiln worker --worker-id <id> [--api-key <key>] [--backend docker|kubernetes]
               [--max-concurrent-tasks N] [--one-shot] [--idle-on-complete 45m]
               [-v HOST:CONTAINER[:ro]]… [-e KEY[=VALUE]]… [--config-file worker.yaml]
               [--no-cleanup] [--metrics-port 9464] [--log-level info]
@@ -3211,7 +3211,7 @@ Each steering message is kept on the run record, counted as a human touch on the
 
 Source: https://github.com/fishuke/kiln/blob/main/docs/site/infrastructure/sandboxes.md
 
-Every agent run gets a fresh sandbox built from its runner file, and Kiln destroys the sandbox when the run ends.
+Every agent run gets a fresh sandbox built from its runner file, and Kiln destroys the sandbox when the run ends. A sandbox is always isolated: a Docker container or a Kubernetes pod. Kiln never runs an agent on the host (ADR-017).
 
 ## Runner files
 
@@ -3231,20 +3231,29 @@ egress:
 | Key                                           | Default             | Notes                                                                                                                                                                                                                                                   |
 | --------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `image`                                       | Kiln's runner image | The container image. Docker pulls it if it is not cached. Without one, runs use the server's runner image (`KILN_RUNNER_IMAGE`), which has the agent CLIs. An image you name must have the harness CLI (`claude`, `codex` or `opencode`) on its `PATH`. |
-| `backend`                                     | `docker`            | `docker`, `kubernetes` or `local`.                                                                                                                                                                                                                      |
+| `backend`                                     | `docker`            | `docker` or `kubernetes`. The server must have that backend.                                                                                                                                                                                      |
 | `shape`                                       | none                | `vcpus` and `memoryGb`. Sets CPU and memory limits.                                                                                                                                                                                                     |
 | `setupCommands`                               | `[]`                | Run in order after the repositories are cloned, inside each repository (so `pnpm install` finds its `package.json` and the `packageManager` pin). A failing command fails the run. Kiln's runner image has a corepack that runs pnpm 11 and later.      |
 | `egress`                                      | `[]`                | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed.                                                                                                  |
 | `platform.linux.registryCredentialSecretName` | none                | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images).                                                                                                      |
 | `description`                                 | none                |                                                                                                                                                                                                                                                         |
 
-An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses the server's runner image on the server's default backend, which is `local` unless the server sets another. A run's image is the runner's own, else its [environment](../management/secrets-mcps-environments.md)'s, else `KILN_RUNNER_IMAGE`, else `node:22-bookworm`.
+An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses the server's runner image on the server's backend: `docker`, or `kubernetes` when the API runs with `KILN_SANDBOX=kubernetes`. A run's image is the runner's own, else its [environment](../management/secrets-mcps-environments.md)'s, else `KILN_RUNNER_IMAGE`, else `node:22-bookworm`.
 
 ## Backends
 
-### Local
+| Server setting | Backend | Needs |
+| --- | --- | --- |
+| `KILN_SANDBOX` unset or `docker` | Docker | Docker running on the API's host, or its socket mounted into the API container. |
+| `KILN_SANDBOX=kubernetes` | Kubernetes | A cluster the API can reach, with a `gvisor` RuntimeClass. |
 
-The workspace is a temporary directory on the Kiln host. It runs setup commands and the command guard, but it cannot enforce egress, CPU or memory limits. Use it for development and tests only.
+There is no host backend. `KILN_SANDBOX=local` stops the server at start, a runner file with `backend: local` is rejected when you apply it, and `kiln worker` has no `direct` backend.
+
+When the backend is not available, the run fails and says what is missing, for example `Kiln needs Docker running to start a sandbox: Cannot connect to the Docker daemon ...`. Kiln does not fall back to the host, and it does not move a run to another backend: a runner with `backend: kubernetes` on a Docker-only server fails with a message that names the backends the server has.
+
+A definition applied before this rule may still hold a runner with `backend: local`. It still loads, and its runs and work items still list. A new run on that runner fails with a message that says to set `backend: docker` or `kubernetes` and apply again.
+
+In local mode (no forge connected, as with `pnpm dev`), the repositories are directories on the Kiln host. The Docker backend mounts each one into the sandbox at the same path so the agent can clone it and push back. This needs the API to run on the Docker host itself.
 
 ### Docker
 
@@ -3294,7 +3303,7 @@ Commands the agent runs through the sandbox's command API pass the [command guar
 
 A sandbox is removed when its run ends, and also when cloning or setup fails. Sandboxes a restart cut off (a deploy or a crash during a run) are removed when the server starts, and a sweep every 10 minutes removes any that a failed clean-up left behind.
 
-The sweep only removes sandboxes the server itself made: Docker containers labeled `kiln.sandbox=1` with `kiln.owner=kiln` (or no owner, for containers from older versions), and work directories under the local backend's root. A `kiln worker` labels its containers `kiln.owner=worker:<worker id>`, so the server leaves them alone on a shared host. A paused run resumes from its snapshot in object storage, so removing its container after a restart loses nothing.
+The sweep only removes sandboxes the server itself made: Docker containers labeled `kiln.sandbox=1` with `kiln.owner=kiln` (or no owner, for containers from older versions). A `kiln worker` labels its containers `kiln.owner=worker:<worker id>`, so the server leaves them alone on a shared host. A paused run resumes from its snapshot in object storage, so removing its container after a restart loses nothing.
 
 On a Docker host, images and build cache from earlier deploys also take space. Prune them from time to time:
 
@@ -3364,7 +3373,7 @@ A self-hosted worker runs agent runs on a machine you choose (a build server, a 
 
 1. An agent (or automation, or `agentDefaults`) sets `workerHost: <id>`.
 2. When that agent runs, the Kiln server prepares the run (prompt, instructions, skills, scoped run token) and queues it for the worker id. The run's state is `QUEUED`.
-3. A `kiln worker --worker-id <id>` process long-polls the API, claims the run (`CLAIMED`), creates its sandbox (Docker, Kubernetes or a host directory), clones the repositories with the run token, starts the harness and streams events back (`INPROGRESS`).
+3. A `kiln worker --worker-id <id>` process long-polls the API, claims the run (`CLAIMED`), creates its sandbox (Docker or Kubernetes; never a host directory), clones the repositories with the run token, starts the harness and streams events back (`INPROGRESS`).
 4. At the end it reports the result, uploads artifacts from `.kiln/artifacts/` and pushes the `kiln/*` branch with the run token. The server records everything as for any other run.
 
 Several processes can share one worker id; each run goes to the process with the most free capacity. Runs wait in the queue while no worker of that id is connected and fail with `infrastructure_timeout` after 30 minutes. A worker that stops sending heartbeats is dropped and its runs are retried.
@@ -3382,9 +3391,9 @@ KILN_URL=https://kiln.example.com KILN_WORKER_KEY=kiln_tok_… \
 | --- | --- | --- |
 | `--worker-id` | (required) | The id agents name in `workerHost`. Letters, digits, `.`, `_`, `-`; ids starting with `kiln` are reserved. |
 | `--api-key` | `KILN_WORKER_KEY`, else `KILN_TOKEN` | The worker key. |
-| `--backend` | `docker` | `docker` (a container per run), `kubernetes` (a pod per run) or `direct` (a directory on the host). |
+| `--backend` | `docker` | `docker` (a container per run) or `kubernetes` (a pod per run). A worker never runs an agent directly on its host. |
 | `--max-concurrent-tasks` | `0` (unlimited) | Runs at once. |
-| `--one-shot` | off | Take one run, then exit (direct backend only). For CI jobs and ephemeral VMs. |
+| `--one-shot` | off | Take one run, then exit. For CI jobs and ephemeral VMs. |
 | `--idle-on-complete` | `45m` | How long a one-shot worker stays up after its run. |
 | `-v`, `--volumes` | | `HOST:CONTAINER[:ro|rw]` mounts for Docker sandboxes. Repeatable. |
 | `-e`, `--env` | | `KEY=VALUE` (or `KEY` to pass the worker's own value) added to every run. Repeatable. |
@@ -3410,7 +3419,7 @@ backend:
       - { name: CI, value: "true" }
 ```
 
-The `kubernetes` backend takes `namespace`; the `direct` backend takes `workspace_root`.
+The `kubernetes` backend takes `namespace`.
 
 ## Route agents to a worker
 
@@ -3463,7 +3472,7 @@ Kiln runs on your own infrastructure: a single host with Docker for small instal
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Node 22.13+ and pnpm 10                            | Kiln's services are TypeScript on Node.                                                                                                                                                                |
 | A data directory (a volume)                        | Runtime state (work items, runs, gates, scores, tokens, audit log) in the SQLite file `kiln.db`, and objects (videos, reports, snapshots) under `objects/`. See [Data and backups](#data-and-backups). |
-| Docker, or Kubernetes with a `gvisor` RuntimeClass | Sandboxes for agent runs. Without either, runs use host directories (development only).                                                                                                                |
+| Docker, or Kubernetes with a `gvisor` RuntimeClass | Sandboxes for agent runs. Required: Kiln never runs an agent on the host.                                                                                                                                |
 | An egress proxy                                    | Enforces each runner's `egress` host list. Included in `docker-compose.yml` and the Helm chart. See [Sandboxes](sandboxes.md#egress).                                                                  |
 | Optional: an OpenAI-compatible gateway (LiteLLM)   | The LLM fallback for typed decisions and judges.                                                                                                                                                       |
 
@@ -3480,6 +3489,15 @@ pnpm dev            # API on :4000 with demo data, web app on :3000
 ```
 
 Open http://localhost:3000. Demo factories run on a git-backed local forge with scripted agents, so nothing needs an account.
+
+Docker must be running: every run, the scripted demo agents included, starts in a Docker sandbox (`KILN_SANDBOX` defaults to `docker`). Without Docker the web app still opens, and a run fails with `Kiln needs Docker running to start a sandbox`. The default sandbox image is `node:22-bookworm`, which has git but no agent CLIs. For real agents (`KILN_AGENTS=real`), build the runner image and point the API at it:
+
+```bash
+docker build -t kiln-runner-node runners/images/node
+KILN_RUNNER_IMAGE=kiln-runner-node KILN_AGENTS=real pnpm dev
+```
+
+A sandbox gets only what Kiln passes to it: the run's secrets and model credentials, not the environment, files or logins of the machine the API runs on.
 
 ### One machine with Docker Compose
 
@@ -4667,7 +4685,7 @@ Each preview gets its own origin, `<id>.<KILN_STUDIO_PREVIEW_DOMAIN>`, never Kil
 | --- | --- |
 | `KILN_STUDIO_PREVIEW_DOMAIN` | The preview domain, for example `preview.kiln.example.com`. Point a wildcard DNS record and a wildcard certificate for `*.<domain>` at the API. For local development, `preview.localhost:4000` gives `http://` URLs, because browsers send `*.localhost` to your own machine. |
 
-When the variable is unset, the preview URL is the sandbox's own address, such as `http://127.0.0.1:4101`. That works only with local sandboxes.
+When the variable is unset, the preview URL is the sandbox's own address, such as `http://127.0.0.1:4101`. That works only where your browser can reach the sandbox's address.
 
 A dev server that exits stays stopped, and the preview shows why with its last output lines. **Restart** (in the preview's toolbar, or under the error) starts it again. Dev servers read the App's environment variables when they start, so restart after you change them. Changing the dev command during an import restarts it for you.
 
@@ -5027,7 +5045,7 @@ Only question gates take free-text answers. To decide through the inbox, the API
 
 Gates with a `nudge` time post a reminder in the source thread at that interval, naming who the gate waits on. Gates with an `expire` time park, approve or reject on their own when it passes. The built-in spec and preview gates nudge every 24 hours and park after 72 hours. The merge gate nudges every 48 hours.
 
-The [command guard](../configuration/decisions.md#command-guard) never opens an inbox item: a risky command runs inside an isolated sandbox and is blocked on the host, without waiting for a person.
+The [command guard](../configuration/decisions.md#command-guard) never opens an inbox item: a risky command runs inside the run's sandbox and is recorded on the run, without waiting for a person.
 
 ## From the command line and MCP
 
@@ -5380,7 +5398,7 @@ Owners and admins invite people by email with a role (`POST /api/v1/teams/<team>
 | `spendLimit.monthlyUsd`                                           | `200`             | The monthly spend limit. See [Usage and spend limits](usage-and-spend-limits.md).                                           |
 | `spendLimit.autoStop`                                             | `false`           | Refuse new runs once the limit is reached. When off, the limit is a soft warning.                                           |
 | `githubOrgs`                                                      | `[]`              | Enabled GitHub orgs. When the list is not empty, the team's factories may only use GitHub repositories owned by these orgs. |
-| `defaultSandboxHost`                                              | not set           | `local`, `docker` or `kubernetes`. Used for runs whose agent names no runner.                                               |
+| `defaultSandboxHost`                                              | not set           | `docker` or `kubernetes`. Used for runs whose agent names no runner.                                                        |
 | `egressAllowlist`                                                 | `[]`              | Hosts added to every run's egress allowlist.                                                                                |
 | `storage.artifacts`, `storage.transcripts`, `storage.attachments` | `{ kind: local }` | Where each kind of data goes. See [Data storage](#data-storage).                                                            |
 | `defaultFactoryRole`                                              | `user`            | The factory role every member has on the team's factories: `none`, `user` or `editor`.                                      |
@@ -5722,7 +5740,7 @@ Every run records:
 - the prompt and the full instructions the agent received,
 - the skills it received,
 - for each repository, the branch and the exact commit it started at,
-- for local sandboxes, a hash of the starting workspace.
+- in tests (the in-process test sandbox), a hash of the starting workspace.
 
 This is the run's start state.
 
@@ -5993,7 +6011,7 @@ This glossary defines each Kiln term in one or two sentences and links to the pa
 | **Start state** | What a run started from: prompt, instructions, skills and the exact commit of each repository. Replays start from it. |
 | **Result file** | `.kiln/result.json`, which the agent writes at the end of a run to report structured results. See [Harnesses](../infrastructure/harnesses.md#the-result-file). |
 | **Run token** | A short-lived token for one run. It can push only `kiln/*` branches of the factory's repositories, open pull requests, comment and label. It can never approve or merge. |
-| **Command guard** | The check that rates shell commands before they run and allows or blocks them. It never asks a person: a risky command runs in an isolated sandbox and is blocked on the host. |
+| **Command guard** | The check that rates shell commands before they run and allows or blocks them. It never asks a person: a risky command runs in the run's isolated sandbox and is recorded. |
 | **Steering** | A message sent to a running agent that it reads before its next step. |
 | **Scope** | A permission on an API or MCP token, granted per factory. See [Admin, RBAC and audit](../management/admin-rbac-audit.md). |
 

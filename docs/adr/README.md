@@ -16,3 +16,4 @@
 - [0014](./0014-merge-gate.md) A merge gate decides which pull requests need a person (proposed)
 - [0015](./0015-sqlite-store.md) SQLite for runtime state (supersedes the FileStore part of 0005)
 - [0016](./0016-guard-never-asks.md) The command guard never asks a person (proposed)
+- [0017](./0017-sandboxes-only.md) Agents run in sandboxes only: no host backend (proposed; supersedes the host/sandbox split of 0016)

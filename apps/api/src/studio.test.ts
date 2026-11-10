@@ -7,7 +7,7 @@ import { createMcpHandler } from "@kiln/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { FakeHarness } from "@kiln/harness";
-import { LocalSandboxProvider } from "@kiln/sandbox";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import {
   KilnClient,
   type StudioApp,
@@ -41,7 +41,7 @@ function setup() {
   const t: ReturnType<typeof createTestKiln> = createTestKiln({
     preview: false,
     harness: () => agent,
-    sandboxes: { local: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-api-studio-"))) },
+    sandboxes: { docker: new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-api-studio-"))) },
     ...studioEngineHooks(() => studioFor(t.kiln)),
   });
   configureStudio(t.kiln, {
@@ -222,7 +222,7 @@ describe("Studio API", () => {
     await reader.cancel();
   });
 
-  it("never asks about a risky command: on the host backend the turn goes on without it and no gate opens", async () => {
+  it("never asks about a risky command: it runs in the sandbox and no gate opens", async () => {
     const { client, kiln } = setup();
     const created = await client.studioCreateApp({ name: "Guarded", source: { kind: "template", template: "test" } });
     await studioFor(kiln)!.ready(created.id);
@@ -233,7 +233,7 @@ describe("Studio API", () => {
     await studioFor(kiln)!.idle(chat.id);
     const turn = (await client.studioChat(chat.id)).turns.at(-1)!;
     expect(turn.approval).toBeUndefined();
-    expect(turn.reply).not.toBe("ran");
+    expect(turn.reply).toBe("ran");
     expect(kiln.gates.list().filter((g) => g.command)).toEqual([]);
     expect((await client.studioStatus()).apps[0]!.needsYou).toEqual([]);
   });

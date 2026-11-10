@@ -59,6 +59,8 @@ export interface Sandbox {
   readonly provider: string;
   /** Path of the workspace inside the sandbox; each repo is cloned into <workdir>/<repo name>. */
   readonly workdir: string;
+  /** The workspace as a directory on this machine. Only the test Fake has one; a real sandbox's files are inside it. */
+  readonly hostDir?: string;
   readonly startedInMs: number;
   /** Shell command. Agent commands pass the guardrail; `trusted` marks Kiln's own commands (push, setup). */
   exec(command: string, opts?: { cwd?: string; env?: Record<string, string>; trusted?: boolean }): Promise<ExecResult>;
@@ -106,20 +108,37 @@ export class CommandBlocked extends Error {
     readonly command: string,
     readonly verdict: GuardVerdict,
   ) {
-    super(verdict === "block" ? `blocked by guardrail: ${command}` : `${HOST_BLOCKED}: ${command}`);
+    super(`blocked by guardrail: ${command}`);
   }
 }
 
-/** What an agent is told when a risky command is blocked because nothing isolates it from the host. */
-export const HOST_BLOCKED = "blocked because it runs on the host, outside a sandbox; find another way inside your workspace";
-
 /**
- * What a guard verdict does on `backend`; nobody is asked (ADR-016). In an isolated sandbox
- * (docker, kubernetes) `ask_human` runs; on the host (local, a direct worker, unknown) it is blocked.
+ * What a guard verdict does; nobody is asked (ADR-016). Every run is in an isolated sandbox
+ * (ADR-017), so `ask_human` runs like `allow`, and only `block` stops a command.
  */
-export function settleVerdict(verdict: GuardVerdict, backend: string | undefined): "allow" | "block" {
-  if (verdict !== "ask_human") return verdict;
-  return backend === "docker" || backend === "kubernetes" ? "allow" : "block";
+export function settleVerdict(verdict: GuardVerdict): "allow" | "block" {
+  return verdict === "block" ? "block" : "allow";
+}
+
+/** No sandbox can start because its backend (the Docker daemon, the cluster) is not reachable. Kiln never runs the agent on the host instead (ADR-017). */
+export class SandboxUnavailable extends Error {
+  constructor(
+    readonly backend: "docker" | "kubernetes",
+    detail: string,
+  ) {
+    const d = detail.trim().split("\n").at(-1) ?? "";
+    super(
+      backend === "docker"
+        ? `Kiln needs Docker running to start a sandbox: ${d || "the docker command did not answer"}. Start Docker on this machine (or point DOCKER_HOST at a running daemon) and try again.`
+        : `Kiln needs a reachable Kubernetes cluster to start a sandbox: ${d || "kubectl did not answer"}. Check the cluster and the API's access to it, then try again.`,
+    );
+    this.name = "SandboxUnavailable";
+  }
+}
+
+/** True when a `docker` command failed because there is no daemon to talk to (not running, not installed, no access to its socket). */
+export function dockerIsDown(r: ExecResult): boolean {
+  return r.code !== 0 && /cannot connect to the docker daemon|is the docker daemon running|error during connect|spawn docker ENOENT|docker: (command )?not found|permission denied while trying to connect/i.test(r.stderr);
 }
 
 /**
@@ -130,16 +149,16 @@ export function settleVerdict(verdict: GuardVerdict, backend: string | undefined
 export function withGuard(sandbox: Sandbox, guard: NonNullable<SandboxSpec["guard"]>): Sandbox {
   return Object.assign(Object.create(sandbox) as Sandbox, {
     async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
-      if (!opts.trusted) await guarded({ guard }, sandbox.provider, command);
+      if (!opts.trusted) await guarded({ guard }, command);
       return sandbox.exec(command, { ...opts, trusted: true });
     },
   });
 }
 
-async function guarded(spec: Pick<SandboxSpec, "guard">, backend: string, command: string): Promise<void> {
+export async function guarded(spec: Pick<SandboxSpec, "guard">, command: string): Promise<void> {
   if (!spec.guard) return;
   const verdict = await spec.guard(command);
-  if (settleVerdict(verdict, backend) === "block") throw new CommandBlocked(command, verdict);
+  if (settleVerdict(verdict) === "block") throw new CommandBlocked(command, verdict);
 }
 
 /** The sandbox has no address the API can reach, e.g. a Docker container started with `--network none`. */
@@ -165,7 +184,7 @@ export class SandboxNotReachable extends Error {
   }
 }
 
-function checkPort(port: number) {
+export function checkPort(port: number) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new RangeError(`port must be an integer from 1 to 65535, got ${port}`);
 }
 
@@ -191,17 +210,13 @@ export function hashDir(root: string): string {
   return hash.digest("hex");
 }
 
-const newId = () => `sbx_${randomBytes(5).toString("hex")}`;
+export const newSandboxId = () => `sbx_${randomBytes(5).toString("hex")}`;
 
-/**
- * Runs the workspace in a host directory. Used for development and for tests; it applies the
- * guardrail and setup commands but cannot enforce egress or resource limits.
- */
 /**
  * Runs the runner's setup commands in each cloned repository (where its package.json and
  * packageManager pin are), or in the workspace when there is none; then the workspace-wide ones.
  */
-async function runSetup(sandbox: Sandbox, spec: SandboxSpec) {
+export async function runSetup(sandbox: Sandbox, spec: SandboxSpec) {
   const run = async (cmd: string, cwd?: string) => {
     const r = await sandbox.exec(cmd, { trusted: true, ...(cwd ? { cwd } : {}) });
     if (r.code !== 0) throw new Error(`setup command failed${cwd ? ` in ${cwd}` : ""}: ${cmd}\n${r.stderr}`);
@@ -209,171 +224,6 @@ async function runSetup(sandbox: Sandbox, spec: SandboxSpec) {
   const dirs = spec.repos.length ? spec.repos.map((r) => r.name) : [undefined];
   for (const cwd of dirs) for (const cmd of spec.runner.setupCommands) await run(cmd, cwd);
   for (const cmd of spec.runner.workspaceSetupCommands ?? []) await run(cmd);
-}
-
-export class LocalSandboxProvider implements SandboxProvider {
-  readonly name = "local";
-  private readonly live = new Set<string>();
-
-  constructor(
-    private readonly root = join(tmpdir(), "kiln-sandboxes"),
-    private readonly runner: CommandRunner = new NodeCommandRunner(),
-  ) {
-    mkdirSync(root, { recursive: true });
-  }
-
-  async create(spec: SandboxSpec): Promise<Sandbox> {
-    const started = Date.now();
-    const id = newId();
-    const workdir = mkdtempSync(join(this.root, `${id}-`));
-    const sandbox = this.track(new LocalSandbox(id, workdir, spec, this.runner, started));
-    try {
-      for (const repo of spec.repos) {
-        const args = ["clone", "--quiet", repo.url, repo.name];
-        const r = await this.runner.run("git", args, { cwd: workdir });
-        if (r.code !== 0) throw new Error(`git clone ${repo.url} failed: ${r.stderr}`);
-        if (repo.branch) await this.runner.run("git", ["checkout", "-q", "-B", repo.branch], { cwd: join(workdir, repo.name) });
-      }
-      await runSetup(sandbox, spec);
-    } catch (err) {
-      await sandbox.destroy();
-      throw err;
-    }
-    sandbox.startedInMs = Date.now() - started;
-    return sandbox;
-  }
-
-  private track(sandbox: LocalSandbox): LocalSandbox {
-    const dir = basename(sandbox.workdir);
-    this.live.add(dir);
-    sandbox.onDestroy = () => this.live.delete(dir);
-    return sandbox;
-  }
-
-  async sweep(): Promise<string[]> {
-    const stale = readdirSync(this.root, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && !this.live.has(d.name))
-      .map((d) => d.name);
-    for (const d of stale) rmSync(join(this.root, d), { recursive: true, force: true });
-    return stale;
-  }
-
-  async list(): Promise<SandboxListing[]> {
-    return readdirSync(this.root, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => {
-        const live = this.live.has(d.name);
-        return {
-          name: d.name,
-          provider: this.name,
-          state: live ? "running" : "left behind",
-          live,
-          createdAt: statSync(join(this.root, d.name)).birthtime.toISOString(),
-        };
-      });
-  }
-
-  async resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox> {
-    const started = Date.now();
-    const body = await store.get(ref.key);
-    if (!body) throw new Error(`snapshot ${ref.key} not found`);
-    const id = newId();
-    const workdir = mkdtempSync(join(this.root, `${id}-`));
-    const archive = join(workdir, "..", `${id}.tgz`);
-    writeFileSync(archive, body);
-    const r = await this.runner.run("tar", ["-xzf", archive, "-C", workdir]);
-    rmSync(archive, { force: true });
-    if (r.code !== 0) {
-      rmSync(workdir, { recursive: true, force: true });
-      throw new Error(`restoring snapshot failed: ${r.stderr}`);
-    }
-    const sandbox = this.track(new LocalSandbox(id, workdir, spec, this.runner, started));
-    sandbox.startedInMs = Date.now() - started;
-    return sandbox;
-  }
-}
-
-class LocalSandbox implements Sandbox {
-  readonly provider = "local";
-  onDestroy?: () => void;
-  startedInMs = 0;
-
-  constructor(
-    readonly id: string,
-    readonly workdir: string,
-    private readonly spec: SandboxSpec,
-    private readonly runner: CommandRunner,
-    readonly createdAt: number,
-  ) {}
-
-  private resolvePath(path: string) {
-    return path.startsWith("/") ? path : join(this.workdir, path);
-  }
-
-  async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
-    if (!opts.trusted) await guarded(this.spec, this.provider, command);
-    return this.runner.run("sh", ["-c", command], {
-      cwd: opts.cwd ? this.resolvePath(opts.cwd) : this.workdir,
-      env: { ...this.spec.env, ...opts.env },
-    });
-  }
-
-  spawn(cmd: string, args: string[], opts: { cwd?: string; env?: Record<string, string> } = {}) {
-    return this.runner.spawn(cmd, args, {
-      cwd: opts.cwd ? this.resolvePath(opts.cwd) : this.workdir,
-      env: { ...this.spec.env, ...opts.env },
-    });
-  }
-
-  async writeFile(path: string, content: string) {
-    const full = this.resolvePath(path);
-    mkdirSync(dirname(full), { recursive: true });
-    writeFileSync(full, content);
-  }
-
-  async readFile(path: string) {
-    const full = this.resolvePath(path);
-    return existsSync(full) ? readFileSync(full, "utf8") : undefined;
-  }
-
-  async readBytes(path: string) {
-    const full = this.resolvePath(path);
-    return existsSync(full) ? new Uint8Array(readFileSync(full)) : undefined;
-  }
-
-  async writeBytes(path: string, bytes: Uint8Array) {
-    const full = this.resolvePath(path);
-    mkdirSync(dirname(full), { recursive: true });
-    writeFileSync(full, bytes);
-  }
-
-  async snapshot(store: ObjectStore): Promise<SnapshotRef> {
-    const archive = join(this.workdir, "..", `${this.id}-snap.tgz`);
-    const r = await this.runner.run("tar", ["-czf", archive, "-C", this.workdir, "."]);
-    if (r.code !== 0) throw new Error(`snapshot failed: ${r.stderr}`);
-    const key = `snapshots/${this.id}/${Date.now()}.tgz`;
-    await store.put(key, new Uint8Array(readFileSync(archive)), "application/gzip");
-    rmSync(archive, { force: true });
-    return {
-      key,
-      provider: this.provider,
-      sandboxId: this.id,
-      createdAt: new Date().toISOString(),
-      workspaceSha: hashDir(this.workdir),
-      processState: false,
-    };
-  }
-
-  async destroy() {
-    this.onDestroy?.();
-    rmSync(this.workdir, { recursive: true, force: true });
-  }
-
-  /** Local processes run on the host, so their ports are the host's. */
-  async expose(port: number): Promise<SandboxAddress> {
-    checkPort(port);
-    return { host: "127.0.0.1", port };
-  }
 }
 
 /** The runner's egress list plus the hosts of the repos the sandbox clones. */
@@ -454,6 +304,7 @@ export class DockerSandboxProvider implements SandboxProvider {
 
   private async must(args: string[], stdin?: string, env?: Record<string, string>): Promise<ExecResult> {
     const r = await this.runner.run("docker", args, { ...(stdin === undefined ? {} : { stdin }), ...(env ? { env } : {}) });
+    if (dockerIsDown(r)) throw new SandboxUnavailable("docker", r.stderr);
     if (r.code !== 0) throw new Error(`docker ${args.slice(0, 2).join(" ")} failed: ${r.stderr}`);
     return r;
   }
@@ -483,19 +334,25 @@ export class DockerSandboxProvider implements SandboxProvider {
   async create(spec: SandboxSpec): Promise<Sandbox> {
     await this.options.diskGuard?.();
     const started = Date.now();
-    const id = newId();
+    const id = newSandboxId();
     const name = `kiln-${id}`;
     const policy = this.options.pullPolicy ?? "IfNotPresent";
-    const cached = policy === "Always" ? { code: 1 } : await this.runner.run("docker", ["image", "inspect", spec.runner.image]);
+    const cached = policy === "Always" ? { code: 1, stdout: "", stderr: "" } : await this.runner.run("docker", ["image", "inspect", spec.runner.image]);
+    if (dockerIsDown(cached)) throw new SandboxUnavailable("docker", cached.stderr);
     // A private image is always pulled with its credential, so access is checked on every run.
     if (policy !== "Never" && (cached.code !== 0 || spec.registryAuth)) await this.pull(spec);
     const args = dockerRunArgs(name, spec, this.options.egress, this.owner, this.previewNetwork(spec));
     // Host volumes from the worker's configuration (`kiln worker --volumes HOST:CONTAINER[:ro]`).
     for (const v of this.options.volumes ?? []) args.splice(args.indexOf(spec.runner.image), 0, "-v", v);
+    // Local mode (no forge connected): the repositories are bare directories on this machine. They are mounted
+    // at the same path so the sandbox can clone them and push back. Needs the API on the Docker host itself (`pnpm dev`).
+    const localRepos = spec.repos.filter((r) => r.url.startsWith("/"));
+    for (const r of localRepos) args.splice(args.indexOf(spec.runner.image), 0, "-v", `${r.url}:${r.url}`);
     const sandbox = this.track(new DockerSandbox(id, name, spec, this.runner, this.options));
     try {
       await this.must(args);
       await this.joinPreview(name, spec);
+      for (const r of localRepos) await this.must(["exec", name, "git", "config", "--global", "--add", "safe.directory", r.url]);
       for (const repo of spec.repos) {
         await this.must(["exec", name, "git", "clone", "--quiet", repo.url, `/workspace/${repo.name}`]);
         if (repo.branch) await this.must(["exec", "-w", `/workspace/${repo.name}`, name, "git", "checkout", "-q", "-B", repo.branch]);
@@ -575,7 +432,7 @@ export class DockerSandboxProvider implements SandboxProvider {
   async resume(ref: SnapshotRef, spec: SandboxSpec, store: ObjectStore): Promise<Sandbox> {
     await this.options.diskGuard?.();
     const started = Date.now();
-    const id = newId();
+    const id = newSandboxId();
     const name = `kiln-${id}`;
     const body = await store.get(ref.key);
     if (!body) throw new Error(`snapshot ${ref.key} not found`);
@@ -618,7 +475,7 @@ class DockerSandbox implements Sandbox {
   }
 
   async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
-    if (!opts.trusted) await guarded(this.spec, this.provider, command);
+    if (!opts.trusted) await guarded(this.spec, command);
     const cwd = opts.cwd ? (opts.cwd.startsWith("/") ? opts.cwd : `/workspace/${opts.cwd}`) : "/workspace";
     return this.runner.run("docker", ["exec", "-w", cwd, ...this.envArgs(opts.env), this.container, "sh", "-lc", command]);
   }
@@ -800,12 +657,13 @@ export class KubernetesSandboxProvider implements SandboxProvider {
 
   private async kubectl(args: string[], stdin?: string) {
     const r = await this.runner.run("kubectl", ["-n", this.namespace, ...args], stdin === undefined ? {} : { stdin });
+    if (r.code !== 0 && /unable to connect to the server|connection refused|spawn kubectl ENOENT|kubectl: (command )?not found/i.test(r.stderr)) throw new SandboxUnavailable("kubernetes", r.stderr);
     if (r.code !== 0) throw new Error(`kubectl ${args[0]} failed: ${r.stderr}`);
     return r;
   }
 
   private async start(spec: SandboxSpec) {
-    const id = newId();
+    const id = newSandboxId();
     const name = `kiln-${id.replace("_", "-")}`;
     const manifests = kubernetesManifests(name, this.namespace, spec);
     await this.kubectl(["apply", "-f", "-"], manifests.map((m) => JSON.stringify(m)).join("\n"));
@@ -859,7 +717,7 @@ class KubernetesSandbox implements Sandbox {
   }
 
   async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
-    if (!opts.trusted) await guarded(this.spec, this.provider, command);
+    if (!opts.trusted) await guarded(this.spec, command);
     const cwd = opts.cwd ? (opts.cwd.startsWith("/") ? opts.cwd : `/workspace/${opts.cwd}`) : "/workspace";
     const env = Object.entries(opts.env ?? {})
       .map(([k, v]) => `${k}=${shellQuote(v)}`)

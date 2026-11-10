@@ -215,8 +215,8 @@ export class CredentialPool {
       this.take(m);
     }
     // The same backend and image as real runs: the agent CLIs live in the sandbox image, not the server.
-    const backend = this.k.options.defaultBackend ?? "local";
-    const provider = this.k.sandboxes[backend] ?? this.k.sandboxes.local!;
+    const backend = this.k.options.defaultBackend ?? "docker";
+    const provider = this.k.runs.sandboxProvider(backend);
     const egress = kind === "claude" ? ["api.anthropic.com", "claude.ai"] : ["api.openai.com", ...CHATGPT_EGRESS];
     let sandbox: Sandbox;
     try {

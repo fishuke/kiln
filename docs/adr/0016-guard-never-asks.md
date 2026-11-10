@@ -1,6 +1,6 @@
 # ADR-016: The command guard never asks a person
 
-Status: Proposed · Date: 2026-11-10
+Status: Proposed · Date: 2026-11-10 · The host/sandbox split below (the **Host** case, and "what `ask_human` does depends on where") is superseded by [ADR-017](0017-sandboxes-only.md): there is no host path, so `ask_human` always runs. The rest stands.
 
 ## Context
 

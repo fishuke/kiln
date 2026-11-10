@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestKiln } from "@kiln/engine";
 import { FakeHarness, type FakeScript } from "@kiln/harness";
-import { LocalSandboxProvider, type SandboxSpec } from "@kiln/sandbox";
+import type { SandboxSpec } from "@kiln/sandbox";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import { MemoryStore } from "@kiln/store";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppDefinitions } from "./app-definitions";
@@ -95,7 +96,7 @@ function make(over: Partial<StudioOptions> = {}, script: FakeScript = agent) {
     objects: kiln.objects,
     bus: kiln.bus,
     clock,
-    sandboxes: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-"))),
+    sandboxes: new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-"))),
     definitions,
     runs: studioRuns(kiln.runs),
     gates: kiln.gates,
@@ -243,9 +244,9 @@ describe("apps", () => {
   });
 
   it("asks for preview sandboxes and keeps ports in the preview range", async () => {
-    const local = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
+    const local = new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
     const specs: SandboxSpec[] = [];
-    const sandboxes = { name: "local", create: (spec: SandboxSpec) => (specs.push(spec), local.create(spec)), resume: local.resume.bind(local) };
+    const sandboxes = { name: "docker", create: (spec: SandboxSpec) => (specs.push(spec), local.create(spec)), resume: local.resume.bind(local) };
     const { studio } = make({ sandboxes, basePort: undefined });
     const p = await app(studio);
     // preview: true puts it on the preview network (Docker) or gives it the kiln.dev/preview label (Kubernetes).
@@ -259,7 +260,7 @@ describe("apps", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-studio-"));
     // The install marks a fresh node_modules, and notes when it found one already there.
     const install = ["if [ -f node_modules/.installed ]; then touch node_modules/.reused; else mkdir -p node_modules && touch node_modules/.installed; fi"];
-    const { studio } = make({ sandboxes: new LocalSandboxProvider(root), templates: { test: { ...TEST, install } } });
+    const { studio } = make({ sandboxes: new FakeSandboxProvider(root), templates: { test: { ...TEST, install } } });
     const p = await app(studio);
     const a = (await studio.newChat(p.id, { by: "me", via: "web" })).chat;
     await studio.diff({ chatId: a.id });
@@ -316,9 +317,9 @@ describe("apps", () => {
     let reached!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     const atCheckpoint = new Promise<void>((r) => (reached = r));
-    const local = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
-    const sandboxes = Object.assign(Object.create(local) as LocalSandboxProvider, {
-      create: async (spec: Parameters<LocalSandboxProvider["create"]>[0]) => {
+    const local = new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
+    const sandboxes = Object.assign(Object.create(local) as FakeSandboxProvider, {
+      create: async (spec: Parameters<FakeSandboxProvider["create"]>[0]) => {
         const sandbox = await local.create(spec);
         const exec = sandbox.exec.bind(sandbox);
         sandbox.exec = async (command, opts) => {
@@ -575,7 +576,7 @@ describe("restarting a preview", () => {
 
   it("starts the chat's dev server again on the same port, when asked or when the agent asks", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-studio-"));
-    const { studio } = make({ sandboxes: new LocalSandboxProvider(root) });
+    const { studio } = make({ sandboxes: new FakeSandboxProvider(root) });
     const p = await app(studio, "cowboy");
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     await studio.preview({ chatId: chat.id });
@@ -759,7 +760,7 @@ describe("activity", () => {
 });
 
 describe("risky commands", () => {
-  it("never ask the person: on the host backend the command is blocked and the turn goes on without it", async () => {
+  it("never ask the person: the command runs in the sandbox and the turn goes on", async () => {
     const risky: FakeScript = async ({ opts, emit }) => {
       const r = await opts.sandbox.exec("rm -f notes.tmp", { cwd: opts.cwd }).then(
         () => "ran",
@@ -772,7 +773,7 @@ describe("risky commands", () => {
     const p = await app(studio, "safe");
     const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
     const t = await say(studio, chat.id, "clean up");
-    expect(t.reply).toContain("outside a sandbox");
+    expect(t.reply).toBe("ran");
     expect(t.approval).toBeUndefined();
     expect(kiln.gates.list().filter((g) => g.command)).toEqual([]);
     expect(bus.outbox.filter((e) => e.type === "studio.needs_you")).toEqual([]);
@@ -801,10 +802,10 @@ describe("environment", () => {
 
 describe("preview addresses", () => {
   it("asks the sandbox for a dev server's address once, not on every request", async () => {
-    const local = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
+    const local = new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
     let calls = 0;
     const sandboxes = {
-      name: "local",
+      name: "docker",
       create: async (spec: SandboxSpec) => {
         const s = await local.create(spec);
         const expose = s.expose!.bind(s);
@@ -978,11 +979,11 @@ describe("failures are reported", () => {
 describe("a failed App", () => {
   it("is set up again on a fresh sandbox when retried", async () => {
     const marker = join(mkdtempSync(join(tmpdir(), "kiln-marker-")), "ok");
-    const local = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
+    const local = new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-studio-")));
     let created = 0;
     let destroyed = 0;
     const sandboxes = {
-      name: "local",
+      name: "docker",
       create: async (spec: SandboxSpec) => {
         created++;
         const s = await local.create(spec);

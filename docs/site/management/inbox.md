@@ -84,7 +84,7 @@ Only question gates take free-text answers. To decide through the inbox, the API
 
 Gates with a `nudge` time post a reminder in the source thread at that interval, naming who the gate waits on. Gates with an `expire` time park, approve or reject on their own when it passes. The built-in spec and preview gates nudge every 24 hours and park after 72 hours. The merge gate nudges every 48 hours.
 
-The [command guard](../configuration/decisions.md#command-guard) never opens an inbox item: a risky command runs inside an isolated sandbox and is blocked on the host, without waiting for a person.
+The [command guard](../configuration/decisions.md#command-guard) never opens an inbox item: a risky command runs inside the run's sandbox and is recorded on the run, without waiting for a person.
 
 ## From the command line and MCP
 

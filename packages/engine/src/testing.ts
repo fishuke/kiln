@@ -1,5 +1,6 @@
 import type { DefinitionTree } from "@kiln/definitions";
 import { FakeChat, FakeForge, FakePreview, FakeTracker } from "@kiln/integrations";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import { fakeAgents } from "./fake-agents";
 import { FakeMcpProbe } from "./platform/mcp-probe";
 import { Kiln, type KilnOptions } from "./kiln";
@@ -54,6 +55,8 @@ export function createTestKiln(opts: Omit<Partial<KilnOptions>, "preview"> & { t
     roles: { po: ["po@acme.test"], "code-owners": ["lead@acme.test"], admins: ["admin@acme.test"] },
     retryDelaysMs: [0],
     stageRetryDelaysMs: [0, 0],
+    // The Fake stands in for the server's Docker backend, so tests need no Docker.
+    sandboxes: { docker: new FakeSandboxProvider() },
     ...rest,
     forge,
     tracker,

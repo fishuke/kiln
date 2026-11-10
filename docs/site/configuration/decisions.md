@@ -147,10 +147,10 @@ The verdict:
 | Action | Result |
 | --- | --- |
 | `allow` (no entry matched) | The command runs. |
-| `ask_human` | Nobody is asked. In an isolated sandbox (`docker`, `kubernetes`) the command runs. On the host (the `local` backend, also when Kiln falls back to it, and a `direct` worker) the command is blocked, and the agent is told it runs on the host outside a sandbox and to find another way inside its workspace. |
+| `ask_human` | The "risky, logged" tier. Nobody is asked and the command runs: every run is in an isolated sandbox (ADR-017), and the sandbox, its egress rules and the run token's limits are the protection. The run records it as a `guard` event. |
 | `block` | The command does not run. The agent sees "Blocked by the Kiln guardrail". |
 
-The guard never opens an inbox question: people cannot judge a raw shell command (ADR-016). The run's events show every command the guard blocked and every `ask_human` command it let through in a sandbox, so a reviewer can check them afterwards.
+The guard never opens an inbox question: people cannot judge a raw shell command (ADR-016). The run's events show every command the guard blocked and every `ask_human` command it let through, so a reviewer can check them afterwards. To stop a command, put it under `block` in your factory's `command-guard` policy; `ask_human` only records it.
 
 If the Claude Code hook cannot reach Kiln, it blocks the command.
 

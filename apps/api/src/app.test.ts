@@ -184,19 +184,23 @@ describe("API", () => {
     expect(await res.json()).toEqual({ verdict: "allow" });
   });
 
-  it("answers a risky command at once without asking anyone: blocked for a run outside a sandbox, with the reason", async () => {
+  it("answers a risky command at once without asking anyone: it runs, and a destructive one is blocked", async () => {
     const t = createTestKiln({
       preview: false,
       apps: { definition: () => ({ sha: "app-sha", team: "t1", agents: {}, skill: () => undefined, env: {}, secretValues: [] }) },
     });
     const app = createApp(t.kiln);
     t.kiln.store.put("runs", { id: "run_app", factory: "app:sa_1", app: "sa_1", agent: "general", definitionSha: "app-sha", status: "running", artifacts: [] });
-    const res = await app.request("/api/v1/guard", {
-      method: "POST",
-      body: JSON.stringify({ command: "git push origin main" }),
-      headers: { authorization: `Bearer ${t.kiln.secrets.issueRunToken("run_app", [])}`, "content-type": "application/json" },
-    });
-    expect(await res.json()).toEqual({ verdict: "block", reason: expect.stringContaining("runs on the host, outside a sandbox") });
+    const guard = async (command: string) => {
+      const res = await app.request("/api/v1/guard", {
+        method: "POST",
+        body: JSON.stringify({ command }),
+        headers: { authorization: `Bearer ${t.kiln.secrets.issueRunToken("run_app", [])}`, "content-type": "application/json" },
+      });
+      return res.json();
+    };
+    expect(await guard("git push origin main")).toEqual({ verdict: "allow" });
+    expect(await guard("rm -rf /")).toEqual({ verdict: "block" });
     expect(t.kiln.gates.list()).toEqual([]);
   });
 

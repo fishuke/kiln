@@ -1,16 +1,17 @@
 /**
- * Smoke test for the real Claude Code harness: one small task in a local sandbox against a
- * git-backed fake forge. Uses your Claude login or CLAUDE_CODE_OAUTH_TOKEN. Run: pnpm smoke:claude
+ * Smoke test for the real Claude Code harness: one small task against a git-backed fake forge, in the
+ * test Fake sandbox (a directory on this machine, so your own `claude` CLI and login are used; not a product backend). Uses your Claude login or CLAUDE_CODE_OAUTH_TOKEN. Run: pnpm smoke:claude
  */
 import { FakeJudge, Kiln, sampleTree } from "@kiln/engine";
 import { FakeForge } from "@kiln/integrations";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 
 const model = process.env.KILN_SMOKE_MODEL ?? "haiku";
 const forge = new FakeForge();
 forge.createRepo({ owner: "acme", name: "web" }, { "README.md": "# web\n", "src/greet.ts": "export function greet(name: string) {\n  return `Hello ${name}`;\n}\n" });
 const tree = sampleTree();
 tree["factory.yaml"] = tree["factory.yaml"]!.replace("harness: { type: claude-code, model: claude-sonnet-5-5 }", `harness: { type: claude-code, model: ${model} }`);
-const kiln = new Kiln({ forge, judge: new FakeJudge(() => "meets") });
+const kiln = new Kiln({ forge, judge: new FakeJudge(() => "meets"), sandboxes: { docker: new FakeSandboxProvider() } });
 const applied = kiln.defs.apply(tree, { author: "smoke" });
 if (!applied.ok) throw new Error(applied.errors.join("\n"));
 const wi = await kiln.workflow.create({ factory: "webapp", title: "Add a farewell function", body: "Add `farewell(name)` to src/greet.ts that returns `Goodbye <name>`.", source: { provider: "api" }, requester: "smoke" });

@@ -48,7 +48,8 @@ export class DefinitionService {
     const sha = treeSha(tree);
     const hit = this.cache.get(sha);
     if (hit) return hit;
-    const result = validateTree(tree);
+    // A definition stored before ADR-017 may still say `backend: local`: it loads, and a run on that runner fails with a clear message.
+    const result = validateTree(tree, { stored: true });
     if (!result.ok) throw new Error(`definition ${sha} is invalid:\n${formatErrors(result.errors)}`);
     this.cache.set(sha, result.resolved);
     return result.resolved;

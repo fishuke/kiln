@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { createTestKiln, fakeAgentScript, isActive, Kiln, sampleTree, TRANSITIONS, transition, waitFor, type WorkItem } from "@kiln/engine";
 import { FakeHarness } from "@kiln/harness";
 import { normalizeGitHub, normalizeLinear, normalizeSlack } from "@kiln/integrations";
-import { hashDir, LocalSandboxProvider, type Sandbox, type SandboxProvider } from "@kiln/sandbox";
+import { hashDir, type Sandbox, type SandboxProvider } from "@kiln/sandbox";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import { describe, expect, it } from "vitest";
 
 describe("atomic apply", () => {
@@ -58,7 +59,7 @@ describe("scoped tokens", () => {
 
 describe("command guardrail inside a run", () => {
   /** A run whose agent tries each command: what each one did, the run's guard events and the command questions opened. */
-  async function tryCommands(cmds: string[], opts: Parameters<typeof createTestKiln>[0] = {}, backend?: "docker") {
+  async function tryCommands(cmds: string[], opts: Parameters<typeof createTestKiln>[0] = {}) {
     const commands: Record<string, string> = {};
     const harness = new FakeHarness(async (ctx) => {
       for (const cmd of cmds)
@@ -70,7 +71,7 @@ describe("command guardrail inside a run", () => {
     });
     const { kiln } = createTestKiln({ harness: () => harness, ...opts });
     const wi = await kiln.workflow.create({ factory: "webapp", title: "Guard me", body: "", source: { provider: "api" }, requester: "alice" });
-    const run = await kiln.runs.execute({ factory: "webapp", sha: wi.definitionSha, agent: "implement", prompt: "go", workItem: wi, push: false, ...(backend ? { backend } : {}) });
+    const run = await kiln.runs.execute({ factory: "webapp", sha: wi.definitionSha, agent: "implement", prompt: "go", workItem: wi, push: false });
     const guard = kiln.runs
       .events(run.id)
       .filter((e) => e.type === "guard")
@@ -78,27 +79,13 @@ describe("command guardrail inside a run", () => {
     return { kiln, commands, guard, asked: kiln.gates.list().filter((g) => g.command) };
   }
 
-  it("on the host blocks a destructive command and a risky one, and asks nobody", async () => {
-    const { kiln, commands, guard, asked } = await tryCommands(["rm -rf /", "git push origin main"]);
-    expect(commands["rm -rf /"]).toBe("blocked by guardrail: rm -rf /");
-    expect(commands["git push origin main"]).toMatch(/runs on the host, outside a sandbox.*inside your workspace: git push origin main/);
-    expect(guard).toEqual(["block: rm -rf /", "ask_human, blocked on the host (local): git push origin main"]);
+  it("runs a risky command and records it, still blocks a destructive one, and asks nobody", async () => {
+    const { kiln, commands, guard, asked } = await tryCommands(["rm -rf /", "rm -f notes.tmp"]);
+    expect(commands).toEqual({ "rm -rf /": "blocked by guardrail: rm -rf /", "rm -f notes.tmp": "ran" });
+    expect(guard).toEqual(["block: rm -rf /", "ask_human, allowed in the sandbox: rm -f notes.tmp"]);
     expect(asked).toEqual([]);
     const logs = kiln.store.list<{ id: string; decision: string; action: string }>("decision_logs").filter((d) => d.decision === "command-guard");
     expect(logs.map((l) => l.action)).toEqual(["block", "ask_human"]);
-  });
-
-  it("in an isolated sandbox runs a risky command and records it, and still blocks a destructive one", async () => {
-    const local = new LocalSandboxProvider();
-    const docker: SandboxProvider = {
-      name: "docker",
-      resume: (ref, spec, store) => local.resume(ref, spec, store),
-      create: async (spec) => Object.assign(Object.create(await local.create(spec)) as Sandbox, { provider: "docker" }),
-    };
-    const { commands, guard, asked } = await tryCommands(["rm -rf /", "rm -f notes.tmp"], { sandboxes: { docker } }, "docker");
-    expect(commands).toEqual({ "rm -rf /": "blocked by guardrail: rm -rf /", "rm -f notes.tmp": "ran" });
-    expect(guard).toEqual(["block: rm -rf /", "ask_human, allowed in the docker sandbox: rm -f notes.tmp"]);
-    expect(asked).toEqual([]);
   });
 });
 
@@ -114,9 +101,9 @@ describe("pausable sandboxes", () => {
       await ctx.nextSteer(5000);
       return { summary: "stopped" };
     });
-    const nodeA = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-a-")));
-    const nodeB = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-b-")));
-    const { kiln } = createTestKiln({ harness: () => harness, sandboxes: { local: nodeA } });
+    const nodeA = new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-a-")));
+    const nodeB = new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-b-")));
+    const { kiln } = createTestKiln({ harness: () => harness, sandboxes: { docker: nodeA } });
     const wi = await kiln.workflow.create({ factory: "webapp", title: "Long task", body: "", source: { provider: "api" }, requester: "alice" });
     const running = kiln.runs.execute({ factory: "webapp", sha: wi.definitionSha, agent: "implement", prompt: "long", workItem: wi, push: false });
     let runId: string | undefined;

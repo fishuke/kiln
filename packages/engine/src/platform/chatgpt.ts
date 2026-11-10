@@ -170,8 +170,8 @@ export class ChatgptSignIn {
     this.sessions.set(id, session);
     let output = "";
     try {
-      const backend = this.k.options.defaultBackend ?? "local";
-      const provider = this.k.sandboxes[backend] ?? this.k.sandboxes.local!;
+      const backend = this.k.options.defaultBackend ?? "docker";
+      const provider = this.k.runs.sandboxProvider(backend);
       const sandbox = await provider.create({
         runner: { image: this.k.options.defaultImage ?? "node:22-bookworm", backend, setupCommands: [], egress: CHATGPT_EGRESS },
         repos: [],

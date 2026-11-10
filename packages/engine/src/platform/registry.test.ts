@@ -1,5 +1,6 @@
 import { FakeHarness } from "@kiln/harness";
-import { FakeCommandRunner, LocalSandboxProvider, type Sandbox, type SandboxProvider, type SandboxSpec } from "@kiln/sandbox";
+import { FakeCommandRunner, type Sandbox, type SandboxProvider, type SandboxSpec } from "@kiln/sandbox";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import { describe, expect, it } from "vitest";
 import { createTestKiln, sampleTree } from "../testing";
 import { CliEcrTokenProvider, FakeEcrTokenProvider } from "./registry";
@@ -8,7 +9,7 @@ import { CliEcrTokenProvider, FakeEcrTokenProvider } from "./registry";
 class RecordingProvider implements SandboxProvider {
   readonly name = "docker";
   readonly specs: SandboxSpec[] = [];
-  private readonly local = new LocalSandboxProvider();
+  private readonly local = new FakeSandboxProvider();
   create(spec: SandboxSpec): Promise<Sandbox> {
     this.specs.push(spec);
     return this.local.create({ ...spec, runner: { ...spec.runner, setupCommands: [] } });

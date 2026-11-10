@@ -2,10 +2,11 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeProvider, heuristicRule, type FakeRule } from "@kiln/decide";
-import type { ResolvedAgent } from "@kiln/definitions";
+import { treeSha, type ResolvedAgent } from "@kiln/definitions";
 import { FakeHarness, type HarnessAdapter, type StartOptions } from "@kiln/harness";
 import { FakeForge } from "@kiln/integrations";
-import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
+import type { SandboxProvider } from "@kiln/sandbox";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import { describe, expect, it } from "vitest";
 import { classifyError, KilnError } from "./errors";
 import { fakeAgents, fakeAgentScript } from "./fake-agents";
@@ -120,13 +121,12 @@ describe("recovering after a restart", () => {
 });
 
 describe("the command guard's verdict for a run", () => {
-  it("asks nobody: a risky command is blocked on the host and runs in an isolated sandbox, each on the run's events", async () => {
-    // What the Claude Code hook's request does while the run is live; this run's sandbox is on the host.
+  it("asks nobody: a risky command runs and is recorded, a blocked one stays blocked, each on the run's events", async () => {
+    // What the Claude Code hook's request does while the run is live.
     const harness = new FakeHarness(async (ctx) => {
       const run = kiln.runs.get(ctx.opts.env!.KILN_RUN_ID!)!;
-      expect(kiln.runs.settleGuard(run, "ask_human", "git push")).toEqual({ verdict: "block", reason: expect.stringContaining("outside a sandbox") });
-      expect(kiln.runs.settleGuard(run, "ask_human", "git push", "kubernetes")).toEqual({ verdict: "allow" });
-      expect(kiln.runs.settleGuard(run, "block", "rm -rf /", "docker")).toEqual({ verdict: "block" });
+      expect(kiln.runs.settleGuard(run, "ask_human", "git push")).toEqual({ verdict: "allow" });
+      expect(kiln.runs.settleGuard(run, "block", "rm -rf /")).toEqual({ verdict: "block" });
       expect(kiln.runs.settleGuard(run, "allow", "ls")).toEqual({ verdict: "allow" });
       return { summary: "done" };
     });
@@ -135,55 +135,105 @@ describe("the command guard's verdict for a run", () => {
     expect(run.status).toBe("succeeded");
     const guard = kiln.runs.events(run.id).filter((e) => e.type === "guard");
     expect(guard.map((e) => e.text)).toEqual([
-      "ask_human, blocked on the host (local): git push",
-      "ask_human, allowed in the kubernetes sandbox: git push",
+      "ask_human, allowed in the sandbox: git push",
       "block: rm -rf /",
     ]);
-    // A run on a remote worker has no sandbox here: the worker's backend decides.
+    // A run on a remote worker has no sandbox here; the rule is the same, whatever the worker's stored backend says.
     const on = (backend: string) => ({ ...run, workerId: kiln.workers.connect({ workerId: `w-${backend}`, backend, maxConcurrent: 1, owner: "admin@acme.test" }).id });
     expect(kiln.runs.settleGuard(on("docker"), "ask_human", "git push").verdict).toBe("allow");
-    expect(kiln.runs.settleGuard(on("direct"), "ask_human", "git push").verdict).toBe("block");
+    expect(kiln.runs.settleGuard(on("direct"), "block", "rm -rf /").verdict).toBe("block");
+    // A worker record stored with the removed direct backend still lists.
+    expect(kiln.workers.connected().map((w) => w.backend)).toEqual(expect.arrayContaining(["docker", "direct"]));
     expect(kiln.gates.list().filter((g) => g.command)).toEqual([]);
+  });
+});
+
+describe("sandboxes only (ADR-017)", () => {
+  const sha = (kiln: ReturnType<typeof createTestKiln>["kiln"]) => kiln.defs.list()[0]!.appliedSha!;
+  const neverRuns = () => new FakeHarness(async () => {
+    throw new Error("the agent must not run without a sandbox");
+  });
+
+  it("rejects backend: local on apply and keeps the last valid definition", () => {
+    const { kiln } = createTestKiln({ preview: false });
+    const before = sha(kiln);
+    const result = kiln.defs.apply(sampleTree({ "runners/host.yaml": "image: node:22\nbackend: local\n" }), { author: "test" });
+    expect(result).toMatchObject({ ok: false, keptSha: before });
+    expect(result.ok ? [] : result.errors).toEqual([expect.stringMatching(/runners\/host\.yaml:2: backend: local is no longer supported.*docker.*kubernetes/)]);
+  });
+
+  it("loads a definition stored with backend: local, lists its runs and work items, and fails a run on that runner clearly", async () => {
+    const { kiln } = createTestKiln({ preview: false, harness: neverRuns });
+    // What an older server stored: the same record apply writes, with a runner on the host.
+    const tree = sampleTree({ "runners/host.yaml": "image: node:22\nbackend: local\n", "agents/implement/agent.md": "---\nagentType: IMPLEMENT\nrunner: host\n---\nImplement.\n" });
+    const old = treeSha(tree);
+    kiln.store.put(C.definitions, { id: old, factory: "webapp", tree, author: "old", createdAt: "2026-10-01T00:00:00.000Z", valid: true, errors: [] });
+    kiln.store.put(C.factories, { ...kiln.defs.require("webapp"), appliedSha: old });
+    expect(kiln.defs.current("webapp").parsed.runners.host).toMatchObject({ backend: "local" });
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Old", body: "", source: { provider: "api" }, requester: "alice" });
+    const run = await kiln.runs.execute({ factory: "webapp", sha: old, agent: "implement", prompt: "go", workItem: wi, push: false });
+    expect(run.status).not.toBe("succeeded");
+    expect(run.error).toMatchObject({ code: "environment_setup_failed", message: expect.stringMatching(/backend: local.*Docker or Kubernetes sandboxes only/) });
+    expect(kiln.runs.list({}).map((r) => r.id)).toContain(run.id);
+    expect(kiln.workflow.list().map((w) => w.id)).toContain(wi.id);
+  });
+
+  it("fails clearly, and never on the host, when the server has no backend for the run", async () => {
+    const { kiln } = createTestKiln({ preview: false, harness: neverRuns, sandboxes: {} });
+    const run = await kiln.runs.execute({ factory: "webapp", sha: sha(kiln), agent: "foreman", prompt: "go", push: false });
+    expect(run.error).toMatchObject({ code: "environment_setup_failed", message: expect.stringMatching(/^Kiln needs Docker running to start a sandbox: this server has no docker sandbox backend/) });
+    // A runner that names a backend this server does not have is not moved to another one.
+    const k8s = createTestKiln({ preview: false, harness: neverRuns, tree: sampleTree({ "runners/pods.yaml": "image: node:22\nbackend: kubernetes\n", "agents/foreman/agent.md": "---\nagentType: FOREMAN\nrunner: pods\n---\nCoordinate.\n" }) }).kiln;
+    const other = await k8s.runs.execute({ factory: "webapp", sha: sha(k8s), agent: "foreman", prompt: "go", push: false });
+    expect(other.error?.message).toMatch(/^Kiln needs a reachable Kubernetes cluster to start a sandbox: this server has no kubernetes sandbox backend \(it has: docker\)/);
+  });
+
+  it("ignores a team's default sandbox host saved as local", async () => {
+    const { kiln } = createTestKiln({ preview: false });
+    const team = kiln.teams.list()[0]!;
+    kiln.teams.updateSettings(team.id, { defaultSandboxHost: "local" }, "admin@acme.test");
+    const run = await kiln.runs.execute({ factory: "webapp", sha: sha(kiln), agent: "foreman", prompt: "go", push: false });
+    expect(run.status).toBe("succeeded");
   });
 });
 
 describe("default runner image", () => {
   it("uses KILN_RUNNER_IMAGE for agents without a runner, on the configured backend", async () => {
     const images: string[] = [];
-    const local = new LocalSandboxProvider();
+    const local = new FakeSandboxProvider();
     const recording: SandboxProvider = {
       name: "docker",
-      create: (spec) => (images.push(spec.runner.image), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })),
+      create: (spec) => (images.push(spec.runner.image), local.create({ ...spec, runner: { ...spec.runner, backend: "docker" } })),
       resume: (ref, spec, store) => local.resume(ref, spec, store),
     };
-    const { kiln } = createTestKiln({ sandboxes: { local, docker: recording }, defaultBackend: "docker", defaultImage: "ghcr.io/acme/kiln-runner:1" });
+    const { kiln } = createTestKiln({ sandboxes: { docker: recording }, defaultBackend: "docker", defaultImage: "ghcr.io/acme/kiln-runner:1" });
     await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "foreman", prompt: "route this", push: false });
     expect(images).toEqual(["ghcr.io/acme/kiln-runner:1"]);
   });
 
   it("lets every run reach Kiln itself (the command guard and the Kiln MCP server) through the egress allowlist", async () => {
     const egress: string[][] = [];
-    const local = new LocalSandboxProvider();
+    const local = new FakeSandboxProvider();
     const recording: SandboxProvider = {
       name: "docker",
-      create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })),
+      create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "docker" } })),
       resume: (ref, spec, store) => local.resume(ref, spec, store),
     };
-    const { kiln } = createTestKiln({ sandboxes: { local, docker: recording }, defaultBackend: "docker", publicUrl: "https://kiln-api.acme.test" });
+    const { kiln } = createTestKiln({ sandboxes: { docker: recording }, defaultBackend: "docker", publicUrl: "https://kiln-api.acme.test" });
     await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "foreman", prompt: "route this", push: false });
     expect(egress[0]).toContain("kiln-api.acme.test");
   });
 
   it("lets a run reach the MCP servers its agent uses: URL servers and URL-valued secrets such as JIRA_BASE_URL (#44)", async () => {
     const egress: string[][] = [];
-    const local = new LocalSandboxProvider();
+    const local = new FakeSandboxProvider();
     const recording: SandboxProvider = {
       name: "docker",
-      create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })),
+      create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "docker" } })),
       resume: (ref, spec, store) => local.resume(ref, spec, store),
     };
     const tree = sampleTree({ "agents/implement/agent.md": "---\nagentType: IMPLEMENT\nmcpServers: [jira, signoz, github]\n---\nBuild.\n" });
-    const { kiln } = createTestKiln({ sandboxes: { local, docker: recording }, defaultBackend: "docker", tree });
+    const { kiln } = createTestKiln({ sandboxes: { docker: recording }, defaultBackend: "docker", tree });
     const team = kiln.teams.ensureDefaultTeam();
     kiln.vault.set({ scope: "team", owner: team.id, name: "JIRA_BASE_URL", value: "https://acme.atlassian.test" }, "a");
     kiln.vault.set({ scope: "team", owner: team.id, name: "JIRA_EMAIL", value: "bot@acme.test" }, "a");
@@ -198,14 +248,14 @@ describe("default runner image", () => {
 
   it("lets a run reach a URL written into a command server's env or args, such as a self-hosted SigNoz (#51)", async () => {
     const egress: string[][] = [];
-    const local = new LocalSandboxProvider();
+    const local = new FakeSandboxProvider();
     const recording: SandboxProvider = {
       name: "docker",
-      create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })),
+      create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "docker" } })),
       resume: (ref, spec, store) => local.resume(ref, spec, store),
     };
     const tree = sampleTree({ "agents/implement/agent.md": "---\nagentType: IMPLEMENT\nmcpServers: [signoz]\n---\nBuild.\n" });
-    const { kiln } = createTestKiln({ sandboxes: { local, docker: recording }, defaultBackend: "docker", tree });
+    const { kiln } = createTestKiln({ sandboxes: { docker: recording }, defaultBackend: "docker", tree });
     const team = kiln.teams.ensureDefaultTeam();
     kiln.vault.set({ scope: "team", owner: team.id, name: "SIGNOZ_API_KEY", value: "signoz-service-key" }, "a");
     kiln.mcp.create(
@@ -227,14 +277,14 @@ describe("default runner image", () => {
   it("runs a declared runner without an image on KILN_RUNNER_IMAGE; an explicit image still wins (#13)", async () => {
     const run = async (runnerYaml: string) => {
       const images: string[] = [];
-      const local = new LocalSandboxProvider();
+      const local = new FakeSandboxProvider();
       const recording: SandboxProvider = {
         name: "docker",
-        create: (spec) => (images.push(spec.runner.image), local.create({ ...spec, runner: { ...spec.runner, backend: "local" } })),
+        create: (spec) => (images.push(spec.runner.image), local.create({ ...spec, runner: { ...spec.runner, backend: "docker" } })),
         resume: (ref, spec, store) => local.resume(ref, spec, store),
       };
       const tree = sampleTree({ "runners/plain.yaml": runnerYaml, "agents/plain/agent.md": "---\nagentType: CUSTOM\nrunner: plain\n---\nDo it.\n" });
-      const { kiln } = createTestKiln({ tree, sandboxes: { local, docker: recording }, defaultBackend: "docker", defaultImage: "ghcr.io/acme/kiln-runner:1" });
+      const { kiln } = createTestKiln({ tree, sandboxes: { docker: recording }, defaultBackend: "docker", defaultImage: "ghcr.io/acme/kiln-runner:1" });
       await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "plain", prompt: "go", push: false });
       return images;
     };
@@ -343,8 +393,8 @@ describe("following up a run that is still starting", () => {
 
 describe("provided workspaces", () => {
   it("runs in a workspace someone else owns, under its own guard, and gives it back instead of destroying it", async () => {
-    const shared = await new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-shared-"))).create({
-      runner: { image: "node:22", backend: "local", setupCommands: [], egress: [] },
+    const shared = await new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-shared-"))).create({
+      runner: { image: "node:22", backend: "docker", setupCommands: [], egress: [] },
       repos: [],
     });
     await shared.exec("mkdir -p work && cd work && git init -q -b main && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init", {
@@ -460,8 +510,8 @@ describe("Studio App runs", () => {
   });
 
   it("skips the command guard for a cowboy App's run: no guard call, no guard hook", async () => {
-    const shared = await new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-cowboy-"))).create({
-      runner: { image: "node:22", backend: "local", setupCommands: [], egress: [] },
+    const shared = await new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-cowboy-"))).create({
+      runner: { image: "node:22", backend: "docker", setupCommands: [], egress: [] },
       repos: [],
     });
     await shared.exec("mkdir -p work", { trusted: true });

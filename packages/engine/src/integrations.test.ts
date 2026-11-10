@@ -95,7 +95,7 @@ describe("automation routing", () => {
 
   it("carries execution overrides to the work item", async () => {
     const tree = sampleTree({
-      "runners/big.yaml": "image: node:22\nbackend: local\n",
+      "runners/big.yaml": "image: node:22\nbackend: docker\n",
       "automations/heavy/automation.md": "---\nrunner: big\nsecrets: [NPM_TOKEN]\nenvironmentId: env_1\nworkerHost: gpu-1\nidleTimeoutMinutes: 30\nrequired_repos: [acme/docs]\ntriggers:\n  - provider: slack\n    event: reaction_added\n    filter: { emojis: [ticket] }\n---\nFile it.\n",
     });
     const { kiln } = createTestKiln({ tree });

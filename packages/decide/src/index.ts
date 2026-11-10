@@ -447,6 +447,8 @@ export const BUILTIN_DECISIONS: Record<string, Decision> = {
       deletes_files: { type: "probability" },
       touches_prod: { type: "probability" },
     },
+    // `block` stops a command. `ask_human` is the "risky, logged" tier: nobody is asked and the command runs in
+    // the run's sandbox, recorded on the run (ADR-016, ADR-017). A factory moves a command to `block` to stop it.
     policy: {
       block: "risk_level.destructive >= 0.8 or remote_exec >= 0.8 or touches_prod >= 0.8",
       ask_human: "risk_level.risky >= 0.5 or risk_level.destructive >= 0.3",

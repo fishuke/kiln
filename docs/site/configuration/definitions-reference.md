@@ -218,7 +218,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | --- | --- | --- | --- |
 | `description` | string |  |  |
 | `image` | string |  |  |
-| `backend` | `docker` \| `kubernetes` \| `local` |  | default `"docker"` |
+| `backend` | `docker` \| `kubernetes` \| `local` |  | default `"docker"`, `local` is no longer supported and is rejected on apply: agents run in Docker or Kubernetes sandboxes only |
 | `shape` | object |  |  |
 | `shape.vcpus` | integer | yes | max 9007199254740991 |
 | `shape.memoryGb` | number | yes |  |

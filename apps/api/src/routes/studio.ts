@@ -203,7 +203,7 @@ export function configureStudio(kiln: Kiln, options: Partial<StudioOptions>) {
 /** The Studio service for a `Kiln`, built on first use; undefined unless KILN_STUDIO=1 and a sandbox backend exists. */
 export function studioFor(kiln: Kiln): Studio | undefined {
   if (services.has(kiln)) return services.get(kiln) ?? undefined;
-  const sandboxes = kiln.sandboxes[kiln.options.defaultBackend ?? "local"] ?? kiln.sandboxes.local;
+  const sandboxes = kiln.sandboxes[kiln.options.defaultBackend ?? "docker"];
   const over = overrides.get(kiln) ?? {};
   if (!studioEnabled() || (!sandboxes && !over.sandboxes)) {
     services.set(kiln, null);

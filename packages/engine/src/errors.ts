@@ -47,6 +47,8 @@ export class KilnError extends Error {
 }
 
 const PATTERNS: [RegExp, ErrorCode, Record<string, unknown>?][] = [
+  // No sandbox backend to run in (ADR-017): Kiln never uses the host instead, and a retry would not help.
+  [/Kiln needs (Docker running|a reachable Kubernetes cluster)|runs agents in Docker or Kubernetes sandboxes only/i, "environment_setup_failed"],
   // The network went away (a restart, the egress proxy coming back up): temporary, whatever the command was.
   [/Failed to connect to|Couldn't connect to server|Could not resolve host|Connection refused|ECONNREFUSED|Connection timed out|Network is unreachable|egress-proxy|No such container|is not running/i, "resource_unavailable"],
   [/monthly budget|budget of \$/i, "budget_exceeded"],
@@ -58,7 +60,7 @@ const PATTERNS: [RegExp, ErrorCode, Record<string, unknown>?][] = [
   [/timed? ?out|deadline exceeded/i, "infrastructure_timeout"],
   [/content policy|safety system|refus/i, "content_policy_violation"],
   [/ENOENT.*(claude|codex|opencode|gemini|pi)\b|spawn .+ ENOENT|exited with code|process (crashed|exited)/i, "agent_process_failed"],
-  [/blocked by guardrail|outside a sandbox/i, "not_authorized"],
+  [/blocked by guardrail/i, "not_authorized"],
   [/push refused|git push failed/i, "conflict"],
   [/^unknown |not found|has no /i, "resource_not_found"],
 ];

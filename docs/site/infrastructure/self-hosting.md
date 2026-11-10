@@ -13,7 +13,7 @@ Kiln runs on your own infrastructure: a single host with Docker for small instal
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Node 22.13+ and pnpm 10                            | Kiln's services are TypeScript on Node.                                                                                                                                                                |
 | A data directory (a volume)                        | Runtime state (work items, runs, gates, scores, tokens, audit log) in the SQLite file `kiln.db`, and objects (videos, reports, snapshots) under `objects/`. See [Data and backups](#data-and-backups). |
-| Docker, or Kubernetes with a `gvisor` RuntimeClass | Sandboxes for agent runs. Without either, runs use host directories (development only).                                                                                                                |
+| Docker, or Kubernetes with a `gvisor` RuntimeClass | Sandboxes for agent runs. Required: Kiln never runs an agent on the host.                                                                                                                                |
 | An egress proxy                                    | Enforces each runner's `egress` host list. Included in `docker-compose.yml` and the Helm chart. See [Sandboxes](sandboxes.md#egress).                                                                  |
 | Optional: an OpenAI-compatible gateway (LiteLLM)   | The LLM fallback for typed decisions and judges.                                                                                                                                                       |
 
@@ -30,6 +30,15 @@ pnpm dev            # API on :4000 with demo data, web app on :3000
 ```
 
 Open http://localhost:3000. Demo factories run on a git-backed local forge with scripted agents, so nothing needs an account.
+
+Docker must be running: every run, the scripted demo agents included, starts in a Docker sandbox (`KILN_SANDBOX` defaults to `docker`). Without Docker the web app still opens, and a run fails with `Kiln needs Docker running to start a sandbox`. The default sandbox image is `node:22-bookworm`, which has git but no agent CLIs. For real agents (`KILN_AGENTS=real`), build the runner image and point the API at it:
+
+```bash
+docker build -t kiln-runner-node runners/images/node
+KILN_RUNNER_IMAGE=kiln-runner-node KILN_AGENTS=real pnpm dev
+```
+
+A sandbox gets only what Kiln passes to it: the run's secrets and model credentials, not the environment, files or logins of the machine the API runs on.
 
 ### One machine with Docker Compose
 

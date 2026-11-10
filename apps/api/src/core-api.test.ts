@@ -183,11 +183,11 @@ describe("workers API and MCP", () => {
     const tree = sampleTree({ "agents/remote/agent.md": "---\nagentType: CUSTOM\nworkerHost: farm\n---\nWork remotely.\n" });
     const { kiln, token, client, app } = setup({ tree });
     const w = client(token("worker:*", "worker@acme.test"));
-    const rec = await w.workerConnect({ workerId: "farm", backend: "direct", maxConcurrent: 1 });
+    const rec = await w.workerConnect({ workerId: "farm", backend: "docker", maxConcurrent: 1 });
     const runP = kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "remote", prompt: "do it remotely", push: false });
     const claim = await w.workerClaim(rec.id, 5);
     expect(claim.job).toMatchObject({ agent: "remote", workerHost: "farm" });
-    await w.workerEvents(rec.id, claim.job!.runId, [{ type: "started", text: "direct sandbox" }, { type: "message", text: "working" }]);
+    await w.workerEvents(rec.id, claim.job!.runId, [{ type: "started", text: "docker sandbox" }, { type: "message", text: "working" }]);
     await w.workerComplete(rec.id, claim.job!.runId, { outcome: "succeeded", summary: "done remotely", costUsd: 0.5, artifacts: [{ name: "shot.png", contentType: "image/png", base64: Buffer.from("png").toString("base64") }], pushed: [], startRepos: [] });
     const run = await runP;
     expect(run).toMatchObject({ status: "succeeded", summary: "done remotely", workerHost: "farm", costUsd: 0.5 });
@@ -196,7 +196,9 @@ describe("workers API and MCP", () => {
     const metrics = await (await app.request("/metrics")).text();
     expect(metrics).toContain("kiln_workers_connected 1");
     expect(metrics).toMatch(/kiln_runs_total\{factory="webapp",state="SUCCEEDED"\} 1/);
-    await expect(client(token("read:*")).workerConnect({ workerId: "x", backend: "direct" })).rejects.toMatchObject({ status: 403 });
+    await expect(client(token("read:*")).workerConnect({ workerId: "x", backend: "docker" })).rejects.toMatchObject({ status: 403 });
+    // A worker no longer runs agents on its host (ADR-017).
+    await expect(w.workerConnect({ workerId: "host", backend: "direct" as never })).rejects.toMatchObject({ status: 400 });
   });
 
   it("MCP: list_tasks, search_task and get_factory_file_schema", async () => {

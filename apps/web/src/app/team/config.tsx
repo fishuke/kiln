@@ -318,7 +318,6 @@ export function ListSetting({
 
 const HOSTS = [
   { value: "none", label: "Server default", hint: "Use the server's KILN_SANDBOX backend" },
-  { value: "local", label: "Local", hint: "Processes on the Kiln server (development only)" },
   { value: "docker", label: "Docker", hint: "One container per run" },
   { value: "kubernetes", label: "Kubernetes", hint: "One pod per run, gVisor where available" },
 ];
@@ -336,7 +335,8 @@ export function HostAndRoles({ team, settings, canEdit }: { team: string; settin
     <div>
       <SettingsRow label="Default sandbox host" hint="For agents that name no runner">
         <SimpleSelect
-          value={settings.defaultSandboxHost ?? "none"}
+          // A value saved before sandboxes-only (such as "local") is not a backend any more: the server default applies.
+          value={HOSTS.some((h) => h.value === settings.defaultSandboxHost) ? settings.defaultSandboxHost! : "none"}
           options={HOSTS}
           disabled={!canEdit}
           ariaLabel="Default sandbox host"

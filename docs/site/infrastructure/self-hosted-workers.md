@@ -11,7 +11,7 @@ A self-hosted worker runs agent runs on a machine you choose (a build server, a 
 
 1. An agent (or automation, or `agentDefaults`) sets `workerHost: <id>`.
 2. When that agent runs, the Kiln server prepares the run (prompt, instructions, skills, scoped run token) and queues it for the worker id. The run's state is `QUEUED`.
-3. A `kiln worker --worker-id <id>` process long-polls the API, claims the run (`CLAIMED`), creates its sandbox (Docker, Kubernetes or a host directory), clones the repositories with the run token, starts the harness and streams events back (`INPROGRESS`).
+3. A `kiln worker --worker-id <id>` process long-polls the API, claims the run (`CLAIMED`), creates its sandbox (Docker or Kubernetes; never a host directory), clones the repositories with the run token, starts the harness and streams events back (`INPROGRESS`).
 4. At the end it reports the result, uploads artifacts from `.kiln/artifacts/` and pushes the `kiln/*` branch with the run token. The server records everything as for any other run.
 
 Several processes can share one worker id; each run goes to the process with the most free capacity. Runs wait in the queue while no worker of that id is connected and fail with `infrastructure_timeout` after 30 minutes. A worker that stops sending heartbeats is dropped and its runs are retried.
@@ -29,9 +29,9 @@ KILN_URL=https://kiln.example.com KILN_WORKER_KEY=kiln_tok_… \
 | --- | --- | --- |
 | `--worker-id` | (required) | The id agents name in `workerHost`. Letters, digits, `.`, `_`, `-`; ids starting with `kiln` are reserved. |
 | `--api-key` | `KILN_WORKER_KEY`, else `KILN_TOKEN` | The worker key. |
-| `--backend` | `docker` | `docker` (a container per run), `kubernetes` (a pod per run) or `direct` (a directory on the host). |
+| `--backend` | `docker` | `docker` (a container per run) or `kubernetes` (a pod per run). A worker never runs an agent directly on its host. |
 | `--max-concurrent-tasks` | `0` (unlimited) | Runs at once. |
-| `--one-shot` | off | Take one run, then exit (direct backend only). For CI jobs and ephemeral VMs. |
+| `--one-shot` | off | Take one run, then exit. For CI jobs and ephemeral VMs. |
 | `--idle-on-complete` | `45m` | How long a one-shot worker stays up after its run. |
 | `-v`, `--volumes` | | `HOST:CONTAINER[:ro|rw]` mounts for Docker sandboxes. Repeatable. |
 | `-e`, `--env` | | `KEY=VALUE` (or `KEY` to pass the worker's own value) added to every run. Repeatable. |
@@ -57,7 +57,7 @@ backend:
       - { name: CI, value: "true" }
 ```
 
-The `kubernetes` backend takes `namespace`; the `direct` backend takes `workspace_root`.
+The `kubernetes` backend takes `namespace`.
 
 ## Route agents to a worker
 

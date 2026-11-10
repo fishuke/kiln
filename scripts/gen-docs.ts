@@ -152,7 +152,7 @@ function rows(schema: JSONSchema, prefix = ""): string[] {
   const req = new Set(schema.required ?? []);
   const out: string[] = [];
   for (const [k, v] of Object.entries(props)) {
-    const notes = [v.default !== undefined ? `default \`${JSON.stringify(v.default)}\`` : "", v.minimum !== undefined ? `min ${v.minimum}` : "", v.maximum !== undefined ? `max ${v.maximum}` : "", v.pattern ? `pattern \`${v.pattern}\`` : ""].filter(Boolean).join(", ");
+    const notes = [v.default !== undefined ? `default \`${JSON.stringify(v.default)}\`` : "", v.minimum !== undefined ? `min ${v.minimum}` : "", v.maximum !== undefined ? `max ${v.maximum}` : "", v.pattern ? `pattern \`${v.pattern}\`` : "", v.description ?? ""].filter(Boolean).join(", ");
     out.push(`| \`${prefix}${k}\` | ${typeOf(v)} | ${req.has(k) ? "yes" : ""} | ${notes} |`);
     const inner = v.type === "object" || v.properties ? v : (v.anyOf ?? v.oneOf)?.find((a) => a.properties);
     if (inner?.properties) out.push(...rows(inner, `${prefix}${k}.`));

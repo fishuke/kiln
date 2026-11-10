@@ -6,7 +6,7 @@ import { issueToken } from "@kiln/auth";
 import { KilnWorker, WorkerConfig } from "@kiln/cli";
 import { createTestKiln, fakeAgentScript, sampleTree, waitFor } from "@kiln/engine";
 import { FakeHarness } from "@kiln/harness";
-import { LocalSandboxProvider } from "@kiln/sandbox";
+import { FakeSandboxProvider } from "@kiln/sandbox/testing";
 import { KilnClient } from "@kiln/sdk-ts";
 import { describe, expect, it } from "vitest";
 
@@ -19,9 +19,9 @@ function setup() {
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => app.fetch(new Request(input as string, init))) as typeof fetch;
   const key = issueToken(t.kiln.store, { name: "farm", subject: "worker@acme.test", grants: [{ scope: "worker", factory: "*" }] }).token;
   const worker = (overrides: Partial<WorkerConfig> = {}) =>
-    new KilnWorker(WorkerConfig.parse({ workerId: "build-farm", apiUrl: "http://kiln.test", apiKey: key, backend: "direct", heartbeatMs: 200, claimWaitSeconds: 1, idleOnCompleteMs: 0, logLevel: "error", ...overrides }), {
+    new KilnWorker(WorkerConfig.parse({ workerId: "build-farm", apiUrl: "http://kiln.test", apiKey: key, backend: "docker", heartbeatMs: 200, claimWaitSeconds: 1, idleOnCompleteMs: 0, logLevel: "error", ...overrides }), {
       fetch: fetchImpl,
-      provider: new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-worker-"))),
+      provider: new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-worker-"))),
       harness: () => new FakeHarness(fakeAgentScript),
     });
   return { ...t, app, fetchImpl, worker };
@@ -74,7 +74,7 @@ describe("self-hosted workers", () => {
     const running = w.start();
     for (let i = 0; i < 100 && !kiln.workers.connected().length; i++) await new Promise((r) => setTimeout(r, 20));
     const admin = new KilnClient({ baseUrl: "http://kiln.test", token: issueToken(kiln.store, { name: "a", subject: "a@acme.test", grants: [{ scope: "admin", factory: "*" }] }).token, fetch: fetchImpl });
-    expect((await admin.workers()).workers).toEqual([expect.objectContaining({ workerId: "build-farm", backend: "direct", maxConcurrent: 0 })]);
+    expect((await admin.workers()).workers).toEqual([expect.objectContaining({ workerId: "build-farm", backend: "docker", maxConcurrent: 0 })]);
     await w.stop();
     await running;
   }, 30_000);

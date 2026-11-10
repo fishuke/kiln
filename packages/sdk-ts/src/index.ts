@@ -929,7 +929,7 @@ export class KilnClient {
       "GET",
       "/api/v1/workers",
     );
-  workerConnect = (input: { workerId: string; backend: "docker" | "kubernetes" | "direct"; version?: string; maxConcurrent?: number; instance?: string }) =>
+  workerConnect = (input: { workerId: string; backend: "docker" | "kubernetes"; version?: string; maxConcurrent?: number; instance?: string }) =>
     this.request<WorkerRecord>("POST", "/api/v1/workers/connect", input);
   workerHeartbeat = (instance: string) => this.request<WorkerControl>("POST", `/api/v1/workers/${instance}/heartbeat`);
   workerClaim = (instance: string, waitSeconds = 25) =>

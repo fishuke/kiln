@@ -658,7 +658,7 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
       decisions: { primary: kiln.decide.primary.name, fallback: kiln.decide.fallback?.name ?? "none" },
       judge: kiln.judge.name,
       sandboxes: Object.keys(kiln.sandboxes),
-      defaultBackend: kiln.options.defaultBackend ?? "local",
+      defaultBackend: kiln.options.defaultBackend ?? "docker",
       agents: kiln.options.harness ? "scripted" : "harness CLIs",
       publicUrl: kiln.options.publicUrl,
     }),

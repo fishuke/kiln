@@ -49,7 +49,7 @@ Factory (needs KILN_URL and KILN_TOKEN)
   kiln token create --name <n> --subject <email> --grants read:*,send:webapp
 
 Self-hosted worker (connects out to KILN_URL with a token that has the worker scope)
-  kiln worker --worker-id <id> [--api-key <key>] [--backend docker|kubernetes|direct]
+  kiln worker --worker-id <id> [--api-key <key>] [--backend docker|kubernetes]
               [--max-concurrent-tasks N] [--one-shot] [--idle-on-complete 45m]
               [-v HOST:CONTAINER[:ro]]… [-e KEY[=VALUE]]… [--config-file worker.yaml]
               [--no-cleanup] [--metrics-port 9464] [--log-level info]
@@ -352,7 +352,6 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
           ...(str("metrics-port") ? { metricsPort: Number(str("metrics-port")) } : {}),
           ...(str("log-level") ? { logLevel: str("log-level") } : {}),
         });
-        if (cfg.oneShot && cfg.backend !== "direct") throw new Error("--one-shot works with --backend direct");
         const worker = new KilnWorker(cfg, { client: io.client, log: (l, m) => io.err(`[kiln-worker] ${l} ${m}`) });
         const stop = () => void worker.stop();
         process.once("SIGINT", stop);

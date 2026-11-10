@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
 import { formatPrometheus, startWorkerJob, type JobHandle, type WorkerControl, type WorkerEvent, type WorkerJob } from "@kiln/engine";
 import { adapterFor, type HarnessAdapter } from "@kiln/harness";
-import { DockerSandboxProvider, KubernetesSandboxProvider, LocalSandboxProvider, type GuardVerdict, type SandboxProvider } from "@kiln/sandbox";
+import { DockerSandboxProvider, KubernetesSandboxProvider, type GuardVerdict, type SandboxProvider } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import { KilnApiError, KilnClient } from "@kiln/sdk-ts";
 import { parse } from "yaml";
@@ -15,7 +15,9 @@ export const WorkerConfig = z.object({
   workerId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/, "use letters, digits, dots, dashes and underscores"),
   apiUrl: z.string().url(),
   apiKey: z.string().min(1),
-  backend: z.enum(["docker", "kubernetes", "direct"]).default("docker"),
+  backend: z
+    .enum(["docker", "kubernetes"], { message: "use docker or kubernetes; the direct backend was removed, a worker runs every agent in a sandbox (ADR-017)" })
+    .default("docker"),
   maxConcurrentTasks: z.number().int().min(0).default(0),
   oneShot: z.boolean().default(false),
   /** How long a one-shot worker stays up after its run, in ms. */
@@ -24,7 +26,6 @@ export const WorkerConfig = z.object({
   env: z.record(z.string(), z.string()).default({}),
   cleanup: z.boolean().default(true),
   namespace: z.string().default("kiln-sandboxes"),
-  workspaceRoot: z.string().optional(),
   imagePullPolicy: z.enum(["Always", "IfNotPresent", "Never"]).default("IfNotPresent"),
   metricsPort: z.number().int().min(0).max(65535).optional(),
   heartbeatMs: z.number().int().min(100).default(10_000),
@@ -57,7 +58,6 @@ export function readConfigFile(path: string): Partial<WorkerConfig> {
     cleanup: raw.cleanup,
     volumes: backendCfg.volumes,
     namespace: backendCfg.namespace,
-    workspaceRoot: backendCfg.workspace_root,
     imagePullPolicy: backendCfg.image_pull_policy,
     env: env.length ? Object.fromEntries(env.map((e) => [e.name, e.value ?? process.env[e.name] ?? ""])) : undefined,
     metricsPort: raw.metrics_port,
@@ -68,15 +68,14 @@ export function readConfigFile(path: string): Partial<WorkerConfig> {
 
 export function providerFor(cfg: WorkerConfig): SandboxProvider {
   if (cfg.backend === "kubernetes") return new KubernetesSandboxProvider(undefined, cfg.namespace);
-  if (cfg.backend === "docker") return new DockerSandboxProvider(undefined, { volumes: cfg.volumes, pullPolicy: cfg.imagePullPolicy, owner: `worker:${cfg.workerId}` });
-  return new LocalSandboxProvider(cfg.workspaceRoot);
+  return new DockerSandboxProvider(undefined, { volumes: cfg.volumes, pullPolicy: cfg.imagePullPolicy, owner: `worker:${cfg.workerId}` });
 }
 
 type Active = { job: WorkerJob; handle: JobHandle; started: number; buffer: WorkerEvent[]; flushing?: Promise<void> };
 
 /**
  * `kiln worker`: connects outbound to the Kiln API, heartbeats, long-polls for runs routed to
- * its worker id, runs them with the local sandbox backend and streams events back. No inbound
+ * its worker id, runs each in a sandbox of its own backend and streams events back. No inbound
  * ports are needed.
  */
 export class KilnWorker {
@@ -162,7 +161,7 @@ export class KilnWorker {
     return async (command: string, cwd?: string): Promise<GuardVerdict> => {
       try {
         const r = await runClient.request<{ verdict: GuardVerdict }>("POST", "/api/v1/guard", { command, cwd });
-        // The API settles ask_human for this worker's backend (ADR-016); anything else is blocked.
+        // The API settles the verdict (ADR-016, ADR-017); anything but allow is blocked.
         return r.verdict === "allow" ? "allow" : "block";
       } catch (err) {
         this.log("warn", `guard unreachable, blocking ${command}: ${err instanceof Error ? err.message : String(err)}`);

@@ -32,7 +32,7 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 
 - [Architecture and security](infrastructure/architecture-and-security.md): The services that make up Kiln, where definitions and runtime state live, and the controls that keep agents from merging, leaking or escaping.
 - [Harnesses](infrastructure/harnesses.md): How Kiln runs Claude Code, Codex and OpenCode inside sandboxes, what each run receives, how agents report results, and how to steer a running agent.
-- [Sandboxes](infrastructure/sandboxes.md): Where agent runs execute, on a local directory, a Docker container or a Kubernetes pod under gVisor, with an egress allowlist and pause and resume.
+- [Sandboxes](infrastructure/sandboxes.md): Where agent runs execute, in a Docker container or a Kubernetes pod under gVisor, never on the host, with an egress allowlist and pause and resume.
 - [Self-hosted workers](infrastructure/self-hosted-workers.md): Run agents on your own machines with kiln worker, route agents to them with workerHost, and monitor them with Prometheus.
 - [Self-hosting](infrastructure/self-hosting.md): Run Kiln on your own infrastructure, what it needs, how to connect integrations and sandboxes, and where to look when something goes wrong.
 

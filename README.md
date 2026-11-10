@@ -3,7 +3,7 @@
 Open source, self-hosted software factories. A team of coding agents turns issues, Slack threads and tracker tickets into reviewed pull requests, and people approve the spec, accept the preview and merge.
 
 - **Bring your own keys.** Claude Code runs on your Claude subscription (`claude setup-token`) or an API key; Codex and OpenCode run on your OpenAI, Anthropic or OpenRouter keys.
-- **Self-hosted.** One process and a data folder to start; Docker Compose or Helm (gVisor sandboxes) for teams.
+- **Self-hosted.** One process, a data folder and Docker to start; Docker Compose or Helm (gVisor sandboxes) for teams.
 - **Factories as code.** A tree of `factory.yaml`, `agents/`, `automations/`, `scorers/`, `skills/` … stored in a GitHub repo you own. Merges apply automatically; v1alpha1 trees import as they are.
 - **People stay in charge.** Agents push only `kiln/*` branches with short-lived tokens and can never approve or merge.
 
@@ -16,7 +16,7 @@ pnpm install
 pnpm dev                 # API on :4000 (with demo data), web app on :3000
 ```
 
-Open http://localhost:3000. Out of the box everything is local: a git-backed forge, an in-process tracker and chat, and scripted agents, so you can see the whole lifecycle without accounts. To use real models, set `KILN_AGENTS=real` and one of `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`. See [Self-hosting](docs/site/infrastructure/self-hosting.md) for Docker Compose, Helm and connecting GitHub, Slack, Linear and Jira.
+Open http://localhost:3000. Docker must be running: every agent run starts in a Docker sandbox. Out of the box everything else is local: a git-backed forge, an in-process tracker and chat, and scripted agents, so you can see the whole lifecycle without accounts. To use real models, set `KILN_AGENTS=real` and one of `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`. See [Self-hosting](docs/site/infrastructure/self-hosting.md) for Docker Compose, Helm and connecting GitHub, Slack, Linear and Jira.
 
 ```bash
 pnpm kiln init my-factory --template sdlc    # or single-repo, po-feature, incident

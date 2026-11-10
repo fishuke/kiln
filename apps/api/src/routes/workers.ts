@@ -7,7 +7,7 @@ import type { Route } from "../openapi";
 
 export const Connect = z.object({
   workerId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
-  backend: z.enum(["docker", "kubernetes", "direct"]),
+  backend: z.enum(["docker", "kubernetes"], { message: "backend must be docker or kubernetes; a worker no longer runs agents directly on its host (ADR-017)" }),
   version: z.string().optional(),
   maxConcurrent: z.number().int().min(0).max(1000).default(0),
   instance: z.string().regex(/^wkr_[a-z0-9]+$/).optional(),

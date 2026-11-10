@@ -14,13 +14,14 @@ import {
   hashDir,
   kubernetesManifests,
   KubernetesSandboxProvider,
-  LocalSandboxProvider,
+  SandboxUnavailable,
   SandboxNotReachable,
   settleVerdict,
   withGuard,
   type SandboxSpec,
   type SnapshotRef,
 } from "./index";
+import { FakeSandboxProvider } from "./testing";
 
 function gitRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), "kiln-origin-"));
@@ -34,11 +35,11 @@ function gitRepo(): string {
   return dir;
 }
 
-const runner = { image: "node:22", backend: "local" as const, setupCommands: ["echo ready > .setup-done"], egress: [] };
+const runner = { image: "node:22", backend: "docker" as const, setupCommands: ["echo ready > .setup-done"], egress: [] };
 
-describe("local sandbox", () => {
+describe("the fake sandbox (tests only)", () => {
   it("clones repos, runs setup, starts fast and tears down", async () => {
-    const provider = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-a-")));
+    const provider = new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-a-")));
     const sbx = await provider.create({ runner, repos: [{ name: "app", url: gitRepo(), branch: "kiln/test" }] });
     expect(sbx.startedInMs).toBeLessThan(15_000);
     expect(await sbx.readFile("app/README.md")).toBe("hello\n");
@@ -51,7 +52,7 @@ describe("local sandbox", () => {
   });
 
   it("runs setup in each repository, then workspace-wide setup once at the root", async () => {
-    const provider = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-a-")));
+    const provider = new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-a-")));
     const sbx = await provider.create({
       runner: { ...runner, setupCommands: ["pwd > .where"], workspaceSetupCommands: ["ls -d */ >> .ws"] },
       repos: [
@@ -68,7 +69,7 @@ describe("local sandbox", () => {
   it("sweeps work directories a restart or a failed setup left behind, never a live one", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-node-sweep-"));
     mkdirSync(join(root, "sbx_old-abc"));
-    const provider = new LocalSandboxProvider(root);
+    const provider = new FakeSandboxProvider(root);
     const live = await provider.create({ runner, repos: [{ name: "app", url: gitRepo() }] });
     await expect(provider.create({ runner: { ...runner, setupCommands: ["exit 3"] }, repos: [] })).rejects.toThrow();
     const listed = await provider.list();
@@ -90,25 +91,46 @@ describe("local sandbox", () => {
         return cmd.includes("rm -rf") ? "block" : cmd.includes("push") ? "ask_human" : "allow";
       },
     };
-    const sbx = await new LocalSandboxProvider().create(spec);
+    const sbx = await new FakeSandboxProvider().create(spec);
     expect((await sbx.exec("echo ok")).stdout).toBe("ok\n");
     await expect(sbx.exec("rm -rf /")).rejects.toBeInstanceOf(CommandBlocked);
-    // On the host nobody is asked: a risky command is blocked, and the agent is told why.
-    await expect(sbx.exec("git push")).rejects.toThrow(/runs on the host, outside a sandbox.*another way inside your workspace/);
-    expect(seen).toEqual(["echo ok", "rm -rf /", "git push"]);
+    // Nobody is asked and there is no host path (ADR-017): a risky command runs like an allowed one.
+    expect((await sbx.exec("echo git push")).stdout).toBe("git push\n");
+    expect(seen).toEqual(["echo ok", "rm -rf /", "echo git push"]);
     await sbx.destroy();
   });
 
-  it("settles a verdict without asking anyone: ask_human runs in an isolated sandbox and is blocked on the host", () => {
-    expect(["docker", "kubernetes", "local", "direct", undefined].map((b) => settleVerdict("ask_human", b))).toEqual(["allow", "allow", "block", "block", "block"]);
-    expect(["docker", "local"].map((b) => settleVerdict("block", b))).toEqual(["block", "block"]);
-    expect(settleVerdict("allow", "local")).toBe("allow");
+  it("settles a verdict without asking anyone and without a backend: only block stops a command", () => {
+    expect((["allow", "ask_human", "block"] as const).map((v) => settleVerdict(v))).toEqual(["allow", "allow", "block"]);
+  });
+
+  it("mounts local-mode repositories (directories on this machine) so a Docker sandbox can clone and push them", async () => {
+    const fake = new FakeCommandRunner();
+    const repo = "/data/forge/acme/web.git";
+    await new DockerSandboxProvider(fake).create({ runner: { ...runner, setupCommands: [] }, repos: [{ name: "web", url: repo }, { name: "docs", url: "https://example.test/acme/docs.git" }] });
+    const run = fake.calls.find((c) => c.args[0] === "run")!.args;
+    expect(run.filter((_a, i) => run[i - 1] === "-v")).toEqual([`${repo}:${repo}`]);
+    expect(fake.calls.some((c) => c.args.join(" ").endsWith(`git config --global --add safe.directory ${repo}`))).toBe(true);
+  });
+
+  it("says Docker is needed when the daemon is not running or docker is not installed, and never starts a container", async () => {
+    const down = "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?";
+    for (const stderr of [down, "spawn docker ENOENT"]) {
+      const fake = new FakeCommandRunner(() => ({ code: stderr === down ? 1 : 127, stdout: "", stderr }));
+      const err = await new DockerSandboxProvider(fake).create({ runner, repos: [] }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SandboxUnavailable);
+      expect((err as Error).message).toMatch(/^Kiln needs Docker running to start a sandbox: .+ Start Docker on this machine/);
+      expect(fake.calls.some((c) => c.args[0] === "run")).toBe(false);
+    }
+    // Any other docker failure keeps its own message.
+    const missing = new FakeCommandRunner((_c, args) => (args[0] === "pull" ? { code: 1, stdout: "", stderr: "manifest unknown" } : { code: 1, stdout: "", stderr: "No such image" }));
+    await expect(new DockerSandboxProvider(missing).create({ runner, repos: [] })).rejects.toThrow(/docker pull .* failed: manifest unknown/);
   });
 
   it("pauses to object storage and resumes on another node with the same workspace", async () => {
     const store = new MemoryObjectStore();
-    const nodeA = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-a-")));
-    const nodeB = new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-b-")));
+    const nodeA = new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-a-")));
+    const nodeB = new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-b-")));
     const spec = { runner, repos: [{ name: "app", url: gitRepo() }] };
     const a = await nodeA.create(spec);
     await a.writeFile("app/src/work-in-progress.ts", "export const wip = true;\n");
@@ -261,7 +283,7 @@ describe("docker sandbox", () => {
 
 describe("a guarded view of a sandbox", () => {
   it("runs another owner's guard on agent commands, and lets trusted ones through", async () => {
-    const sbx = await new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-g-"))).create({ runner, repos: [] });
+    const sbx = await new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-g-"))).create({ runner, repos: [] });
     const seen: string[] = [];
     const view = withGuard(
       sbx,
@@ -269,12 +291,10 @@ describe("a guarded view of a sandbox", () => {
     );
     expect((await view.exec("echo ok")).stdout).toBe("ok\n");
     await expect(view.exec("rm -rf /")).rejects.toBeInstanceOf(CommandBlocked);
-    await expect(view.exec("git push")).rejects.toThrow("outside a sandbox");
-    // The same guard over an isolated sandbox lets the risky command run.
-    const isolated = withGuard(Object.assign(Object.create(sbx) as typeof sbx, { provider: "docker" }), async () => "ask_human");
-    expect((await isolated.exec("echo pushed")).stdout).toBe("pushed\n");
+    // A risky command runs: every sandbox is isolated (ADR-017).
+    expect((await view.exec("echo git push")).stdout).toBe("git push\n");
     expect((await view.exec("echo setup", { trusted: true })).stdout).toBe("setup\n");
-    expect(seen).toEqual(["echo ok", "rm -rf /", "git push"]);
+    expect(seen).toEqual(["echo ok", "rm -rf /", "echo git push"]);
     expect(view.workdir).toBe(sbx.workdir);
     await sbx.destroy();
   });
@@ -287,7 +307,7 @@ describe("exposing a port", () => {
   };
 
   it("serves a local sandbox's port on the loopback address", async () => {
-    const sbx = await new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-x-"))).create({ runner, repos: [] });
+    const sbx = await new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-x-"))).create({ runner, repos: [] });
     expect(await sbx.expose!(4101)).toEqual({ host: "127.0.0.1", port: 4101 });
     await sbx.destroy();
   });
@@ -308,7 +328,7 @@ describe("exposing a port", () => {
   });
 
   it("refuses ports outside 1–65535", async () => {
-    const sbx = await new LocalSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-x-"))).create({ runner, repos: [] });
+    const sbx = await new FakeSandboxProvider(mkdtempSync(join(tmpdir(), "kiln-node-x-"))).create({ runner, repos: [] });
     await expect(sbx.expose!(0)).rejects.toThrow(/port/);
     await sbx.destroy();
   });

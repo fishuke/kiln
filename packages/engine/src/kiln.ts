@@ -24,7 +24,7 @@ import { ReviewService } from "./reviews";
 import { IntegrationHub, type IntegrationAdapters } from "./integration-hub";
 import { WebhookSourceService } from "./webhook-sources";
 import type { AppRunHost } from "./run-definition";
-import { LocalSandboxProvider, type DockerJanitor, type Sandbox, type SandboxProvider } from "@kiln/sandbox";
+import type { DockerJanitor, Sandbox, SandboxProvider } from "@kiln/sandbox";
 import type { HarnessType } from "@kiln/schema";
 import { MemoryObjectStore, MemoryStore, type ObjectStore, type Store } from "@kiln/store";
 import { AutomationService } from "./automations";
@@ -95,7 +95,8 @@ export type KilnOptions = {
   tracker?: Tracker;
   chat?: Chat;
   preview?: PreviewProvider;
-  sandboxes?: Partial<Record<"local" | "docker" | "kubernetes", SandboxProvider>>;
+  /** The isolated sandbox backends this server has (ADR-017). There is no host backend; tests register `FakeSandboxProvider` here. */
+  sandboxes?: Partial<Record<"docker" | "kubernetes", SandboxProvider>>;
   harness?: (type: HarnessType, agentType: string) => HarnessAdapter;
   decide?: { primary: DecisionProvider; fallback?: DecisionProvider };
   /** ADR-014: the merge gate's own merge capability, from its own credential. Only MergeGateService receives it. */
@@ -110,7 +111,7 @@ export type KilnOptions = {
   roles?: Record<string, string[]>;
   /** Maps provider identities to people, e.g. { "slack:U024BE7LH": "po@acme.test", "github:alice": "alice@acme.test" }. */
   identities?: Record<string, string>;
-  defaultBackend?: "local" | "docker" | "kubernetes";
+  defaultBackend?: "docker" | "kubernetes";
   /** Image for agents without a runner (KILN_RUNNER_IMAGE); it should carry the harness CLIs. */
   defaultImage?: string;
   /**
@@ -183,7 +184,7 @@ export class Kiln {
   readonly tracker?: Tracker;
   readonly chat?: Chat;
   readonly preview?: PreviewProvider;
-  readonly sandboxes: Partial<Record<"local" | "docker" | "kubernetes", SandboxProvider>>;
+  readonly sandboxes: Partial<Record<"docker" | "kubernetes", SandboxProvider>>;
   readonly decide: { primary: DecisionProvider; fallback?: DecisionProvider };
   readonly judge: Judge;
   readonly improver: Improver;
@@ -256,7 +257,7 @@ export class Kiln {
     this.tracker = options.tracker;
     this.chat = options.chat;
     this.preview = options.preview;
-    this.sandboxes = { local: new LocalSandboxProvider(), ...options.sandboxes };
+    this.sandboxes = { ...options.sandboxes };
     this.decide = options.decide ?? { primary: new FakeProvider(), fallback: new FakeProvider() };
     this.judge = options.judge ?? new DecisionJudge(this.decide.primary);
     this.improver = options.improver ?? new RuleImprover();

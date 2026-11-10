@@ -19,11 +19,11 @@ describe("kiln worker configuration", () => {
     expect(WorkerConfig.safeParse({ workerId: "bad id!", apiUrl: "http://x", apiKey: "k" }).success).toBe(false);
   });
 
-  it("kiln worker refuses --one-shot without the direct backend", async () => {
+  it("kiln worker refuses the removed direct backend: a worker runs every agent in a sandbox", async () => {
     const err: string[] = [];
-    const code = await runCli(["worker", "--worker-id", "farm", "--api-key", "k", "--one-shot", "--backend", "docker"], { out: () => {}, err: (s) => err.push(s), cwd: tmpdir(), env: {} });
+    const code = await runCli(["worker", "--worker-id", "farm", "--api-key", "k", "--backend", "direct"], { out: () => {}, err: (s) => err.push(s), cwd: tmpdir(), env: {} });
     expect(code).toBe(1);
-    expect(err.join("\n")).toContain("--one-shot works with --backend direct");
+    expect(err.join("\n")).toContain("use docker or kubernetes; the direct backend was removed");
   });
 
   it("kiln files validate prints the server's diagnostics", async () => {

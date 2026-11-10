@@ -16,7 +16,7 @@ Every run records:
 - the prompt and the full instructions the agent received,
 - the skills it received,
 - for each repository, the branch and the exact commit it started at,
-- for local sandboxes, a hash of the starting workspace.
+- in tests (the in-process test sandbox), a hash of the starting workspace.
 
 This is the run's start state.
 

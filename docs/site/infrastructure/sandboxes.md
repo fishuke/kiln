@@ -1,11 +1,11 @@
 ---
 title: Sandboxes
-description: Where agent runs execute, on a local directory, a Docker container or a Kubernetes pod under gVisor, with an egress allowlist and pause and resume.
+description: Where agent runs execute, in a Docker container or a Kubernetes pod under gVisor, never on the host, with an egress allowlist and pause and resume.
 owner: docs
 section: Infrastructure
 ---
 
-Every agent run gets a fresh sandbox built from its runner file, and Kiln destroys the sandbox when the run ends.
+Every agent run gets a fresh sandbox built from its runner file, and Kiln destroys the sandbox when the run ends. A sandbox is always isolated: a Docker container or a Kubernetes pod. Kiln never runs an agent on the host (ADR-017).
 
 ## Runner files
 
@@ -25,20 +25,29 @@ egress:
 | Key                                           | Default             | Notes                                                                                                                                                                                                                                                   |
 | --------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `image`                                       | Kiln's runner image | The container image. Docker pulls it if it is not cached. Without one, runs use the server's runner image (`KILN_RUNNER_IMAGE`), which has the agent CLIs. An image you name must have the harness CLI (`claude`, `codex` or `opencode`) on its `PATH`. |
-| `backend`                                     | `docker`            | `docker`, `kubernetes` or `local`.                                                                                                                                                                                                                      |
+| `backend`                                     | `docker`            | `docker` or `kubernetes`. The server must have that backend.                                                                                                                                                                                      |
 | `shape`                                       | none                | `vcpus` and `memoryGb`. Sets CPU and memory limits.                                                                                                                                                                                                     |
 | `setupCommands`                               | `[]`                | Run in order after the repositories are cloned, inside each repository (so `pnpm install` finds its `package.json` and the `packageManager` pin). A failing command fails the run. Kiln's runner image has a corepack that runs pnpm 11 and later.      |
 | `egress`                                      | `[]`                | Extra host names the sandbox may reach, such as package registries and your model gateway. The hosts of the repositories it clones are always allowed.                                                                                                  |
 | `platform.linux.registryCredentialSecretName` | none                | A team `docker_registry` or `aws_ecr` secret for a private image. See [Private images](../management/secrets-mcps-environments.md#private-images).                                                                                                      |
 | `description`                                 | none                |                                                                                                                                                                                                                                                         |
 
-An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses the server's runner image on the server's default backend, which is `local` unless the server sets another. A run's image is the runner's own, else its [environment](../management/secrets-mcps-environments.md)'s, else `KILN_RUNNER_IMAGE`, else `node:22-bookworm`.
+An agent picks a runner with `runner: <name>`, usually inherited from `agentDefaults`. An agent without a runner uses the server's runner image on the server's backend: `docker`, or `kubernetes` when the API runs with `KILN_SANDBOX=kubernetes`. A run's image is the runner's own, else its [environment](../management/secrets-mcps-environments.md)'s, else `KILN_RUNNER_IMAGE`, else `node:22-bookworm`.
 
 ## Backends
 
-### Local
+| Server setting | Backend | Needs |
+| --- | --- | --- |
+| `KILN_SANDBOX` unset or `docker` | Docker | Docker running on the API's host, or its socket mounted into the API container. |
+| `KILN_SANDBOX=kubernetes` | Kubernetes | A cluster the API can reach, with a `gvisor` RuntimeClass. |
 
-The workspace is a temporary directory on the Kiln host. It runs setup commands and the command guard, but it cannot enforce egress, CPU or memory limits. Use it for development and tests only.
+There is no host backend. `KILN_SANDBOX=local` stops the server at start, a runner file with `backend: local` is rejected when you apply it, and `kiln worker` has no `direct` backend.
+
+When the backend is not available, the run fails and says what is missing, for example `Kiln needs Docker running to start a sandbox: Cannot connect to the Docker daemon ...`. Kiln does not fall back to the host, and it does not move a run to another backend: a runner with `backend: kubernetes` on a Docker-only server fails with a message that names the backends the server has.
+
+A definition applied before this rule may still hold a runner with `backend: local`. It still loads, and its runs and work items still list. A new run on that runner fails with a message that says to set `backend: docker` or `kubernetes` and apply again.
+
+In local mode (no forge connected, as with `pnpm dev`), the repositories are directories on the Kiln host. The Docker backend mounts each one into the sandbox at the same path so the agent can clone it and push back. This needs the API to run on the Docker host itself.
 
 ### Docker
 
@@ -88,7 +97,7 @@ Commands the agent runs through the sandbox's command API pass the [command guar
 
 A sandbox is removed when its run ends, and also when cloning or setup fails. Sandboxes a restart cut off (a deploy or a crash during a run) are removed when the server starts, and a sweep every 10 minutes removes any that a failed clean-up left behind.
 
-The sweep only removes sandboxes the server itself made: Docker containers labeled `kiln.sandbox=1` with `kiln.owner=kiln` (or no owner, for containers from older versions), and work directories under the local backend's root. A `kiln worker` labels its containers `kiln.owner=worker:<worker id>`, so the server leaves them alone on a shared host. A paused run resumes from its snapshot in object storage, so removing its container after a restart loses nothing.
+The sweep only removes sandboxes the server itself made: Docker containers labeled `kiln.sandbox=1` with `kiln.owner=kiln` (or no owner, for containers from older versions). A `kiln worker` labels its containers `kiln.owner=worker:<worker id>`, so the server leaves them alone on a shared host. A paused run resumes from its snapshot in object storage, so removing its container after a restart loses nothing.
 
 On a Docker host, images and build cache from earlier deploys also take space. Prune them from time to time:
 

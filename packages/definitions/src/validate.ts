@@ -8,7 +8,8 @@ export type ValidationResult =
   | { ok: false; errors: DefinitionError[]; parsed: ParsedFactory; warnings: DefinitionError[] };
 
 /** Parse, check cross-references and resolve a tree. Errors carry file and line. */
-export function validateTree(tree: DefinitionTree): ValidationResult {
+/** `stored`: the tree was applied earlier; values Kiln has since removed (a runner's `backend: local`) still load. */
+export function validateTree(tree: DefinitionTree, opts: { stored?: boolean } = {}): ValidationResult {
   const parsed = parseTree(tree);
   const errors = [...parsed.errors];
   const err = (key: string, path: (string | number)[], code: string, message: string) => {
@@ -22,6 +23,13 @@ export function validateTree(tree: DefinitionTree): ValidationResult {
   const routers = new Set(Object.keys(parsed.routers));
   const gates = new Set(Object.keys(parsed.gates));
   const skills = new Set(Object.keys(parsed.skills));
+
+  // ADR-017: agents run in Docker or Kubernetes sandboxes only.
+  for (const [name, runner] of Object.entries(parsed.runners)) {
+    if (runner.backend === "local" && !opts.stored) {
+      err(`runner/${name}`, ["backend"], "removed", "backend: local is no longer supported: Kiln runs agents in isolated sandboxes only. Use backend: docker (the default) or kubernetes");
+    }
+  }
 
   const checkExecution = (key: string, exec: { harness?: unknown; model?: unknown; runner?: unknown }) => {
     if (exec.harness && exec.model) {

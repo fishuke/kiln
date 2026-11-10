@@ -106,6 +106,8 @@ export type KilnOptions = {
   planner?: Planner;
   /** Where agents reach the API (guard hook, MCP). */
   publicUrl?: string;
+  /** Where sandboxes reach this API (the guard, the Kiln MCP server, KILN_URL) when that differs from `publicUrl`, such as a localhost API with Docker sandboxes. */
+  sandboxUrl?: string;
   /** Where people open links (inbox, runs). */
   webUrl?: string;
   roles?: Record<string, string[]>;

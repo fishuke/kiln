@@ -16,7 +16,7 @@ pnpm install
 pnpm dev                 # API on :4000 (with demo data), web app on :3000
 ```
 
-Open http://localhost:3000. Docker must be running: every agent run starts in a Docker sandbox. Out of the box everything else is local: a git-backed forge, an in-process tracker and chat, and scripted agents, so you can see the whole lifecycle without accounts. To use real models, set `KILN_AGENTS=real` and one of `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`. See [Self-hosting](docs/site/infrastructure/self-hosting.md) for Docker Compose, Helm and connecting GitHub, Slack, Linear and Jira.
+Open http://localhost:3000. Docker must be running: every agent run starts in a Docker sandbox, and `pnpm dev` starts the sandbox egress proxy for you (`docker compose up -d --build egress-proxy`). Out of the box everything else is local: a git-backed forge, an in-process tracker and chat, and scripted agents, so you can see the whole lifecycle without accounts. To use real models, set `KILN_AGENTS=real` and one of `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`. See [Self-hosting](docs/site/infrastructure/self-hosting.md) for Docker Compose, Helm and connecting GitHub, Slack, Linear and Jira.
 
 ```bash
 pnpm kiln init my-factory --template sdlc    # or single-repo, po-feature, incident

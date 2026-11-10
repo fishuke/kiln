@@ -70,6 +70,18 @@ export function sandboxBackend(value: string | undefined): "docker" | "kubernete
   );
 }
 
+/**
+ * Where sandboxes reach this API. KILN_SANDBOX_URL when set; else the public URL, except that a localhost
+ * URL means the API itself inside a Docker sandbox, so there it becomes host.docker.internal (the Docker host).
+ */
+export function sandboxUrl(env: { KILN_SANDBOX_URL?: string }, publicUrl: string, backend: "docker" | "kubernetes"): string {
+  if (env.KILN_SANDBOX_URL) return env.KILN_SANDBOX_URL;
+  const url = new URL(publicUrl);
+  if (backend !== "docker" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) return publicUrl;
+  url.hostname = "host.docker.internal";
+  return url.toString().replace(/\/$/, "");
+}
+
 export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const dataDir = resolve(env.KILN_DATA_DIR ?? ".data");
   mkdirSync(dataDir, { recursive: true });
@@ -142,6 +154,7 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     browserMcp: { command: "playwright-mcp" },
     ...(env.KILN_COMPUTER_USE === "0" ? { browserMcp: false as const } : {}),
     publicUrl,
+    sandboxUrl: sandboxUrl(env, publicUrl, backend),
     webUrl: env.KILN_WEB_URL ?? "http://localhost:3000",
     roles: parseRoles(env.KILN_ROLES ?? "po=po@kiln.local;code-owners=lead@kiln.local;admins=admin@kiln.local"),
     secretKey: env.KILN_SECRET_KEY,

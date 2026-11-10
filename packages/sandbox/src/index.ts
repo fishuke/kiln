@@ -248,6 +248,25 @@ export function egressAllowlist(spec: SandboxSpec): string[] {
   return [...new Set([...spec.runner.egress, ...hosts])].filter((h) => !denied.has(h));
 }
 
+/**
+ * What the egress proxy gets for one sandbox (ADR-018): the hosts it may reach besides the server's list, and
+ * the hosts it may never reach. Only literal host names and addresses pass (a leading dot covers subdomains).
+ */
+export function egressRule(spec: SandboxSpec): { allow: string[]; deny: string[] } {
+  const hosts = (list: string[]) => [...new Set(list.map((h) => h.trim().toLowerCase()))].filter((h) => /^\.?[a-z0-9]([a-z0-9.:-]*[a-z0-9])?$/.test(h));
+  return { allow: hosts(egressAllowlist(spec)), deny: hosts(spec.deniedHosts ?? []) };
+}
+
+/** "<network>=<address>" for every network a container is on. */
+const NETWORK_ADDRESSES = "{{range $name, $net := .NetworkSettings.Networks}}{{$name}}={{$net.IPAddress}} {{end}}";
+function networkAddresses(stdout: string): [string, string][] {
+  return stdout
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => (p.includes("=") ? (p.split("=") as [string, string]) : ["", p]));
+}
+
 /** Docker CLI arguments for a runner: resources, egress and labels. Exported for tests and docs. */
 /** Where sandboxes with an allowlist reach the network: an internal Docker network and the proxy on it. */
 export type EgressRoute = { network: string; proxy: string };
@@ -267,7 +286,8 @@ export function dockerRunArgs(name: string, spec: SandboxSpec, egress: EgressRou
   if (allow.length === 0) args.push("--network", spec.preview && previewNetwork ? previewNetwork : "none");
   else {
     args.push("--network", egress.network);
-    args.push("-e", `HTTPS_PROXY=${egress.proxy}`, "-e", `HTTP_PROXY=${egress.proxy}`);
+    // Both spellings: curl and git only read the lower-case http_proxy for plain http, as for a localhost Kiln API.
+    for (const name of ["HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"]) args.push("-e", `${name}=${egress.proxy}`);
     // Node's fetch (corepack's pnpm download, too) ignores HTTPS_PROXY without this.
     args.push("-e", "NODE_USE_ENV_PROXY=1");
     args.push("-e", `KILN_EGRESS_ALLOW=${allow.join(",")}`);
@@ -319,6 +339,31 @@ export class DockerSandboxProvider implements SandboxProvider {
     if (network && egressAllowlist(spec).length) await this.must(["network", "connect", network, name]);
   }
 
+  private get egress() {
+    return this.options.egress ?? DEFAULT_EGRESS;
+  }
+
+  /** The egress proxy's container, for a sandbox that reaches the network. Asked before the sandbox starts, so a missing proxy is one clear error. */
+  private async egressProxy(spec: SandboxSpec): Promise<string | undefined> {
+    if (!egressAllowlist(spec).length) return undefined;
+    const r = await this.runner.run("docker", ["ps", "-q", "--filter", "label=kiln.egress-proxy=1", "--filter", `network=${this.egress.network}`]);
+    if (dockerIsDown(r)) throw new SandboxUnavailable("docker", r.stderr);
+    const id = r.stdout.trim().split("\n")[0];
+    if (!id) throw new Error(`the sandbox egress proxy is not running on the Docker network ${this.egress.network}. Start it with: docker compose up -d egress-proxy`);
+    return id;
+  }
+
+  /** Tells the proxy what this sandbox may reach (ADR-018), by its address on the egress network, before anything runs in it. */
+  private async openEgress(proxy: string | undefined, sandbox: DockerSandbox, spec: SandboxSpec) {
+    if (!proxy) return;
+    const r = await this.must(["inspect", "-f", NETWORK_ADDRESSES, sandbox.container]);
+    const address = networkAddresses(r.stdout).find(([net]) => net === this.egress.network)?.[1];
+    if (!address) throw new Error(`docker inspect failed: ${sandbox.container} has no address on the network ${this.egress.network}`);
+    const rule = egressRule(spec);
+    await this.must(["exec", proxy, "kiln-egress-rule", "set", address, rule.allow.join(","), rule.deny.join(",")]);
+    sandbox.egressRule = { proxy, address };
+  }
+
   /** Pull, with a private registry login in a temporary DOCKER_CONFIG that is removed right after. */
   private async pull(spec: SandboxSpec) {
     if (!spec.registryAuth) return void (await this.must(["pull", spec.runner.image]));
@@ -348,9 +393,11 @@ export class DockerSandboxProvider implements SandboxProvider {
     // at the same path so the sandbox can clone them and push back. Needs the API on the Docker host itself (`pnpm dev`).
     const localRepos = spec.repos.filter((r) => r.url.startsWith("/"));
     for (const r of localRepos) args.splice(args.indexOf(spec.runner.image), 0, "-v", `${r.url}:${r.url}`);
+    const proxy = await this.egressProxy(spec);
     const sandbox = this.track(new DockerSandbox(id, name, spec, this.runner, this.options));
     try {
       await this.must(args);
+      await this.openEgress(proxy, sandbox, spec);
       await this.joinPreview(name, spec);
       for (const r of localRepos) await this.must(["exec", name, "git", "config", "--global", "--add", "safe.directory", r.url]);
       for (const repo of spec.repos) {
@@ -439,9 +486,11 @@ export class DockerSandboxProvider implements SandboxProvider {
     const host = mkdtempSync(join(this.options.hostTmp ?? tmpdir(), "kiln-resume-"));
     const archive = join(host, "snap.tgz");
     writeFileSync(archive, body);
+    const proxy = await this.egressProxy(spec);
     const sandbox = this.track(new DockerSandbox(id, name, spec, this.runner, this.options));
     try {
       await this.must(dockerRunArgs(name, spec, this.options.egress, this.owner, this.previewNetwork(spec)));
+      await this.openEgress(proxy, sandbox, spec);
       await this.joinPreview(name, spec);
       await this.must(["cp", archive, `${name}:/tmp/snap.tgz`]);
       await this.must(["exec", name, "tar", "-xzf", "/tmp/snap.tgz", "-C", "/workspace"]);
@@ -461,6 +510,8 @@ class DockerSandbox implements Sandbox {
   readonly workdir = "/workspace";
   startedInMs = 0;
   onDestroy?: () => void;
+  /** This sandbox's rule in the egress proxy; removed with the sandbox. */
+  egressRule?: { proxy: string; address: string };
 
   constructor(
     readonly id: string,
@@ -547,25 +598,18 @@ class DockerSandbox implements Sandbox {
   async destroy() {
     // Forget it first: if removal fails, the next sweep retries it.
     this.onDestroy?.();
+    // The address goes back to Docker with the container: its rule must not outlive it.
+    if (this.egressRule) await this.runner.run("docker", ["exec", this.egressRule.proxy, "kiln-egress-rule", "drop", this.egressRule.address]);
     await this.runner.run("docker", ["rm", "-f", "-v", this.container]);
   }
 
   /** The container's address on its network; the API must share that network to reach it. */
   async expose(port: number): Promise<SandboxAddress> {
     checkPort(port);
-    const r = await this.runner.run("docker", [
-      "inspect",
-      "-f",
-      "{{range $name, $net := .NetworkSettings.Networks}}{{$name}}={{$net.IPAddress}} {{end}}",
-      this.container,
-    ]);
+    const r = await this.runner.run("docker", ["inspect", "-f", NETWORK_ADDRESSES, this.container]);
     if (r.code !== 0) throw new SandboxNotReachable(this.id, r.stderr.trim() || "docker inspect failed");
     // "<network>=<ip>" pairs; with a preview network, only the address on it counts.
-    const pairs = r.stdout
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((p) => (p.includes("=") ? (p.split("=") as [string, string]) : ["", p]));
+    const pairs = networkAddresses(r.stdout);
     const want = this.spec.preview ? this.options.previewNetwork : undefined;
     const host = pairs.find(([net, ip]) => ip && (!want || net === want))?.[1];
     if (!host && want) throw new SandboxNotReachable(this.id, `the container is not on the preview network ${want}`);

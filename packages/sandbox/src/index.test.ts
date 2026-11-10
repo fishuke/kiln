@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   CommandBlocked,
   dockerRunArgs,
+  egressRule,
   DockerSandboxProvider,
   FakeCommandRunner,
   NodeCommandRunner,
@@ -105,7 +106,7 @@ describe("the fake sandbox (tests only)", () => {
   });
 
   it("mounts local-mode repositories (directories on this machine) so a Docker sandbox can clone and push them", async () => {
-    const fake = new FakeCommandRunner();
+    const fake = new FakeCommandRunner(docker);
     const repo = "/data/forge/acme/web.git";
     await new DockerSandboxProvider(fake).create({ runner: { ...runner, setupCommands: [] }, repos: [{ name: "web", url: repo }, { name: "docs", url: "https://example.test/acme/docs.git" }] });
     const run = fake.calls.find((c) => c.args[0] === "run")!.args;
@@ -144,6 +145,13 @@ describe("the fake sandbox (tests only)", () => {
   });
 });
 
+/** A Docker host with the egress proxy running: `docker ps` finds it and a sandbox has an address on kiln-egress. */
+const docker = (_cmd: string, args: string[]) => ({
+  code: 0,
+  stdout: args[0] === "ps" && args.includes("label=kiln.egress-proxy=1") ? "proxy1\n" : args[0] === "inspect" && args[1] === "-f" ? "kiln-egress=172.18.0.7 \n" : "",
+  stderr: "",
+});
+
 describe("docker sandbox", () => {
   const spec: SandboxSpec = {
     runner: { image: "node:22", backend: "docker", shape: { vcpus: 2, memoryGb: 4 }, setupCommands: ["corepack enable"], egress: ["registry.npmjs.org"] },
@@ -162,6 +170,33 @@ describe("docker sandbox", () => {
     expect(custom).toEqual(expect.arrayContaining(["--network", "coolify-egress", "HTTPS_PROXY=http://egress:3128"]));
   });
 
+  it("gives the egress proxy this sandbox's own rule before cloning, and removes it with the sandbox (ADR-018)", async () => {
+    const fake = new FakeCommandRunner(docker);
+    const sbx = await new DockerSandboxProvider(fake).create({ ...spec, deniedHosts: ["evil.test"] });
+    const verbs = fake.calls.map((c) => c.args.slice(0, 2).join(" "));
+    expect(fake.calls[1]!.args).toEqual(["ps", "-q", "--filter", "label=kiln.egress-proxy=1", "--filter", "network=kiln-egress"]);
+    const set = fake.calls.findIndex((c) => c.args.includes("kiln-egress-rule"));
+    expect(fake.calls[set]!.args).toEqual(["exec", "proxy1", "kiln-egress-rule", "set", "172.18.0.7", "registry.npmjs.org,example.test", "evil.test"]);
+    expect(set).toBeGreaterThan(verbs.indexOf("run -d"));
+    expect(set).toBeLessThan(fake.calls.findIndex((c) => c.args.includes("clone")));
+    await sbx.destroy();
+    expect(fake.calls.at(-2)?.args).toEqual(["exec", "proxy1", "kiln-egress-rule", "drop", "172.18.0.7"]);
+  });
+
+  it("stops with the command to run when the egress proxy is missing, before any container starts", async () => {
+    const fake = new FakeCommandRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    await expect(new DockerSandboxProvider(fake).create(spec)).rejects.toThrow(/egress proxy is not running on the Docker network kiln-egress\. Start it with: docker compose up -d egress-proxy/);
+    expect(fake.calls.some((c) => c.args[0] === "run")).toBe(false);
+    // a sandbox that reaches nothing needs no proxy
+    await new DockerSandboxProvider(fake).create({ ...spec, repos: [], runner: { ...spec.runner, egress: [] } });
+    expect(fake.calls.some((c) => c.args.includes("kiln-egress-rule"))).toBe(false);
+  });
+
+  it("passes only literal hosts to the proxy", () => {
+    const rule = egressRule({ ...spec, repos: [], runner: { ...spec.runner, egress: ["Registry.NPMJS.org", ".amazonaws.com", "10.0.0.5", "a.test,b.test", "x.test\nacl all", "", "blocked.test"] }, deniedHosts: ["blocked.test", "bad host"] });
+    expect(rule).toEqual({ allow: ["registry.npmjs.org", ".amazonaws.com", "10.0.0.5"], deny: ["blocked.test"] });
+  });
+
   it("puts only Studio sandboxes on the preview network", () => {
     const studio: SandboxSpec = { ...spec, preview: true };
     expect(dockerRunArgs("kiln-p", studio, undefined, "kiln", "kiln-preview")).toEqual(expect.arrayContaining(["--network", "kiln-egress"]));
@@ -175,7 +210,7 @@ describe("docker sandbox", () => {
 
   it("connects a Studio sandbox to the preview network and exposes its address there", async () => {
     const fake = new FakeCommandRunner((_cmd, args) =>
-      args[0] === "inspect" ? { code: 0, stdout: "kiln-egress=172.18.0.7 kiln-preview=172.30.250.9 \n", stderr: "" } : { code: 0, stdout: "", stderr: "" },
+      args[0] === "inspect" ? { code: 0, stdout: "kiln-egress=172.18.0.7 kiln-preview=172.30.250.9 \n", stderr: "" } : docker("docker", args),
     );
     const sbx = await new DockerSandboxProvider(fake, { previewNetwork: "kiln-preview" }).create({ ...spec, preview: true });
     const run = fake.calls.findIndex((c) => c.args[0] === "run");
@@ -187,7 +222,7 @@ describe("docker sandbox", () => {
   });
 
   it("reconnects a resumed Studio sandbox to the preview network", async () => {
-    const fake = new FakeCommandRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    const fake = new FakeCommandRunner(docker);
     const store = new MemoryObjectStore();
     await store.put("snap", new Uint8Array([1]));
     await new DockerSandboxProvider(fake, { previewNetwork: "kiln-preview" }).resume({ key: "snap" } as SnapshotRef, { ...spec, preview: true }, store);
@@ -195,14 +230,14 @@ describe("docker sandbox", () => {
   });
 
   it("never connects other sandboxes to the preview network", async () => {
-    const fake = new FakeCommandRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    const fake = new FakeCommandRunner(docker);
     await new DockerSandboxProvider(fake, { previewNetwork: "kiln-preview" }).create(spec);
     expect(fake.calls.some((c) => c.args[0] === "network")).toBe(false);
   });
 
   it("refuses to expose a Studio sandbox that is not on the preview network", async () => {
     const fake = new FakeCommandRunner((_cmd, args) =>
-      args[0] === "inspect" ? { code: 0, stdout: "kiln-egress=172.18.0.7 \n", stderr: "" } : { code: 0, stdout: "", stderr: "" },
+      docker("docker", args),
     );
     const sbx = await new DockerSandboxProvider(fake, { previewNetwork: "kiln-preview" }).create({ ...spec, preview: true });
     await expect(sbx.expose!(4101)).rejects.toBeInstanceOf(SandboxNotReachable);
@@ -217,8 +252,8 @@ describe("docker sandbox", () => {
     let created = "";
     const fake = new FakeCommandRunner((_cmd, args) => {
       if (args[0] === "run") created = args[args.indexOf("--name") + 1]!;
-      if (args[0] === "ps") return { code: 0, stdout: `kiln-old\tkiln\nkiln-legacy\t\nkiln-w1\tworker:w1\n${created}\tkiln\n`, stderr: "" };
-      return { code: 0, stdout: "", stderr: "" };
+      if (args[0] === "ps" && args.includes("label=kiln.sandbox=1")) return { code: 0, stdout: `kiln-old\tkiln\nkiln-legacy\t\nkiln-w1\tworker:w1\n${created}\tkiln\n`, stderr: "" };
+      return docker("docker", args);
     });
     expect(dockerRunArgs("kiln-x", spec, undefined, "worker:w1")).toEqual(expect.arrayContaining(["--label", "kiln.owner=worker:w1"]));
     const provider = new DockerSandboxProvider(fake);
@@ -246,20 +281,20 @@ describe("docker sandbox", () => {
 
   it("removes the container when cloning or setup fails", async () => {
     const fake = new FakeCommandRunner((_cmd, args) =>
-      args.includes("clone") ? { code: 128, stdout: "", stderr: "no access" } : { code: 0, stdout: "", stderr: "" },
+      args.includes("clone") ? { code: 128, stdout: "", stderr: "no access" } : docker("docker", args),
     );
     await expect(new DockerSandboxProvider(fake).create(spec)).rejects.toThrow(/no access/);
     expect(fake.calls.at(-1)?.args.slice(0, 3)).toEqual(["rm", "-f", "-v"]);
   });
 
   it("uses a cached image, clones, runs setup and destroys", async () => {
-    const fake = new FakeCommandRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    const fake = new FakeCommandRunner(docker);
     const sbx = await new DockerSandboxProvider(fake).create(spec);
     await sbx.destroy();
     const verbs = fake.calls.map((c) => c.args.slice(0, 2).join(" "));
     expect(verbs[0]).toBe("image inspect");
     expect(verbs).not.toContain("pull node:22");
-    expect(verbs[1]).toBe("run -d");
+    expect(verbs[2]).toBe("run -d");
     expect(fake.calls.some((c) => c.args.includes("clone"))).toBe(true);
     const setup = fake.calls.find((c) => c.args.includes("corepack enable"))!;
     expect(setup.args.slice(0, 3)).toEqual(["exec", "-w", "/workspace/app"]);
@@ -267,7 +302,7 @@ describe("docker sandbox", () => {
   });
 
   it("snapshots a workspace a dev server is still writing to", async () => {
-    const fake = new FakeCommandRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    const fake = new FakeCommandRunner(docker);
     const sbx = await new DockerSandboxProvider(fake).create(spec);
     await sbx.snapshot(new MemoryObjectStore());
     const tar = fake.calls.find((c) => c.args.includes(SNAPSHOT_TAR))!;
@@ -314,7 +349,7 @@ describe("exposing a port", () => {
 
   it("serves a docker sandbox's port on the container's address", async () => {
     const fake = new FakeCommandRunner((_cmd, args) =>
-      args[0] === "inspect" ? { code: 0, stdout: "172.18.0.7\n", stderr: "" } : { code: 0, stdout: "", stderr: "" },
+      docker("docker", args),
     );
     const sbx = await new DockerSandboxProvider(fake).create(spec);
     expect(await sbx.expose!(3000)).toEqual({ host: "172.18.0.7", port: 3000 });

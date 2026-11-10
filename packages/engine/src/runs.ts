@@ -522,7 +522,7 @@ export class RunService {
     const policy = agent.networkPolicy;
     // Environment setup commands run after the runner's own, in the workspace root (the runner's run in each repository); the team's egress allowlist and the agent's allowed hosts add to the runner's.
     // Kiln's own host is always allowed: the command guard and the Kiln MCP server live there.
-    const kilnHost = this.k.options.publicUrl ? new URL(this.k.options.publicUrl).hostname : undefined;
+    const kilnHost = this.kilnUrl ? new URL(this.kilnUrl).hostname : undefined;
     // So are the MCP servers the run gets, such as a team server for a self-hosted observability stack.
     const mcpHosts = this.k.mcp.hosts(
       team,
@@ -849,7 +849,7 @@ export class RunService {
       model,
       skills,
       mcpServers: agentEnv.mcpServers,
-      guardUrl: this.k.options.publicUrl && !unguarded ? `${this.k.options.publicUrl}/api/v1/guard` : undefined,
+      guardUrl: this.kilnUrl && !unguarded ? `${this.kilnUrl}/api/v1/guard` : undefined,
       env: { ...agentEnv.env, ...this.runEnv(run, input, agent.agentType, token) },
     });
     this.sessions.set(run.id, session);
@@ -919,7 +919,7 @@ export class RunService {
       push: Boolean((input.push ?? run.kind === "work") && input.branch),
       token,
       mcpServers: agentEnv.mcpServers,
-      guardUrl: this.k.options.publicUrl ? `${this.k.options.publicUrl}/api/v1/guard` : undefined,
+      guardUrl: this.kilnUrl ? `${this.kilnUrl}/api/v1/guard` : undefined,
       idleTimeoutMinutes: run.idleTimeoutMinutes ?? 10,
     };
     this.record(run, "queued", `waiting for worker ${workerHost}`);
@@ -1046,8 +1046,13 @@ export class RunService {
     return t;
   }
 
+  /** Kiln's API as a sandbox reaches it: `sandboxUrl` when set, else the public URL. */
+  private get kilnUrl(): string | undefined {
+    return (this.k.options.sandboxUrl ?? this.k.options.publicUrl)?.replace(/\/$/, "");
+  }
+
   private mcpServers(token: string) {
-    return this.k.options.publicUrl ? [{ name: "kiln", url: `${this.k.options.publicUrl}/mcp`, headers: { authorization: `Bearer ${token}` } }] : [];
+    return this.kilnUrl ? [{ name: "kiln", url: `${this.kilnUrl}/mcp`, headers: { authorization: `Bearer ${token}` } }] : [];
   }
 
   private runEnv(run: Run, input: ExecuteInput, agentType: string, token: string): Record<string, string> {
@@ -1058,7 +1063,7 @@ export class RunService {
       KILN_AGENT_TYPE: agentType,
       KILN_WORK_ITEM: run.workItemId ?? "",
       KILN_STAGE: input.stage ?? "",
-      ...(this.k.options.publicUrl ? { KILN_URL: this.k.options.publicUrl } : {}),
+      ...(this.kilnUrl ? { KILN_URL: this.kilnUrl } : {}),
       ...(run.mode ? { KILN_MODE: run.mode } : {}),
     };
   }

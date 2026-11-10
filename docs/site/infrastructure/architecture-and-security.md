@@ -52,7 +52,7 @@ The [command guard](../configuration/decisions.md#command-guard) rates shell com
 
 ### Network is closed by default
 
-Traffic from a sandbox goes through Kiln's egress proxy, which allows only the hosts of the run's repositories and the runner's `egress` list. Everything else is unreachable. On Kubernetes, a NetworkPolicy allows only DNS and the proxy.
+Traffic from a sandbox goes through Kiln's egress proxy, which allows only the hosts of the run's repositories, the runner's `egress` list and the server's own short list. Everything else is unreachable. On Docker the proxy keeps one rule per sandbox, so a run cannot use a host another run listed (ADR-018). On Kubernetes, a NetworkPolicy allows only DNS and the proxy.
 
 ### Sandboxes are locked down
 

@@ -1,10 +1,19 @@
-# Egress allowlist for sandboxes. KILN_EGRESS_ALLOW (comma-separated hosts) becomes the dstdomain list.
+# Egress allowlist for sandboxes. KILN_EGRESS_ALLOW (comma-separated hosts) becomes the dstdomain list
+# every sandbox may reach. Each Docker sandbox also has its own lists (ADR-018): the Kiln API writes them
+# under /etc/squid/runs by the sandbox's address, and the helper is asked on every request (no caching,
+# because addresses are reused).
 http_port 3128
 acl allowed dstdomain __ALLOW__
 acl SSL_ports port 443
 acl CONNECT method CONNECT
+external_acl_type kiln_run_deny ttl=0 negative_ttl=0 children-max=4 children-startup=1 %SRC %DST /usr/local/bin/kiln-run-acl deny
+external_acl_type kiln_run_allow ttl=0 negative_ttl=0 children-max=4 children-startup=1 %SRC %DST /usr/local/bin/kiln-run-acl allow
+acl run_denied external kiln_run_deny
+acl run_allowed external kiln_run_allow
 http_access deny CONNECT !SSL_ports
+http_access deny run_denied
 http_access allow allowed
+http_access allow run_allowed
 http_access deny all
 cache deny all
 # Close open tunnels right away on stop, so a redeploy is not held up waiting for them.

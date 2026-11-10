@@ -6,6 +6,10 @@ KILN_HOST=$(echo "${KILN_PUBLIC_URL:-}" | sed -E 's|^[a-z]+://||; s|[:/].*$||')
 if [ -n "$KILN_HOST" ]; then HOSTS="$HOSTS,$KILN_HOST"; fi
 ALLOW=$(echo "$HOSTS" | sed 's/,/ ./g; s/^/./')
 sed "s|__ALLOW__|$ALLOW|" /etc/squid/squid.conf.template > /etc/squid/squid.conf
+# Docker Desktop gives host.docker.internal an IPv6 address too, which no sandbox network routes: squid then
+# answers 503 for a Kiln API on the Docker host (`pnpm dev`). Only the IPv4 lines of /etc/hosts are used.
+grep -v '^[0-9a-fA-F]*:' /etc/hosts > /etc/squid/hosts || true
+echo "hosts_file /etc/squid/hosts" >> /etc/squid/squid.conf
 # KILN_EGRESS_LOG (udp://host:port) also sends every request, allowed or denied, to the Kiln API's telemetry;
 # with OpenTelemetry on it defaults to the API in the same compose project.
 if [ -z "${KILN_EGRESS_LOG:-}" ] && [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]; then KILN_EGRESS_LOG=udp://api:5140; fi

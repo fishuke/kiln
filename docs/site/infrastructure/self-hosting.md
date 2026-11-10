@@ -31,7 +31,7 @@ pnpm dev            # API on :4000 with demo data, web app on :3000
 
 Open http://localhost:3000. Demo factories run on a git-backed local forge with scripted agents, so nothing needs an account.
 
-Docker must be running: every run, the scripted demo agents included, starts in a Docker sandbox (`KILN_SANDBOX` defaults to `docker`). Without Docker the web app still opens, and a run fails with `Kiln needs Docker running to start a sandbox`. The default sandbox image is `node:22-bookworm`, which has git but no agent CLIs. For real agents (`KILN_AGENTS=real`), build the runner image and point the API at it:
+Docker must be running: every run, the scripted demo agents included, starts in a Docker sandbox (`KILN_SANDBOX` defaults to `docker`). `pnpm dev` first starts the sandbox egress proxy (`docker compose up -d --build egress-proxy`, which also creates the `kiln-egress` network); if that fails it prints the command and carries on. Sandboxes reach the API on your machine as `http://host.docker.internal:4000`, through the proxy. Without Docker the web app still opens, and a run fails with `Kiln needs Docker running to start a sandbox`. The default sandbox image is `node:22-bookworm`, which has git but no agent CLIs. For real agents (`KILN_AGENTS=real`), build the runner image and point the API at it:
 
 ```bash
 docker build -t kiln-runner-node runners/images/node
@@ -183,7 +183,8 @@ Gates name approvers by role, such as `role:po` or `role:code-owners`. Kiln's se
 
 ### Sandboxes
 
-- **Docker:** create the `kiln-egress` network and run the egress proxy on it as `kiln-egress-proxy`, listening on port 3128.
+- **Docker:** create the `kiln-egress` network and run the egress proxy (the image in `deploy/egress-proxy`) on it as `kiln-egress-proxy`, listening on port 3128. The proxy also needs a network with internet access. Kiln finds it by its image label `kiln.egress-proxy=1` and sets each sandbox's rule with `docker exec`.
+- `KILN_SANDBOX_URL`: the API's URL as sandboxes reach it, when that is not `KILN_PUBLIC_URL`. The default for a localhost public URL on Docker is `http://host.docker.internal:<port>`; `docker-compose.yml` sets `http://api:4000`.
 - **Kubernetes:** create the `kiln-sandboxes` namespace, install gVisor with a RuntimeClass named `gvisor`, and deploy the egress proxy with the label `app.kubernetes.io/name: kiln-egress-proxy` on port 3128.
 - Build runner images with the harness programs (`claude`, `codex`, `opencode`), git and your toolchain installed.
 

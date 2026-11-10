@@ -3013,7 +3013,7 @@ The [command guard](../configuration/decisions.md#command-guard) rates shell com
 
 ### Network is closed by default
 
-Traffic from a sandbox goes through Kiln's egress proxy, which allows only the hosts of the run's repositories and the runner's `egress` list. Everything else is unreachable. On Kubernetes, a NetworkPolicy allows only DNS and the proxy.
+Traffic from a sandbox goes through Kiln's egress proxy, which allows only the hosts of the run's repositories, the runner's `egress` list and the server's own short list. Everything else is unreachable. On Docker the proxy keeps one rule per sandbox, so a run cannot use a host another run listed (ADR-018). On Kubernetes, a NetworkPolicy allows only DNS and the proxy.
 
 ### Sandboxes are locked down
 
@@ -3268,7 +3268,7 @@ Each run is a container started with `sleep infinity` and `/workspace` as its wo
 - labels `kiln.sandbox=1`, `kiln.dev/run` and `kiln.dev/factory`,
 - `--cpus` and `--memory` from `shape`,
 - `--security-opt no-new-privileges` and `--cap-drop ALL`,
-- the `kiln-egress` network with `HTTPS_PROXY` and `HTTP_PROXY` set to `http://kiln-egress-proxy:3128` (and `NODE_USE_ENV_PROXY=1`, so Node's `fetch`, which corepack uses to download pnpm, goes through the proxy too) and `KILN_EGRESS_ALLOW` set to the allowed hosts: the runner's `egress` list plus the hosts of the cloned repositories. With no hosts at all, the container gets `--network none`.
+- the `kiln-egress` network with `HTTPS_PROXY` and `HTTP_PROXY` set to `http://kiln-egress-proxy:3128` (and `NODE_USE_ENV_PROXY=1`, so Node's `fetch`, which corepack uses to download pnpm, goes through the proxy too) and `KILN_EGRESS_ALLOW` set to the allowed hosts: the runner's `egress` list plus the hosts of the cloned repositories. Kiln gives the proxy the same list as this sandbox's own rule before anything runs in it, and removes the rule with the sandbox. With no hosts at all, the container gets `--network none`.
 - Studio sandboxes only: the `kiln-preview` network (`KILN_PREVIEW_NETWORK`) as well, where the API reaches their dev servers for [live previews](../integrations/previews.md#studio-live-previews). On Kubernetes they get the label `kiln.dev/preview: "true"` instead.
 
 ### Kubernetes with gVisor
@@ -3291,6 +3291,13 @@ Agents need the network to clone, install packages and call model APIs. Kiln kee
 
 - The hosts of the repositories the run clones, such as `github.com`, are always allowed.
 - List every other host the run needs in `egress`, such as `registry.npmjs.org`. Nothing else is reachable.
+- An entry is a literal host name or address. A leading dot, as in `.example.com`, also covers subdomains.
+- On Docker each sandbox has its own rule in the proxy (ADR-018): a host one run lists is not reachable from another run's sandbox, and an agent's `deniedHosts` are blocked for its runs even when the server allows them.
+- The server's `KILN_EGRESS_ALLOW` list on the proxy is reachable from every sandbox. Keep it short.
+- On Kubernetes the proxy enforces the server list only: add the hosts your runners list to `sandboxes.egressAllow` in the Helm values.
+- Kiln's API is always reachable from a run, at `KILN_SANDBOX_URL` (the public URL by default). The command guard and the Kiln MCP server are there.
+
+When the proxy is not running, a Docker run that needs the network fails with `the sandbox egress proxy is not running on the Docker network kiln-egress` and the command to start it: `docker compose up -d egress-proxy`. `pnpm dev` starts it for you.
 - The proxy enforces host names, so you do not have to track IP addresses.
 - Keep model traffic going to your model gateway, and list only the gateway.
 
@@ -3496,7 +3503,7 @@ pnpm dev            # API on :4000 with demo data, web app on :3000
 
 Open http://localhost:3000. Demo factories run on a git-backed local forge with scripted agents, so nothing needs an account.
 
-Docker must be running: every run, the scripted demo agents included, starts in a Docker sandbox (`KILN_SANDBOX` defaults to `docker`). Without Docker the web app still opens, and a run fails with `Kiln needs Docker running to start a sandbox`. The default sandbox image is `node:22-bookworm`, which has git but no agent CLIs. For real agents (`KILN_AGENTS=real`), build the runner image and point the API at it:
+Docker must be running: every run, the scripted demo agents included, starts in a Docker sandbox (`KILN_SANDBOX` defaults to `docker`). `pnpm dev` first starts the sandbox egress proxy (`docker compose up -d --build egress-proxy`, which also creates the `kiln-egress` network); if that fails it prints the command and carries on. Sandboxes reach the API on your machine as `http://host.docker.internal:4000`, through the proxy. Without Docker the web app still opens, and a run fails with `Kiln needs Docker running to start a sandbox`. The default sandbox image is `node:22-bookworm`, which has git but no agent CLIs. For real agents (`KILN_AGENTS=real`), build the runner image and point the API at it:
 
 ```bash
 docker build -t kiln-runner-node runners/images/node
@@ -3648,7 +3655,8 @@ Gates name approvers by role, such as `role:po` or `role:code-owners`. Kiln's se
 
 ### Sandboxes
 
-- **Docker:** create the `kiln-egress` network and run the egress proxy on it as `kiln-egress-proxy`, listening on port 3128.
+- **Docker:** create the `kiln-egress` network and run the egress proxy (the image in `deploy/egress-proxy`) on it as `kiln-egress-proxy`, listening on port 3128. The proxy also needs a network with internet access. Kiln finds it by its image label `kiln.egress-proxy=1` and sets each sandbox's rule with `docker exec`.
+- `KILN_SANDBOX_URL`: the API's URL as sandboxes reach it, when that is not `KILN_PUBLIC_URL`. The default for a localhost public URL on Docker is `http://host.docker.internal:<port>`; `docker-compose.yml` sets `http://api:4000`.
 - **Kubernetes:** create the `kiln-sandboxes` namespace, install gVisor with a RuntimeClass named `gvisor`, and deploy the egress proxy with the label `app.kubernetes.io/name: kiln-egress-proxy` on port 3128.
 - Build runner images with the harness programs (`claude`, `codex`, `opencode`), git and your toolchain installed.
 

@@ -23,7 +23,7 @@ describe("private registries", () => {
         dir = opts?.env?.DOCKER_CONFIG ?? "";
         config = readFileSync(join(dir, "config.json"), "utf8");
       }
-      return { code: 0, stdout: "", stderr: "" };
+      return { code: 0, stdout: args[0] === "ps" ? "proxy1" : args[0] === "inspect" ? "kiln-egress=172.18.0.7" : "", stderr: "" };
     });
     const sbx = await new DockerSandboxProvider(fake).create(spec);
     await sbx.destroy();

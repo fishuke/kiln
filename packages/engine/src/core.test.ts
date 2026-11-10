@@ -224,6 +224,20 @@ describe("default runner image", () => {
     expect(egress[0]).toContain("kiln-api.acme.test");
   });
 
+  it("gives a sandbox the sandbox-facing API URL when one is set: localhost in a container is not Kiln (#156)", async () => {
+    const egress: string[][] = [];
+    const local = new FakeSandboxProvider();
+    const recording: SandboxProvider = {
+      name: "docker",
+      create: (spec) => (egress.push(spec.runner.egress ?? []), local.create({ ...spec, runner: { ...spec.runner, backend: "docker" } })),
+      resume: (ref, spec, store) => local.resume(ref, spec, store),
+    };
+    const { kiln } = createTestKiln({ sandboxes: { docker: recording }, defaultBackend: "docker", publicUrl: "http://localhost:4000", sandboxUrl: "http://host.docker.internal:4000" });
+    await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.require("webapp").appliedSha!, agent: "foreman", prompt: "route this", push: false });
+    expect(egress[0]).toContain("host.docker.internal");
+    expect(egress[0]).not.toContain("localhost");
+  });
+
   it("lets a run reach the MCP servers its agent uses: URL servers and URL-valued secrets such as JIRA_BASE_URL (#44)", async () => {
     const egress: string[][] = [];
     const local = new FakeSandboxProvider();

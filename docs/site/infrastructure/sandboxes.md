@@ -56,7 +56,7 @@ Each run is a container started with `sleep infinity` and `/workspace` as its wo
 - labels `kiln.sandbox=1`, `kiln.dev/run` and `kiln.dev/factory`,
 - `--cpus` and `--memory` from `shape`,
 - `--security-opt no-new-privileges` and `--cap-drop ALL`,
-- the `kiln-egress` network with `HTTPS_PROXY` and `HTTP_PROXY` set to `http://kiln-egress-proxy:3128` (and `NODE_USE_ENV_PROXY=1`, so Node's `fetch`, which corepack uses to download pnpm, goes through the proxy too) and `KILN_EGRESS_ALLOW` set to the allowed hosts: the runner's `egress` list plus the hosts of the cloned repositories. With no hosts at all, the container gets `--network none`.
+- the `kiln-egress` network with `HTTPS_PROXY` and `HTTP_PROXY` set to `http://kiln-egress-proxy:3128` (and `NODE_USE_ENV_PROXY=1`, so Node's `fetch`, which corepack uses to download pnpm, goes through the proxy too) and `KILN_EGRESS_ALLOW` set to the allowed hosts: the runner's `egress` list plus the hosts of the cloned repositories. Kiln gives the proxy the same list as this sandbox's own rule before anything runs in it, and removes the rule with the sandbox. With no hosts at all, the container gets `--network none`.
 - Studio sandboxes only: the `kiln-preview` network (`KILN_PREVIEW_NETWORK`) as well, where the API reaches their dev servers for [live previews](../integrations/previews.md#studio-live-previews). On Kubernetes they get the label `kiln.dev/preview: "true"` instead.
 
 ### Kubernetes with gVisor
@@ -79,6 +79,13 @@ Agents need the network to clone, install packages and call model APIs. Kiln kee
 
 - The hosts of the repositories the run clones, such as `github.com`, are always allowed.
 - List every other host the run needs in `egress`, such as `registry.npmjs.org`. Nothing else is reachable.
+- An entry is a literal host name or address. A leading dot, as in `.example.com`, also covers subdomains.
+- On Docker each sandbox has its own rule in the proxy (ADR-018): a host one run lists is not reachable from another run's sandbox, and an agent's `deniedHosts` are blocked for its runs even when the server allows them.
+- The server's `KILN_EGRESS_ALLOW` list on the proxy is reachable from every sandbox. Keep it short.
+- On Kubernetes the proxy enforces the server list only: add the hosts your runners list to `sandboxes.egressAllow` in the Helm values.
+- Kiln's API is always reachable from a run, at `KILN_SANDBOX_URL` (the public URL by default). The command guard and the Kiln MCP server are there.
+
+When the proxy is not running, a Docker run that needs the network fails with `the sandbox egress proxy is not running on the Docker network kiln-egress` and the command to start it: `docker compose up -d egress-proxy`. `pnpm dev` starts it for you.
 - The proxy enforces host names, so you do not have to track IP addresses.
 - Keep model traffic going to your model gateway, and list only the gateway.
 

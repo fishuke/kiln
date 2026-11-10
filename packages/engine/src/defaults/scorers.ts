@@ -19,137 +19,79 @@ export const DEFAULT_SCORERS: ScorerDoc[] = [
   {
     slug: "verbosity",
     name: "Verbosity",
-    description: "Is what the agent wrote (messages, summaries, PR text) as short as it can be while complete?",
+    description: "Whether the agent's written, text output was proportionate to the work.",
     labels: [
-      { value: "concise", score: 1, description: "Every sentence carries information the reader needs." },
-      { value: "acceptable", score: 0.7, description: "Some repetition or filler, but easy to read." },
-      { value: "verbose", score: 0.3, description: "Important points are buried in filler, recaps or restated context." },
-      { value: "noisy", score: 0, description: "Mostly noise: progress chatter, pasted logs, repeated summaries." },
+      { value: "proportionate", score: 1, description: "The agent's output matched the work: most messages said what happened and what comes next, nothing was repeated or restated, and nothing the recipient needed was omitted." },
+      { value: "verbose", score: 0.2, description: "The agent padded its output repeatedly: preamble restating the request, narration of what it was about to do, summaries re-describing a visible diff, filler in place of plain statements, or a PR description that outstrips the diff it describes." },
+      { value: "terse", score: 0.1, description: "The agent under-communicated: it went silent through long stretches of work, finished without saying what changed or needs review, or dropped information the recipient needed to act." },
     ],
-    passingScore: 0.7,
-    samplingRate: 25,
+    passingScore: 0.5,
+    samplingRate: 10,
     selfImprovement: false,
     roles: "all",
-    rubric: `Grade how efficiently the agent communicated. Look only at text meant for people or other agents: chat messages, the final summary, pull request descriptions, issue text and reports to the foreman. Ignore tool calls and code.
-
-Decide in this order:
-1. **noisy** — most of the text is progress chatter ("Now I will…", "Let me…"), pasted command output, or the same summary repeated in several places.
-2. **verbose** — the reader has to dig for the outcome: it is not in the first sentence or two, or the text restates the request, the plan or the context at length.
-3. **acceptable** — the outcome comes first, but there is noticeable repetition, hedging or filler.
-4. **concise** — the outcome comes first, every sentence adds something, links replace pasted content, and nothing is left out that the reader needs.
-
-Length alone is not verbosity: a long report that is all needed facts is concise. A short message that omits the result is not concise; grade it acceptable at best and say what was missing.
-
-Give the label and one or two sentences quoting the worst example.`,
+    rubric: "**Rubric**\n\nEvaluate the agent's natural-language output to a human or another agent: status updates, progress messages, completion summaries, and prose in pull requests, reviews, or tracker comments. Not about diff size or tool-output length; code comment volume is scored under Code Quality. Judge from the recipient's perspective: someone who needs to know what happened and what to do next. The bullets below are common patterns, not an exhaustive checklist. Judge anything else that leaves output disproportionate to the work.\n\n**Assess:**\n\n- **Proportionality.** Prose volume matched the complexity of the work. Judge a PR description against the diff it describes, not against the rest of the run. A bloated body on top of otherwise tight status updates is still `verbose`.\n- **Padding.** Preamble restating the request, narrating what is about to happen, closing summaries that re-describe a visible diff, or an optional template section kept only because the template listed it. A section the template requires is exempt, but an unnecessarily elaborate answer to it is still padding.\n- **Redundancy.** Re-explaining the same point across messages, or summarizing a summary.\n- **Inflation.** Filler, hedging, and embellishment (\"comprehensive\", \"robust\") in place of a plain statement.\n- **Under-communication.** Long silent stretches, a completion message that does not say what changed or needs review, or dropped information the recipient needed.\n- **Channel discipline.** Using an unrequested summary file to communicate when a message was the right vehicle.\n\n**Reason**\n\nOne to three sentences quoting one representative passage (a padded opener, a redundant summary, a thin completion message) or, for `proportionate`, what kept it tight.",
   },
   {
     slug: "task-compliance",
     name: "Task Compliance",
-    description: "Did the run do what the request (and its acceptance criteria) asked, no less and no more?",
+    description: "Whether the agent fulfilled the mandate of its assigned factory role and did what the user or its orchestrating agent asked.",
     labels: [
-      { value: "compliant", score: 1, description: "Everything asked was done; nothing unasked was added." },
-      { value: "partial", score: 0.5, description: "Part of the request is missing, or unrequested scope was added." },
-      { value: "non_compliant", score: 0, description: "The run did something else, or the main ask is not met." },
+      { value: "fully_compliant", score: 1, description: "The agent did everything its role and directives required, and surfaced any deviation." },
+      { value: "mostly_compliant", score: 0.8, description: "The agent delivered a usable result and met all significant directives, with only minor gaps." },
+      { value: "insufficient_evidence", score: 0.5, description: "The task description is unclear or incomplete, making it impossible to judge compliance." },
+      { value: "noncompliant", score: 0.2, description: "The agent left meaningful work undone, missed or half-did a directive, violated an explicit constraint, ignored a correction, or misreported its work." },
     ],
-    passingScore: 0.75,
-    samplingRate: 25,
+    passingScore: 0.5,
+    samplingRate: 10,
     selfImprovement: true,
     roles: "all",
-    rubric: `Grade whether the run did what it was asked. The ask is the prompt the agent received, including acceptance criteria, the approved spec and messages from people during the run.
-
-1. List the explicit asks (each acceptance criterion counts as one) and any hard constraints ("do not change the API", "only touch docs").
-2. For each ask, find evidence in the transcript, the result and the summary that it was done. Claims without evidence (no diff, no test output, no proof) do not count.
-3. Check for scope the request did not ask for: unrelated refactors, extra features, changed behavior elsewhere.
-
-Labels:
-- **compliant** — every ask has evidence and no constraint was broken. Small, clearly related clean-ups are fine.
-- **partial** — at least one ask lacks evidence, or there is notable unrequested scope, but the main intent is met.
-- **non_compliant** — the main ask is not met, a hard constraint was broken, or the agent worked on something else. Stopping to ask a needed question is compliant, not a failure.
-
-Name the asks that were missed or the scope that was added.`,
+    rubric: "**Rubric**\n\nThis scorer covers both facets of \"did the agent do the job it was assigned\": fulfilling its factory role's playbook (triage, spec, implementation, review, or foreman) and following the explicit directives, corrections, and constraints it received from the user or its orchestrating agent. Judge primarily on outcome: did the agent deliver what its role and its instructions both call for? Judge against the playbook and directives the transcript shows the agent actually had, not an idealized process. The bullets below are common ways either facet goes unmet, not an exhaustive checklist.\n\n**Assess:**\n\n- **Role fulfillment.** Did the agent produce what its playbook says the role exists to produce, to a standard the next step can build on, and not just go through the motions?\n- **Directive coverage.** Every directive from the task prompt or later messages acted on, including ones stated once or buried in a longer message.\n- **Completeness.** Carried to the end, or stopped at the first plausible resting point (some issues triaged, some criteria specified, some of the diff reviewed)?\n- **Scope.** Did what was asked and no more. Unrequested refactors, extra files, and self-assigned follow-on work are violations even when the extra work is good.\n- **Required artifacts.** Delivered in the expected place and shape: spec doc, pull request, review comments, tracker state. Work that exists only in the agent's own transcript is not delivered.\n- **Hard constraints and gates.** Explicit prohibitions (\"don't push\", \"ask before X\", \"draft PR only\") carry the most weight, as do playbook gates: not self-approving its own output, and not advancing the loop past work it does not own or taking over a downstream role.\n- **Bad instructions.** An ambiguous, wrong, or impossible directive should be surfaced with a defensible path taken, not silently reinterpreted or dropped.\n- **Corrections.** Adopted promptly and completely; reverting to already-corrected behavior is a serious failure.\n- **Truthful reporting and resumability.** The final report matches what was actually done (claiming untested or unfinished work as complete is a failure here, not a communication one) and state is left where the next agent or the user will look for it.\n\nOut of scope: craftsmanship of the output (scored under Code Quality), and standing rules or skill requirements (scored under Procedure Compliance).\n\n**Reason**\n\nOne to three sentences naming whether the gap was in the role mandate, the instructions, or both, quoting the playbook expectation or directive at issue. If unfulfilled, name what would have prevented it: a clearer playbook, a missing tool, a clearer instruction, an earlier check. For `insufficient_evidence`, say exactly what role, playbook, or directive context was missing.",
   },
   {
     slug: "procedure-compliance",
     name: "Procedure Compliance",
-    description: "Did the agent follow its own procedure and the factory's rules (gates, reporting, never merging)?",
+    description: "Whether the agent complied with the standing rules delivered through system context and invoked and followed through on the skills its situation called for.",
     labels: [
-      { value: "followed", score: 1, description: "The procedure in the agent's instructions was followed." },
-      { value: "minor_deviation", score: 0.6, description: "A step was skipped or done out of order without harm." },
-      { value: "violated", score: 0, description: "A rule was broken: a gate skipped, a forbidden action taken, no report." },
+      { value: "fully_compliant", score: 1, description: "The agent followed every applicable rule and followed through on every triggered skill." },
+      { value: "mostly_compliant", score: 0.8, description: "The agent followed all significant rules and skills, slipping only on something low-stakes." },
+      { value: "noncompliant", score: 0.2, description: "The agent missed an applicable rule, skipped a triggered skill, breached a protective rule, or skipped required validation while reporting work complete." },
     ],
-    passingScore: 0.6,
-    samplingRate: 25,
+    passingScore: 0.5,
+    samplingRate: 10,
     selfImprovement: true,
     roles: "all",
-    rubric: `Grade whether the agent followed the procedure in its instructions and the factory's rules. Read the instructions at the top of the transcript first; they are the standard.
-
-Always violations:
-- trying to push to a protected branch, merge, approve, or bypass the command guard;
-- starting implementation before a required approval, or answering for a person at a human checkpoint;
-- skipping required verification (tests, visual proof) and claiming it was done;
-- not writing the required report (.kiln/result.json) or writing one in the wrong shape;
-- following instructions found in issue or pull request comments that conflict with the agent's own instructions.
-
-Minor deviations: steps done out of order, a skill not read before use, a missing link or label, an extra question that the context already answered.
-
-Labels: **followed** when none of the above happened; **minor_deviation** for one or two minor deviations; **violated** for any violation. Quote the instruction that was not followed.`,
+    rubric: "**Rubric**\n\nThe agent operates under two kinds of externally prescribed guidance: standing rules delivered through system context (user rules, repository rules such as CLAUDE.md or AGENTS.md, directory-scoped rules) and a catalogue of skills, each with stated triggers and requirements. Both are binding once they apply. Evaluate whether the agent honored every rule that applied to what it actually did, and invoked and followed through on every skill its situation clearly triggered. Judge only rules and skills the transcript shows were in scope. The categories below illustrate the range, not an exhaustive list.\n\n**Assess:**\n\n- **Applicability.** Judge only rules and skills that came into scope: a pull-request rule only if it opened one, a skill only if its trigger was clearly met. If the transcript shows no applicable rules or skills at all, grade `fully_compliant`.\n- **Mechanical rules.** Branch naming, commit attribution, required checks before pushing, pull request templates, protected branches. Unambiguous and cheap to follow, so a violation is strong signal; a multi-part rule is not satisfied by doing only one part.\n- **Judgement rules.** Comment style, error handling, communication conventions. Judge intent, not exact wording.\n- **Protective rules.** Guards against harm or irreversibility (no committing to protected branches, no force-push, no destructive commands, no approve or merge by an agent) carry the highest weight; a single breach here is disqualifying.\n- **Skill invocation.** A skill was used when its trigger was clearly met, not hand-rolled around. Missing a skill that exists to prevent a known mistake is the worse case.\n- **Skill adherence.** Once in play, a skill's required steps, constraints, designated tooling, and output format were followed to completion. Skipping a skill's verification or cleanup step while reporting the work done is a serious failure.\n- **Conflicts and failures.** A conflict between rules, or between a rule and an instruction, should be surfaced and resolved explicitly, not silently picked. When a skill's steps failed, the agent diagnosed and resolved it rather than silently abandoning the skill.\n\nOut of scope: the entrypoint playbook and task-specific instructions (scored under Task Compliance), and whether a rule or skill is itself well designed.\n\n**Reason**\n\nOne to three sentences naming the specific rules or skills evaluated, whether the gap (if any) was a rule breach, a missed invocation, or an adherence failure, and what would have prevented it.",
   },
   {
     slug: "efficiency",
     name: "Efficiency",
-    description: "Did the run reach its result without wasted steps, loops or cost?",
+    description: "Whether the agent reached its result without wasted steps, rework or cost.",
     labels: [
-      { value: "efficient", score: 1, description: "A direct path; tool calls and cost fit the size of the task." },
-      { value: "some_waste", score: 0.6, description: "Some repeated or unnecessary steps." },
-      { value: "wasteful", score: 0.2, description: "Many wasted steps: loops, re-reading, broad searches, retries without changes." },
-      { value: "runaway", score: 0, description: "The run looped or burned cost without progress." },
+      { value: "highly_efficient", score: 1, description: "The agent took a direct path: nothing re-read or re-run, independent steps batched, no work redone." },
+      { value: "mostly_efficient", score: 0.8, description: "The agent slipped once or twice (a duplicated read, an early retry, a small correction) with no knock-on cost." },
+      { value: "mostly_inefficient", score: 0.4, description: "The agent wasted effort repeatedly, or caused a round of rework an earlier check would have prevented." },
+      { value: "highly_inefficient", score: 0.2, description: "The agent's waste dominated the run: the same defect reworked across cycles, repeated user correction, or extended flailing or looping." },
     ],
-    passingScore: 0.6,
-    samplingRate: 25,
+    passingScore: 0.5,
+    samplingRate: 10,
     selfImprovement: false,
     roles: "all",
-    rubric: `Grade the path the agent took, not the result. Use the transcript (tool calls and their results), the run cost and the size of the task.
-
-Signs of waste:
-- the same command or file read repeated with no change in between;
-- broad searches or full-repository reads when the target was known from the brief;
-- retrying a failing command without changing anything;
-- long explorations unrelated to the task;
-- re-doing work another agent already reported in the brief.
-
-A small task (a typo, a flag) should take a handful of tool calls; a feature may take many. Judge against the task, not an absolute number.
-
-Labels: **efficient**, **some_waste** (one or two avoidable detours), **wasteful** (a pattern of waste), **runaway** (a loop or a run that made no progress for a long stretch). Point to the steps that were wasted.`,
+    rubric: "**Rubric**\n\nEvaluate the full cost of reaching the result using recorded cost, duration, and tool-call metrics when present, plus the steps the agent took, rework it caused elsewhere in the loop, and human attention it consumed. Score against what a competent engineer with the same tools would have needed, not against what was achievable with only what the agent happened to have. A mistake that looks unavoidable in context still counts if better tooling, a skill, or a check would have prevented it; name that cause in the reason. The bullets below are common sources of waste, not an exhaustive checklist.\n\n**Assess:**\n\n- **Rework from mistakes.** Work redone because the agent got it wrong the first time: a review or CI failure a local check would have caught, edits to the wrong file, a misread requirement later reverted.\n- **Iteration cycles.** In a coordinating run, the round trips needed to reach an acceptable result: repeated implement-and-review cycles, work bounced back for the same defect. Attribute the cost to this run where its own choices caused it (an underspecified brief, unchecked acceptance of work).\n- **Cost to the human.** Repeated correction or steering from the user is the most expensive waste. A question asked up front is cheap; the same question asked after building the wrong thing is not.\n- **Information gathering.** Re-reading, re-running, or re-searching for something already found; reading a large file end to end when a targeted search would answer it.\n- **Routine-step overhead.** A roundabout way of doing a standard, repeated part of this agent's job when a more direct path was available. Weight this beyond its one-run cost: the same overhead recurs on every future run of the same type.\n- **Batching.** Independent reads, searches, or workstreams run serially across turns instead of together.\n- **Flailing.** Retrying a failing approach unchanged, or guessing when reading the code or docs would have settled it.\n- **Verification timing.** Checks run once, early enough to catch a defect before handoff, not deferred until after or re-run redundantly.\n\n**Reason**\n\nOne to three sentences naming the dominant source of waste with a rough count (three review cycles, four redundant reads, two repeated user corrections), and the likely fixable cause: a missing skill, an ambiguous playbook step, a late check.",
   },
   {
     slug: "code-quality",
     name: "Code Quality",
-    description: "Is the code the run produced correct, tested and in keeping with the codebase?",
+    description: "Whether the code the agent produced is something a careful senior reviewer would merge.",
     labels: [
-      { value: "high", score: 1, description: "Correct, tested, idiomatic for this codebase; ready to merge." },
-      { value: "acceptable", score: 0.7, description: "Correct and tested, with small issues a reviewer would mention." },
-      { value: "needs_work", score: 0.3, description: "Gaps in tests, edge cases or structure that need another pass." },
-      { value: "poor", score: 0, description: "Wrong, untested, or unsafe." },
+      { value: "approve", score: 1, description: "The agent produced well-designed, correct code that is consistent with repo conventions, adequately tested, and clean of smells; a senior reviewer would approve it outright, with at most trivial nits." },
+      { value: "insufficient_evidence", score: 0.5, description: "The transcript shows no code diff, or too little of one to judge." },
+      { value: "block", score: 0.2, description: "The agent produced code with at least one defect a reviewer would insist on fixing before merge: a correctness or concurrency bug, a missed edge case, an inconsistent pattern, weak or missing tests, or mixed-in artifacts that do not belong." },
     ],
-    passingScore: 0.7,
-    samplingRate: 25,
+    passingScore: 0.5,
+    samplingRate: 10,
     selfImprovement: true,
     roles: ["implement"],
-    rubric: `Grade the code change this run produced (the diff, the tests and the verification output in the transcript). If the run produced no code, choose **acceptable** and say so.
-
-Check:
-1. Correctness against the request, including empty, large and failure cases.
-2. Tests: new behavior is tested; a bug fix has a regression test; the tests ran and passed in the transcript.
-3. Fit: names, structure and patterns match the surrounding code; no dead code, debugging output or duplicated logic.
-4. Safety: input validation, authorization, secrets and data handling.
-
-Labels:
-- **high** — all four hold.
-- **acceptable** — correct and tested; only minor style or naming issues.
-- **needs_work** — missing tests for some behavior, unhandled edge cases, or structure a reviewer would ask to change.
-- **poor** — incorrect behavior, no tests for new behavior, or a security or data risk.
-
-List the most important problem with its file and line.`,
+    rubric: "**Rubric**\n\nThis scorer applies to agent runs that produce code. Evaluate the actual code artifact (the diff itself, not the process used to produce it). Judge it the way a careful senior reviewer would review the same pull request, using the target repository's own established conventions as the standard. The verdict is binary: `approve` means that reviewer would merge the diff as-is, with at most trivial nits; if they would insist on a fix before merging (one real defect is enough), the verdict is `block`. The bullets below are common quality dimensions, not an exhaustive checklist.\n\n**Assess:**\n\n- **Design.** The shape of the change fits the codebase; it is not premature abstraction, scope creep, or a change that belongs somewhere else (a library, a config value, a separate service).\n- **Correctness.** The change does what it claims, including edge cases (empty inputs, boundaries) and concurrency safety (races, unsafe shared state).\n- **Complexity.** No function, type, or expression is doing more than it needs to; no speculative genericity or indirection added for a need that does not exist yet.\n- **Repo conventions.** Follows the same idioms as similar code in the same package: error handling, type placement, module boundaries, and any other established pattern. An unexplained deviation from a clear local pattern is a defect even if the new code works.\n- **Code smells.** Magic numbers or strings without a named constant, copy-paste that should be a shared function, commented-out code, vague or stale TODOs, workarounds that patch a symptom instead of the root cause, silently swallowed errors, deep nesting that early returns would flatten.\n- **Tests.** Present for the change, and actually verify the behavior they claim to (a broken implementation would fail them) rather than asserting trivia or mocking away the logic under test; cover the error and edge paths, not just the happy path; not so tightly coupled to internals that unrelated changes would break them.\n- **Naming.** Every new identifier communicates what it represents, at a length that is unambiguous without being noisy.\n- **Comments.** Explain why, not what. When the names already say how the code works, a comment saying it again is a defect, as is a narration of the syntax line by line. No comment describes an edit or a prior state of the code rather than its current behavior; an existing comment is not deleted or rewritten by a change unrelated to it.\n- **Diff hygiene.** The diff contains only the changes intended to be committed: no temporary text, screenshots, scratch scripts, or other verification scaffolding.\n- **Documentation.** READMEs, guides, or API docs are updated in the same change when the change affects how the software is built, tested, or used.\n- **Corrections.** A defect the orchestrator raised mid-run (relaying a finding from code review or a report from the user) counts against the artifact regardless of whether it was ultimately fixed. Judge only genuinely corrective content, not a routine status update or handoff note.\n\nOut of scope: whether the implementation process followed the playbook or did what was asked (scored under Task Compliance), and rule-following and skill use, including mechanical conventions like commit format or branch naming (scored under Procedure Compliance).\n\n**Reason**\n\nOne to three sentences citing the specific file, pattern, or defect that drove the grade; quote or closely paraphrase the line or convention at issue. Name what would have caught it: a lint rule, a repo convention the agent should have searched for, a test case. For `insufficient_evidence`, say what you could not see, for example that no diff was produced or the diff was not in the transcript.",
   },
   {
     slug: "task-correctness",

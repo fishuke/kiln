@@ -69,7 +69,17 @@ Use scores in:
 
 ## Default scorers
 
-A factory made with the setup wizard starts with five scorers, each with a written rubric you can edit: **Verbosity**, **Task Compliance**, **Procedure Compliance**, **Efficiency** and **Code Quality** (implement agent only). Task Compliance, Procedure Compliance and Code Quality feed self-improvement. A sixth, **Task Correctness** (`kind: benchmark_task_correctness`), grades benchmark trials against their success criteria and never scores everyday runs.
+A factory made with the setup wizard starts with five scorers, each with a written rubric you can edit: **Verbosity**, **Task Compliance**, **Procedure Compliance**, **Efficiency** and **Code Quality** (implement agent only). Task Compliance, Procedure Compliance and Code Quality feed self-improvement. All five pass at a score of 0.5 and grade 10 percent of runs.
+
+| Scorer | Labels (score) |
+| --- | --- |
+| Verbosity | `proportionate` (1), `verbose` (0.2), `terse` (0.1) |
+| Task Compliance | `fully_compliant` (1), `mostly_compliant` (0.8), `insufficient_evidence` (0.5), `noncompliant` (0.2) |
+| Procedure Compliance | `fully_compliant` (1), `mostly_compliant` (0.8), `noncompliant` (0.2) |
+| Efficiency | `highly_efficient` (1), `mostly_efficient` (0.8), `mostly_inefficient` (0.4), `highly_inefficient` (0.2) |
+| Code Quality | `approve` (1), `insufficient_evidence` (0.5), `block` (0.2) |
+
+The Kiln factory itself (`factories/kiln-self`) ships the same five. A sixth, **Task Correctness** (`kind: benchmark_task_correctness`), grades benchmark trials against their success criteria and never scores everyday runs.
 
 Two more scorer keys: `agents` entries may be `{ name, includeDescendants: true }` to include a run's subagents as evidence, and `runner`, `secrets` and `mcpServers` set up the judge.
 

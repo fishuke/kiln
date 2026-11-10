@@ -74,4 +74,22 @@ describe("scorer.md", () => {
     expect(DEFAULT_SCORERS.map((d) => d.name)).toEqual(["Verbosity", "Task Compliance", "Procedure Compliance", "Efficiency", "Code Quality"]);
     for (const d of DEFAULT_SCORERS) expect(canSelfImprove(d)).toBe(true);
   });
+
+  it("uses the classifications, thresholds and rubrics of the engine defaults", () => {
+    const labels = Object.fromEntries(DEFAULT_SCORERS.map((d) => [d.slug, d.labels.map((l) => `${l.value}:${l.score}`).join(",")]));
+    expect(labels).toEqual({
+      verbosity: "proportionate:1,verbose:0.2,terse:0.1",
+      "task-compliance": "fully_compliant:1,mostly_compliant:0.8,insufficient_evidence:0.5,noncompliant:0.2",
+      "procedure-compliance": "fully_compliant:1,mostly_compliant:0.8,noncompliant:0.2",
+      efficiency: "highly_efficient:1,mostly_efficient:0.8,mostly_inefficient:0.4,highly_inefficient:0.2",
+      "code-quality": "approve:1,insufficient_evidence:0.5,block:0.2",
+    });
+    for (const d of DEFAULT_SCORERS) {
+      expect([d.passingScore, d.samplingRate]).toEqual([0.5, 10]);
+      expect(d.rubric).toContain("**Assess:**");
+      expect(d.rubric).toContain("**Reason**");
+      expect(d.rubric.length).toBeGreaterThan(1500);
+    }
+    expect(DEFAULT_SCORERS.filter((d) => d.selfImprovement).map((d) => d.slug)).toEqual(["task-compliance", "procedure-compliance", "code-quality"]);
+  });
 });

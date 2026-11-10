@@ -559,7 +559,9 @@ export class RunService {
     const workerHost = input.overrides?.workerHost === null ? undefined : (input.overrides?.workerHost ?? agent.workerHost);
     const now = this.k.clock.now().toISOString();
     const parent = input.parentRunId ? this.get(input.parentRunId) : undefined;
-    const firstOfItem = input.workItem && !parent ? this.list({ workItemId: input.workItem.id }).at(-1) : undefined;
+    // A replay reads the work item (attachments, requester) but does not belong to it.
+    const linkedItem = input.kind === "replay" ? undefined : input.workItem;
+    const firstOfItem = linkedItem && !parent ? this.list({ workItemId: linkedItem.id }).at(-1) : undefined;
     const explicitIdle = resolved.explicitIdleMinutes(input.agent);
     const creator = input.creator ?? (parent ? `agent:${parent.agent}` : input.workItem?.requester) ?? "kiln";
     const id = prior?.id ?? newId("run");
@@ -578,7 +580,7 @@ export class RunService {
           id,
           kind: input.kind ?? "work",
           factory: input.factory,
-          workItemId: input.workItem?.id,
+          workItemId: linkedItem?.id,
           agent: input.agent,
           agentType: agent.agentType,
           stage: input.stage,
@@ -776,7 +778,7 @@ export class RunService {
     let sandbox: Sandbox | undefined;
     const guard = async (command: string) => {
       const { verdict, outcome } = await guardCommand(command, { cwd: sandbox?.workdir, branch: input.branch }, this.k.decide, decisions);
-      this.k.logDecision(outcome, { command }, { workItemId: input.workItem?.id, runId: run.id });
+      this.k.logDecision(outcome, { command }, { workItemId: run.workItemId, runId: run.id });
       this.settleGuard(run, verdict, command);
       return verdict;
     };
@@ -1054,7 +1056,7 @@ export class RunService {
       KILN_RUN_TOKEN: token,
       KILN_FACTORY: input.factory,
       KILN_AGENT_TYPE: agentType,
-      KILN_WORK_ITEM: input.workItem?.id ?? "",
+      KILN_WORK_ITEM: run.workItemId ?? "",
       KILN_STAGE: input.stage ?? "",
       ...(this.k.options.publicUrl ? { KILN_URL: this.k.options.publicUrl } : {}),
       ...(run.mode ? { KILN_MODE: run.mode } : {}),

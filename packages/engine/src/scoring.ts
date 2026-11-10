@@ -57,6 +57,9 @@ export function sampled(runId: string, scorer: string, rate: number): boolean {
   return parseInt(createHash("sha256").update(`${runId}:${scorer}`).digest("hex").slice(0, 8), 16) % 100 < rate;
 }
 
+/** Run states whose scores count: the agent finished, successfully or not. */
+export const FINISHED: ReadonlySet<Run["status"]> = new Set(["succeeded", "failed"]);
+
 export class ScoringService {
   constructor(private readonly k: Kiln) {}
 
@@ -82,6 +85,11 @@ export class ScoringService {
   async scoreRun(runId: string, opts: { force?: boolean; scorers?: string[]; replace?: boolean; trigger?: "automatic" | "manual"; resolvedSha?: string } = {}): Promise<Score[]> {
     const run = this.k.runs.get(runId);
     if (!run || run.status === "running" || run.status === "queued" || run.status === "claimed") return [];
+    // Only runs that finished their work say something about the agent; stopped or platform-failed runs do not.
+    if (!FINISHED.has(run.status)) {
+      this.k.audit("scorer", "score.skipped", run.id, { status: run.status });
+      return [];
+    }
     let resolved;
     try {
       resolved = this.k.defs.resolved(opts.resolvedSha ?? run.definitionSha);
@@ -105,7 +113,13 @@ export class ScoringService {
       const withDescendants = typeof ref === "object" && ref.includeDescendants;
       const transcript = withDescendants ? [base, ...this.k.runs.descendants(run.id).map((d) => `--- subagent ${d.agent} (${d.id}) ---\n${this.transcriptOf(d.id)}`)].join("\n") : base;
       const started = Date.now();
-      const verdict = await this.k.judge.judge({ scorer: s.frontmatter, rubric: s.rubric, run, transcript });
+      let verdict: JudgeOutput;
+      try {
+        verdict = await this.k.judge.judge({ scorer: s.frontmatter, rubric: s.rubric, run, transcript });
+      } catch (err) {
+        this.k.audit("scorer", "score.failed", run.id, { scorer: name, error: err instanceof Error ? err.message : String(err) });
+        continue;
+      }
       const label = s.frontmatter.labels.find((l) => l.value === verdict.label);
       if (!label) {
         this.k.audit("scorer", "score.invalid_label", run.id, { scorer: name, label: verdict.label });
@@ -139,7 +153,16 @@ export class ScoringService {
 
   /** Unreviewed failures per agent that feed self-improvement. */
   failures(factory: string, agent?: string): Score[] {
-    return this.list({ factory, agent }).filter((s) => s.selfImprovement && !s.passed && !s.reviewed);
+    return this.list({ factory, agent }).filter((s) => s.selfImprovement && !s.passed && !s.reviewed && !s.improvementAttempt);
+  }
+
+  /** Self-improvement tried these failures without opening a proposal; keep them out of the next pass. */
+  markAttempted(scoreIds: string[], outcome: NonNullable<Score["improvementAttempt"]>["outcome"]) {
+    const at = this.k.clock.now().toISOString();
+    for (const id of scoreIds) {
+      const s = this.k.store.get<Score>(C.scores, id);
+      if (s) this.k.store.put(C.scores, { ...s, improvementAttempt: { at, outcome } });
+    }
   }
 
   markReviewed(scoreIds: string[]) {

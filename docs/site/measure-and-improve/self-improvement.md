@@ -25,22 +25,24 @@ selfImprovement:
 
 ## When it runs
 
-A scheduled check looks at each agent's unreviewed failed scores from scorers with `selfImprovement: true`. It starts a proposal for an agent when either:
+Once an hour, Kiln checks each factory in the background, so a long check never holds up gates, schedules or CI waits. The time of the last check is stored, so a restart does not reset the hour, and a factory never has two checks at once. A check looks at each agent's unreviewed failed scores from scorers with `selfImprovement: true`. It starts a proposal for an agent when either:
 
 - the failures cover at least `failedRunThreshold` distinct runs, or
 - the oldest failure is at least `maxAgeDays` days old.
 
 **Run now** skips the wait and starts a proposal for every agent with at least one failure.
 
+Only runs that finished their work are scored: succeeded or failed. A run that was cancelled, interrupted or stopped by a platform error is skipped (audited as `score.skipped`), so it never counts as an agent failure. A judge error is audited as `score.failed` and the run's other scorers still run.
+
 ## How a proposal is made
 
 1. **Cluster.** The `failure-category` decision tags each failed run as `instructions`, `skills`, `tooling`, `model`, `app_code` or `flaky`. Kiln takes the largest group.
 2. **Propose.** The improver reads that group and the reviewers' earlier rejections for this agent, and proposes file changes. By default it adds a "Lessons from reviewed failures" section to the agent's instructions and never repeats a lesson a reviewer rejected. It can also be the factory's `improver` agent, which edits a copy of the definition tree in its sandbox.
 3. **Guard.** Kiln drops changes to `policies/`, `gates/` and any `protectedPaths`, and lists what it dropped. If nothing is left, or the changed tree does not validate, there is no proposal.
-4. **Replay.** Kiln replays up to 30 of the failing runs twice from their saved start state: once under the applied definition and once under the proposed one. Each replay is scored, and a replay passes when all its scores pass.
+4. **Replay.** Kiln replays up to 30 of the failing runs twice from their saved start state: once under the applied definition and once under the proposed one. Each replay is scored, and a replay passes when it finished and all its scores pass. Replays read the original work item but do not join it, so they never show in its runs, summary or costs.
 5. **Open.** The proposal body has the rationale, a "Regressions addressed" list linking each failed run and its score, a "Replay" table with pass or fail before and after and the two pass rates, and the list of changed files. Kiln never opens a proposal without the replay report.
 
-The failures in the proposal are marked reviewed, so they do not trigger another proposal.
+The failures in the proposal are marked reviewed, so they do not trigger another proposal. When a check opens no proposal (nothing to change, the tree does not validate, or the improver failed), its failures are marked attempted and audited as `proposal.empty`, `proposal.invalid` or `proposal.failed`. Attempted failures do not count again; new failures do.
 
 ## Reviewing a proposal
 

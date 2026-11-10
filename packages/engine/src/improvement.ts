@@ -1,6 +1,7 @@
 import { BUILTIN_DECISIONS, runDecision, top } from "@kiln/decide";
 import { splitFrontmatter, treeSha, validateTree, type DefinitionTree } from "@kiln/definitions";
 import type { Kiln } from "./kiln";
+import { FINISHED } from "./scoring";
 import { C, newId, type Proposal, type Run, type Score } from "./types";
 
 export type ImproverInput = {
@@ -112,7 +113,13 @@ function glob(pattern: string): RegExp {
   );
 }
 
+/** How often the scheduled pass looks for failures, per factory. */
+const CHECK_INTERVAL_MS = 3_600_000;
+
 export class ImprovementService {
+  /** One pass per factory at a time; a scheduled pass skips a busy factory, a direct check waits. */
+  private readonly passes = new Map<string, Promise<Proposal[]>>();
+
   constructor(private readonly k: Kiln) {}
 
   list(factory?: string): Proposal[] {
@@ -123,8 +130,39 @@ export class ImprovementService {
     return this.k.store.get<Proposal>(C.proposals, id);
   }
 
-  /** Scheduled check: enough distinct unreviewed failures, or the oldest is too old. */
+  /**
+   * Called from the tick: starts a pass in the background for each factory that is due (the last
+   * check time is in the store, so restarts keep the schedule) and returns without waiting.
+   */
+  schedule() {
+    const now = this.k.clock.now();
+    for (const f of this.k.defs.list()) {
+      if (!f.appliedSha || this.passes.has(f.id)) continue;
+      const last = this.k.store.get<{ id: string; lastCheckAt: string }>(C.selfImprovementChecks, f.id)?.lastCheckAt;
+      if (last && now.getTime() - new Date(last).getTime() < CHECK_INTERVAL_MS) continue;
+      this.k.store.put(C.selfImprovementChecks, { id: f.id, lastCheckAt: now.toISOString() });
+      void this.check(f.id).catch((err) => this.k.audit("self-improvement", "check.failed", f.id, { error: err instanceof Error ? err.message : String(err) }));
+    }
+  }
+
+  /** Resolves once no pass is running (tests and shutdown). */
+  async idle() {
+    while (this.passes.size) await Promise.allSettled([...this.passes.values()]);
+  }
+
+  /** Enough distinct unreviewed failures, or the oldest is too old. One pass per factory at a time. */
   async check(factory: string, opts: { runNow?: boolean } = {}): Promise<Proposal[]> {
+    const before = this.passes.get(factory);
+    const pass = (before ?? Promise.resolve([])).catch(() => []).then(() => this.checkNow(factory, opts));
+    this.passes.set(factory, pass);
+    try {
+      return await pass;
+    } finally {
+      if (this.passes.get(factory) === pass) this.passes.delete(factory);
+    }
+  }
+
+  private async checkNow(factory: string, opts: { runNow?: boolean }): Promise<Proposal[]> {
     const resolved = this.k.defs.current(factory);
     if (resolved.factory.selfImprovement?.enabled === false && !opts.runNow) return [];
     const threshold = resolved.factory.selfImprovement?.failedRunThreshold ?? 25;
@@ -137,7 +175,11 @@ export class ImprovementService {
       const runs = new Set(scores.map((s) => s.runId));
       const oldest = Math.min(...scores.map((s) => new Date(s.createdAt).getTime()));
       if ((opts.runNow && runs.size >= 1) || runs.size >= threshold || now - oldest >= maxAgeMs) {
-        const p = await this.improve(factory, agent, scores);
+        const p = await this.improve(factory, agent, scores).catch((err) => {
+          this.k.scoring.markAttempted(scores.map((s) => s.id), "error");
+          this.k.audit("self-improvement", "proposal.failed", factory, { agent, error: err instanceof Error ? err.message : String(err) });
+          return undefined;
+        });
         if (p) out.push(p);
       }
     }
@@ -178,12 +220,14 @@ export class ImprovementService {
     );
     const changes = Object.fromEntries(Object.entries(proposal.changes).filter(([p]) => !dropped.includes(p)));
     if (Object.keys(changes).length === 0) {
+      this.k.scoring.markAttempted(scores.map((s) => s.id), "empty");
       this.k.audit("self-improvement", "proposal.empty", factory, { agent, dropped });
       return undefined;
     }
     const candidate = { ...tree, ...changes };
     const valid = validateTree(candidate);
     if (!valid.ok) {
+      this.k.scoring.markAttempted(scores.map((s) => s.id), "invalid");
       this.k.audit("self-improvement", "proposal.invalid", factory, { agent, errors: valid.errors.slice(0, 5) });
       return undefined;
     }
@@ -194,7 +238,8 @@ export class ImprovementService {
     for (const { run } of group.slice(0, limit)) {
       const before = await this.k.runs.replay(run.id, { sha: binding.appliedSha });
       const after = await this.k.runs.replay(run.id, { tree: candidate });
-      const passed = async (r: Run) => (await this.k.scoring.scoreRun(r.id, { force: true })).every((s) => s.passed);
+      // A replay that did not finish (stopped, platform error) is a failed replay, not a pass.
+      const passed = async (r: Run) => FINISHED.has(r.status) && (await this.k.scoring.scoreRun(r.id, { force: true })).every((s) => s.passed);
       replay.push({ runId: run.id, before: await passed(before), after: await passed(after) });
     }
     const rate = (xs: boolean[]) => (xs.length ? xs.filter(Boolean).length / xs.length : 0);

@@ -303,6 +303,8 @@ export type Score = {
   selfImprovement: boolean;
   reviewed: boolean;
   failureCategory?: string;
+  /** Self-improvement already tried these failures and opened no proposal; they no longer count. */
+  improvementAttempt?: { at: string; outcome: "empty" | "invalid" | "error" };
   /** automatic after a run finishes, or manual (dispatched by a person). */
   trigger?: "automatic" | "manual";
   costUsd?: number;
@@ -552,6 +554,8 @@ export const C = {
   /** Events waiting for an agent foreman's next turn; deleted once the turn has read them. */
   foremanEvents: "foreman_events",
   scorerMeta: "scorer_meta",
+  /** Per factory: when self-improvement last checked for failures (survives restarts). */
+  selfImprovementChecks: "self_improvement_checks",
   connections: "connections",
   connectionStates: "connection_oauth_states",
   approvalLinks: "connection_approval_links",

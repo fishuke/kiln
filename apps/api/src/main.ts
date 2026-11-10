@@ -67,7 +67,8 @@ const tickMs = Number(process.env.KILN_TICK_MS ?? 15_000);
 let ticks = 0;
 setInterval(() => {
   ticks += 1;
-  kiln.tick({ selfImprovement: ticks % Math.max(1, Math.round(3_600_000 / tickMs)) === 0, sweepSandboxes: ticks % Math.max(1, Math.round(600_000 / tickMs)) === 0 }).catch((err) => console.error("tick failed", err));
+  // Self-improvement keeps its own hourly schedule in the store, so every tick may start it.
+  kiln.tick({ selfImprovement: true, sweepSandboxes: ticks % Math.max(1, Math.round(600_000 / tickMs)) === 0 }).catch((err) => console.error("tick failed", err));
   // Hourly Docker clean-up, once a server admin turned it on (Server page).
   if (kiln.options.janitor && ticks % Math.max(1, Math.round(3_600_000 / tickMs)) === 0 && cleanupSettings(kiln).scheduled)
     runCleanup(kiln, "kiln")

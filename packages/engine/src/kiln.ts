@@ -499,7 +499,8 @@ export class Kiln {
       else if (wi.retryAt && wi.retryAt <= this.clock.now().toISOString() && isActive(wi.state) && wi.state !== "blocked") await this.workflow.advance(wi.id);
     }
     this.improvement.evaluateCanaries();
-    if (opts.selfImprovement) for (const f of this.defs.list()) if (f.appliedSha) await this.improvement.check(f.id);
+    // Self-improvement runs replays for minutes; it starts in the background and never holds up the tick.
+    if (opts.selfImprovement) this.improvement.schedule();
     if (opts.sweepSandboxes) await this.sweepSandboxes();
   }
 }

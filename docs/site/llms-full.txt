@@ -618,15 +618,17 @@ Every shell command an agent runs is checked before it runs:
 - Claude Code runs a `PreToolUse` hook on its Bash tool that sends the command to Kiln. Kiln installs the hook when its public URL is configured.
 - Commands that go through the sandbox's command API are checked by the sandbox itself.
 - Kiln's own setup, clone and push commands are trusted and are not checked.
-- A Studio App in `cowboy` ship mode runs without the guard: its agent's commands are not checked and never wait for an approval. The sandbox's isolation and egress rules still apply.
+- A Studio App in `cowboy` ship mode runs without the guard: its agent's commands are not checked. The sandbox's isolation and egress rules still apply.
 
 The verdict:
 
 | Action | Result |
 | --- | --- |
 | `allow` (no entry matched) | The command runs. |
-| `ask_human` | Kiln opens a `command-approval` question for the requester and the `admins` role, and the run waits. Approve runs the command; reject, or no answer within 9 minutes, blocks it. In Studio, the App's chat asks the person instead of the inbox. |
+| `ask_human` | Nobody is asked. In an isolated sandbox (`docker`, `kubernetes`) the command runs. On the host (the `local` backend, also when Kiln falls back to it, and a `direct` worker) the command is blocked, and the agent is told it runs on the host outside a sandbox and to find another way inside its workspace. |
 | `block` | The command does not run. The agent sees "Blocked by the Kiln guardrail". |
+
+The guard never opens an inbox question: people cannot judge a raw shell command (ADR-016). The run's events show every command the guard blocked and every `ask_human` command it let through in a sandbox, so a reviewer can check them afterwards.
 
 If the Claude Code hook cannot reach Kiln, it blocks the command.
 
@@ -1462,8 +1464,8 @@ A gate can be approved or rejected from the [inbox](../management/inbox.md), a r
 
 | Decision | Spec gate | Preview gate | Question gate | Merge gate |
 | --- | --- | --- | --- | --- |
-| Approve | Build starts | Work moves on to the next stage | Resumes a blocked item at the stage that stopped. For a command approval, the command runs. | Marks the item complete by human confirmation |
-| Reject | Spec is rewritten with your feedback | Back to build with your feedback | Cancels a blocked item. For a command approval, the command is blocked. | Gate closes |
+| Approve | Build starts | Work moves on to the next stage | Resumes a blocked item at the stage that stopped. | Marks the item complete by human confirmation |
+| Reject | Spec is rewritten with your feedback | Back to build with your feedback | Cancels a blocked item. | Gate closes |
 | Answer | Not allowed | Not allowed | Your answer is added to the conversation and the blocked item resumes at the stage that stopped | Not allowed |
 
 When a gate expires with `park`, it closes as `expired` and the item moves to `blocked`. A message on a blocked item with nothing left open (for example, a follow-up after its question expired) resumes it at the stage that stopped. The task page also shows why it stopped, with a **Retry** button that restarts it there without a message.
@@ -2472,7 +2474,7 @@ deduplication: { enabled: true, windowHours: 24, threshold: 0.5 }
 | `QUEUED`                                    | Waiting for a [self-hosted worker](../infrastructure/self-hosted-workers.md).                    |
 | `CLAIMED`                                   | A worker took it and is preparing the sandbox.                                                   |
 | `INPROGRESS`                                | The agent is working.                                                                            |
-| `BLOCKED`                                   | Waiting on a person: a command approval, an interrupt, or a paused run.                          |
+| `BLOCKED`                                   | Waiting on a person: an interrupt or a paused run.                                               |
 | `SUCCEEDED`, `FAILED`, `ERROR`, `CANCELLED` | Finished. `FAILED` means the task could not be done as asked; `ERROR` means the platform failed. |
 
 The coarse `task_status` filter groups them: `running`, `blocked`, `failed`, `cancelled`, `complete`. Each run also has a `source` (`LINEAR`, `SLACK`, `GITHUB_WEBHOOK`, `API`, `CLI`, `MCP`, `WEB_APP`, `SCHEDULED_AGENT`, `ORCHESTRATION`, `SELF_IMPROVEMENT`, `BENCHMARK_TRIAL`, `CUSTOM_WEBHOOK`, …), a `title`, `creator` and `executor`, `rootRunId`, and up to 20 immutable `metadata` keys you can filter on with `metadata[key]=value`.
@@ -3618,7 +3620,7 @@ Gates name approvers by role, such as `role:po` or `role:code-owners`. Kiln's se
 | ------------- | ---------------------------------------------- |
 | `po`          | Built-in spec and preview gates                |
 | `code-owners` | The built-in merge gate, and high-risk reviews |
-| `admins`      | Command approvals for runs without a requester |
+| `admins`      | Inbox items that have no other recipient       |
 
 ### Sandboxes
 
@@ -4957,7 +4959,6 @@ Each item is an open gate:
 | Spec | Approve the spec for "Team invites" | Approve or reject with feedback |
 | Preview | Accept the preview of "Team invites" | Approve or reject with feedback. Only when a preview provider (Vercel) is configured. |
 | Question | verify keeps failing on "Fix the nav" | Answer, approve to resume, or reject to cancel |
-| Command approval | Allow implement to run a risky command? | Approve to run it, reject to block it |
 | Review | Review "Team invites" | Read the diff, comment on lines, approve, request changes or merge, as your GitHub account |
 | Custom | Legal sign-off | Approve or reject |
 
@@ -5026,7 +5027,7 @@ Only question gates take free-text answers. To decide through the inbox, the API
 
 Gates with a `nudge` time post a reminder in the source thread at that interval, naming who the gate waits on. Gates with an `expire` time park, approve or reject on their own when it passes. The built-in spec and preview gates nudge every 24 hours and park after 72 hours. The merge gate nudges every 48 hours.
 
-A command approval waits up to 9 minutes, then expires and the command is blocked. Claude Code gives the guard hook 10 minutes and runs the command when the hook times out, so Kiln always answers first. A Studio App's command approvals are asked in the App's chat, with **Allow** and **Block**.
+The [command guard](../configuration/decisions.md#command-guard) never opens an inbox item: a risky command runs inside an isolated sandbox and is blocked on the host, without waiting for a person.
 
 ## From the command line and MCP
 
@@ -5960,7 +5961,7 @@ This glossary defines each Kiln term in one or two sentences and links to the pa
 | **Agent** | A role in the factory, defined in `agents/<name>/agent.md` with an `agentType`, a harness or model, and instructions. See [Factory agents](../configuration/agents.md). |
 | **Stage** | One step of a work item's path: triage, spec, build, verify, preview, review or hand-off. |
 | **Pipeline** | An optional, fixed list of stages in `pipelines/<name>.yaml`. See [Pipelines and gates](../configuration/pipelines-and-gates.md). |
-| **Gate** | A pause where a person decides: spec approval, preview acceptance, a question, command approval or merge. Open gates make up the [inbox](../management/inbox.md). |
+| **Gate** | A pause where a person decides: spec approval, preview acceptance, a question or merge. Open gates make up the [inbox](../management/inbox.md). |
 | **Hand-off** | The last stage. The pull request is marked ready and a person is asked to merge it. |
 | **Project** | A group of factories for planning and reporting. See [Portfolio and projects](../management/portfolio.md). |
 | **Roadmap** | Epics and issues the planning agent produces from a goal or PRD. See [Planning](../product-owners/planning.md). |
@@ -5992,7 +5993,7 @@ This glossary defines each Kiln term in one or two sentences and links to the pa
 | **Start state** | What a run started from: prompt, instructions, skills and the exact commit of each repository. Replays start from it. |
 | **Result file** | `.kiln/result.json`, which the agent writes at the end of a run to report structured results. See [Harnesses](../infrastructure/harnesses.md#the-result-file). |
 | **Run token** | A short-lived token for one run. It can push only `kiln/*` branches of the factory's repositories, open pull requests, comment and label. It can never approve or merge. |
-| **Command guard** | The check that rates shell commands before they run and allows, asks a person or blocks. |
+| **Command guard** | The check that rates shell commands before they run and allows or blocks them. It never asks a person: a risky command runs in an isolated sandbox and is blocked on the host. |
 | **Steering** | A message sent to a running agent that it reads before its next step. |
 | **Scope** | A permission on an API or MCP token, granted per factory. See [Admin, RBAC and audit](../management/admin-rbac-audit.md). |
 
@@ -6087,7 +6088,6 @@ The factory pauses at gates. Each gate appears in the [inbox](../management/inbo
 | Spec approval | The spec is written | Nudge every 24h, park after 72h |
 | Preview acceptance | The preview is deployed | Nudge every 24h, park after 72h |
 | Question | A stage keeps failing, or the build agent fails twice | None |
-| Command approval | The guardrail rates a shell command as risky | Waits up to 9 minutes, then blocks the command |
 | Merge | The pull request is handed off | Nudge every 48h |
 
 Rejecting a spec sends the item back to the spec stage with your feedback. Rejecting a preview sends it back to build.

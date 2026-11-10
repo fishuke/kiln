@@ -222,29 +222,20 @@ describe("Studio API", () => {
     await reader.cancel();
   });
 
-  it("shows a command approval on the chat's turn; a person decides it through the gate decision API, a run token can't", async () => {
-    const { app, client, kiln } = setup();
+  it("never asks about a risky command: on the host backend the turn goes on without it and no gate opens", async () => {
+    const { client, kiln } = setup();
     const created = await client.studioCreateApp({ name: "Guarded", source: { kind: "template", template: "test" } });
     await studioFor(kiln)!.ready(created.id);
-    // A cowboy App runs unguarded; the guard asks in the other ship modes.
+    // A cowboy App runs unguarded; the guard checks commands in the other ship modes.
     await client.studioSetShipMode(created.id, "review");
     const { chat } = await client.studioNewChat(created.id, {});
     await client.studioSend(chat.id, { text: "clean up" });
-    let waiting: StudioTurn | undefined;
-    for (let i = 0; i < 200 && !waiting; i++) {
-      waiting = (await client.studioChat(chat.id)).turns.find((t) => t.approval?.state === "waiting");
-      if (!waiting) await new Promise((r) => setTimeout(r, 20));
-    }
-    expect(waiting!.approval).toMatchObject({ command: "rm -f note.tmp" });
-    expect((await client.studioStatus()).apps[0]!.needsYou).toEqual([{ chatId: chat.id, question: "Allow this command? rm -f note.tmp" }]);
-
-    const runToken = kiln.secrets.issueRunToken(waiting!.runId!, []);
-    expect((await app.request(`/api/v1/gates/${waiting!.approval!.gateId}/decide`, json("POST", { decision: "approve" }, runToken))).status).toBe(403);
-
-    await client.decide(waiting!.approval!.gateId, "approve", undefined, "web");
     await studioFor(kiln)!.idle(chat.id);
-    const { turns } = await client.studioChat(chat.id);
-    expect(turns.at(-1)).toMatchObject({ status: "succeeded", reply: "ran", approval: { state: "allowed", by: "dev@kiln.local" } });
+    const turn = (await client.studioChat(chat.id)).turns.at(-1)!;
+    expect(turn.approval).toBeUndefined();
+    expect(turn.reply).not.toBe("ran");
+    expect(kiln.gates.list().filter((g) => g.command)).toEqual([]);
+    expect((await client.studioStatus()).apps[0]!.needsYou).toEqual([]);
   });
 
   it("runs tools by name and answers bad input with 400", async () => {

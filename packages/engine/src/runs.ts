@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { BUILTIN_DECISIONS, guardCommand, runDecision } from "@kiln/decide";
+import { BUILTIN_DECISIONS, guardCommand, runDecision, type GuardVerdict } from "@kiln/decide";
 import type { DefinitionTree, ResolvedAgent, ResolvedFactory } from "@kiln/definitions";
 import type { HarnessSession } from "@kiln/harness";
 import { repoKey, type RepoRef } from "@kiln/integrations";
-import { hashDir, withGuard, type RegistryAuth, type Sandbox, type SandboxProvider, type SandboxRunner, type SnapshotRef } from "@kiln/sandbox";
+import { hashDir, HOST_BLOCKED, settleVerdict, withGuard, type RegistryAuth, type Sandbox, type SandboxProvider, type SandboxRunner, type SnapshotRef } from "@kiln/sandbox";
 import type { HarnessType, Runner } from "@kiln/schema";
 import { classifyError, KilnError, retriesAutomatically, runStatusFor } from "./errors";
 import type { Kiln } from "./kiln";
@@ -714,6 +714,26 @@ export class RunService {
     return outcome;
   }
 
+  /**
+   * What a guard verdict does to a command of `run`: nobody is asked (ADR-016). `ask_human` runs in an
+   * isolated sandbox and is blocked on the host. Every verdict but a plain allow goes on the live run's events.
+   */
+  settleGuard(run: Run, verdict: GuardVerdict, command: string, backend = this.backendOf(run)): { verdict: "allow" | "block"; reason?: string } {
+    const settled = settleVerdict(verdict, backend);
+    // The live record counts the run's events; a copy from the store would reuse an event's number.
+    const live = this.live.get(run.id);
+    const note = (text: string) => live && this.record(live, "guard", `${text}: ${command}`);
+    if (verdict === "block") note("block");
+    if (verdict !== "ask_human") return { verdict: settled };
+    note(settled === "allow" ? `ask_human, allowed in the ${backend} sandbox` : `ask_human, blocked on the host (${backend ?? "unknown"})`);
+    return settled === "allow" ? { verdict: settled } : { verdict: settled, reason: HOST_BLOCKED };
+  }
+
+  /** Where the run's commands execute: its sandbox's backend, or its worker's. */
+  private backendOf(run: Run): string | undefined {
+    return this.sandboxes.get(run.id)?.provider ?? (run.workerId ? this.k.workers.get(run.workerId)?.backend : undefined);
+  }
+
   private async runLocal(p: Prepared): Promise<Sandbox> {
     const { run, input, resolved, agent, harnessType, model, runner, repos, token, instructions, attachments } = p;
     const decisions = resolved.decisions["command-guard"] ?? BUILTIN_DECISIONS["command-guard"]!;
@@ -726,14 +746,13 @@ export class RunService {
     const guard = async (command: string) => {
       const { verdict, outcome } = await guardCommand(command, { cwd: sandbox?.workdir, branch: input.branch }, this.k.decide, decisions);
       this.k.logDecision(outcome, { command }, { workItemId: input.workItem?.id, runId: run.id });
-      if (verdict !== "allow") this.record(run, "guard", `${verdict}: ${command}`);
+      this.settleGuard(run, verdict, command, sandbox?.provider);
       return verdict;
     };
-    const askHuman = (command: string) => this.k.gates.askCommand({ run, workItem: input.workItem, command });
     const provided = await this.k.options.workspaces?.acquire(run, run.parentRunId ? this.get(run.parentRunId) : undefined);
     if (provided) {
       // Someone else's sandbox: this run's guard still decides its agent's commands.
-      sandbox = unguarded ? provided.sandbox : withGuard(provided.sandbox, guard, askHuman);
+      sandbox = unguarded ? provided.sandbox : withGuard(provided.sandbox, guard);
       this.borrowed.add(run.id);
     } else {
       sandbox = await provider.create({
@@ -743,7 +762,7 @@ export class RunService {
         env: { KILN_RUN_ID: run.id },
         labels: { "kiln.dev/run": run.id, "kiln.dev/factory": input.factory },
         deniedHosts: p.deniedHosts,
-        ...(unguarded ? {} : { guard, askHuman }),
+        ...(unguarded ? {} : { guard }),
       });
     }
     this.sandboxes.set(run.id, sandbox);

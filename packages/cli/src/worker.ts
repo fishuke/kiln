@@ -162,7 +162,8 @@ export class KilnWorker {
     return async (command: string, cwd?: string): Promise<GuardVerdict> => {
       try {
         const r = await runClient.request<{ verdict: GuardVerdict }>("POST", "/api/v1/guard", { command, cwd });
-        return r.verdict === "ask_human" ? "block" : r.verdict;
+        // The API settles ask_human for this worker's backend (ADR-016); anything else is blocked.
+        return r.verdict === "allow" ? "allow" : "block";
       } catch (err) {
         this.log("warn", `guard unreachable, blocking ${command}: ${err instanceof Error ? err.message : String(err)}`);
         return "block";

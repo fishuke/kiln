@@ -18,7 +18,7 @@ This glossary defines each Kiln term in one or two sentences and links to the pa
 | **Agent** | A role in the factory, defined in `agents/<name>/agent.md` with an `agentType`, a harness or model, and instructions. See [Factory agents](../configuration/agents.md). |
 | **Stage** | One step of a work item's path: triage, spec, build, verify, preview, review or hand-off. |
 | **Pipeline** | An optional, fixed list of stages in `pipelines/<name>.yaml`. See [Pipelines and gates](../configuration/pipelines-and-gates.md). |
-| **Gate** | A pause where a person decides: spec approval, preview acceptance, a question, command approval or merge. Open gates make up the [inbox](../management/inbox.md). |
+| **Gate** | A pause where a person decides: spec approval, preview acceptance, a question or merge. Open gates make up the [inbox](../management/inbox.md). |
 | **Hand-off** | The last stage. The pull request is marked ready and a person is asked to merge it. |
 | **Project** | A group of factories for planning and reporting. See [Portfolio and projects](../management/portfolio.md). |
 | **Roadmap** | Epics and issues the planning agent produces from a goal or PRD. See [Planning](../product-owners/planning.md). |
@@ -50,7 +50,7 @@ This glossary defines each Kiln term in one or two sentences and links to the pa
 | **Start state** | What a run started from: prompt, instructions, skills and the exact commit of each repository. Replays start from it. |
 | **Result file** | `.kiln/result.json`, which the agent writes at the end of a run to report structured results. See [Harnesses](../infrastructure/harnesses.md#the-result-file). |
 | **Run token** | A short-lived token for one run. It can push only `kiln/*` branches of the factory's repositories, open pull requests, comment and label. It can never approve or merge. |
-| **Command guard** | The check that rates shell commands before they run and allows, asks a person or blocks. |
+| **Command guard** | The check that rates shell commands before they run and allows or blocks them. It never asks a person: a risky command runs in an isolated sandbox and is blocked on the host. |
 | **Steering** | A message sent to a running agent that it reads before its next step. |
 | **Scope** | A permission on an API or MCP token, granted per factory. See [Admin, RBAC and audit](../management/admin-rbac-audit.md). |
 

@@ -45,7 +45,7 @@ deduplication: { enabled: true, windowHours: 24, threshold: 0.5 }
 | `QUEUED`                                    | Waiting for a [self-hosted worker](../infrastructure/self-hosted-workers.md).                    |
 | `CLAIMED`                                   | A worker took it and is preparing the sandbox.                                                   |
 | `INPROGRESS`                                | The agent is working.                                                                            |
-| `BLOCKED`                                   | Waiting on a person: a command approval, an interrupt, or a paused run.                          |
+| `BLOCKED`                                   | Waiting on a person: an interrupt or a paused run.                                               |
 | `SUCCEEDED`, `FAILED`, `ERROR`, `CANCELLED` | Finished. `FAILED` means the task could not be done as asked; `ERROR` means the platform failed. |
 
 The coarse `task_status` filter groups them: `running`, `blocked`, `failed`, `cancelled`, `complete`. Each run also has a `source` (`LINEAR`, `SLACK`, `GITHUB_WEBHOOK`, `API`, `CLI`, `MCP`, `WEB_APP`, `SCHEDULED_AGENT`, `ORCHESTRATION`, `SELF_IMPROVEMENT`, `BENCHMARK_TRIAL`, `CUSTOM_WEBHOOK`, …), a `title`, `creator` and `executor`, `rootRunId`, and up to 20 immutable `metadata` keys you can filter on with `metadata[key]=value`.

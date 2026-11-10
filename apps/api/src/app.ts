@@ -105,11 +105,8 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
     const def = run ? kiln.runs.decisionsFor(run)["command-guard"] : undefined;
     const { verdict, outcome } = await guardCommand(body.command, { cwd: body.cwd }, kiln.decide, def);
     kiln.logDecision(outcome, { command: body.command }, { runId: claims.runId, workItemId: run?.workItemId });
-    if (verdict === "ask_human" && run) {
-      const ok = await kiln.gates.askCommand({ run, workItem: run.workItemId ? kiln.workflow.get(run.workItemId) : undefined, command: body.command });
-      return c.json({ verdict: ok ? "allow" : "block" });
-    }
-    return c.json({ verdict });
+    // Nobody is asked (ADR-016): the run's sandbox settles a risky command; without a run it is blocked.
+    return c.json(run ? kiln.runs.settleGuard(run, verdict, body.command) : { verdict: verdict === "allow" ? "allow" : "block" });
   });
 
   // Auth helpers for route modules (closures over the access the middleware below sets).

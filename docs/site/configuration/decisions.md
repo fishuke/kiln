@@ -140,15 +140,17 @@ Every shell command an agent runs is checked before it runs:
 - Claude Code runs a `PreToolUse` hook on its Bash tool that sends the command to Kiln. Kiln installs the hook when its public URL is configured.
 - Commands that go through the sandbox's command API are checked by the sandbox itself.
 - Kiln's own setup, clone and push commands are trusted and are not checked.
-- A Studio App in `cowboy` ship mode runs without the guard: its agent's commands are not checked and never wait for an approval. The sandbox's isolation and egress rules still apply.
+- A Studio App in `cowboy` ship mode runs without the guard: its agent's commands are not checked. The sandbox's isolation and egress rules still apply.
 
 The verdict:
 
 | Action | Result |
 | --- | --- |
 | `allow` (no entry matched) | The command runs. |
-| `ask_human` | Kiln opens a `command-approval` question for the requester and the `admins` role, and the run waits. Approve runs the command; reject, or no answer within 9 minutes, blocks it. In Studio, the App's chat asks the person instead of the inbox. |
+| `ask_human` | Nobody is asked. In an isolated sandbox (`docker`, `kubernetes`) the command runs. On the host (the `local` backend, also when Kiln falls back to it, and a `direct` worker) the command is blocked, and the agent is told it runs on the host outside a sandbox and to find another way inside its workspace. |
 | `block` | The command does not run. The agent sees "Blocked by the Kiln guardrail". |
+
+The guard never opens an inbox question: people cannot judge a raw shell command (ADR-016). The run's events show every command the guard blocked and every `ask_human` command it let through in a sandbox, so a reviewer can check them afterwards.
 
 If the Claude Code hook cannot reach Kiln, it blocks the command.
 

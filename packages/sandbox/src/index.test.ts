@@ -16,6 +16,7 @@ import {
   KubernetesSandboxProvider,
   LocalSandboxProvider,
   SandboxNotReachable,
+  settleVerdict,
   withGuard,
   type SandboxSpec,
   type SnapshotRef,
@@ -88,14 +89,20 @@ describe("local sandbox", () => {
         seen.push(cmd);
         return cmd.includes("rm -rf") ? "block" : cmd.includes("push") ? "ask_human" : "allow";
       },
-      askHuman: async () => false,
     };
     const sbx = await new LocalSandboxProvider().create(spec);
     expect((await sbx.exec("echo ok")).stdout).toBe("ok\n");
     await expect(sbx.exec("rm -rf /")).rejects.toBeInstanceOf(CommandBlocked);
-    await expect(sbx.exec("git push")).rejects.toThrow("a human declined");
+    // On the host nobody is asked: a risky command is blocked, and the agent is told why.
+    await expect(sbx.exec("git push")).rejects.toThrow(/runs on the host, outside a sandbox.*another way inside your workspace/);
     expect(seen).toEqual(["echo ok", "rm -rf /", "git push"]);
     await sbx.destroy();
+  });
+
+  it("settles a verdict without asking anyone: ask_human runs in an isolated sandbox and is blocked on the host", () => {
+    expect(["docker", "kubernetes", "local", "direct", undefined].map((b) => settleVerdict("ask_human", b))).toEqual(["allow", "allow", "block", "block", "block"]);
+    expect(["docker", "local"].map((b) => settleVerdict("block", b))).toEqual(["block", "block"]);
+    expect(settleVerdict("allow", "local")).toBe("allow");
   });
 
   it("pauses to object storage and resumes on another node with the same workspace", async () => {
@@ -259,11 +266,13 @@ describe("a guarded view of a sandbox", () => {
     const view = withGuard(
       sbx,
       async (cmd) => (seen.push(cmd), cmd.includes("rm -rf") ? "block" : cmd.includes("push") ? "ask_human" : "allow"),
-      async () => false,
     );
     expect((await view.exec("echo ok")).stdout).toBe("ok\n");
     await expect(view.exec("rm -rf /")).rejects.toBeInstanceOf(CommandBlocked);
-    await expect(view.exec("git push")).rejects.toThrow("a human declined");
+    await expect(view.exec("git push")).rejects.toThrow("outside a sandbox");
+    // The same guard over an isolated sandbox lets the risky command run.
+    const isolated = withGuard(Object.assign(Object.create(sbx) as typeof sbx, { provider: "docker" }), async () => "ask_human");
+    expect((await isolated.exec("echo pushed")).stdout).toBe("pushed\n");
     expect((await view.exec("echo setup", { trusted: true })).stdout).toBe("setup\n");
     expect(seen).toEqual(["echo ok", "rm -rf /", "git push"]);
     expect(view.workdir).toBe(sbx.workdir);

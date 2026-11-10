@@ -22,8 +22,6 @@ export type SandboxSpec = {
   env?: Record<string, string>;
   /** Pre-exec hook: every shell command passes through it before running. */
   guard?: (command: string) => Promise<GuardVerdict>;
-  /** Called for "ask_human" verdicts; resolve true to run the command. */
-  askHuman?: (command: string) => Promise<boolean>;
   labels?: Record<string, string>;
   /** Hosts the egress proxy always blocks (an agent's networkPolicy.deniedHosts). */
   deniedHosts?: string[];
@@ -108,31 +106,40 @@ export class CommandBlocked extends Error {
     readonly command: string,
     readonly verdict: GuardVerdict,
   ) {
-    super(verdict === "block" ? `blocked by guardrail: ${command}` : `a human declined: ${command}`);
+    super(verdict === "block" ? `blocked by guardrail: ${command}` : `${HOST_BLOCKED}: ${command}`);
   }
 }
 
+/** What an agent is told when a risky command is blocked because nothing isolates it from the host. */
+export const HOST_BLOCKED = "blocked because it runs on the host, outside a sandbox; find another way inside your workspace";
+
 /**
- * A sandbox someone else owns, seen through another guard: agent (untrusted) commands pass `guard`
- * (and `askHuman`), then run as trusted so the owner's guard doesn't apply twice. A run that works in
+ * What a guard verdict does on `backend`; nobody is asked (ADR-016). In an isolated sandbox
+ * (docker, kubernetes) `ask_human` runs; on the host (local, a direct worker, unknown) it is blocked.
+ */
+export function settleVerdict(verdict: GuardVerdict, backend: string | undefined): "allow" | "block" {
+  if (verdict !== "ask_human") return verdict;
+  return backend === "docker" || backend === "kubernetes" ? "allow" : "block";
+}
+
+/**
+ * A sandbox someone else owns, seen through another guard: agent (untrusted) commands pass `guard`,
+ * then run as trusted so the owner's guard doesn't apply twice. A run that works in
  * a Studio App's sandbox uses this so the run's own command guard decides.
  */
-export function withGuard(sandbox: Sandbox, guard: NonNullable<SandboxSpec["guard"]>, askHuman?: SandboxSpec["askHuman"]): Sandbox {
-  const spec = { guard, ...(askHuman ? { askHuman } : {}) };
+export function withGuard(sandbox: Sandbox, guard: NonNullable<SandboxSpec["guard"]>): Sandbox {
   return Object.assign(Object.create(sandbox) as Sandbox, {
     async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
-      if (!opts.trusted) await guarded(spec, command);
+      if (!opts.trusted) await guarded({ guard }, sandbox.provider, command);
       return sandbox.exec(command, { ...opts, trusted: true });
     },
   });
 }
 
-async function guarded(spec: Pick<SandboxSpec, "guard" | "askHuman">, command: string): Promise<void> {
+async function guarded(spec: Pick<SandboxSpec, "guard">, backend: string, command: string): Promise<void> {
   if (!spec.guard) return;
   const verdict = await spec.guard(command);
-  if (verdict === "allow") return;
-  if (verdict === "ask_human" && spec.askHuman && (await spec.askHuman(command))) return;
-  throw new CommandBlocked(command, verdict);
+  if (settleVerdict(verdict, backend) === "block") throw new CommandBlocked(command, verdict);
 }
 
 /** The sandbox has no address the API can reach, e.g. a Docker container started with `--network none`. */
@@ -304,7 +311,7 @@ class LocalSandbox implements Sandbox {
   }
 
   async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
-    if (!opts.trusted) await guarded(this.spec, command);
+    if (!opts.trusted) await guarded(this.spec, this.provider, command);
     return this.runner.run("sh", ["-c", command], {
       cwd: opts.cwd ? this.resolvePath(opts.cwd) : this.workdir,
       env: { ...this.spec.env, ...opts.env },
@@ -611,7 +618,7 @@ class DockerSandbox implements Sandbox {
   }
 
   async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
-    if (!opts.trusted) await guarded(this.spec, command);
+    if (!opts.trusted) await guarded(this.spec, this.provider, command);
     const cwd = opts.cwd ? (opts.cwd.startsWith("/") ? opts.cwd : `/workspace/${opts.cwd}`) : "/workspace";
     return this.runner.run("docker", ["exec", "-w", cwd, ...this.envArgs(opts.env), this.container, "sh", "-lc", command]);
   }
@@ -852,7 +859,7 @@ class KubernetesSandbox implements Sandbox {
   }
 
   async exec(command: string, opts: { cwd?: string; env?: Record<string, string>; trusted?: boolean } = {}) {
-    if (!opts.trusted) await guarded(this.spec, command);
+    if (!opts.trusted) await guarded(this.spec, this.provider, command);
     const cwd = opts.cwd ? (opts.cwd.startsWith("/") ? opts.cwd : `/workspace/${opts.cwd}`) : "/workspace";
     const env = Object.entries(opts.env ?? {})
       .map(([k, v]) => `${k}=${shellQuote(v)}`)

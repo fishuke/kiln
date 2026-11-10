@@ -93,8 +93,6 @@ export class EventStream<T> implements AsyncIterable<T> {
 export const GUARD_HOOK_TIMEOUT_MS = 10 * 60_000;
 /** The hook stops waiting for the guard here and blocks the command (fail closed). */
 export const GUARD_HOOK_DEADLINE_MS = GUARD_HOOK_TIMEOUT_MS - 30_000;
-/** The longest the guard waits for a person to approve a command; it then answers block, before the hook's deadline. */
-export const COMMAND_APPROVAL_MAX_WAIT_MS = GUARD_HOOK_DEADLINE_MS - 30_000;
 
 /** The command-guard hook script; `deadlineMs` is how long it waits for the guard before it blocks. */
 export function guardHook(url: string, deadlineMs = GUARD_HOOK_DEADLINE_MS): string {
@@ -149,9 +147,9 @@ process.stdin.on("end", async () => {
     process.exit(2);
   }, DEADLINE_MS);
   try {
-    const { verdict } = await post(JSON.stringify({ command, cwd: process.cwd() }));
+    const { verdict, reason } = await post(JSON.stringify({ command, cwd: process.cwd() }));
     if (verdict === "allow") process.exit(0);
-    console.error(verdict === "block" ? "Blocked by the Kiln guardrail: " + command : "Waiting for a human to approve: " + command);
+    console.error((reason ? "Kiln guardrail, " + reason : "Blocked by the Kiln guardrail") + ": " + command);
     process.exit(2);
   } catch (err) {
     console.error("Kiln guard unreachable, blocking: " + command);

@@ -170,7 +170,7 @@ Gates name approvers by role, such as `role:po` or `role:code-owners`. Kiln's se
 | ------------- | ---------------------------------------------- |
 | `po`          | Built-in spec and preview gates                |
 | `code-owners` | The built-in merge gate, and high-risk reviews |
-| `admins`      | Command approvals for runs without a requester |
+| `admins`      | Inbox items that have no other recipient       |
 
 ### Sandboxes
 

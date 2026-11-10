@@ -16,7 +16,6 @@ Each item is an open gate:
 | Spec | Approve the spec for "Team invites" | Approve or reject with feedback |
 | Preview | Accept the preview of "Team invites" | Approve or reject with feedback. Only when a preview provider (Vercel) is configured. |
 | Question | verify keeps failing on "Fix the nav" | Answer, approve to resume, or reject to cancel |
-| Command approval | Allow implement to run a risky command? | Approve to run it, reject to block it |
 | Review | Review "Team invites" | Read the diff, comment on lines, approve, request changes or merge, as your GitHub account |
 | Custom | Legal sign-off | Approve or reject |
 
@@ -85,7 +84,7 @@ Only question gates take free-text answers. To decide through the inbox, the API
 
 Gates with a `nudge` time post a reminder in the source thread at that interval, naming who the gate waits on. Gates with an `expire` time park, approve or reject on their own when it passes. The built-in spec and preview gates nudge every 24 hours and park after 72 hours. The merge gate nudges every 48 hours.
 
-A command approval waits up to 9 minutes, then expires and the command is blocked. Claude Code gives the guard hook 10 minutes and runs the command when the hook times out, so Kiln always answers first. A Studio App's command approvals are asked in the App's chat, with **Allow** and **Block**.
+The [command guard](../configuration/decisions.md#command-guard) never opens an inbox item: a risky command runs inside an isolated sandbox and is blocked on the host, without waiting for a person.
 
 ## From the command line and MCP
 

@@ -11,7 +11,6 @@ import {
   codexUsageLimitReset,
   EventStream,
   FakeHarness,
-  COMMAND_APPROVAL_MAX_WAIT_MS,
   GUARD_HOOK_DEADLINE_MS,
   GUARD_HOOK_TIMEOUT_MS,
   guardHook,
@@ -346,6 +345,18 @@ describe("command guard hook", () => {
       child.stdin.end(JSON.stringify({ tool_input: { command: "pnpm test" } }));
     });
 
+  it("tells the agent why the guard blocked a command when the guard gives a reason", async () => {
+    const guard = createServer((_req, res) => res.end(JSON.stringify({ verdict: "block", reason: "blocked because it runs on the host" })));
+    const port = await listen(guard);
+    try {
+      const r = await runHook(await hookFor(`http://127.0.0.1:${port}/api/v1/guard`), {});
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain("Kiln guardrail, blocked because it runs on the host: pnpm test");
+    } finally {
+      guard.close();
+    }
+  });
+
   it("reaches the guard through the sandbox's egress proxy (Node's fetch ignores HTTPS_PROXY)", async () => {
     const seen: { url?: string; auth?: string; body?: string } = {};
     // A forwarding proxy: the request line carries the absolute guard URL.
@@ -387,8 +398,7 @@ describe("command guard hook", () => {
     }
   });
 
-  it("ends a person's approval wait before the hook gives up on the guard", () => {
-    expect(COMMAND_APPROVAL_MAX_WAIT_MS).toBeLessThan(GUARD_HOOK_DEADLINE_MS);
+  it("gives up on the guard before Claude Code gives up on the hook", () => {
     expect(GUARD_HOOK_DEADLINE_MS).toBeLessThan(GUARD_HOOK_TIMEOUT_MS);
   });
 

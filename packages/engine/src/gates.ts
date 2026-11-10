@@ -1,7 +1,7 @@
 import { BUILTIN_DECISIONS, runDecision } from "@kiln/decide";
 import type { Gate as GateDef } from "@kiln/schema";
 import type { Kiln } from "./kiln";
-import { C, newId, type Gate, type GateKind, type Run, type WorkItem } from "./types";
+import { C, newId, type Gate, type GateKind, type WorkItem } from "./types";
 
 const UNITS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
 export function durationMs(s: string): number {
@@ -131,26 +131,6 @@ export class GateService {
       });
       this.waiters.set(id, list);
     });
-  }
-
-  /** The guardrail asked a human about a risky command: an inbox question the run waits on. */
-  async askCommand(input: { run: Run; workItem?: WorkItem; command: string }): Promise<boolean> {
-    const wi =
-      input.workItem ??
-      ({ id: `run:${input.run.id}`, factory: input.run.factory, requester: "role:admins", source: { provider: "kiln" } } as unknown as WorkItem);
-    const gate = await this.open({
-      workItem: wi,
-      kind: "question",
-      name: "command-approval",
-      title: `Allow ${input.run.agent} to run a risky command?`,
-      question: `\`${input.command}\`\nApprove to run it, reject to block it.`,
-      runId: input.run.id,
-      command: input.command,
-      assignees: input.workItem ? this.resolveAssignees(["requester", "role:admins"], input.workItem) : this.k.options.roles?.admins ?? [],
-    });
-    const decided = await this.wait(gate.id, this.k.options.askHumanTimeoutMs ?? 30 * 60_000);
-    if (!decided) this.k.store.put(C.gates, { ...gate, state: "expired", decidedBy: "kiln:timeout", decidedAt: this.k.clock.now().toISOString() });
-    return decided?.state === "approved";
   }
 
   /** Nudge reminders and expiry, driven by the clock. */

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeProvider, heuristicRule, type FakeRule } from "@kiln/decide";
 import type { ResolvedAgent } from "@kiln/definitions";
-import { COMMAND_APPROVAL_MAX_WAIT_MS, FakeHarness, GUARD_HOOK_DEADLINE_MS, type HarnessAdapter, type StartOptions } from "@kiln/harness";
+import { FakeHarness, type HarnessAdapter, type StartOptions } from "@kiln/harness";
 import { FakeForge } from "@kiln/integrations";
 import { LocalSandboxProvider, type SandboxProvider } from "@kiln/sandbox";
 import { describe, expect, it } from "vitest";
@@ -119,21 +119,31 @@ describe("recovering after a restart", () => {
   });
 });
 
-describe("command approvals", () => {
-  it("wait for a person until just before the guard hook gives up, unless told to wait less", () => {
-    expect(createTestKiln({ preview: false, askHumanTimeoutMs: undefined }).kiln.options.askHumanTimeoutMs).toBe(COMMAND_APPROVAL_MAX_WAIT_MS);
-    expect(createTestKiln({ preview: false, askHumanTimeoutMs: 1000 }).kiln.options.askHumanTimeoutMs).toBe(1000);
-  });
-
-  it("refuse a wait the guard hook would cut off, since Claude Code then runs the command", () => {
-    expect(() => createTestKiln({ preview: false, askHumanTimeoutMs: GUARD_HOOK_DEADLINE_MS })).toThrow(/askHumanTimeoutMs/);
-  });
-
-  it("block the command when nobody answers", async () => {
-    const { kiln } = createTestKiln({ preview: false, askHumanTimeoutMs: 50 });
+describe("the command guard's verdict for a run", () => {
+  it("asks nobody: a risky command is blocked on the host and runs in an isolated sandbox, each on the run's events", async () => {
+    // What the Claude Code hook's request does while the run is live; this run's sandbox is on the host.
+    const harness = new FakeHarness(async (ctx) => {
+      const run = kiln.runs.get(ctx.opts.env!.KILN_RUN_ID!)!;
+      expect(kiln.runs.settleGuard(run, "ask_human", "git push")).toEqual({ verdict: "block", reason: expect.stringContaining("outside a sandbox") });
+      expect(kiln.runs.settleGuard(run, "ask_human", "git push", "kubernetes")).toEqual({ verdict: "allow" });
+      expect(kiln.runs.settleGuard(run, "block", "rm -rf /", "docker")).toEqual({ verdict: "block" });
+      expect(kiln.runs.settleGuard(run, "allow", "ls")).toEqual({ verdict: "allow" });
+      return { summary: "done" };
+    });
+    const { kiln } = createTestKiln({ preview: false, harness: () => harness });
     const run = await kiln.runs.execute({ factory: "webapp", sha: kiln.defs.list()[0]!.appliedSha!, agent: "foreman", prompt: "go", push: false });
-    expect(await kiln.gates.askCommand({ run, command: "git push origin main" })).toBe(false);
-    expect(kiln.gates.list({ state: "expired" }).map((g) => g.command)).toEqual(["git push origin main"]);
+    expect(run.status).toBe("succeeded");
+    const guard = kiln.runs.events(run.id).filter((e) => e.type === "guard");
+    expect(guard.map((e) => e.text)).toEqual([
+      "ask_human, blocked on the host (local): git push",
+      "ask_human, allowed in the kubernetes sandbox: git push",
+      "block: rm -rf /",
+    ]);
+    // A run on a remote worker has no sandbox here: the worker's backend decides.
+    const on = (backend: string) => ({ ...run, workerId: kiln.workers.connect({ workerId: `w-${backend}`, backend, maxConcurrent: 1, owner: "admin@acme.test" }).id });
+    expect(kiln.runs.settleGuard(on("docker"), "ask_human", "git push").verdict).toBe("allow");
+    expect(kiln.runs.settleGuard(on("direct"), "ask_human", "git push").verdict).toBe("block");
+    expect(kiln.gates.list().filter((g) => g.command)).toEqual([]);
   });
 });
 

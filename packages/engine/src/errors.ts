@@ -58,7 +58,7 @@ const PATTERNS: [RegExp, ErrorCode, Record<string, unknown>?][] = [
   [/timed? ?out|deadline exceeded/i, "infrastructure_timeout"],
   [/content policy|safety system|refus/i, "content_policy_violation"],
   [/ENOENT.*(claude|codex|opencode|gemini|pi)\b|spawn .+ ENOENT|exited with code|process (crashed|exited)/i, "agent_process_failed"],
-  [/blocked by guardrail|a human declined/i, "not_authorized"],
+  [/blocked by guardrail|outside a sandbox/i, "not_authorized"],
   [/push refused|git push failed/i, "conflict"],
   [/^unknown |not found|has no /i, "resource_not_found"],
 ];

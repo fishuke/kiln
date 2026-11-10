@@ -184,10 +184,9 @@ describe("API", () => {
     expect(await res.json()).toEqual({ verdict: "allow" });
   });
 
-  it("blocks a command whose approval nobody answers, and expires its gate", async () => {
+  it("answers a risky command at once without asking anyone: blocked for a run outside a sandbox, with the reason", async () => {
     const t = createTestKiln({
       preview: false,
-      askHumanTimeoutMs: 50,
       apps: { definition: () => ({ sha: "app-sha", team: "t1", agents: {}, skill: () => undefined, env: {}, secretValues: [] }) },
     });
     const app = createApp(t.kiln);
@@ -197,8 +196,8 @@ describe("API", () => {
       body: JSON.stringify({ command: "git push origin main" }),
       headers: { authorization: `Bearer ${t.kiln.secrets.issueRunToken("run_app", [])}`, "content-type": "application/json" },
     });
-    expect(await res.json()).toEqual({ verdict: "block" });
-    expect(t.kiln.gates.list({ workItemId: "run:run_app" })).toMatchObject([{ runId: "run_app", command: "git push origin main", state: "expired" }]);
+    expect(await res.json()).toEqual({ verdict: "block", reason: expect.stringContaining("runs on the host, outside a sandbox") });
+    expect(t.kiln.gates.list()).toEqual([]);
   });
 
   it("publishes an OpenAPI document covering every route", () => {

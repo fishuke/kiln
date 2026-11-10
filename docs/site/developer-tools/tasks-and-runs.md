@@ -62,6 +62,7 @@ Errors carry a `code` from the catalog (`GET /api/v1/errors`): for example `budg
 - `POST /runs/{id}/interrupt` stops what the agent is doing; the run is `BLOCKED` until a follow-up.
 - `GET /runs/{id}/timeline`, `/conversation` and `/transcript` show what happened; `/scores` its scores.
 - `PUT /runs/{id}/sharing {publicAccess: "VIEWER" | "EDITOR" | null}` shares the run with signed-in people who cannot otherwise see the factory.
+- With the factory's `followUpPermission: RUN_CREATOR`, follow-ups, steering and interrupts come only from the person who started the run (the first run of a continuation chain), its task's requester, or a factory admin; others get `not_authorized` (403). See [factory.yaml](../configuration/definitions-as-code.md#factoryyaml).
 - Agents stay alive for follow-ups for `idleTimeoutMinutes` (default 10, 60 for subagents).
 
 ## Subagents and run tokens

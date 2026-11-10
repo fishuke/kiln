@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { z } from "zod";
 import type { Env, RouteContext } from "../app";
 import { HttpError } from "../app";
-import { resolveRunRef } from "../run-auth";
+import { mustFollowUp, resolveRunRef } from "../run-auth";
 import type { Route } from "../openapi";
 import { Attachments, RunMode } from "../schemas";
 
@@ -70,7 +70,7 @@ export const routes: Route[] = [
 ];
 
 /** Run operations beyond the core routes in app.ts. */
-export function register({ app, kiln, need, who, canReadRun, canSendRun }: RouteContext) {
+export function register({ app, kiln, need, who, access, canReadRun, canSendRun }: RouteContext) {
   const readable = (c: Context<Env>, id: string): Run => {
     const run = kiln.runs.get(id);
     if (!run) throw new HttpError(404, "unknown run");
@@ -119,6 +119,7 @@ export function register({ app, kiln, need, who, canReadRun, canSendRun }: Route
 
   app.post("/api/v1/runs/:id/followups", async (c) => {
     const run = sendable(c, c.req.param("id"));
+    mustFollowUp(kiln, access(c).token, c.get("run"), run);
     const body = Followup.parse(await c.req.json());
     const attachments = body.attachments?.length ? kiln.files.resolveAttachments(body.attachments, who(c), run.factory) : undefined;
     const r = await kiln.runs.followup(run.id, { message: body.message, attachments, by: who(c), mode: body.mode });
@@ -140,6 +141,7 @@ export function register({ app, kiln, need, who, canReadRun, canSendRun }: Route
 
   app.post("/api/v1/runs/:id/interrupt", async (c) => {
     const run = sendable(c, c.req.param("id"));
+    mustFollowUp(kiln, access(c).token, c.get("run"), run);
     await kiln.runs.interrupt(run.id, who(c));
     return c.json({ ok: true });
   });

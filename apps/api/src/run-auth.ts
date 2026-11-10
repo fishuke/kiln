@@ -1,5 +1,5 @@
-import type { ApiToken } from "@kiln/auth";
-import type { Kiln, Run } from "@kiln/engine";
+import { can, type ApiToken } from "@kiln/auth";
+import { KilnError, type Kiln, type Run } from "@kiln/engine";
 
 /** The run an agent's token belongs to. */
 export type RunPrincipal = { runId: string; factory: string; agent: string; workItemId?: string; rootRunId: string };
@@ -79,4 +79,15 @@ export function agentMayCall(kiln: Kiln, p: RunPrincipal, method: string, path: 
     return undefined;
   }
   return `run tokens cannot call ${method} ${path}`;
+}
+
+/**
+ * The factory's "Who can send follow-ups" setting for a person sending a follow-up, steering or
+ * interrupting a run. Run tokens (already limited to their own tree) and factory admins pass.
+ */
+export function mustFollowUp(kiln: Kiln, token: ApiToken, principal: RunPrincipal | undefined, run: Run): void {
+  if (principal || can(token, "admin", run.factory)) return;
+  if (!kiln.runs.mayFollowUp(run, token.subject)) {
+    throw new KilnError("not_authorized", "only the person who started this run can send it follow-ups (the factory's \"Who can send follow-ups\" setting)");
+  }
 }

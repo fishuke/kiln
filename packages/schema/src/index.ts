@@ -50,6 +50,9 @@ export type NetworkPolicy = z.infer<typeof NetworkPolicy>;
 /** Whose forge identity a run uses: the agent (EXECUTOR) or the person who started the run (CREATOR). */
 export const CredentialStrategy = z.enum(["EXECUTOR", "CREATOR"]);
 export type CredentialStrategy = z.infer<typeof CredentialStrategy>;
+/** Who may steer a factory's runs once they start: anyone who can send to the run, or only the person who started it. */
+export const FollowUpPermission = z.enum(["ANYONE_WITH_ACCESS", "RUN_CREATOR"]);
+export type FollowUpPermission = z.infer<typeof FollowUpPermission>;
 
 export const RequiredRepo = z.union([
   z.string().regex(/^[^/\s]+\/[^/\s]+$/, "use owner/name"),
@@ -247,6 +250,8 @@ export const Factory = z
     /** Legacy alias of cloudProviders. */
     providers: CloudProviders.optional(),
     credentialStrategy: CredentialStrategy.optional(),
+    /** Who may send follow-ups, steer or interrupt a run; default ANYONE_WITH_ACCESS. */
+    followUpPermission: FollowUpPermission.optional(),
     networkPolicy: NetworkPolicy.optional(),
     /** Avatar image: a URL or an uploaded file key. */
     avatar: z.string().optional(),

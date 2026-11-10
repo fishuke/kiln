@@ -739,6 +739,7 @@ budgets: { perWorkItemUsd: 40, monthlyUsd: 6000 }
 | `integrations` | The workspace integrations this factory opts into: `slack`, `microsoft-teams`, `discord`, `linear`, `jira`, as names or as `{ type, <type>: settings }` objects. Linear and Jira are exclusive. Forges come from `repositories`. See [Connections](../integrations/connections.md#per-factory-opt-in). |
 | `github` | `factoryConfigChecks`: `main` (default) or `all`. See [GitHub](../integrations/github.md#the-kilnfactory-config-check). |
 | `automations` | `githubOnboardingNotices` (default `true`): once your workspace links GitHub accounts, a person who mentions `@kiln-factory` without a linked account gets one comment saying how to link it. Work still starts. `false` turns the comment off for this factory's repositories. |
+| `followUpPermission` | Who can send follow-ups, steer or interrupt this factory's runs once they start: `ANYONE_WITH_ACCESS` (default), anyone who can send to the run, or `RUN_CREATOR`, only the person who started the run (or its task's requester). Factory admins are always allowed. Others get HTTP 403 on a run's follow-ups, steer and interrupt; their messages on the task and replies in a chat thread are kept on the task without steering it. Set it in **Settings → General info → Who can send follow-ups**. |
 | `cloudProviders` | Cloud identity federation for runs. `providers` is accepted as its older name. See below. |
 | `agentDefaults` | Execution settings every agent inherits. Must set `harness` or `model`. |
 | `selfImprovement` | `failedRunThreshold` 1–50 (default 25), `maxAgeDays` 1–90 (default 7), `reviewers.type` `admins` (default), `team`, `custom` or `none`, and `reviewers.emails` for `custom`. |
@@ -992,6 +993,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `providers.gcp.workloadIdentityFederationProviderId` | string | yes |  |
 | `providers.gcp.serviceAccountEmail` | string |  | pattern `^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$` |
 | `credentialStrategy` | `EXECUTOR` \| `CREATOR` |  |  |
+| `followUpPermission` | `ANYONE_WITH_ACCESS` \| `RUN_CREATOR` |  |  |
 | `networkPolicy` | object |  |  |
 | `networkPolicy.allowedHosts` | list of string |  |  |
 | `networkPolicy.deniedHosts` | list of string |  |  |
@@ -2501,6 +2503,7 @@ Errors carry a `code` from the catalog (`GET /api/v1/errors`): for example `budg
 - `POST /runs/{id}/interrupt` stops what the agent is doing; the run is `BLOCKED` until a follow-up.
 - `GET /runs/{id}/timeline`, `/conversation` and `/transcript` show what happened; `/scores` its scores.
 - `PUT /runs/{id}/sharing {publicAccess: "VIEWER" | "EDITOR" | null}` shares the run with signed-in people who cannot otherwise see the factory.
+- With the factory's `followUpPermission: RUN_CREATOR`, follow-ups, steering and interrupts come only from the person who started the run (the first run of a continuation chain), its task's requester, or a factory admin; others get `not_authorized` (403). See [factory.yaml](../configuration/definitions-as-code.md#factoryyaml).
 - Agents stay alive for follow-ups for `idleTimeoutMinutes` (default 10, 60 for subagents).
 
 ## Subagents and run tokens

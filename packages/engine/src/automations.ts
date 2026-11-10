@@ -456,8 +456,12 @@ export class AutomationService {
       await this.k.gates.decide(question.id, { decision: "answer", answer: text, by: author, via: event.provider });
     } else {
       const live = this.k.runs.list({ workItemId: match.id }).find((r) => this.k.runs.isActive(r.id));
-      if (live) await this.k.runs.steer(live.id, text, author);
-      else this.k.workflow.addMessage(match.id, author, text);
+      // The factory's "Who can send follow-ups" setting: anyone else's reply is kept on the task but does not steer the run.
+      if (live && this.k.runs.mayFollowUp(live, author)) await this.k.runs.steer(live.id, text, author);
+      else {
+        if (live) this.k.audit(author, "run.followup_declined", live.id, { via: event.provider });
+        this.k.workflow.addMessage(match.id, author, text);
+      }
     }
     return [match.id];
   }

@@ -1390,6 +1390,41 @@ export class RunService {
     return { pushed, diffStat: diffStat.files ? diffStat : undefined };
   }
 
+  /**
+   * The factory's follow-up permission (`followUpPermission`). With RUN_CREATOR only the person who
+   * started the run (the first run of a continuation chain) or the work item's requester may send
+   * follow-ups, steer or interrupt it. Callers check this for people; Kiln's own callers are exempt.
+   */
+  mayFollowUp(run: Run, by: string): boolean {
+    if (this.followUpPermission(run.factory, run.definitionSha) !== "RUN_CREATOR") return true;
+    let first = run;
+    for (let i = 0; i < 100 && first.continuationOf; i++) {
+      const prev = this.get(first.continuationOf);
+      if (!prev) break;
+      first = prev;
+    }
+    const requester = run.workItemId ? this.k.workflow.get(run.workItemId)?.requester : undefined;
+    return by === (first.creator ?? requester) || by === requester;
+  }
+
+  /** The same setting for a message on a task: with RUN_CREATOR only its requester steers it. */
+  mayFollowUpTask(wi: { factory: string; definitionSha: string; requester: string }, by: string): boolean {
+    return this.followUpPermission(wi.factory, wi.definitionSha) !== "RUN_CREATOR" || by === wi.requester;
+  }
+
+  /** The factory's current setting, else the one the run or task started with. */
+  private followUpPermission(factory: string, sha: string): string | undefined {
+    try {
+      return this.k.defs.current(factory).factory.followUpPermission;
+    } catch {
+      try {
+        return this.k.defs.resolved(sha).factory.followUpPermission;
+      } catch {
+        return undefined;
+      }
+    }
+  }
+
   /** Live steering from the run page, a Slack thread or MCP. */
   async steer(runId: string, text: string, by: string) {
     const session = this.sessions.get(runId);

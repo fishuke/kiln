@@ -5,7 +5,7 @@ import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { openApiDocument } from "./openapi";
-import { agentMayCall, inOwnTree, isPublicPath, runTokenAuth, type RunPrincipal } from "./run-auth";
+import { agentMayCall, inOwnTree, isPublicPath, mustFollowUp, runTokenAuth, type RunPrincipal } from "./run-auth";
 import { registerModules, registerPublicRoutes } from "./routes";
 import * as S from "./schemas";
 import { reportError, traceErrorResponses } from "./trace-context";
@@ -430,6 +430,8 @@ export function createApp(kiln: Kiln, options: AppOptions = {}) {
   });
   app.post("/api/v1/runs/:id/steer", async (c) => {
     const run = mustSendRun(c, c.req.param("id"));
+    // The factory's "Who can send follow-ups" setting; factory admins stay allowed.
+    mustFollowUp(kiln, access(c).token, c.get("run"), run);
     const { text } = S.Message.parse(await c.req.json());
     await kiln.runs.steer(run.id, text, who(c));
     return c.json({ ok: true });

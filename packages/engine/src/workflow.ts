@@ -255,6 +255,11 @@ export class Workflow {
       return this.get(id)!;
     }
     this.addMessage(id, input.by, input.text, attachments);
+    // The factory's "Who can send follow-ups" setting: anyone else's message is kept but does not steer the task.
+    if (!input.fromRun && !this.k.runs.mayFollowUpTask(wi, input.by)) {
+      this.k.audit(input.by, "work_item.followup_declined", id, { via: input.via });
+      return this.get(id)!;
+    }
     if (this.isAgentMode(wi) && !input.fromRun) {
       if (wi.state === "blocked") this.unblock(id, `resumed after a message from ${input.by}`);
       this.queue(id, "message", `${input.by}: ${input.text}${attachments.length ? ` (attached ${attachments.map((a) => a.name).join(", ")})` : ""}`);

@@ -140,6 +140,23 @@ describe("automation routing", () => {
     expect(mention.continued).toEqual([started[0]!.id]);
   });
 
+  it("only the run's starter steers it from a chat thread when follow-ups are creator-only", async () => {
+    const tree = sampleTree();
+    tree["factory.yaml"] = `${tree["factory.yaml"]}followUpPermission: RUN_CREATOR\n`;
+    const { kiln } = createTestKiln({ tree });
+    const { started } = await kiln.automations.handle(ev("slack", "app_mention", { channel: "C1", thread: "7.0", text: "@webapp build it", mentioned: ["webapp"], author: "U1" }, "f1"));
+    const wi = started[0]!;
+    const live = { id: "run_live", factory: wi.factory, workItemId: wi.id, creator: wi.requester } as never;
+    vi.spyOn(kiln.runs, "list").mockReturnValue([live]);
+    vi.spyOn(kiln.runs, "isActive").mockReturnValue(true);
+    const steer = vi.spyOn(kiln.runs, "steer").mockResolvedValue(undefined);
+    await kiln.automations.handle(ev("slack", "message_posted", { channel: "C1", thread: "7.0", text: "do something else", isThreadReply: true, author: "U2" }, "f2"));
+    expect(steer).not.toHaveBeenCalled();
+    expect(kiln.workflow.get(wi.id)!.conversation.some((m) => m.text === "do something else")).toBe(true);
+    await kiln.automations.handle(ev("slack", "message_posted", { channel: "C1", thread: "7.0", text: "also add tests", isThreadReply: true, author: "U1" }, "f3"));
+    expect(steer).toHaveBeenCalledWith("run_live", "also add tests", wi.requester);
+  });
+
   it("fires @every schedules and exposes schedule ids", async () => {
     const clock = new FakeClock(new Date("2026-10-20T09:00:00Z"));
     const tree = sampleTree({ "automations/poll/automation.md": "---\ntriggers:\n  - provider: schedule\n    event: cron_fired\n    schedule: { cron: \"@every 5m\", name: poll }\n---\nPoll.\n" });

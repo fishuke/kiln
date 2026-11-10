@@ -47,6 +47,7 @@ Generated from `packages/schema`. Unknown keys are errors. Run `kiln schema <kin
 | `providers.gcp.workloadIdentityFederationProviderId` | string | yes |  |
 | `providers.gcp.serviceAccountEmail` | string |  | pattern `^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$` |
 | `credentialStrategy` | `EXECUTOR` \| `CREATOR` |  |  |
+| `followUpPermission` | `ANYONE_WITH_ACCESS` \| `RUN_CREATOR` |  |  |
 | `networkPolicy` | object |  |  |
 | `networkPolicy.allowedHosts` | list of string |  |  |
 | `networkPolicy.deniedHosts` | list of string |  |  |

@@ -35,6 +35,7 @@ export type FactoryYaml = {
   avatar?: string;
   repositories?: Repo[];
   credentialStrategy?: "EXECUTOR" | "CREATOR";
+  followUpPermission?: "ANYONE_WITH_ACCESS" | "RUN_CREATOR";
   integrations?: IntegrationEntry[];
   cloudProviders?: { aws?: { roleArn: string }; gcp?: { projectNumber: string; workloadIdentityFederationPoolId: string; workloadIdentityFederationProviderId: string; serviceAccountEmail?: string } };
   agentDefaults?: ExecShape;
@@ -139,6 +140,7 @@ function GeneralInfo({ factory, binding, yaml, takenAliases, connections, readOn
       avatar: yaml.avatar ?? "",
       repositories: (yaml.repositories ?? []).map((r) => ({ forge: r.forge ?? "github", owner: r.owner, name: r.name, deferred: !!r.deferred })),
       credentialStrategy: yaml.credentialStrategy ?? "EXECUTOR",
+      followUpPermission: yaml.followUpPermission ?? "ANYONE_WITH_ACCESS",
     }),
     [yaml, binding],
   );
@@ -303,6 +305,29 @@ function GeneralInfo({ factory, binding, yaml, takenAliases, connections, readOn
             ))}
           </div>
         </Field>
+        <Field title="Who can send follow-ups" hint="Decide who can steer this factory's runs once they start. Factory admins can always steer.">
+          <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Who can send follow-ups">
+            {(
+              [
+                ["ANYONE_WITH_ACCESS", "Anyone with access to the run", "Teammates who can send to a run can steer it."],
+                ["RUN_CREATOR", "Only the person who started the run", "Follow-ups from anyone else are declined."],
+              ] as const
+            ).map(([v, t, d]) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={s.followUpPermission === v}
+                onClick={() => setS({ ...s, followUpPermission: v })}
+                className={cn("rounded-lg border bg-background p-3 text-left transition-colors", s.followUpPermission === v ? "border-foreground ring-1 ring-foreground" : "hover:bg-muted/50")}
+              >
+                <span className={cn("mb-2 flex size-4 items-center justify-center rounded-full border", s.followUpPermission === v && "border-foreground")}>{s.followUpPermission === v && <span className="size-2 rounded-full bg-foreground" />}</span>
+                <span className="block text-sm font-medium">{t}</span>
+                <span className="block text-xs text-muted-foreground">{d}</span>
+              </button>
+            ))}
+          </div>
+        </Field>
       </fieldset>
       <SaveBar
         dirty={!same(s, initial)}
@@ -321,6 +346,7 @@ function GeneralInfo({ factory, binding, yaml, takenAliases, connections, readOn
               avatar: s.avatar || undefined,
               repositories: s.repositories.map((r) => ({ ...(r.forge !== "github" ? { forge: r.forge } : {}), owner: r.owner, name: r.name, ...(r.deferred ? { deferred: true } : {}) })),
               credentialStrategy: s.credentialStrategy === "CREATOR" ? "CREATOR" : undefined,
+              followUpPermission: s.followUpPermission === "RUN_CREATOR" ? "RUN_CREATOR" : undefined,
             },
             "Update general settings",
           );

@@ -11,6 +11,7 @@ export type HarnessEvent =
   | { type: "tool_call"; name: string; input?: unknown }
   | { type: "tool_result"; name?: string; output?: string; isError?: boolean }
   | { type: "steer"; text: string }
+  /** The session's running total in USD so far (not an increment); sent as the harness learns it, at the latest when the session ends. */
   | { type: "cost"; usd: number }
   /** Subscription usage (a Claude token or a ChatGPT login): share of each window used, 0..1. */
   | { type: "rate_limit"; status: string; fiveHour?: UsageWindow; sevenDay?: UsageWindow; others?: Record<string, UsageWindow> }
@@ -209,6 +210,8 @@ abstract class CliSession implements HarnessSession {
   readonly events = new EventStream<HarnessEvent>();
   readonly result: Promise<HarnessResult>;
   protected costUsd = 0;
+  /** The running total the last `cost` event carried. */
+  private reportedCostUsd = 0;
   protected turns = 0;
   protected summary = "";
   protected failed = false;
@@ -249,8 +252,15 @@ abstract class CliSession implements HarnessSession {
     }
   }
 
+  /** Sends the running total when it changed since the last `cost` event. */
+  protected reportCost() {
+    if (this.costUsd === this.reportedCostUsd) return;
+    this.reportedCostUsd = this.costUsd;
+    this.emit({ type: "cost", usd: this.costUsd });
+  }
+
   protected finish() {
-    if (this.costUsd) this.emit({ type: "cost", usd: this.costUsd });
+    this.reportCost();
     this.events.close();
     this.resolve({
       outcome: this.cancelled ? "cancelled" : this.failed ? "failed" : "succeeded",
@@ -469,6 +479,7 @@ class ClaudeSdkSession implements HarnessSession {
       this.emit(rateLimitEvent(msg.rate_limit_info as RateLimitInfo));
     } else if (msg.type === "result") {
       this.costUsd = Number(msg.total_cost_usd ?? 0);
+      if (this.costUsd) this.emit({ type: "cost", usd: this.costUsd });
       this.summary = msg.subtype === "success" ? msg.result : (msg.errors ?? []).join("; ");
       this.failed = msg.is_error || msg.subtype !== "success";
       this.done = true;
@@ -477,7 +488,6 @@ class ClaudeSdkSession implements HarnessSession {
   }
 
   private finish() {
-    if (this.costUsd) this.emit({ type: "cost", usd: this.costUsd });
     this.events.close();
     this.resolve({
       outcome: this.cancelled ? "cancelled" : this.failed ? "failed" : "succeeded",
@@ -694,7 +704,10 @@ class ResumingSession extends CliSession {
     if (!msg) return;
     this.onLine(msg, {
       emit: (e) => this.emit(e),
-      addCost: (n) => (this.costUsd += n),
+      addCost: (n) => {
+        this.costUsd += n;
+        this.reportCost();
+      },
       setSummary: (t) => (this.summary = t),
       fail: () => (this.failed = true),
       turn: () => this.turns++,

@@ -39,6 +39,7 @@ export function serverMetrics(k: Kiln, extra: Metric[] = []): string {
     { name: "kiln_factories", help: "Factories on this server.", type: "gauge", samples: [{ value: k.defs.list().length }] },
     { name: "kiln_workers_connected", help: "Connected self-hosted worker processes.", type: "gauge", samples: [{ value: workers.connected }] },
     { name: "kiln_worker_runs_active", help: "Runs executing on self-hosted workers.", type: "gauge", samples: [{ value: workers.active }] },
+    { name: "kiln_runs_queued", help: "Local runs waiting for a free run slot (KILN_MAX_CONCURRENT_RUNS).", type: "gauge", samples: [{ value: k.runs.queued() }] },
     { name: "kiln_worker_queue_depth", help: "Runs waiting for a self-hosted worker.", type: "gauge", samples: [{ value: workers.queued }] },
     ...extra,
   ]);

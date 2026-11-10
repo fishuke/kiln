@@ -202,6 +202,19 @@ describe.each(adapters)("harness contract: %s", (_name, adapter, skillPath) => {
     expect((await session.result).outcome).toBe("succeeded");
   });
 
+  it("reports cost as it accrues: running totals, the last one equal to the result's", async () => {
+    const { sandbox } = scriptedSandbox();
+    const session = await adapter.start({ ...base, sandbox });
+    await session.steer("use the blue variant");
+    const events = await collect(session.events);
+    const costs = events.flatMap((e) => (e.type === "cost" ? [e.usd] : []));
+    const result = await session.result;
+    expect(costs.at(-1)).toBeCloseTo(result.costUsd);
+    expect([...costs].sort((a, b) => a - b)).toEqual(costs);
+    // Turn-based CLIs report each turn's cost when the turn ends, not only when the session ends.
+    if (_name !== "claude-code") expect(new Set(costs).size).toBeGreaterThanOrEqual(2);
+  });
+
   it("keeps a repository's own skill of the same name and excludes only the skills it wrote", async () => {
     const { sandbox, files } = scriptedSandbox();
     const execs: string[] = [];

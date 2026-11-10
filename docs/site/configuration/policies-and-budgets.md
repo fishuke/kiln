@@ -63,7 +63,9 @@ A pipeline's `budget.maxUsd` is accepted but not enforced yet.
 
 Cost comes from each run's harness. Claude Code and OpenCode report cost directly. Codex reports tokens, and Kiln estimates the cost from them.
 
-Because the check runs before a run starts, the last run can take spend past the budget.
+Kiln also checks while a run goes. Each time the harness reports cost, Kiln saves it on the run and checks the same limits again, plus the team's [spend limit](../management/usage-and-spend-limits.md). The work item check counts the item's finished runs and its runs still going. When a limit is reached, Kiln stops the agent and the run ends as `failed` with `budget_exceeded`. Cost the harness reported stays on the run, even when the run fails afterwards.
+
+Codex and OpenCode report cost after each turn, so Kiln can stop them during a run. Claude Code reports cost when its session ends, so a Claude Code run can still take spend past a budget.
 
 ## Who may decide
 

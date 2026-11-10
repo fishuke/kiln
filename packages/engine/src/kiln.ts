@@ -162,6 +162,16 @@ export type KilnOptions = {
   maxRunAttempts?: number;
   /** Waits between those attempts (default 5 s, 20 s, 60 s). */
   retryDelaysMs?: number[];
+  /** Local runs that may go at once (KILN_MAX_CONCURRENT_RUNS); more wait in line as `queued`. Unset or 0: no cap. */
+  maxConcurrentRuns?: number;
+  /** A local run whose agent sends nothing for this long is stopped (KILN_RUN_STALL_MINUTES, default 30). */
+  runStallMinutes?: number;
+  /** A local run is stopped after this long (KILN_MAX_RUN_MINUTES, default 240). */
+  maxRunMinutes?: number;
+  /** How often run time limits are checked against the clock (default 15 s). */
+  runWatchdogMs?: number;
+  /** How long a stopped agent gets to end before its run gives up on it (default 60 s). */
+  runStopGraceMs?: number;
   /** Waits before a stage runs again after a run ended on a temporary error (default 1 to 30 minutes, six times). */
   stageRetryDelaysMs?: number[];
   /** A worker that has not sent a heartbeat for this long is no longer connected (default 60 s). */

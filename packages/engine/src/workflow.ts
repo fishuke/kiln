@@ -476,11 +476,17 @@ export class Workflow {
     return [...lines, ...extra].join("\n");
   }
 
+  /** The task's budget: its own, capped by the factory's policies. */
+  private itemBudget(wi: Item): number | undefined {
+    const r = this.resolved(wi);
+    const caps = [wi.budgetUsd, ...Object.values(r.parsed.policies).map((p) => p.maxUsdPerWorkItem)].filter((n): n is number => typeof n === "number");
+    return caps.length ? Math.min(...caps) : undefined;
+  }
+
   /** Throws when the task's or the factory's budget is spent. */
   private checkBudget(wi: Item) {
     const r = this.resolved(wi);
-    const caps = [wi.budgetUsd, ...Object.values(r.parsed.policies).map((p) => p.maxUsdPerWorkItem)].filter((n): n is number => typeof n === "number");
-    const cap = caps.length ? Math.min(...caps) : undefined;
+    const cap = this.itemBudget(wi);
     if (cap !== undefined && wi.costUsd >= cap) {
       throw new KilnError("budget_exceeded", `budget of $${cap} reached ($${wi.costUsd.toFixed(2)} spent)`);
     }
@@ -506,6 +512,7 @@ export class Workflow {
       collect: opts.collect,
       mode,
       overrides: opts.model ? { ...wi.execution, model: opts.model } : wi.execution,
+      workItemBudgetUsd: this.itemBudget(wi),
     });
     const fresh = this.get(wi.id)!;
     this.countRun(fresh, run);
@@ -667,6 +674,7 @@ export class Workflow {
       branch: this.branch(wi),
       push: writes,
       overrides: wi.execution,
+      workItemBudgetUsd: this.itemBudget(wi),
       ...(d.title ? { title: d.title } : {}),
       ...(from ? { continuationOf: from.id } : {}),
     };

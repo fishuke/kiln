@@ -19,6 +19,8 @@ export type RunDefinition = {
   /** A skill's text for an agent: its own skill of that name, else the shared one. */
   skill(agent: string, name: string): { body: string; description?: string } | undefined;
   cloudEnv: Record<string, string>;
+  /** The factory's `budgets.monthlyUsd`, or the App's monthly budget. */
+  monthlyUsd?: number;
 };
 
 export function factoryRunDefinition(r: ResolvedFactory): RunDefinition {
@@ -36,6 +38,7 @@ export function factoryRunDefinition(r: ResolvedFactory): RunDefinition {
       return s ? { body: s.body, ...(s.frontmatter.description ? { description: s.frontmatter.description } : {}) } : undefined;
     },
     cloudEnv: cloudProviderEnv(r.factory),
+    ...(r.factory.budgets?.monthlyUsd !== undefined ? { monthlyUsd: r.factory.budgets.monthlyUsd } : {}),
   };
 }
 
@@ -71,5 +74,6 @@ export function appRunDefinition(a: AppRunDefinition): RunDefinition {
     explicitIdleMinutes: () => undefined,
     skill: a.skill,
     cloudEnv: {},
+    ...(a.monthlyUsd !== undefined ? { monthlyUsd: a.monthlyUsd } : {}),
   };
 }

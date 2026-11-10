@@ -14,6 +14,7 @@ import { codexHome, parseChatgptAuth, redactChatgptTokens } from "./platform/cha
 import type { PoolCredential } from "./platform/credential-pool";
 import { isolatePinCommand } from "./pin-isolation";
 import { registryAuthFor } from "./platform/registry";
+import { RunLimiter, RunSlots } from "./run-limits";
 import { pushableHead } from "./push-head";
 import { checkMetadata, isTerminal, sourceFor } from "./run-state";
 import {
@@ -87,6 +88,8 @@ export type ExecuteInput = {
   onCreated?: (run: Run) => void;
   /** Attempts for retryable platform errors (default 3). */
   maxAttempts?: number;
+  /** The work item's whole budget: the run stops once the item's cost plus its live runs' reaches it. */
+  workItemBudgetUsd?: number;
   /** The user who triggered the run (defaults to the work item's requester when they have an account). */
   triggeredBy?: string;
 };
@@ -223,6 +226,8 @@ export class RunService {
   private readonly specs = new Map<string, SandboxRunner>();
   /** The in-memory record of each live run, so steering and cost updates land on the copy that is saved last. */
   private readonly live = new Map<string, Run>();
+  /** Slots for local runs (KilnOptions.maxConcurrentRuns). */
+  private readonly slots = new RunSlots(() => this.k.options.maxConcurrentRuns);
   /** Runs waiting to try again after a platform error: wakes the wait early (cancel, interrupt). */
   private readonly retryWaits = new Map<string, () => void>();
   /** Continuations being started, per run they continue: follow-ups meanwhile steer them instead of starting more. */
@@ -503,7 +508,7 @@ export class RunService {
     const model = await this.resolveModel(resolved, input.overrides?.model ?? agent.harness.model, input.prompt);
     const team = app ? app.team : this.k.teams.factoryTeam(input.factory);
     this.k.usage.assertWithinBudget(team);
-    if (app?.monthlyUsd !== undefined) this.assertMonthlyBudget(input.factory, app.monthlyUsd);
+    if (resolved.monthlyUsd !== undefined) this.assertMonthlyBudget(input.factory, resolved.monthlyUsd);
     const user = input.triggeredBy ? this.k.users.get(input.triggeredBy) : this.k.users.forRequester(input.workItem?.requester);
     const automationEnv = input.workItem?.source.automation ? resolved.automations[input.workItem.source.automation]?.environmentId : undefined;
     // An automation's environmentId override selects the team environment for this run.
@@ -687,7 +692,7 @@ export class RunService {
     let sandbox: Sandbox | undefined;
     try {
       if (prepared.workerHost) await this.runRemote(prepared);
-      else sandbox = await this.runLocal(prepared);
+      else sandbox = await this.runLimited(prepared);
     } catch (err) {
       const error = classifyError(err);
       run.error = error;
@@ -696,6 +701,7 @@ export class RunService {
       run.summary = error.message;
       this.record(run, "error", `${error.code}: ${error.message}`, { code: error.code, retryable: error.retryable });
     } finally {
+      this.slots.release(run.id);
       await this.releaseChatgptLogin(run.id);
       const pooled = this.pooled.get(run.id);
       this.pooled.delete(run.id);
@@ -713,8 +719,10 @@ export class RunService {
           this.record(run, "error", `giving the workspace back failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       } else if (run.status !== "paused") {
+        // A run given up on after a stop never returned its sandbox: the map still has it.
+        const own = sandbox ?? this.sandboxes.get(run.id);
         this.sandboxes.delete(run.id);
-        await sandbox?.destroy().catch(() => {});
+        await own?.destroy().catch(() => {});
       }
       this.k.stopping.delete(run.id);
       this.save(run);
@@ -769,7 +777,57 @@ export class RunService {
     return { verdict: settleVerdict(verdict) };
   }
 
-  private async runLocal(p: Prepared): Promise<Sandbox> {
+  /** Local runs waiting for a slot (KilnOptions.maxConcurrentRuns). */
+  queued(): number {
+    return this.slots.waiting;
+  }
+
+  /** A local run within its limits: a free slot first, then time and budget limits while it goes. */
+  private async runLimited(p: Prepared): Promise<Sandbox> {
+    const { run } = p;
+    if (this.slots.full()) {
+      run.status = "queued";
+      run.queuedAt = this.k.clock.now().toISOString();
+      this.save(run);
+      this.record(run, "queued", `waiting for a free run slot (${this.slots.running} of ${this.k.options.maxConcurrentRuns} in use)`);
+    }
+    await this.slots.acquire(run.id);
+    if (run.status === "queued") {
+      run.status = "running";
+      this.save(run);
+    }
+    const o = this.k.options;
+    const limiter = new RunLimiter(
+      this.k.clock,
+      { stallMinutes: o.runStallMinutes ?? 30, maxMinutes: o.maxRunMinutes ?? 240, checkEveryMs: o.runWatchdogMs ?? 15_000, graceMs: o.runStopGraceMs ?? 60_000 },
+      () => this.sessions.get(run.id)?.stop(),
+    );
+    try {
+      return await limiter.bound(this.runLocal(p, limiter));
+    } finally {
+      limiter.dispose();
+    }
+  }
+
+  /** Why `run` must stop for money, if it must: its work item's budget, its team's spend limit or its factory's (or App's) monthly budget. */
+  private budgetStop(p: Prepared): KilnError | undefined {
+    const { run, input } = p;
+    const cap = input.workItemBudgetUsd;
+    if (cap !== undefined && run.workItemId) {
+      const item = this.k.workflow.get(run.workItemId)?.costUsd ?? 0;
+      const live = [...this.live.values()].filter((r) => r.workItemId === run.workItemId).reduce((s, r) => s + r.costUsd, 0);
+      if (item + live >= cap) return new KilnError("budget_exceeded", `budget of $${cap} for this task reached ($${(item + live).toFixed(2)} spent)`);
+    }
+    try {
+      this.k.usage.assertWithinBudget(p.team);
+      if (p.resolved.monthlyUsd !== undefined) this.assertMonthlyBudget(run.factory, p.resolved.monthlyUsd);
+    } catch (err) {
+      return err instanceof KilnError ? err : new KilnError("budget_exceeded", err instanceof Error ? err.message : String(err));
+    }
+    return undefined;
+  }
+
+  private async runLocal(p: Prepared, limiter: RunLimiter): Promise<Sandbox> {
     const { run, input, resolved, agent, harnessType, model, runner, repos, token, instructions, attachments } = p;
     const decisions = resolved.decisions["command-guard"] ?? BUILTIN_DECISIONS["command-guard"]!;
     const provider = this.sandboxProvider(input.backend ?? runner.backend);
@@ -797,6 +855,11 @@ export class RunService {
         deniedHosts: p.deniedHosts,
         ...(unguarded ? {} : { guard }),
       });
+    }
+    // Given up on while the sandbox was starting: the run already ended, so this one goes away now.
+    if (limiter.stopped && !provided) {
+      await sandbox.destroy().catch(() => {});
+      throw limiter.stopped;
     }
     this.sandboxes.set(run.id, sandbox);
     this.specs.set(run.id, runner);
@@ -852,12 +915,28 @@ export class RunService {
       guardUrl: this.kilnUrl && !unguarded ? `${this.kilnUrl}/api/v1/guard` : undefined,
       env: { ...agentEnv.env, ...this.runEnv(run, input, agent.agentType, token) },
     });
+    // A limit was reached while the sandbox was being prepared.
+    if (limiter.stopped) {
+      await session.stop();
+      throw limiter.stopped;
+    }
     this.sessions.set(run.id, session);
     for (const text of run.steering.splice(0)) await session.steer(text);
     // Cancelled or interrupted while the sandbox was being prepared.
     if (this.k.stopping.has(run.id)) await session.stop();
+    limiter.touch();
+    // The cost of earlier attempts stays; the harness reports this session's running total.
+    const priorCost = run.costUsd;
+    let reportedCost = 0;
     for await (const e of session.events) {
-      if (e.type === "message") this.record(run, "message", e.text);
+      limiter.touch();
+      if (e.type === "cost") {
+        reportedCost = e.usd;
+        run.costUsd = priorCost + e.usd;
+        this.save(run);
+        const over = this.budgetStop(p);
+        if (over) limiter.stop(over);
+      } else if (e.type === "message") this.record(run, "message", e.text);
       else if (e.type === "reasoning") this.record(run, "reasoning", e.text, e.durationMs !== undefined ? { durationMs: e.durationMs } : undefined);
       else if (e.type === "tool_call") this.record(run, "tool_call", e.name, e.input);
       else if (e.type === "tool_result") this.record(run, "tool_result", e.output?.slice(0, 4000), { isError: e.isError });
@@ -866,7 +945,8 @@ export class RunService {
       else if (e.type === "rate_limit" && pooled) this.k.credentialPool.recordUsage(pooled, e);
     }
     const result = await session.result;
-    run.costUsd += result.costUsd;
+    run.costUsd = priorCost + Math.max(reportedCost, result.costUsd);
+    if (limiter.stopped) throw limiter.stopped;
     run.summary = this.redacted(run, result.summary).text!;
     const raw = cwd ? await sandbox.readFile(`${cwd}/.kiln/result.json`) : await sandbox.readFile(".kiln/result.json");
     if (raw) {
@@ -1399,6 +1479,11 @@ export class RunService {
 
   async cancel(runId: string, by: string) {
     if (this.k.workers.cancelQueued(runId)) {
+      this.k.stopping.set(runId, "cancel");
+      this.k.audit(by, "run.cancelled", runId);
+      return;
+    }
+    if (this.slots.leave(runId, new KilnError("operation_not_supported", "cancelled while waiting for a run slot"))) {
       this.k.stopping.set(runId, "cancel");
       this.k.audit(by, "run.cancelled", runId);
       return;

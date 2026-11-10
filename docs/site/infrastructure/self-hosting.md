@@ -82,6 +82,18 @@ Caddy gets certificates for both domains. Open the web URL and sign up with `KIL
 
 Sandboxes join the internal network `kiln-egress` and reach the internet only through the proxy. If your platform renames networks, set `KILN_EGRESS_NETWORK` to the name it uses. Studio sandboxes and the API also share a second internal network, `kiln-preview` (`KILN_PREVIEW_NETWORK`), on the subnet `KILN_PREVIEW_SUBNET` (default `172.30.250.0/24`; change it if it clashes with yours). The API proxies previews into it and refuses any connection from it. `KILN_RUNNER_IMAGE` picks another sandbox image; it needs git and the harness CLIs, like `runners/images/node`.
 
+### Run limits
+
+These variables on the API limit runs in sandboxes on this server. Runs on [self-hosted workers](self-hosted-workers.md) use the worker's own limits.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `KILN_MAX_CONCURRENT_RUNS` | No limit | How many runs go at once. More runs wait as `queued` and start in order when a run ends. A queued run can be cancelled. |
+| `KILN_RUN_STALL_MINUTES` | `30` | Kiln stops a run when its agent sends no messages, tool calls or other events for this many minutes. |
+| `KILN_MAX_RUN_MINUTES` | `240` | Kiln stops a run after this many minutes. |
+
+A run stopped for time ends as `error` with `infrastructure_timeout`, and is not tried again automatically. When the agent does not end within 60 seconds of the stop, Kiln removes its sandbox. The `/metrics` endpoint includes `kiln_runs_queued`.
+
 ### Studio previews
 
 Studio serves each preview on its own host under a preview domain, such as `sc-3f9a….preview.kiln.example.com`. To turn it on:

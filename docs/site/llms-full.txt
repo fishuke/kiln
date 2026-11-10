@@ -1550,7 +1550,9 @@ A pipeline's `budget.maxUsd` is accepted but not enforced yet.
 
 Cost comes from each run's harness. Claude Code and OpenCode report cost directly. Codex reports tokens, and Kiln estimates the cost from them.
 
-Because the check runs before a run starts, the last run can take spend past the budget.
+Kiln also checks while a run goes. Each time the harness reports cost, Kiln saves it on the run and checks the same limits again, plus the team's [spend limit](../management/usage-and-spend-limits.md). The work item check counts the item's finished runs and its runs still going. When a limit is reached, Kiln stops the agent and the run ends as `failed` with `budget_exceeded`. Cost the harness reported stays on the run, even when the run fails afterwards.
+
+Codex and OpenCode report cost after each turn, so Kiln can stop them during a run. Claude Code reports cost when its session ends, so a Claude Code run can still take spend past a budget.
 
 ## Who may decide
 
@@ -3553,6 +3555,18 @@ docker compose -f docker-compose.prod.yml --profile proxy up -d --build
 Caddy gets certificates for both domains. Open the web URL and sign up with `KILN_OWNER_EMAIL`, then invite everyone else.
 
 Sandboxes join the internal network `kiln-egress` and reach the internet only through the proxy. If your platform renames networks, set `KILN_EGRESS_NETWORK` to the name it uses. Studio sandboxes and the API also share a second internal network, `kiln-preview` (`KILN_PREVIEW_NETWORK`), on the subnet `KILN_PREVIEW_SUBNET` (default `172.30.250.0/24`; change it if it clashes with yours). The API proxies previews into it and refuses any connection from it. `KILN_RUNNER_IMAGE` picks another sandbox image; it needs git and the harness CLIs, like `runners/images/node`.
+
+### Run limits
+
+These variables on the API limit runs in sandboxes on this server. Runs on [self-hosted workers](self-hosted-workers.md) use the worker's own limits.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `KILN_MAX_CONCURRENT_RUNS` | No limit | How many runs go at once. More runs wait as `queued` and start in order when a run ends. A queued run can be cancelled. |
+| `KILN_RUN_STALL_MINUTES` | `30` | Kiln stops a run when its agent sends no messages, tool calls or other events for this many minutes. |
+| `KILN_MAX_RUN_MINUTES` | `240` | Kiln stops a run after this many minutes. |
+
+A run stopped for time ends as `error` with `infrastructure_timeout`, and is not tried again automatically. When the agent does not end within 60 seconds of the stop, Kiln removes its sandbox. The `/metrics` endpoint includes `kiln_runs_queued`.
 
 ### Studio previews
 

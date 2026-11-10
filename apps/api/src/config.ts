@@ -162,6 +162,10 @@ export function kilnFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig 
     storageRoot: join(dataDir, "storage"),
     mailer: env.KILN_SMTP_URL ? new SmtpMailer(parseSmtpUrl(env.KILN_SMTP_URL, env.KILN_MAIL_FROM)) : undefined,
     defaultImage: env.KILN_RUNNER_IMAGE || undefined,
+    // Run limits: how many local runs go at once, and when a run is stopped for time.
+    maxConcurrentRuns: positiveInt(env.KILN_MAX_CONCURRENT_RUNS),
+    runStallMinutes: positiveInt(env.KILN_RUN_STALL_MINUTES),
+    maxRunMinutes: positiveInt(env.KILN_MAX_RUN_MINUTES),
     ownerEmail: env.KILN_OWNER_EMAIL || undefined,
     serverAdmins: (env.KILN_ADMIN_EMAILS ?? "").split(",").map((e) => e.trim()).filter(Boolean),
     forgeToken: env.GITHUB_TOKEN,
@@ -341,4 +345,10 @@ function appForge(apps: () => HttpGitHubAppAuth[], hosts: { baseUrl: string; web
     sandboxToken: async (repo) => (await forOwner(repo.owner)).repoToken(repo.owner, repo.name),
     repositories: async () => (await Promise.all(apps().map((a) => a.repositories()))).flat(),
   });
+}
+
+/** A whole number above zero from an environment variable, else undefined (the engine's default). */
+function positiveInt(value: string | undefined): number | undefined {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
 }

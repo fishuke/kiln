@@ -39,7 +39,7 @@ apps/mcp        Kiln MCP server (streamable HTTP, scoped tokens)
 apps/web        Web app (Next.js + shadcn/ui)
 packages/       schema, definitions, decide, sandbox, harness, evidence,
                 integrations, auth, store, events, engine, sdk-ts, cli
-factories/      kiln-self (the factory that builds Kiln) and starter templates
+factories/      starter factory templates
 docs/           docs site, ADRs, threat model, ideas, screenshots
 deploy/         Helm chart and the sandbox egress proxy
 e2e/            end-to-end tests on a git-backed fake forge

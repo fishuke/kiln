@@ -5,3 +5,6 @@ node_modules
 next-env.d.ts
 .claude/worktrees/
 .data/
+
+# Local factory (kept out of the public repo)
+factories/kiln-self/

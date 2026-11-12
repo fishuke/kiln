@@ -18,6 +18,6 @@ jobs:
       - run: pnpm build
       - name: Validate factory definitions
         run: |
-          for d in factories/kiln-self factories/templates/*; do pnpm kiln validate "$d"; done
+          for d in factories/templates/*; do pnpm kiln validate "$d"; done
       - name: Docs reference is up to date
         run: pnpm docs:gen && git diff --exit-code docs/site

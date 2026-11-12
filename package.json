@@ -21,7 +21,8 @@
     "dev:up": "docker compose up -d --build",
     "health": "node scripts/health.mjs",
     "format": "prettier --write .",
-    "smoke:claude": "tsx scripts/smoke-claude.ts"
+    "smoke:claude": "tsx scripts/smoke-claude.ts",
+    "site:deploy": "cd website && npx -y wrangler@4 deploy"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

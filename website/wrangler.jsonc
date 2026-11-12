@@ -1,0 +1,11 @@
+// Kiln website: static files served by Cloudflare Workers.
+// Deploy: pnpm site:deploy (or: cd website && npx wrangler deploy)
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "kiln",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": ".",
+    "not_found_handling": "404-page"
+  }
+}

@@ -1,7 +1,7 @@
 // Renders a scene (promo.html by default) to frames, then to MP4 and GIF.
 // Usage (from this folder):
 //   npm i --no-save puppeteer-core
-//   CHROME=/path/to/chrome [SCENE=factory.html NAME=kiln-factory] node render.mjs [out-dir]
+//   CHROME=/path/to/chrome [SCENE=../../website/factory.html NAME=kiln-factory] node render.mjs [out-dir]
 // Needs ffmpeg on PATH. Writes <NAME>.mp4 and <NAME>.gif (default kiln-promo) to out-dir (default: ../../website/assets).
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";

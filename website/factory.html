@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
   "How a Kiln factory runs": an isometric factory floor driven by pipelines/feature.yaml.
-  Deterministic: window.render(t) draws the frame at t seconds. Render with: SCENE=factory.html NAME=kiln-factory node render.mjs
+  Deterministic: window.render(t) draws the frame at t seconds. Render with (from docs/video): SCENE=../../website/factory.html NAME=kiln-factory node render.mjs. Embedded live on the site with ?embed=1.
 -->
 <html lang="en">
 <head>
@@ -39,6 +39,11 @@
   .st-ok { color:var(--green); background:rgba(74,222,128,.12); } .st-bad { color:var(--red); background:rgba(248,113,113,.14); }
   #caption { position:absolute; left:430px; right:0; bottom:26px; text-align:center; font-weight:700; font-size:22px; letter-spacing:-.02em; }
   #caption span { color:var(--ember2); }
+  /* Embedded live on the website */
+  html.embed, html.embed body { background:transparent; overflow:hidden; }
+  html.embed body { transform-origin:0 0; }
+  html.embed #bg { background: radial-gradient(800px 420px at 62% 40%, rgba(255,122,26,.10), transparent 70%); }
+  html.embed #title, html.embed #end { display:none; }
   #counter { right:30px; top:24px; font:500 13px var(--mono); color:var(--muted); text-align:right; }
   #counter b { color:var(--green); font-size:28px; font-family:Inter; font-weight:800; display:block; letter-spacing:-.02em; }
   #end { left:0; right:0; top:236px; text-align:center; }
@@ -286,8 +291,26 @@ window.render = function (t) {
   $("cnt").textContent = (t >= 22.6 ? 1 : 0) + (t >= 27.2 ? 1 : 0);
 };
 window.DURATION = DURATION;
-if (!/render=1/.test(location.search)) { const t0 = performance.now(); const loop = () => { render(((performance.now() - t0) / 1000) % DURATION); requestAnimationFrame(loop); }; document.fonts.ready.then(loop); }
-else render(0);
+const params = new URLSearchParams(location.search);
+if (params.has("render")) render(0);
+else if (params.has("embed")) {
+  // Live on the website: loop only the running part, scale to the frame, fade at the loop seam.
+  document.documentElement.classList.add("embed");
+  const A = 5.6, L = 24.2;
+  const fit = () => { document.body.style.transform = `scale(${innerWidth / 1280})`; };
+  addEventListener("resize", fit); fit();
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let visible = true, last = performance.now(), u = still ? 15 : 0;
+  new IntersectionObserver(([e]) => { visible = e.isIntersecting; }).observe(document.body);
+  const loop = (now) => {
+    if (visible && !still) u = (u + Math.min(now - last, 100) / 1000) % L;
+    last = now;
+    render(A + u);
+    document.body.style.opacity = still ? 1 : Math.min(P(u, 0, .5), 1 - P(u, L - .7, L)).toFixed(3);
+    requestAnimationFrame(loop);
+  };
+  document.fonts.ready.then(() => requestAnimationFrame(loop));
+} else { const t0 = performance.now(); const loop = () => { render(((performance.now() - t0) / 1000) % DURATION); requestAnimationFrame(loop); }; document.fonts.ready.then(loop); }
 </script>
 </body>
 </html>

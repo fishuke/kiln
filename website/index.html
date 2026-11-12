@@ -126,6 +126,13 @@
   .frame.in { transform: rotateX(0) scale(1); }
   .frame .bar { display: flex; gap: 7px; padding: 6px 8px 12px; }
   .frame .bar i { width: 11px; height: 11px; border-radius: 50%; background: rgba(255,255,255,.14); }
+  .frame iframe.factory { display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 10px; background: #0a0a0b; }
+  .bar.live { align-items: center; font: 12px var(--mono); color: var(--dim); }
+  .bar.live .lv { margin-left: 10px; display: inline-flex; align-items: center; gap: 8px; }
+  .bar.live .lv b { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(74,222,128,.6); animation: pulse 1.8s infinite; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 7px rgba(74,222,128,0); } 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); } }
+  .bar.live a { margin-left: auto; color: var(--muted); font-family: Inter, sans-serif; font-size: 13px; }
+  .bar.live a:hover { color: var(--text); }
   .frame img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); }
 
   /* Logos strip */
@@ -387,6 +394,7 @@
     .col li { grid-template-columns: 1fr; gap: 2px; }
     .install { font-size: 12px; }
     .pill { font-size: 12px; text-align: left; border-radius: 14px; }
+    .bar.live .lv { display: none; }
     .frame { padding: 6px; border-radius: 12px; }
     section.block { padding-top: 88px; }
     .final { margin-top: 100px; padding: 56px 20px; }
@@ -445,8 +453,8 @@
     <div class="shot">
       <div class="glow"></div>
       <div class="frame" id="frame">
-        <div class="bar"><i></i><i></i><i></i></div>
-        <video src="assets/kiln-promo.mp4" autoplay muted loop playsinline preload="auto" width="1920" height="1080" aria-label="Kiln in 36 seconds: work comes in, agents build and test it, ask you when they need a decision, and you review and merge" style="display:block;width:100%;height:auto;border-radius:10px;border:1px solid var(--line)"></video>
+        <div class="bar live"><i></i><i></i><i></i><span class="lv"><b></b>live · pipelines/feature.yaml</span><a href="#tour">▶ Watch the 36-second tour</a></div>
+        <iframe class="factory" src="factory.html?embed=1" title="A Kiln factory running pipelines/feature.yaml: work items move through triage, spec, build, verify, preview and review; people approve at the gates and merge" loading="eager"></iframe>
       </div>
     </div>
 
@@ -484,10 +492,10 @@
         </div>
       </div>
 
-      <div class="shot reveal" style="margin-top:40px">
+      <div class="shot reveal" id="tour" style="margin-top:40px;scroll-margin-top:90px">
         <div class="frame in" style="transform:none">
           <div class="bar"><i></i><i></i><i></i></div>
-          <video src="assets/kiln-factory.mp4" autoplay muted loop playsinline preload="metadata" width="1920" height="1080" aria-label="A Kiln factory running pipelines/feature.yaml: gates, fan-out, a failed check looping back, a small fix skipping the spec, and a person merging" style="display:block;width:100%;height:auto;border-radius:10px;border:1px solid var(--line)"></video>
+          <video src="assets/kiln-promo.mp4" controls muted loop playsinline preload="metadata" poster="assets/hero.png" width="1920" height="1080" aria-label="Kiln in 36 seconds: work comes in, agents build and test it, ask you when they need a decision, and you review and merge" style="display:block;width:100%;height:auto;border-radius:10px;border:1px solid var(--line)"></video>
         </div>
       </div>
 

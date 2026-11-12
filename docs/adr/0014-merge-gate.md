@@ -1,6 +1,6 @@
 # ADR-014: A merge gate decides which pull requests need a person
 
-Status: Proposed · Date: 2026-10-22
+Status: Accepted · Date: 2026-10-22
 
 ## Context
 

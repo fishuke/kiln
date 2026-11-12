@@ -1,6 +1,6 @@
 # Kiln
 
-**CI/CD for AI coding agents.** An open source, self-hosted alternative to Warp Factories.
+**CI/CD for AI coding agents.** An open source, self-hosted alternative to Warp Factories. · [kiln.fishu.workers.dev](https://kiln.fishu.workers.dev)
 
 <p align="center">
   <img src="website/assets/hero.png" alt="Kiln: describe the change, then follow it from spec to merged pull request" width="900">

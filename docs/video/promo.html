@@ -1,0 +1,346 @@
+<!doctype html>
+<!--
+  Kiln motion promo. Deterministic: window.render(t) draws the frame at t seconds (0..DURATION).
+  Open in a browser to watch it play; render frames with docs/video/render.mjs.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kiln promo</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0a0a0b; --card:#141416; --card2:#18181b; --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.16);
+    --text:#f4f4f5; --muted:#a1a1aa; --dim:#71717a; --ember:#ff7a1a; --ember2:#ffb347; --blue:#6aa3ff; --green:#4ade80; --violet:#a78bfa; --red:#f87171;
+    --mono:"JetBrains Mono", ui-monospace, monospace; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; background:var(--bg); }
+  body { width:1280px; height:720px; overflow:hidden; font:16px/1.5 Inter, system-ui, sans-serif; color:var(--text); -webkit-font-smoothing:antialiased; position:relative; }
+  #bg { position:absolute; inset:0; background:
+      radial-gradient(700px 380px at var(--gx,50%) var(--gy,20%), rgba(255,122,26,.20), transparent 70%),
+      radial-gradient(900px 500px at 80% 110%, rgba(106,163,255,.10), transparent 70%), var(--bg); }
+  #grid { position:absolute; inset:0; opacity:.45; background-image: radial-gradient(rgba(255,255,255,.09) 1px, transparent 1px); background-size: 28px 28px;
+      mask-image: radial-gradient(ellipse 75% 70% at 50% 40%, #000 30%, transparent 80%); -webkit-mask-image: radial-gradient(ellipse 75% 70% at 50% 40%, #000 30%, transparent 80%); }
+  .scene { position:absolute; inset:0; opacity:0; }
+  .abs { position:absolute; }
+  .mono { font-family:var(--mono); }
+  .card { background:var(--card); border:1px solid var(--line2); border-radius:16px; box-shadow:0 30px 80px -30px rgba(0,0,0,.9); }
+  .kicker { font:500 13px var(--mono); color:var(--ember); letter-spacing:.08em; text-transform:uppercase; }
+  .h { font-weight:800; letter-spacing:-.04em; line-height:1.02; }
+  .chip { display:inline-flex; align-items:center; gap:6px; font:500 12px var(--mono); padding:4px 10px; border-radius:999px; border:1px solid var(--line2); color:var(--muted); }
+  .chip.g { color:var(--green); border-color:rgba(74,222,128,.35); background:rgba(74,222,128,.08); }
+  .chip.y { color:var(--ember2); border-color:rgba(255,179,71,.35); background:rgba(255,179,71,.08); }
+  .chip.b { color:var(--blue); border-color:rgba(106,163,255,.35); background:rgba(106,163,255,.08); }
+  .chip.v { color:var(--violet); border-color:rgba(167,139,250,.35); background:rgba(167,139,250,.08); }
+  .logo { display:grid; place-items:center; background:#fafafa; border-radius:22%; }
+  .logo svg { width:62%; height:62%; }
+  #caption { position:absolute; left:0; right:0; bottom:34px; text-align:center; font-weight:700; font-size:26px; letter-spacing:-.02em; opacity:0; }
+  #caption span { color:var(--ember2); }
+  #cursor { position:absolute; width:26px; height:26px; z-index:50; opacity:0; pointer-events:none; filter: drop-shadow(0 4px 10px rgba(0,0,0,.6)); }
+  #ripple { position:absolute; width:44px; height:44px; margin:-22px 0 0 -22px; border-radius:50%; border:2px solid var(--ember2); opacity:0; z-index:49; }
+
+  /* S2 intake */
+  .src { width:330px; padding:14px 16px; display:grid; grid-template-columns:34px 1fr; gap:12px; align-items:center; }
+  .src .ic { width:34px; height:34px; border-radius:9px; display:grid; place-items:center; font-size:18px; background:rgba(255,255,255,.05); }
+  .src b { font-size:14px; display:block; }
+  .src small { color:var(--muted); font-size:12.5px; display:block; line-height:1.35; }
+  #hub { width:150px; height:150px; border-radius:36px; display:grid; place-items:center; background:#111; border:1px solid rgba(255,122,26,.5); box-shadow:0 0 0 10px rgba(255,122,26,.06), 0 0 80px rgba(255,122,26,.35); }
+
+  /* S3 pipeline */
+  .stage { width:150px; text-align:center; }
+  .stage .n { width:58px; height:58px; margin:0 auto 10px; border-radius:16px; display:grid; place-items:center; background:var(--card); border:1px solid var(--line2); font-size:22px; transition:none; }
+  .stage b { font-size:14px; }
+  .stage .you { position:absolute; top:-10px; left:92px; font:600 10px var(--mono); background:var(--blue); color:#08101f; padding:2px 6px; border-radius:6px; opacity:0; }
+  #rail { position:absolute; left:155px; right:155px; top:183px; height:2px; background:var(--line2); }
+  #railfill { height:100%; width:0; background:linear-gradient(90deg,var(--ember),var(--ember2)); box-shadow:0 0 14px var(--ember); }
+  #term { width:760px; left:260px; top:300px; padding:0; overflow:hidden; }
+  #term .bar { display:flex; gap:7px; padding:12px 14px; border-bottom:1px solid var(--line); align-items:center; }
+  #term .bar i { width:11px; height:11px; border-radius:50%; background:rgba(255,255,255,.14); }
+  #term .bar span { margin-left:8px; font:12px var(--mono); color:var(--dim); }
+  #term pre { margin:0; padding:16px 20px; font:14px/1.75 var(--mono); color:#d4d4d8; height:290px; white-space:pre; }
+  .c-p{color:var(--ember)} .c-g{color:var(--green)} .c-d{color:var(--dim)} .c-b{color:var(--blue)}
+
+  /* S4 inbox */
+  .q { width:640px; padding:20px 22px; left:320px; }
+  .q .top { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .q h3 { margin:0 0 4px; font-size:20px; letter-spacing:-.02em; }
+  .q p { margin:0 0 14px; color:var(--muted); font-size:14.5px; }
+  .opts { display:flex; gap:10px; }
+  .opt { padding:9px 16px; border-radius:10px; border:1px solid var(--line2); font-size:14px; font-weight:500; background:var(--card2); }
+  .opt.sel { background:var(--blue); color:#06101f; border-color:transparent; }
+  .btn { padding:10px 18px; border-radius:10px; font-weight:600; font-size:14px; background:#fafafa; color:#0a0a0b; display:inline-block; }
+  .btn.ghost { background:transparent; color:var(--text); border:1px solid var(--line2); }
+  .done-note { color:var(--green); font-size:14px; font-weight:500; margin-top:12px; opacity:0; }
+
+  /* S5 review */
+  #rv { left:70px; top:92px; width:1140px; height:560px; overflow:hidden; }
+  #rv .tb { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--line); }
+  #rv .tb b { font-size:16px; }
+  #rv .cols { display:grid; grid-template-columns: 1fr 400px; height:calc(100% - 56px); }
+  #diff { border-right:1px solid var(--line); padding:14px 0; font:13px/1.85 var(--mono); }
+  #diff .f { padding:0 18px 8px; color:var(--muted); font-size:12px; }
+  #diff .l { padding:0 18px; white-space:pre; opacity:0; }
+  #diff .add { background:rgba(74,222,128,.08); color:#bbf7d0; }
+  #diff .del { background:rgba(248,113,113,.08); color:#fecaca; }
+  #ev { padding:16px 18px; display:flex; flex-direction:column; gap:12px; }
+  #ev h4 { margin:0; font:500 11px var(--mono); color:var(--dim); letter-spacing:.08em; text-transform:uppercase; }
+  .row { display:flex; align-items:center; gap:10px; font-size:13.5px; opacity:0; }
+  .tick { width:18px; height:18px; border-radius:6px; display:grid; place-items:center; font-size:12px; background:rgba(74,222,128,.15); color:var(--green); flex:none; }
+  .vids { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .vid { height:58px; border-radius:8px; background:linear-gradient(135deg,#1f2937,#111827); border:1px solid var(--line2); position:relative; display:grid; place-items:center; opacity:0; }
+  .vid::after { content:"▶"; font-size:13px; color:#fff; opacity:.8; }
+  .vid i { position:absolute; right:4px; bottom:3px; font:10px var(--mono); color:var(--green); font-style:normal; }
+  #merge { margin-top:auto; text-align:center; padding:12px; border-radius:12px; font-weight:700; background:#fafafa; color:#0a0a0b; }
+
+  /* S6 done */
+  #board { left:190px; top:150px; width:900px; padding:8px 0; }
+  .run { display:grid; grid-template-columns: 1fr 140px 120px; align-items:center; padding:8px 22px; line-height:1.35; border-bottom:1px solid var(--line); font-size:15px; opacity:0; }
+  .run:last-child { border-bottom:0; }
+  .run small { color:var(--dim); font:12px var(--mono); }
+  .stat { text-align:center; }
+  .stat b { display:block; font-size:44px; font-weight:800; letter-spacing:-.03em; }
+  .stat span { color:var(--muted); font-size:14px; }
+
+  /* S7 code */
+  #code { left:90px; top:170px; width:560px; padding:0; overflow:hidden; }
+  #code pre { margin:0; padding:20px 22px; font:15px/1.8 var(--mono); color:#d4d4d8; height:236px; white-space:pre; }
+  .k { color:#93c5fd } .s { color:#fdba74 }
+  .key { width:250px; padding:16px 18px; opacity:0; }
+  .key small { font:500 11px var(--mono); color:var(--dim); letter-spacing:.06em; text-transform:uppercase; }
+  .key b { display:block; font-size:22px; letter-spacing:-.02em; margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="bg"></div><div id="grid"></div>
+
+<!-- S1 title -->
+<div class="scene" id="s1">
+  <div class="abs logo" id="s1logo" style="left:590px;top:170px;width:100px;height:100px"><svg viewBox="0 0 16 16"><path fill="#171717" d="M3 13.5 6.2 2.5h2.6L5.6 13.5zM7.4 13.5l3.2-11h2.6l-3.2 11z"/></svg></div>
+  <div class="abs h" id="s1t" style="left:0;right:0;top:300px;text-align:center;font-size:96px">Kiln</div>
+  <div class="abs" id="s1s" style="left:0;right:0;top:420px;text-align:center;font-size:30px;font-weight:600;letter-spacing:-.02em;color:var(--muted)">The <span style="color:var(--ember2)">open source</span> software factory</div>
+  <div class="abs" id="s1c" style="left:0;right:0;top:478px;text-align:center"><span class="chip">MIT</span> <span class="chip">self-hosted</span> <span class="chip">bring your own key</span></div>
+</div>
+
+<!-- S2 intake -->
+<div class="scene" id="s2">
+  <div class="abs kicker" style="left:90px;top:70px">Work comes in from anywhere</div>
+  <svg class="abs" id="wires" style="left:0;top:0" width="1280" height="720"></svg>
+  <div class="abs card src" id="src0" style="left:90px;top:140px"><div class="ic">💬</div><div><b>Slack · #support</b><small>@kiln checkout button is broken on Safari</small></div></div>
+  <div class="abs card src" id="src1" style="left:90px;top:250px"><div class="ic">🐙</div><div><b>GitHub · issue #418</b><small>Let customers save their cart for later</small></div></div>
+  <div class="abs card src" id="src2" style="left:90px;top:360px"><div class="ic">📋</div><div><b>Linear · PROD-77</b><small>CSV export for invoices</small></div></div>
+  <div class="abs card src" id="src3" style="left:90px;top:470px"><div class="ic">⏰</div><div><b>Schedule · 03:00 UTC</b><small>Nightly security sweep</small></div></div>
+  <div class="abs" id="hub" style="left:880px;top:255px"><div class="logo" style="width:84px;height:84px"><svg viewBox="0 0 16 16"><path fill="#171717" d="M3 13.5 6.2 2.5h2.6L5.6 13.5zM7.4 13.5l3.2-11h2.6l-3.2 11z"/></svg></div></div>
+  <div class="abs" style="left:830px;top:425px;width:250px;text-align:center;font-weight:700;font-size:18px">Your factory</div>
+  <div class="abs mono" id="hubcount" style="left:830px;top:452px;width:250px;text-align:center;color:var(--dim);font-size:13px">0 work items</div>
+</div>
+
+<!-- S3 pipeline -->
+<div class="scene" id="s3">
+  <div class="abs kicker" style="left:0;right:0;top:70px;text-align:center">Every change runs through your pipeline</div>
+  <div id="rail"><div id="railfill"></div></div>
+  <div class="abs" id="stages" style="left:155px;right:155px;top:154px;display:flex;justify-content:space-between"></div>
+  <div class="abs card" id="term"><div class="bar"><i></i><i></i><i></i><span>sandbox · kiln/saved-carts</span></div><pre id="termpre"></pre></div>
+</div>
+
+<!-- S4 questions -->
+<div class="scene" id="s4">
+  <div class="abs kicker" style="left:320px;top:78px">Inbox · 2 need you</div>
+  <div class="abs h" style="left:320px;top:104px;font-size:40px">Agents ask. <span style="color:var(--blue)">You decide.</span></div>
+  <div class="abs card q" id="q1" style="top:190px">
+    <div class="top"><span class="chip b">question</span><span class="chip">spec · Saved carts</span><span class="mono" style="margin-left:auto;color:var(--dim);font-size:12px">2m ago</span></div>
+    <h3>How long should a saved cart be kept?</h3>
+    <p>The spec agent found no retention rule in the codebase or the ticket.</p>
+    <div class="opts"><span class="opt" id="o1">7 days</span><span class="opt" id="o2">30 days</span><span class="opt" id="o3">Until checkout</span></div>
+    <div class="done-note" id="q1d">✓ Answered · spec approved · building</div>
+  </div>
+  <div class="abs card q" id="q2" style="top:420px">
+    <div class="top"><span class="chip y">preview</span><span class="chip">Fix Safari checkout</span><span class="mono" style="margin-left:auto;color:var(--dim);font-size:12px">just now</span></div>
+    <h3>Preview is ready. Accept it?</h3>
+    <p>4 of 4 acceptance criteria proven with a video · <span class="mono" style="color:var(--ember2)">pr-421.preview.acme.dev</span></p>
+    <div><span class="btn" id="acc">Accept preview</span> <span class="btn ghost">Request changes</span></div>
+    <div class="done-note" id="q2d">✓ Accepted · moving to review</div>
+  </div>
+</div>
+
+<!-- S5 review -->
+<div class="scene" id="s5">
+  <div class="abs card" id="rv">
+    <div class="tb"><span class="chip v">ready for review</span><b>Saved carts</b><span class="mono" style="color:var(--dim);font-size:13px">#418 · kiln/saved-carts → main · +42 −7</span><span style="margin-left:auto" class="chip g">✓ 6 checks</span></div>
+    <div class="cols">
+      <div id="diff"></div>
+      <div id="ev">
+        <h4>Checks</h4>
+        <div class="row" id="c0"><span class="tick">✓</span>CI · 128 tests passed</div>
+        <div class="row" id="c1"><span class="tick">✓</span>Typecheck and lint</div>
+        <div class="row" id="c2"><span class="tick">✓</span>Review agent · no blocking findings</div>
+        <h4 style="margin-top:4px">Acceptance criteria · video each</h4>
+        <div class="vids"><div class="vid" id="v0"><i>✓</i></div><div class="vid" id="v1"><i>✓</i></div><div class="vid" id="v2"><i>✓</i></div><div class="vid" id="v3"><i>✓</i></div></div>
+        <div class="row" id="c3"><span class="tick">✓</span>Preview accepted by the requester</div>
+        <div class="row" id="c4" style="color:var(--muted);font-size:12.5px">🔒 Agents can't merge. A person does.</div>
+        <div id="merge">Merge pull request</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- S6 done -->
+<div class="scene" id="s6">
+  <div class="abs kicker" style="left:190px;top:70px">This week</div>
+  <div class="abs h" style="left:190px;top:94px;font-size:40px">Shipped while you were in meetings</div>
+  <div class="abs card" id="board"></div>
+  <div class="abs" style="left:190px;top:572px;width:900px;display:flex;justify-content:space-around">
+    <div class="stat"><b id="st0">0</b><span>pull requests merged</span></div>
+    <div class="stat"><b id="st1">0%</b><span>needed no human edits</span></div>
+    <div class="stat"><b id="st2">$0.00</b><span>average cost per PR</span></div>
+  </div>
+</div>
+
+<!-- S7 code + keys -->
+<div class="scene" id="s7">
+  <div class="abs kicker" style="left:90px;top:84px">Factories as code · your models</div>
+  <div class="abs h" style="left:90px;top:108px;font-size:40px">It's all a folder in Git.</div>
+  <div class="abs card" id="code"><pre id="codepre"></pre></div>
+  <div class="abs card key" id="k0" style="left:720px;top:170px"><small>Claude Code</small><b>Claude</b></div>
+  <div class="abs card key" id="k1" style="left:990px;top:170px;width:200px"><small>Codex</small><b>OpenAI</b></div>
+  <div class="abs card key" id="k2" style="left:720px;top:270px"><small>Claude on AWS</small><b>Bedrock</b></div>
+  <div class="abs card key" id="k3" style="left:990px;top:270px;width:200px"><small>OpenCode · Pi</small><b>OpenRouter</b></div>
+  <div class="abs" id="k4" style="left:720px;top:384px;width:470px;font-size:22px;font-weight:700;letter-spacing:-.02em;opacity:0">Your keys. Your cloud.<br><span style="color:var(--ember2)">$0 per run.</span></div>
+</div>
+
+<!-- S8 end -->
+<div class="scene" id="s8">
+  <div class="abs logo" id="s8logo" style="left:600px;top:150px;width:80px;height:80px"><svg viewBox="0 0 16 16"><path fill="#171717" d="M3 13.5 6.2 2.5h2.6L5.6 13.5zM7.4 13.5l3.2-11h2.6l-3.2 11z"/></svg></div>
+  <div class="abs h" style="left:0;right:0;top:262px;text-align:center;font-size:64px">CI/CD for your <span style="background:linear-gradient(92deg,#fff,#ffb347 45%,#ff7a1a);-webkit-background-clip:text;background-clip:text;color:transparent">AI agents</span></div>
+  <div class="abs" style="left:0;right:0;top:350px;text-align:center;font-size:22px;color:var(--muted)">Open source software factories. Issues in, reviewed pull requests out.</div>
+  <div class="abs mono" id="s8u" style="left:0;right:0;top:420px;text-align:center;font-size:20px"><span style="color:var(--ember)">$</span> github.com/fishuke/kiln</div>
+  <div class="abs" style="left:0;right:0;top:470px;text-align:center"><span class="chip">kiln.fishu.workers.dev</span></div>
+</div>
+
+<div id="caption"></div>
+<div id="ripple"></div>
+<svg id="cursor" viewBox="0 0 24 24"><path d="M4 2l16 9-7 2-3 7z" fill="#fff" stroke="#0a0a0b" stroke-width="1.5" stroke-linejoin="round"/></svg>
+
+<script>
+const DURATION = 36;
+const C = (x) => Math.max(0, Math.min(1, x));
+const E = (x) => 1 - Math.pow(1 - C(x), 3);              // ease out
+const EIO = (x) => { x = C(x); return x < .5 ? 4*x*x*x : 1 - Math.pow(-2*x+2, 3)/2; };
+const P = (t, a, b) => E((t - a) / (b - a));
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+// Scene windows [start, end]
+const S = { s1:[0,3.4], s2:[3.2,7.4], s3:[7.2,13.6], s4:[13.4,19.8], s5:[19.6,26.2], s6:[26,30.2], s7:[30,33.4], s8:[33.2,36.2] };
+const CAPS = [[3.4,7.2,"Issues, threads, tickets and schedules <span>become work</span>"],[7.4,13.4,"Agents spec, build and test it <span>in a sandbox</span>"]];
+
+// Build dynamic content
+const STAGES = [["🔎","Triage"],["📝","Spec",1],["⌨️","Build"],["🧪","Verify"],["👁️","Preview",1],["✅","Review"]];
+$("stages").innerHTML = STAGES.map((s,i)=>`<div class="stage" style="position:relative"><div class="n" id="n${i}">${s[0]}</div><b>${s[1]}</b>${s[2]?`<span class="you" id="y${i}">you</span>`:""}</div>`).join("");
+const TERM = [
+  ["c-p","$ ","kiln run saved-carts --stage build"],
+  ["c-d","","› reading spec: 4 acceptance criteria"],
+  ["","","› editing src/cart/saved.ts, src/api/cart.ts"],
+  ["c-p","$ ","pnpm test"],
+  ["c-g","✓ ","128 passed (3 new)"],
+  ["c-p","$ ","kiln verify --record-videos"],
+  ["c-g","✓ ","criterion 1/4  cart persists across sessions"],
+  ["c-g","✓ ","criterion 2/4  expires after 30 days"],
+  ["c-g","✓ ","criterion 3/4 · 4/4  restore + empty state"],
+  ["c-b","→ ","preview  pr-418.preview.acme.dev"],
+];
+const DIFF = [["f","src/cart/saved.ts"],["","export async function saveCart(user: User, cart: Cart) {"],["del","-  return db.carts.put(cart)"],["add","+  const expiresAt = clock.now() + days(30)"],["add","+  return db.savedCarts.put({ ...cart, userId: user.id, expiresAt })"],["","}"],["",""],["f","src/cart/saved.test.ts"],["add","+ it(\"keeps a saved cart for 30 days\", async () => {"],["add","+   clock.advance(days(29))"],["add","+   expect(await restoreCart(user)).toEqual(cart)"],["add","+ })"],["add","+ it(\"drops it after 30 days\", async () => { … })"]];
+$("diff").innerHTML = DIFF.map((d,i)=>d[0]==="f"?`<div class="f" id="d${i}" style="opacity:0">${esc(d[1])}</div>`:`<div class="l ${d[0]}" id="d${i}">${esc(d[1]) || "&nbsp;"}</div>`).join("");
+const RUNS = [["Saved carts","acme/shop","2h 10m"],["Fix Safari checkout","acme/shop","38m"],["CSV export for invoices","acme/api","1h 05m"],["Bump next 15 → 16 (migrated)","acme/web","24m"],["Patch lodash CVE-2026-1102","acme/api","12m"],["Remove dead flag new_nav","acme/web","9m"]];
+$("board").innerHTML = RUNS.map((r,i)=>`<div class="run" id="r${i}"><div><b style="font-weight:500">${r[0]}</b><br><small>${r[1]}</small></div><small>${r[2]}</small><span class="chip y" id="rc${i}">building</span></div>`).join("");
+const CODE = [["k","agents:","  foreman, triage, spec, implement, review"],["k","pipelines/","feature.yaml"],["k","gates/","spec-approval.yaml"],["k","routers/","easy → haiku · hard → fable"],["k","scorers/","criteria · 25% sampled"],["k","automations/","fix-ci · security-sweep"],["k","budgets:","{ perWorkItemUsd: 40 }"]];
+
+// Intake wires
+const hubX = 955, hubY = 330;
+$("wires").innerHTML = [0,1,2,3].map(i=>{ const y=172+i*110; return `<path id="w${i}" d="M420 ${y} C 640 ${y}, 700 ${hubY}, ${hubX-80} ${hubY}" stroke="rgba(255,122,26,.35)" stroke-width="2" fill="none" stroke-dasharray="600" stroke-dashoffset="600"/><circle id="dot${i}" r="5" fill="#ffb347" opacity="0"/>`; }).join("");
+
+function sceneOpacity(t, [a,b]) { return Math.min(P(t,a,a+.45), 1 - P(t,b-.45,b)); }
+function cursorAt(x, y, o) { const c=$("cursor"); c.style.left=x+"px"; c.style.top=y+"px"; c.style.opacity=o; }
+function ripple(x, y, t, at) { const r=$("ripple"), k=(t-at)/.5; if (k>0 && k<1) { r.style.left=x+"px"; r.style.top=y+"px"; r.style.opacity=1-k; r.style.transform=`scale(${.5+k})`; return true; } return false; }
+const lerp = (a,b,k) => a + (b-a)*k;
+const path = (t, pts) => { // pts: [[time,x,y],...]
+  if (t <= pts[0][0]) return pts[0].slice(1);
+  for (let i=1;i<pts.length;i++) if (t <= pts[i][0]) { const k=EIO((t-pts[i-1][0])/(pts[i][0]-pts[i-1][0])); return [lerp(pts[i-1][1],pts[i][1],k), lerp(pts[i-1][2],pts[i][2],k)]; }
+  return pts[pts.length-1].slice(1);
+};
+
+window.render = function (t) {
+  for (const k in S) $(k).style.opacity = sceneOpacity(t, S[k]);
+  document.body.style.setProperty("--gx", (50 + 18*Math.sin(t*.35)) + "%");
+  document.body.style.setProperty("--gy", (20 + 8*Math.cos(t*.3)) + "%");
+
+  // captions
+  const cap = CAPS.find(c => t >= c[0] && t <= c[1]);
+  $("caption").innerHTML = cap ? cap[2] : ""; $("caption").style.opacity = cap ? Math.min(P(t,cap[0],cap[0]+.4), 1-P(t,cap[1]-.4,cap[1])) : 0;
+
+  // S1
+  const l = P(t,.1,.9); $("s1logo").style.transform = `scale(${.6+.4*l}) rotate(${(1-l)*-20}deg)`; $("s1logo").style.opacity = l;
+  $("s1t").style.opacity = P(t,.4,1.1); $("s1t").style.transform = `translateY(${(1-P(t,.4,1.1))*24}px)`;
+  $("s1s").style.opacity = P(t,.9,1.6); $("s1s").style.transform = `translateY(${(1-P(t,.9,1.6))*18}px)`;
+  $("s1c").style.opacity = P(t,1.5,2.1);
+
+  // S2
+  let arrived = 0;
+  for (let i=0;i<4;i++) {
+    const a = 3.6 + i*.35, k = P(t,a,a+.6), card = $("src"+i);
+    card.style.opacity = k; card.style.transform = `translateX(${(1-k)*-60}px)`;
+    const w = P(t, a+.5, a+1.3); $("w"+i).setAttribute("stroke-dashoffset", 600*(1-w));
+    const dk = C((t-(a+1.1))/1.1), dot = $("dot"+i), pth = $("w"+i);
+    if (dk>0 && dk<1) { const pt = pth.getPointAtLength(pth.getTotalLength()*EIO(dk)); dot.setAttribute("cx",pt.x); dot.setAttribute("cy",pt.y); dot.setAttribute("opacity",1); } else dot.setAttribute("opacity",0);
+    if (dk>=1) arrived++;
+  }
+  const hp = P(t,3.6,4.3); $("hub").style.opacity = hp; $("hub").style.transform = `scale(${.8+.2*hp + (arrived? .04*Math.sin(t*6):0)})`;
+  $("hubcount").textContent = `${arrived} work item${arrived===1?"":"s"}`;
+
+  // S3
+  const t3 = t - 7.6;
+  STAGES.forEach((s,i)=>{ const on = t3 > i*.95; const n=$("n"+i); n.style.borderColor = on? "rgba(255,122,26,.75)":""; n.style.boxShadow = on? "0 0 0 6px rgba(255,122,26,.10), 0 0 28px rgba(255,122,26,.4)":"none"; n.style.transform=`scale(${on? 1+.12*Math.max(0,1-(t3-i*.95)*3):1})`; const y=$("y"+i); if (y) y.style.opacity = on?1:0; });
+  $("railfill").style.width = (C(t3/(5*.95))*100) + "%";
+  const lines = TERM.length, per = .52; let out = "";
+  TERM.forEach((ln,i)=>{ const st = .4 + i*per; if (t3 < st) return; const txt = ln[2], n = Math.floor(C((t3-st)/(per*.8))*txt.length); out += `<span class="${ln[0]}">${ln[1]}</span>${esc(txt.slice(0,n))}\n`; });
+  $("termpre").innerHTML = out; $("term").style.transform = `translateY(${(1-P(t,7.4,8.1))*30}px)`;
+
+  // S4: cursor clicks "30 days", then "Accept preview"
+  const q1 = P(t,13.6,14.2), q2 = P(t,14.0,14.6);
+  $("q1").style.opacity=q1; $("q1").style.transform=`translateY(${(1-q1)*30}px)`; $("q2").style.opacity=q2; $("q2").style.transform=`translateY(${(1-q2)*30}px)`;
+  const pick1 = 15.6, pick2 = 17.6;
+  $("o2").classList.toggle("sel", t>=pick1); $("q1d").style.opacity = P(t,pick1+.2,pick1+.6);
+  $("acc").style.background = t>=pick2 ? "var(--green)" : ""; $("acc").textContent = t>=pick2 ? "✓ Accepted" : "Accept preview"; $("q2d").style.opacity = P(t,pick2+.2,pick2+.6);
+  let cur = null;
+  const ctr = (id) => { const r=$(id).getBoundingClientRect(); return [r.left + r.width*.45, r.top + r.height*.55]; };
+  const A = ctr("o2"), B = ctr("acc"), M = ctr("merge");
+  if (t>14.2 && t<19.4) { const [x,y] = path(t, [[14.2,1060,640],[pick1-.15,...A],[pick1+.6,...A],[pick2-.15,...B],[19.4,B[0]+40,B[1]+40]]); cur=[x,y]; }
+  // S5: review appears, diff types, checks tick, a person merges
+  const r5 = P(t,19.8,20.5); $("rv").style.opacity=r5; $("rv").style.transform=`translateY(${(1-r5)*30}px) scale(${.98+.02*r5})`;
+  DIFF.forEach((d,i)=>{ $("d"+i).style.opacity = P(t,20.4+i*.16,20.7+i*.16); });
+  [0,1,2].forEach(i=>{ const k=P(t,21.2+i*.4,21.6+i*.4); $("c"+i).style.opacity=k; $("c"+i).style.transform=`translateX(${(1-k)*12}px)`; });
+  [0,1,2,3].forEach(i=>{ const k=P(t,22.4+i*.25,22.8+i*.25); $("v"+i).style.opacity=k; $("v"+i).style.transform=`scale(${.85+.15*k})`; });
+  ["c3","c4"].forEach((id,i)=>{ const k=P(t,23.6+i*.35,24+i*.35); $(id).style.opacity=k; });
+  const merged = 25.2;
+  $("merge").style.background = t>=merged ? "var(--violet)" : "#fafafa"; $("merge").style.color = t>=merged ? "#120a24" : "#0a0a0b"; $("merge").textContent = t>=merged ? "✓ Merged by Priya" : "Merge pull request";
+  if (t>23.9 && t<26) { const [x,y] = path(t, [[23.9,700,640],[merged-.15,...M],[26,M[0]+35,M[1]+35]]); cur=[x,y]; }
+  // S6: runs flip to complete, counters count up
+  RUNS.forEach((r,i)=>{ const k=P(t,26.3+i*.12,26.7+i*.12); $("r"+i).style.opacity=k; $("r"+i).style.transform=`translateX(${(1-k)*-20}px)`; const done=t>27+i*.28; const c=$("rc"+i); c.className="chip "+(done?"g":"y"); c.textContent=done?"✓ complete":"building"; });
+  const cnt = P(t,27,29.2); $("st0").textContent = Math.round(23*cnt); $("st1").textContent = Math.round(87*cnt)+"%"; $("st2").textContent = "$"+(2.1*cnt).toFixed(2);
+  // S7
+  let code = ""; CODE.forEach((c,i)=>{ const k=C((t-30.3-i*.22)/.3); if (k<=0) return; const txt=c[2]; code += `<span class="k">${esc(c[1])}</span> ${esc(txt.slice(0,Math.floor(txt.length*k)))}\n`; }); $("codepre").innerHTML = code;
+  $("code").style.opacity = P(t,30.1,30.6);
+  [0,1,2,3].forEach(i=>{ const k=P(t,30.6+i*.2,31+i*.2); $("k"+i).style.opacity=k; $("k"+i).style.transform=`translateY(${(1-k)*16}px)`; });
+  $("k4").style.opacity = P(t,31.6,32.2);
+  // S8
+  const e = P(t,33.3,34); $("s8logo").style.transform=`scale(${.7+.3*e})`; $("s8u").style.opacity = P(t,34,34.6);
+
+  if (cur) { cursorAt(cur[0], cur[1], 1); } else cursorAt(0,0,0);
+  if (!ripple(A[0]+4,A[1]+4,t,pick1) && !ripple(B[0]+4,B[1]+4,t,pick2) && !ripple(M[0]+4,M[1]+4,t,merged)) $("ripple").style.opacity = 0;
+};
+
+window.DURATION = DURATION;
+// Live playback when opened directly (render.mjs sets ?render=1).
+if (!/render=1/.test(location.search)) { const t0 = performance.now(); const loop = () => { render(((performance.now()-t0)/1000) % DURATION); requestAnimationFrame(loop); }; document.fonts.ready.then(loop); }
+else render(0);
+</script>
+</body>
+</html>

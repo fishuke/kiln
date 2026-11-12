@@ -9,3 +9,4 @@ next-env.d.ts
 # Local factory (kept out of the public repo)
 factories/kiln-self/
 .wrangler/
+docs/video/.frames/

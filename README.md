@@ -3,11 +3,12 @@
 **CI/CD for AI coding agents.** An open source, self-hosted alternative to Warp Factories. · [kiln.fishu.workers.dev](https://kiln.fishu.workers.dev)
 
 <p align="center">
-  <img src="website/assets/hero.png" alt="Kiln: describe the change, then follow it from spec to merged pull request" width="900">
+  <a href="https://kiln.fishu.workers.dev/assets/kiln-promo.mp4">
+    <img src="website/assets/kiln-promo.gif" alt="Kiln in 36 seconds: work comes in from Slack, GitHub, Linear and schedules; agents spec, build and test it in a sandbox; they ask you when they need a decision; you review the evidence and merge" width="900">
+  </a>
+  <br>
+  <sub><a href="https://kiln.fishu.workers.dev/assets/kiln-promo.mp4">Watch in HD</a> · <a href="https://kiln.fishu.workers.dev">Website</a></sub>
 </p>
-
-<!-- Demo video: in the GitHub web editor, drag an .mp4 (under 100 MB) onto this line. GitHub replaces it with a
-     https://github.com/user-attachments/assets/... link that plays inline in the README. -->
 
 CI/CD made shipping code a pipeline: every change is built, tested and gated the same way. Kiln does the same for the work AI agents do. Issues, Slack threads and tracker tickets go in. Each one runs through a pipeline you define: triage, spec, build in a sandbox, tests, a preview, review. A reviewed pull request comes out. People approve the spec, accept the preview and merge. Scorers grade every run, and repeated failures turn into pull requests that improve the pipeline itself.
 

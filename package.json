@@ -22,14 +22,17 @@
     "health": "node scripts/health.mjs",
     "format": "prettier --write .",
     "smoke:claude": "tsx scripts/smoke-claude.ts",
-    "site:deploy": "cd website && npx -y wrangler@4 deploy",
+    "site:deploy": "pnpm docs:site && cd website && npx -y wrangler@4 deploy",
     "video:promo": "node docs/video/render.mjs docs/video/promo.html kiln-promo",
-    "video:factory": "node docs/video/render.mjs website/factory.html kiln-factory"
+    "video:factory": "node docs/video/render.mjs website/factory.html kiln-factory",
+    "docs:site": "tsx scripts/build-docs-site.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
+    "marked": "^16.4.2",
     "prettier": "^3.9.10",
     "puppeteer-core": "^23.11.1",
+    "shiki": "^4.5.0",
     "tsx": "^4.23.15",
     "typescript": "5.9.3",
     "vitest": "^3.2.7"

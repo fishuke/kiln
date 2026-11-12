@@ -10,3 +10,6 @@ next-env.d.ts
 factories/kiln-self/
 .wrangler/
 docs/video/.frames/
+website/docs/
+website/llms.txt
+website/llms-full.txt

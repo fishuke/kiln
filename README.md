@@ -57,7 +57,7 @@ pnpm kiln send "Fix the typo in the README" --factory <alias>
 
 A work item moves through `triaging → planning → awaiting_spec → building → awaiting_preview → reviewing → handed_off → complete`. The foreman picks the shortest path (small, clear changes skip the spec), or a pipeline file fixes the graph. Each run happens in a sandbox; every shell command passes a guardrail; evidence (tests, a video per acceptance criterion, a preview URL) is attached to the PR. Scorers grade runs, and self-improvement turns repeated failures into definition PRs that are replayed against the failing runs before a person reviews them.
 
-Read more in the [docs](docs/site/index.md), also served at `/docs` in the web app. Design decisions are in [docs/adr](docs/adr/README.md).
+Read more in the [docs](https://kiln.fishu.workers.dev/docs/) (source in [docs/site](docs/site/index.md), also served at `/docs` in the web app). Design decisions are in [docs/adr](docs/adr/README.md).
 
 ## Repository
 

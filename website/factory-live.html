@@ -1,0 +1,449 @@
+<!doctype html>
+<!--
+  Kiln live factory: a never-ending simulation for the website (embedded in index.html).
+  Work items arrive from GitHub, Linear, Slack, Jira and Sentry and run through pipelines/feature.yaml:
+  triage → spec (gate) → build (fan_out) → verify (on_fail → build) → preview (gate) → review → main (a person merges).
+  Hover an item to follow it, hover a machine to see its YAML, click a source tab to change what comes in.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln factory, live</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0a0a0b; --card:#111113; --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.15); --text:#f4f4f5; --muted:#a1a1aa; --dim:#71717a;
+    --ember:#ff7a1a; --ember2:#ffb347; --blue:#6aa3ff; --green:#4ade80; --red:#f87171; --mono:"JetBrains Mono", ui-monospace, monospace; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:14px/1.45 Inter, system-ui, sans-serif; -webkit-font-smoothing:antialiased; overflow:hidden; }
+  canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #panel { position:absolute; top:22px; right:22px; width:min(380px, 38%); display:flex; flex-direction:column; gap:10px; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; }
+  .tab { font:500 12.5px Inter; padding:6px 11px; border-radius:9px; border:1px solid var(--line2); background:rgba(20,20,23,.85); color:var(--muted); cursor:pointer; user-select:none; transition:border-color .15s, color .15s; }
+  .tab:hover { color:var(--text); }
+  .tab.on { color:var(--text); border-color:rgba(255,122,26,.65); box-shadow:0 0 0 3px rgba(255,122,26,.08); }
+  .tab.off { opacity:.45; text-decoration:line-through; }
+  .card { border:1px solid rgba(255,122,26,.35); border-radius:14px; background:rgba(17,17,19,.94); padding:14px 16px; box-shadow:0 0 0 1px rgba(255,122,26,.06), 0 30px 70px -30px rgba(0,0,0,.9), 0 0 60px -30px rgba(255,122,26,.5); backdrop-filter:blur(6px); }
+  .row { display:flex; align-items:center; gap:8px; }
+  .src { font-weight:600; } .key { color:var(--dim); font:12px var(--mono); }
+  .badge { margin-left:auto; font:600 11px var(--mono); padding:3px 8px; border-radius:7px; border:1px solid; white-space:nowrap; }
+  .b-run { color:var(--ember2); border-color:rgba(255,179,71,.45); background:rgba(255,179,71,.08); }
+  .b-you { color:var(--blue); border-color:rgba(106,163,255,.5); background:rgba(106,163,255,.1); }
+  .b-ok { color:var(--green); border-color:rgba(74,222,128,.5); background:rgba(74,222,128,.08); }
+  .b-bad { color:var(--red); border-color:rgba(248,113,113,.5); background:rgba(248,113,113,.08); }
+  .title { font-size:16px; font-weight:600; margin:10px 0 2px; letter-spacing:-.01em; }
+  .desc { color:var(--muted); font-size:13px; }
+  .who { margin-top:12px; border-radius:10px; background:rgba(255,255,255,.04); padding:9px 12px; display:grid; gap:6px; font-size:13px; }
+  .who div { display:flex; align-items:center; gap:8px; } .who span:last-child { margin-left:auto; color:var(--dim); font-size:12px; }
+  .av { width:18px; height:18px; border-radius:50%; background:#3b5b9a; display:inline-block; }
+  .kl { width:18px; height:18px; border-radius:5px; background:#fafafa; display:inline-grid; place-items:center; color:#111; font:800 10px Inter; letter-spacing:-1px; }
+  .steps { display:flex; gap:4px; margin-top:12px; }
+  .steps i { flex:1; height:4px; border-radius:2px; background:rgba(255,255,255,.08); }
+  .steps i.done { background:var(--ember); } .steps i.now { background:var(--ember2); box-shadow:0 0 8px var(--ember); }
+  .steps i.bad { background:var(--red); } .steps i.you { background:var(--blue); box-shadow:0 0 8px var(--blue); }
+  .log { margin-top:10px; font:11.5px/1.6 var(--mono); color:var(--muted); min-height:56px; }
+  .log div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .log b { color:var(--ember2); font-weight:500; }
+  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .stat { border:1px solid var(--line); border-radius:11px; padding:8px 10px; background:rgba(17,17,19,.85); }
+  .stat b { display:block; font-size:20px; letter-spacing:-.02em; }
+  .stat span { color:var(--dim); font-size:11.5px; }
+  #tip { position:absolute; pointer-events:none; opacity:0; transition:opacity .15s; border:1px solid var(--line2); border-radius:10px; background:rgba(13,13,15,.96); padding:9px 12px; font:12px/1.65 var(--mono); color:#d4d4d8; white-space:pre; box-shadow:0 20px 50px -20px rgba(0,0,0,.9); }
+  #tip .k { color:#93c5fd; } #tip .c { color:var(--dim); } #tip .h { color:var(--ember2); font-family:Inter; font-weight:600; font-size:12.5px; }
+  #hint { position:absolute; left:22px; bottom:16px; font:12px var(--mono); color:var(--dim); }
+  @media (max-width: 760px) {
+    #panel { top:auto; bottom:12px; left:12px; right:12px; width:auto; }
+    .tabs, .stats, .who, .log, #hint { display:none; }
+    .card { padding:10px 12px; } .title { font-size:14px; margin-top:6px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel">
+  <div class="tabs" id="tabs"></div>
+  <div class="card" id="card"></div>
+  <div class="stats"><div class="stat"><b id="sFlight">0</b><span>in flight</span></div><div class="stat"><b id="sYou">0</b><span>waiting for you</span></div><div class="stat"><b id="sMerged">0</b><span>merged by people</span></div></div>
+</div>
+<div id="tip"></div>
+<div id="hint">hover a work item or a machine</div>
+
+<script>
+// ---------------------------------------------------------------- setup
+const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1, S = 60, OX = 0, OY = 0;
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function resize() {
+  DPR = Math.min(devicePixelRatio || 1, 2); W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR; ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const narrow = W < 760, area = narrow ? W : W * 0.64;
+  S = Math.max(20, Math.min(area / (narrow ? 14.6 : 13.2), H / 5.6));
+  OX = (narrow ? W * .04 : W * .03) + S * 1.1; OY = H * (narrow ? .40 : .62) - S * 1.55;
+}
+addEventListener("resize", resize); resize();
+const iso = (x, y, z = 0) => [OX + (x - y) * .866 * S, OY + (x + y) * .5 * S - z * S];
+const rnd = (a, b) => a + Math.random() * (b - a), pick = (a) => a[Math.floor(Math.random() * a.length)];
+const clamp = (x) => Math.max(0, Math.min(1, x)), ease = (x) => 1 - Math.pow(1 - clamp(x), 3);
+
+// ---------------------------------------------------------------- the conveyor (a V with a rounded corner)
+const PATH = (() => {
+  const pts = [], L = 6.6, R = 1.3, step = .04;
+  for (let x = -.4; x <= L - R; x += step) pts.push([x, 0]);
+  for (let k = 0; k <= 1; k += .03) { const a = [L - R, 0], c = [L, 0], b = [L, -R]; const u = 1 - k; pts.push([u*u*a[0] + 2*u*k*c[0] + k*k*b[0], u*u*a[1] + 2*u*k*c[1] + k*k*b[1]]); }
+  for (let y = -R; y >= -L - .5; y -= step) pts.push([L, y]);
+  const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i-1] + Math.hypot(pts[i][0] - pts[i-1][0], pts[i][1] - pts[i-1][1]));
+  return { pts, cum, len: cum[cum.length - 1] };
+})();
+function at(s) {
+  s = Math.max(0, Math.min(PATH.len, s));
+  let lo = 0, hi = PATH.cum.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (PATH.cum[m] < s) lo = m; else hi = m; }
+  const a = PATH.pts[lo], b = PATH.pts[hi], k = (s - PATH.cum[lo]) / ((PATH.cum[hi] - PATH.cum[lo]) || 1);
+  const tx = b[0] - a[0], ty = b[1] - a[1], n = Math.hypot(tx, ty) || 1;
+  return { x: a[0] + tx * k, y: a[1] + ty * k, tx: tx / n, ty: ty / n };
+}
+
+// ---------------------------------------------------------------- stations (pipelines/feature.yaml)
+const ST = [
+  { id: "intake",  s: .6, kind: "intake",  label: "intake",  yaml: ["# automations/*", "triggers: github, linear,", "  slack, jira, webhook"] },
+  { id: "triage",  s: 2.0, kind: "scan",    label: "triage",  yaml: ["- id: triage", "  agent: triage"] },
+  { id: "spec",    s: 3.4, kind: "doc",     label: "spec",    gate: true, yaml: ["- id: spec", "  agent: spec", "  gate: spec-approval   # you", "  skip_if: size in [xs, s]"] },
+  { id: "build",   s: 4.6, kind: "build",   label: "build",   yaml: ["- id: build", "  agent: implement", "  fan_out: per_user_story"] },
+  { id: "verify",  s: 8.55, kind: "arch",    label: "verify",  yaml: ["- id: verify", "  requires: [ci_green, videos]", "  on_fail: build   # max_loops: 3"] },
+  { id: "preview", s: 9.85, kind: "screen",  label: "preview", gate: true, yaml: ["- id: preview", "  action: preview.deploy", "  gate: preview-acceptance   # you"] },
+  { id: "review",  s: 11.1, kind: "scan",    label: "review",  yaml: ["- id: review", "  agent: review   # never merges"] },
+  { id: "main",    s: 12.35, kind: "dock",   label: "main",    gate: true, yaml: ["- id: handoff", "  # a person merges. agents can't."] },
+];
+ST.forEach((st, i) => { st.i = i; const p = at(st.s); st.p = p; st.n = [p.ty, -p.tx]; st.busy = 0; st.flash = 0; });
+const ORDER = ST.map((s) => s.id);
+
+// ---------------------------------------------------------------- work items
+const SOURCES = {
+  GitHub: { color: "#e4e4e7", key: () => "#" + Math.floor(rnd(200, 990)) },
+  Linear: { color: "#8b8bff", key: () => "PROD-" + Math.floor(rnd(10, 400)) },
+  Slack:  { color: "#e8b4ff", key: () => "#support" },
+  Jira:   { color: "#6aa3ff", key: () => "SHOP-" + Math.floor(rnd(100, 999)) },
+  Sentry: { color: "#f87171", key: () => "fatal" },
+};
+const WORK = [
+  ["Add date range filter to reports", "Filter reports by date range. Match the design system.", "m"],
+  ["Saved carts for logged-in users", "Keep a cart for 30 days and restore it on login.", "m"],
+  ["Fix Safari checkout button", "The pay button does nothing on Safari 18.", "s"],
+  ["Typo on the pricing page", "“Anual” → “Annual”.", "xs"],
+  ["CSV export for invoices", "Finance needs a monthly export with VAT columns.", "m"],
+  ["TypeError in cart total", "Cannot read properties of undefined (reading 'price').", "s"],
+  ["Rate limit header is wrong", "X-RateLimit-Remaining goes negative.", "s"],
+  ["Dark mode for settings", "Respect the system theme on every settings tab.", "m"],
+  ["Bump next 15 → 16", "Major upgrade broke the build. Migrate the code.", "m"],
+  ["Patch lodash CVE-2026-1102", "High severity, reachable from the API.", "s"],
+  ["Remove dead flag new_nav", "Fully rolled out for 41 days.", "xs"],
+  ["Paginate the invoices API", "Customers with 10k+ invoices time out.", "m"],
+  ["Flaky test: login redirect", "Passes and fails on the same commit.", "s"],
+  ["Add audit log export", "Admins need a JSON export of the audit log.", "m"],
+  ["Broken link in onboarding email", "Points to /setup instead of /start.", "xs"],
+  ["Null pointer in webhook retry", "Retries crash when the payload is empty.", "s"],
+];
+let items = [], nextSpawn = 1, nextId = 1, merged = 0, focus = null, hover = null, spotlightAt = 0;
+const enabled = new Set(Object.keys(SOURCES));
+const PEOPLE = ["Priya", "Sam", "Alex", "Noor", "Jules"];
+
+function spawn() {
+  const srcs = [...enabled]; if (!srcs.length) return;
+  const src = pick(srcs), w = pick(WORK);
+  const it = { id: nextId++, src, key: SOURCES[src].key(), title: w[0], desc: w[1], size: w[2],
+    s: -.3, stage: 0, state: "move", t0: 0, until: 0, loops: 0, z: 0, fly: null, log: [], born: now, failOnce: Math.random() < .3 && w[2] !== "xs" };
+  addLog(it, `received from ${src}`);
+  items.push(it);
+  if (!focus || focus.state === "gone") focus = it;
+}
+function addLog(it, msg) { it.log.push(msg); if (it.log.length > 3) it.log.shift(); it.changed = now; }
+
+const DWELL = { intake: [.5, .8], triage: [1.0, 1.6], spec: [1.0, 1.5], build: [2.2, 3.2], verify: [1.2, 1.7], preview: [1.0, 1.4], review: [1.1, 1.6], main: [.6, .9] };
+const GATE = { spec: [1.2, 2.4], preview: [1.2, 2.2], main: [1.0, 1.8] };
+const SPEED = 1.15;
+
+function step(dt) {
+  if (now >= nextSpawn) { if (items.filter((i) => i.state !== "gone").length < 7) spawn(); nextSpawn = now + rnd(2.2, 3.6); }
+  // sort by progress so the one ahead is handled first
+  const belt = items.filter((i) => i.state !== "gone").sort((a, b) => b.s - a.s);
+  for (const it of belt) {
+    const st = ST[it.stage];
+    if (it.state === "move") {
+      let target = st ? st.s : PATH.len + 1;
+      // queue behind the item ahead (on the belt, not flying)
+      const ahead = belt.filter((o) => o !== it && o.s > it.s && !o.fly && o.state !== "gone").sort((a, b) => a.s - b.s)[0];
+      let limit = ahead ? ahead.s - .62 : Infinity;
+      // a station busy with someone else holds the line
+      if (st && st.busy && st.busy !== it.id) limit = Math.min(limit, st.s - .62);
+      const ns = Math.min(it.s + SPEED * dt, target, limit);
+      it.s = Math.max(it.s, ns);
+      if (st && it.s >= st.s - .001 && (!st.busy || st.busy === it.id)) arrive(it, st);
+    } else if (it.state === "dwell" && now >= it.until) leave(it, st);
+    else if (it.state === "gate" && now >= it.until) { approve(it, st); }
+    else if (it.fly) {
+      const k = (now - it.fly.t0) / it.fly.dur;
+      if (k >= 1) { it.s = it.fly.to; it.z = 0; const kind = it.fly.kind; it.fly = null;
+        if (kind === "fail") { const b = ST[3]; it.stage = 3; if (!b.busy) arrive(it, b); else { it.state = "move"; } }
+        else { it.state = "move"; }
+      } else { it.s = it.fly.from + (it.fly.to - it.fly.from) * ease(k); it.z = Math.sin(Math.PI * k) * it.fly.h; }
+    }
+  }
+  for (const st of ST) st.flash = Math.max(0, st.flash - dt * 1.5);
+  items = items.filter((i) => i.state !== "gone" || now - i.goneAt < 1.2);
+  if (focus && focus.state === "gone" && now - focus.goneAt > 1.4) focus = null;
+  // spotlight: follow whatever just changed, unless the visitor is hovering
+  if (!hover && now - spotlightAt > 3.4) {
+    const live = items.filter((i) => i.state !== "gone");
+    const pickOne = live.find((i) => i.state === "gate") || live.sort((a, b) => b.changed - a.changed)[0];
+    if (pickOne) focus = pickOne; spotlightAt = now;
+  }
+}
+function arrive(it, st) {
+  it.s = st.s;
+  if (st.id === "spec" && (it.size === "xs" || it.size === "s") && it.stage === 2) {
+    // skip_if: size in [xs, s] → hop over the spec machine
+    addLog(it, `skip_if: size ${it.size} → straight to build`);
+    it.stage = 3; it.state = "fly"; it.fly = { kind: "skip", from: st.s, to: st.s + .8, t0: now, dur: .9, h: .9 }; return;
+  }
+  st.busy = it.id; it.state = "dwell"; const d = DWELL[st.id]; it.until = now + rnd(d[0], d[1]); it.t0 = now;
+  const msg = { intake: "queued for triage", triage: `triage: size ${it.size.toUpperCase()}`, spec: "spec: writing acceptance criteria", build: it.loops ? "build: fixing the failed criterion" : "build: fan_out per user story",
+    verify: "verify: tests + a video per criterion", preview: "preview: deploying", review: "review agent: reading the diff", main: "ready to merge" }[st.id];
+  addLog(it, msg);
+}
+function leave(it, st) {
+  if (st.id === "verify" && it.failOnce && it.loops < 1) {
+    st.busy = 0; it.loops++; st.flash = 1;
+    addLog(it, "✗ criterion 2 failed → on_fail: build");
+    it.state = "fly"; it.bad = now; it.fly = { kind: "fail", from: st.s, to: ST[3].s, t0: now, dur: 1.6, h: 1.5 }; return;
+  }
+  if (GATE[st.id]) { it.state = "gate"; const g = GATE[st.id]; it.until = now + rnd(g[0], g[1]); it.gateAt = now;
+    addLog(it, { spec: "waiting for you: approve the spec", preview: "waiting for you: accept the preview", main: "waiting for a person to merge" }[st.id]); return; }
+  if (st.id === "verify") addLog(it, "✓ all criteria proven");
+  if (st.id === "review") addLog(it, "✓ no blocking findings");
+  next(it, st);
+}
+function approve(it, st) {
+  const who = pick(PEOPLE); st.flash = 1;
+  if (st.id === "main") { addLog(it, `✓ merged by ${who}`); merged++; st.busy = 0; it.state = "gone"; it.goneAt = now; it.mergedBy = who; return; }
+  addLog(it, `✓ ${st.id === "spec" ? "spec approved" : "preview accepted"} by ${who}`);
+  next(it, st);
+}
+function next(it, st) { st.busy = 0; it.stage++; it.state = "move"; }
+
+// ---------------------------------------------------------------- drawing
+const STROKE = "rgba(255,255,255,.30)", STROKE_DIM = "rgba(255,255,255,.12)";
+function poly(ps, fill, stroke, lw = 1) { ctx.beginPath(); ps.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); if (fill) { ctx.fillStyle = fill; ctx.fill(); } if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); } }
+function box(x, y, w, d, h, z = 0, o = {}) {
+  const x0 = x - w/2, x1 = x + w/2, y0 = y - d/2, y1 = y + d/2;
+  const P = (a, b, c) => iso(a, b, c);
+  const st = o.stroke ?? STROKE, lw = o.lw ?? 1;
+  poly([P(x0,y1,z),P(x1,y1,z),P(x1,y1,z+h),P(x0,y1,z+h)], o.left ?? "#0e0e10", st, lw);
+  poly([P(x1,y0,z),P(x1,y1,z),P(x1,y1,z+h),P(x1,y0,z+h)], o.right ?? "#121215", st, lw);
+  poly([P(x0,y0,z+h),P(x1,y0,z+h),P(x1,y1,z+h),P(x0,y1,z+h)], o.top ?? "#17171b", st, lw);
+}
+function ellipse(x, y, r, z, stroke, lw = 1, dash = null, rot = 0) {
+  ctx.save(); const [cx, cy] = iso(x, y, z); ctx.translate(cx, cy); ctx.scale(1, .5774); ctx.rotate(rot);
+  ctx.beginPath(); ctx.arc(0, 0, r * S * 1.22, 0, Math.PI * 2); ctx.restore();
+  ctx.save(); if (dash) ctx.setLineDash(dash); ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); ctx.restore();
+}
+function grid() {
+  ctx.lineWidth = 1;
+  for (let i = -4; i <= 14; i++) {
+    const a = iso(i, -9), b = iso(i, 5), c = iso(-4, i - 9), d = iso(12, i - 9);
+    ctx.strokeStyle = "rgba(255,255,255,.035)";
+    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.moveTo(...c); ctx.lineTo(...d); ctx.stroke();
+  }
+  const g = ctx.createRadialGradient(W * .36, H * .5, Math.min(W, H) * .25, W * .36, H * .5, Math.max(W, H) * .75);
+  g.addColorStop(0, "rgba(10,10,11,0)"); g.addColorStop(1, "rgba(10,10,11,1)"); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(...iso(5.5, -2), 10, ...iso(5.5, -2), S * 8); glow.addColorStop(0, "rgba(255,122,26,.10)"); glow.addColorStop(1, "rgba(255,122,26,0)");
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+}
+function belt(t) {
+  const half = .3, edge = (sgn) => PATH.pts.map((p, i) => { const q = PATH.pts[Math.min(i + 1, PATH.pts.length - 1)], r = PATH.pts[Math.max(i - 1, 0)]; let tx = q[0] - r[0], ty = q[1] - r[1]; const n = Math.hypot(tx, ty) || 1; tx /= n; ty /= n; return iso(p[0] + ty * half * sgn, p[1] - tx * half * sgn); });
+  const L = edge(1), R = edge(-1);
+  poly([...L, ...R.reverse()], "rgba(18,18,21,.95)", null);
+  ctx.strokeStyle = STROKE; ctx.lineWidth = 1;
+  for (const e of [L, R.reverse()]) { ctx.beginPath(); e.forEach((p, i) => i ? ctx.lineTo(...p) : ctx.moveTo(...p)); ctx.stroke(); }
+  // moving slats
+  ctx.strokeStyle = "rgba(255,255,255,.10)";
+  const off = reduced ? 0 : (t * SPEED * .9) % .28;
+  for (let s = off; s < PATH.len; s += .28) { const p = at(s); const a = iso(p.x + p.ty * half, p.y - p.tx * half), b = iso(p.x - p.ty * half, p.y + p.tx * half); ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); }
+  // direction chevrons
+  ctx.strokeStyle = "rgba(255,179,71,.35)"; ctx.lineWidth = 1.4;
+  for (let s = 1.25; s < PATH.len; s += 2.6) { const p = at(s), c = iso(p.x, p.y), f = iso(p.x + p.tx * .14, p.y + p.ty * .14), l = iso(p.x - p.tx * .06 + p.ty * .12, p.y - p.ty * .06 - p.tx * .12), r = iso(p.x - p.tx * .06 - p.ty * .12, p.y - p.ty * .06 + p.tx * .12); ctx.beginPath(); ctx.moveTo(...l); ctx.lineTo(...f); ctx.lineTo(...r); ctx.stroke(); }
+}
+function station(st, t) {
+  const off = 1.05, cx = st.p.x + st.n[0] * off, cy = st.p.y + st.n[1] * off;
+  const working = st.busy && items.find((i) => i.id === st.busy && i.state === "dwell");
+  const waiting = st.busy && items.find((i) => i.id === st.busy && i.state === "gate");
+  const hot = hoverStation === st;
+  const accent = working ? "rgba(255,179,71,.9)" : waiting ? "rgba(106,163,255,.9)" : hot ? "rgba(255,255,255,.6)" : STROKE;
+  // arm from the machine to the belt
+  const a = iso(cx - st.n[0] * .35, cy - st.n[1] * .35, .12), b = iso(st.p.x + st.n[0] * .32, st.p.y + st.n[1] * .32, .12);
+  ctx.strokeStyle = working ? "rgba(255,179,71,.6)" : STROKE_DIM; ctx.lineWidth = 1; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); ctx.setLineDash([]);
+  if (working || waiting) ellipse(cx, cy, .62, 0, working ? "rgba(255,122,26,.35)" : "rgba(106,163,255,.35)", 1, [4, 6], reduced ? 0 : t * .6);
+  const o = { stroke: accent, lw: working || waiting || hot ? 1.4 : 1 };
+  switch (st.kind) {
+    case "intake":
+      box(cx, cy, .8, .8, .34, 0, o);
+      ellipse(cx, cy, .7, 0, "rgba(255,255,255,.14)", 1, [5, 7], reduced ? 0 : -t * .4);
+      { const bob = reduced ? 0 : Math.sin(t * 2) * .03; const p = [[-.18, .02], [.18, .02]]; poly([iso(cx - .02, cy - .2, .34 + .62 + bob), iso(cx - .02, cy + .2, .34 + .62 + bob), iso(cx - .02, cy + .2, .34 + .02), iso(cx - .02, cy - .2, .34 + .02)], "#141418", o.stroke, 1);
+        for (let k = 0; k < 3; k++) { const y0 = .34 + .5 - k * .1 + bob; ctx.strokeStyle = "rgba(255,255,255,.25)"; ctx.beginPath(); ctx.moveTo(...iso(cx - .02, cy - .12, y0)); ctx.lineTo(...iso(cx - .02, cy + .1, y0 - .05)); ctx.stroke(); } }
+      break;
+    case "scan":
+      box(cx, cy, .7, .7, .42, 0, o);
+      { const [px, py] = iso(cx, cy, .42); ctx.strokeStyle = accent; ctx.beginPath(); ctx.arc(px, py - 8, 5, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(px + 3.5, py - 4.5); ctx.lineTo(px + 7, py - 1); ctx.stroke(); }
+      break;
+    case "doc":
+      box(cx, cy, .72, .72, .38, 0, o);
+      poly([iso(cx - .05, cy - .2, .38), iso(cx - .05, cy + .2, .38), iso(cx - .05, cy + .2, .38 + .5), iso(cx - .05, cy - .2, .38 + .5)], "#16161a", accent, 1);
+      for (let k = 0; k < 3; k++) { ctx.strokeStyle = "rgba(255,255,255,.22)"; ctx.beginPath(); ctx.moveTo(...iso(cx - .05, cy - .13, .38 + .38 - k * .1)); ctx.lineTo(...iso(cx - .05, cy + .1, .38 + .35 - k * .1)); ctx.stroke(); }
+      break;
+    case "build":
+      box(cx, cy, 1.05, 1.0, .46, 0, o);
+      for (let k = -1; k <= 1; k++) { const up = working && !reduced ? Math.max(0, Math.sin(t * 6 + k * 1.7)) * .16 : 0; box(cx + k * .3, cy - .05, .14, .14, .22 + up, .46, { stroke: accent, lw: 1, top: working ? "#3a2210" : "#17171b" }); }
+      break;
+    case "arch": {
+      box(cx, cy, .8, .55, .2, 0, o);
+      box(cx - .32, cy, .12, .55, .62, .2, o); box(cx + .32, cy, .12, .55, .62, .2, o); box(cx, cy, .76, .55, .1, .82, o);
+      if (working && !reduced) { const k = (Math.sin(t * 5) + 1) / 2; const a1 = iso(cx - .26, cy, .25 + k * .5), a2 = iso(cx + .26, cy, .25 + k * .5); ctx.strokeStyle = "rgba(74,222,128,.85)"; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(...a1); ctx.lineTo(...a2); ctx.stroke(); ctx.lineWidth = 1; }
+      if (st.flash > 0) { const [px, py] = iso(cx, cy, .9); ctx.fillStyle = `rgba(248,113,113,${st.flash * .35})`; ctx.beginPath(); ctx.arc(px, py, 26, 0, Math.PI * 2); ctx.fill(); }
+      break; }
+    case "screen":
+      box(cx, cy, .72, .72, .3, 0, o);
+      poly([iso(cx - .1, cy - .3, .3 + .08), iso(cx - .1, cy + .3, .3 + .08), iso(cx - .1, cy + .3, .3 + .55), iso(cx - .1, cy - .3, .3 + .55)], working || waiting ? "rgba(106,163,255,.16)" : "#141418", accent, 1);
+      break;
+    case "dock":
+      box(cx, cy, 1.0, 1.0, .14, 0, { ...o, stroke: st.flash > 0 ? "rgba(74,222,128,.95)" : waiting ? accent : "rgba(74,222,128,.45)", top: "#101a13" });
+      if (st.flash > 0) ellipse(cx, cy, .55 + (1 - st.flash) * .5, .14, `rgba(74,222,128,${st.flash})`, 1.5);
+      break;
+  }
+  // label
+  const [lx, ly] = iso(cx, cy, st.kind === "arch" ? 1.05 : st.kind === "doc" || st.kind === "screen" ? .98 : st.kind === "intake" ? 1.1 : .78);
+  ctx.font = `500 ${Math.max(10, S * .19)}px JetBrains Mono, monospace`; ctx.textAlign = "center";
+  ctx.fillStyle = working ? "#ffb347" : waiting ? "#6aa3ff" : st.id === "main" ? "#4ade80" : "#a1a1aa";
+  ctx.fillText(st.label, lx, ly - 8);
+  st.screen = iso(cx, cy, .3);
+  // gate person on the outside of the belt
+  if (st.gate) person(st, t, waiting);
+}
+function person(st, t, waiting) {
+  const x = st.p.x - st.n[0] * .95, y = st.p.y - st.n[1] * .95, [px, py] = iso(x, y, 0);
+  const justOk = st.flash > 0 && !waiting, col = justOk ? "#4ade80" : waiting ? "#6aa3ff" : "rgba(255,255,255,.28)";
+  const k = S / 60, bob = waiting && !reduced ? Math.sin(t * 5) * 1.2 : 0;
+  ctx.fillStyle = col; ctx.strokeStyle = col;
+  ctx.beginPath(); ctx.ellipse(px, py + 2 * k, 11 * k, 4 * k, 0, 0, Math.PI * 2); ctx.globalAlpha = .2; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.beginPath(); ctx.roundRect(px - 6 * k, py - 16 * k + bob, 12 * k, 16 * k, 6 * k); waiting || justOk ? ctx.fill() : ctx.stroke();
+  ctx.beginPath(); ctx.arc(px, py - 22 * k + bob, 5 * k, 0, Math.PI * 2); waiting || justOk ? ctx.fill() : ctx.stroke();
+  if (waiting || justOk) {
+    const bx = px + 11 * k, by = py - 36 * k + bob; ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(bx - 8 * k, by - 7 * k, 16 * k, 13 * k, 4 * k); ctx.fill();
+    ctx.fillStyle = "#08101f"; ctx.font = `700 ${10 * k}px Inter`; ctx.textAlign = "center"; ctx.fillText(justOk ? "✓" : "?", bx, by + 3.5 * k);
+  }
+}
+const ST_COL = { move: ["#ff8a2a", "#c2570f", "#e06a14"], dwell: ["#ffb347", "#c2570f", "#e07a24"], gate: ["#8fb8ff", "#4b74c9", "#6a93e6"], bad: ["#ff8a8a", "#b93b3b", "#d65252"], ok: ["#6ee79a", "#22a356", "#3fc172"] };
+function cube(x, y, z, sz, c, ring) {
+  if (ring) { ctx.save(); const [px, py] = iso(x, y, z); ctx.fillStyle = "rgba(255,179,71,.18)"; ctx.beginPath(); ctx.ellipse(px, py + 2, sz * S * 1.4, sz * S * .8, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+  box(x, y, sz, sz, sz, z, { top: c[0], right: c[1], left: c[2], stroke: "rgba(0,0,0,.4)", lw: .8 });
+}
+function drawItem(it, t) {
+  const p = at(it.s), focused = focus === it;
+  let col = ST_COL[it.state] ?? ST_COL.move;
+  if (it.fly?.kind === "fail" || (it.bad && now - it.bad < 2.6 && it.stage === 3)) col = ST_COL.bad;
+  if (it.state === "gone") { const k = clamp((now - it.goneAt) / 1); const st = ST[7]; const cx = st.p.x + st.n[0] * 1.05, cy = st.p.y + st.n[1] * 1.05;
+    const x = p.x + (cx - p.x) * ease(k), y = p.y + (cy - p.y) * ease(k); cube(x, y, .14 + Math.sin(Math.PI * k) * .4, .3 * (1 - k * .7), ST_COL.ok, false); it.scr = null; return; }
+  const sz = it.size === "xs" ? .22 : it.size === "s" ? .27 : .32;
+  if (it.state === "dwell" && ST[it.stage]?.id === "build" && !it.loops) {
+    const k = clamp((now - it.t0) / .4) * (1 - clamp((now - it.until + .4) / .4));
+    [-1, 0, 1].forEach((j) => cube(p.x + p.tx * j * .2 * k + p.ty * j * .16 * k, p.y + p.ty * j * .2 * k - p.tx * j * .16 * k, .02 + (reduced ? 0 : Math.abs(Math.sin(t * 7 + j)) * .05 * k), sz * (1 - .25 * k), col, focused && j === 0));
+  } else cube(p.x, p.y, .02 + it.z, sz, col, focused);
+  // trails for flights
+  if (it.fly) {
+    const from = at(it.fly.from), to = at(it.fly.to);
+    ctx.save(); ctx.setLineDash([3, 5]); ctx.strokeStyle = it.fly.kind === "fail" ? "rgba(248,113,113,.7)" : "rgba(106,163,255,.7)"; ctx.lineWidth = 1.4; ctx.beginPath();
+    for (let k = 0; k <= 1.001; k += .05) { const s = it.fly.from + (it.fly.to - it.fly.from) * k, q = at(s), pt = iso(q.x, q.y, .2 + Math.sin(Math.PI * k) * it.fly.h); k ? ctx.lineTo(...pt) : ctx.moveTo(...pt); }
+    ctx.stroke(); ctx.restore();
+    const mid = at((it.fly.from + it.fly.to) / 2), [mx, my] = iso(mid.x, mid.y, it.fly.h + .45);
+    ctx.font = `500 ${Math.max(10, S * .18)}px JetBrains Mono, monospace`; ctx.textAlign = "center"; ctx.fillStyle = it.fly.kind === "fail" ? "#f87171" : "#6aa3ff";
+    ctx.fillText(it.fly.kind === "fail" ? "on_fail: build" : `skip_if: ${it.size}`, mx, my);
+  }
+  it.scr = iso(p.x, p.y, .2 + it.z);
+  if (focused) { const [px, py] = it.scr; ctx.font = `600 ${Math.max(10, S * .19)}px Inter`; ctx.textAlign = "center"; ctx.fillStyle = "#f4f4f5"; ctx.fillText(it.key, px, py - S * .55); }
+}
+
+// ---------------------------------------------------------------- panel
+const tabsEl = document.getElementById("tabs");
+tabsEl.innerHTML = ["All", ...Object.keys(SOURCES)].map((s) => `<span class="tab${s === "All" ? " on" : ""}" data-s="${s}">${s}</span>`).join("");
+tabsEl.addEventListener("click", (e) => {
+  const s = e.target.dataset?.s; if (!s) return;
+  if (s === "All") { Object.keys(SOURCES).forEach((k) => enabled.add(k)); }
+  else if (enabled.size === Object.keys(SOURCES).length) { enabled.clear(); enabled.add(s); }
+  else if (enabled.has(s) && enabled.size > 1) enabled.delete(s); else enabled.add(s);
+  [...tabsEl.children].forEach((el) => { const k = el.dataset.s, all = enabled.size === Object.keys(SOURCES).length; el.classList.toggle("on", k === "All" ? all : !all && enabled.has(k)); el.classList.toggle("off", k !== "All" && !enabled.has(k)); });
+  nextSpawn = Math.min(nextSpawn, now + .3);
+});
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+let lastCard = "";
+function panel() {
+  const it = focus; let html;
+  if (!it) html = `<div class="row"><span class="src">Waiting for work</span><span class="badge b-run">idle</span></div><div class="desc" style="margin-top:6px">Open an issue, mention @kiln in Slack, or assign a ticket.</div>`;
+  else {
+    const st = ST[Math.min(it.stage, 7)];
+    let badge = ["b-run", st ? st.label : "done"];
+    if (it.state === "gate") badge = ["b-you", it.stage === 7 ? "a person merges" : "waiting for you"];
+    if (it.fly?.kind === "fail") badge = ["b-bad", "✗ back to build"];
+    if (it.fly?.kind === "skip") badge = ["b-you", "skips spec"];
+    if (it.state === "gone") badge = ["b-ok", "✓ merged"];
+    const steps = ST.slice(1).map((s, i) => { const idx = i + 1; let c = idx < it.stage || it.state === "gone" ? "done" : idx === it.stage ? (it.state === "gate" ? "you" : it.fly?.kind === "fail" ? "bad" : "now") : ""; return `<i class="${c}"></i>`; }).join("");
+    html = `<div class="row"><span class="src" style="color:${SOURCES[it.src].color}">${it.src}</span><span class="key">${esc(it.key)}</span><span class="badge ${badge[0]}">${badge[1]}</span></div>
+      <div class="title">${esc(it.title)}</div><div class="desc">${esc(it.desc)}</div>
+      <div class="who"><div><i class="av"></i>You<span>Requester</span></div><div>↳ <i class="kl">//</i>Kiln<span>Delegate · size ${it.size.toUpperCase()}</span></div></div>
+      <div class="steps">${steps}</div>
+      <div class="log">${it.log.map((l) => `<div><b>›</b> ${esc(l)}</div>`).join("")}</div>`;
+  }
+  if (html !== lastCard) { document.getElementById("card").innerHTML = html; lastCard = html; }
+  const live = items.filter((i) => i.state !== "gone");
+  document.getElementById("sFlight").textContent = live.length;
+  document.getElementById("sYou").textContent = live.filter((i) => i.state === "gate").length;
+  document.getElementById("sMerged").textContent = merged;
+}
+
+// ---------------------------------------------------------------- interaction
+let mouse = null, hoverStation = null;
+const tip = document.getElementById("tip");
+cv.addEventListener("mousemove", (e) => { mouse = [e.clientX, e.clientY]; });
+cv.addEventListener("mouseleave", () => { mouse = null; hover = null; hoverStation = null; tip.style.opacity = 0; });
+cv.addEventListener("click", () => { if (hover) { focus = hover; spotlightAt = now + 6; } });
+function pointer() {
+  hover = null; hoverStation = null; if (!mouse) { cv.style.cursor = ""; return; }
+  let best = 22;
+  for (const it of items) if (it.scr) { const d = Math.hypot(it.scr[0] - mouse[0], it.scr[1] - mouse[1]); if (d < best) { best = d; hover = it; } }
+  if (hover) { focus = hover; spotlightAt = now; tip.style.opacity = 0; cv.style.cursor = "pointer"; return; }
+  let bs = S * .75;
+  for (const st of ST) if (st.screen) { const d = Math.hypot(st.screen[0] - mouse[0], st.screen[1] - mouse[1]); if (d < bs) { bs = d; hoverStation = st; } }
+  if (hoverStation) {
+    tip.innerHTML = `<span class="h">${hoverStation.label}</span>\n` + hoverStation.yaml.map((l) => esc(l).replace(/^(\s*-?\s*)([\w_]+):/, '$1<span class="k">$2</span>:').replace(/(#.*)$/, '<span class="c">$1</span>')).join("\n");
+    tip.style.left = Math.min(mouse[0] + 14, W - 280) + "px"; tip.style.top = Math.max(mouse[1] - 20, 8) + "px"; tip.style.opacity = 1; cv.style.cursor = "help";
+  } else { tip.style.opacity = 0; cv.style.cursor = ""; }
+}
+
+// ---------------------------------------------------------------- loop
+let now = 0, last = performance.now(), visible = true;
+new IntersectionObserver(([e]) => { visible = e.isIntersecting; }).observe(document.body);
+document.addEventListener("visibilitychange", () => { last = performance.now(); });
+// warm up so the floor is busy on first sight
+for (let k = 0; k < 1500; k++) { now += 1 / 30; step(1 / 30); }
+function frame(ts) {
+  const dt = Math.min((ts - last) / 1000, .1); last = ts;
+  if (visible && !document.hidden) {
+    now += reduced ? dt * .35 : dt; step(reduced ? dt * .35 : dt);
+    ctx.clearRect(0, 0, W, H); grid(); belt(now);
+    const sts = [...ST].sort((a, b) => (a.p.x + a.n[0]) + (a.p.y + a.n[1]) - (b.p.x + b.n[0]) - (b.p.y + b.n[1]));
+    sts.forEach((st) => station(st, now));
+    [...items].sort((a, b) => { const pa = at(a.s), pb = at(b.s); return pa.x + pa.y - pb.x - pb.y; }).forEach((it) => drawItem(it, now));
+    pointer(); panel();
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

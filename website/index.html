@@ -292,7 +292,8 @@
     <h1>CI/CD for your <span class="grad">AI coding agents</span></h1>
     <p class="lede">Issues, Slack threads and tickets go in. <strong>Reviewed pull requests come out.</strong> Kiln runs every change through a pipeline you define: spec, sandboxed build, tests, preview, review. A person approves and merges.</p>
     <div class="cta">
-      <a class="btn primary lg" href="#start">Run it locally</a>
+      <a class="btn primary lg" data-demo hidden href="#">Try the demo</a>
+      <a class="btn lg" href="#start">Run it locally</a>
       <a class="btn lg" data-repo="" href="#">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/></svg>
         Star on GitHub
@@ -461,7 +462,11 @@
 <script>
   // One place to change the repository URL.
   const REPO = "https://github.com/fishuke/kiln";
-  document.querySelectorAll("[data-repo]").forEach((a) => { a.href = REPO + a.dataset.repo; });
+  // A hosted demo instance, if you run one (e.g. "https://demo.example.com"). Served from localhost, the site
+  // points at the local demo app (pnpm dev on :3000, or the kiln-public-demo preview on :3100).
+  const DEMO = "" || (["localhost", "127.0.0.1"].includes(location.hostname) ? new URLSearchParams(location.search).get("demo") ?? "http://localhost:3100" : "");
+  document.querySelectorAll("[data-repo]").forEach((a) => { a.href = REPO + a.dataset.repo; a.target = "_blank"; a.rel = "noopener"; });
+  document.querySelectorAll("[data-demo]").forEach((a) => { if (DEMO) { a.href = DEMO + "/runs/new"; a.hidden = false; } });
 
   document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(document.querySelector(b.dataset.copy).textContent); b.textContent = "Copied"; }

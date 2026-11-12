@@ -1,13 +1,24 @@
 # Kiln
 
-Open source, self-hosted software factories. A team of coding agents turns issues, Slack threads and tracker tickets into reviewed pull requests, and people approve the spec, accept the preview and merge.
+**CI/CD for AI coding agents.** An open source, self-hosted alternative to Warp Factories.
 
-- **Bring your own keys.** Claude Code runs on your Claude subscription (`claude setup-token`) or an API key; Codex and OpenCode run on your OpenAI, Anthropic or OpenRouter keys.
-- **Self-hosted.** One process, a data folder and Docker to start; Docker Compose or Helm (gVisor sandboxes) for teams.
-- **Factories as code.** A tree of `factory.yaml`, `agents/`, `automations/`, `scorers/`, `skills/` … stored in a GitHub repo you own. Merges apply automatically; v1alpha1 trees import as they are.
+<p align="center">
+  <img src="docs/screenshots/01-new-run.png" alt="Kiln: start a run, then follow it from spec to merged pull request" width="900">
+</p>
+
+<!-- Demo video: in the GitHub web editor, drag an .mp4 (under 100 MB) onto this line. GitHub replaces it with a
+     https://github.com/user-attachments/assets/... link that plays inline in the README. -->
+
+CI/CD made shipping code a pipeline: every change is built, tested and gated the same way. Kiln does the same for the work AI agents do. Issues, Slack threads and tracker tickets go in. Each one runs through a pipeline you define: triage, spec, build in a sandbox, tests, a preview, review. A reviewed pull request comes out. People approve the spec, accept the preview and merge. Scorers grade every run, and repeated failures turn into pull requests that improve the pipeline itself.
+
+- **Bring your own key.** No Kiln-hosted model and no markup. Plug in what you already pay for:
+  - **Claude:** a Claude subscription (`claude setup-token`) or an Anthropic API key
+  - **Codex:** an OpenAI API key
+  - **AWS Bedrock:** a Bedrock API key, or AWS access keys and a region, for Claude Code on Bedrock
+  - **Others:** OpenCode and Pi with OpenRouter or Gemini keys
+- **Self-hosted.** One process, a data folder and Docker to start; Docker Compose or Helm (gVisor sandboxes) for teams. Your code and keys stay on your infrastructure.
+- **Pipelines as code.** A tree of `factory.yaml`, `agents/`, `automations/`, `pipelines/`, `scorers/`, `skills/` … stored in a GitHub repo you own and reviewed like any other change. Merges apply automatically.
 - **People stay in charge.** Agents push only `kiln/*` branches with short-lived tokens and can never approve or merge.
-
-![New run](docs/screenshots/01-new-run.png)
 
 ## Quickstart
 

@@ -21,6 +21,14 @@ CI/CD is the assembly line that builds, tests and ships code people wrote. A sof
 - **Pipelines as code.** A tree of `factory.yaml`, `agents/`, `automations/`, `pipelines/`, `scorers/`, `skills/` … stored in a GitHub repo you own and reviewed like any other change. Merges apply automatically.
 - **People stay in charge.** Agents push only `kiln/*` branches with short-lived tokens and can never approve or merge.
 
+## Build your factory with your favorite AI
+
+```bash
+kiln architect
+```
+
+Then ask your coding agent to build it: `/kiln-architect` in Claude Code, or "Follow .kiln/architect.md" in Codex, Cursor, Copilot, Gemini CLI or anything else. The agent profiles your repo (`kiln scan`), reads your merged pull requests, and with your OK your tracker and Slack. It writes a factory that fits how your team already works, backtests it on your last merged PRs (`kiln bench from-prs`), and explains every choice with its evidence in `FACTORY.md`. Nothing is applied until you say yes. [Guide](docs/site/guides/factory-architect.md)
+
 ## Quickstart
 
 ```bash

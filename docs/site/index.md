@@ -85,6 +85,7 @@ Kiln turns issues, Slack threads and tracker tickets into reviewed pull requests
 
 ## Guides
 
+- [Build your factory with your coding agent](guides/factory-architect.md): Let Claude Code, Codex, Cursor, Copilot or any coding agent write a Kiln factory from your repository, merged pull requests, tracker and chat, then backtest it on your own history.
 - [Build an incident-response factory](guides/incident-response-factory.md): Set up a factory that takes alerts from a webhook and Slack, skips the spec, proposes a fix with tests, and hands a pull request to the on-call engineer.
 - [Kiln builds Kiln](guides/kiln-builds-kiln.md): A case study of the kiln-self factory that works on Kiln's own repository, how it is set up, and the rules that keep it from weakening its own checks.
 - [Make a factory improve itself](guides/make-a-factory-improve-itself.md): Set up scorers, thresholds and guard rails so a factory turns its own repeated failures into reviewed, replay-tested definition changes.

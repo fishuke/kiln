@@ -263,6 +263,22 @@
   .ide .cmds b { color: var(--ember); font-weight: 400; }
   .k { color: #93c5fd; } .s { color: #fdba74; } .cm { color: var(--dim); } .n { color: #86efac; }
 
+  /* Factory Architect */
+  .arch { display: grid; grid-template-columns: 1fr 1.15fr; gap: 48px; align-items: center; margin-top: 48px; }
+  .agents { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 6px; }
+  .agents span { font: 500 13px Inter, sans-serif; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line-2); background: rgba(255,255,255,.03); color: var(--text); }
+  .agents span.more { color: var(--dim); }
+  .ev { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }
+  .ev div { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--bg-2); font-size: 13.5px; color: var(--muted); }
+  .ev b { display: block; color: var(--text); font-size: 14px; margin-bottom: 2px; }
+  .ev i { font-style: normal; color: var(--ember-2); }
+  .term.ai pre { min-height: 372px; }
+  .term.ai .l { opacity: 0; transform: translateY(4px); transition: opacity .35s, transform .35s; display: block; }
+  .term.ai .l.on { opacity: 1; transform: none; }
+  .c-y { color: var(--blue); }
+  @media (max-width: 960px) { .arch { grid-template-columns: 1fr; } }
+  @media (max-width: 600px) { .ev { grid-template-columns: 1fr; } .term.ai pre { font-size: 11.5px; min-height: 0; } }
+
   /* Use cases */
   .uc { margin-top: 48px; display: grid; grid-template-columns: 340px 1fr; gap: 20px; }
   .uc-list { display: grid; gap: 8px; align-content: start; }
@@ -418,8 +434,9 @@
     </a>
     <div class="links">
       <a href="#how">How it works</a>
+      <a href="#architect">AI setup</a>
       <a href="#use-cases">Use cases</a>
-      <a href="#code">Factories as code</a>
+      <a class="opt" href="#code">Factories as code</a>
       <a href="#measure">Benchmarks</a>
       <a class="opt" href="#byok">Bring your own key</a>
       <a href="#compare">Compare</a>
@@ -438,7 +455,7 @@
   <div class="wrap">
     <span class="pill"><b>Open source</b> MIT licensed · self-hosted · an alternative to Warp Factories</span>
     <h1>The open source <span class="grad">software factory</span></h1>
-    <p class="lede">AI agents <strong>plan, write, review and verify</strong> your code, from the ticket to a merged pull request. Kiln runs the whole development loop on your infrastructure, and a person approves the spec, accepts the preview and merges.</p>
+    <p class="lede">AI agents <strong>plan, write, review and verify</strong> your code, from the ticket to a merged pull request. Kiln runs the whole development loop on your infrastructure, and a person approves the spec and accepts the preview. A person merges, or a merge gate you turn on merges the changes your rules call safe.</p>
     <div class="cta">
       <a class="btn primary lg" data-demo hidden href="#">Try the demo</a>
       <a class="btn lg" href="#start">Run it locally</a>
@@ -485,7 +502,7 @@
           <div class="stage"><div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></div><h4>Build</h4><p>Agent codes in a sandbox</p></div>
           <div class="stage"><div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6L4.5 19a1.5 1.5 0 0 0 1.3 2h12.4a1.5 1.5 0 0 0 1.3-2L14 9V3"/></svg></div><h4>Verify</h4><p>Tests, video per criterion</p></div>
           <div class="stage gate"><div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></div><h4>Preview</h4><p>A live URL you accept</p></div>
-          <div class="stage gate"><div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7M18 15.5V10a3 3 0 0 0-3-3h-4"/></svg></div><h4>Review &amp; merge</h4><p>Reviewed PR, a person merges</p></div>
+          <div class="stage gate"><div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7M18 15.5V10a3 3 0 0 0-3-3h-4"/></svg></div><h4>Review &amp; merge</h4><p>A person or your merge gate merges</p></div>
         </div>
         <div class="legend">
           <span><i style="background:var(--ember)"></i>Agents do the work</span>
@@ -518,8 +535,38 @@
             <li><span>input</span><span>An issue, a Slack thread, a ticket, a schedule</span></li>
             <li><span>covers</span><span>Plan, spec, write, review, verify, preview, then your CI/CD</span></li>
             <li><span>defined in</span><span>A factory tree in a repo you own</span></li>
-            <li><span>gate</span><span>Spec approval, preview acceptance, a person merges</span></li>
+            <li><span>gate</span><span>Spec approval, preview acceptance, a person or your merge gate merges</span></li>
           </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="architect">
+    <div class="wrap">
+      <div class="center reveal">
+        <div class="eyebrow">Onboarding in one prompt</div>
+        <h2>Your favorite AI builds your factory</h2>
+        <p class="sub">Your factory is already written in your history: the commands CI runs, what reviewers keep asking for, where requests come from. Kiln's Factory Architect has your coding agent read it, write a factory that fits, and backtest it on your own merged pull requests.</p>
+      </div>
+      <div class="arch">
+        <div class="reveal">
+          <div class="agents"><span>Claude Code</span><span>Codex</span><span>Cursor</span><span>GitHub Copilot</span><span>Gemini CLI</span><span class="more">or any agent</span></div>
+          <div class="ev">
+            <div><b>Your repo</b>Stack, test and lint commands, CI → <i>runner, agent instructions</i></div>
+            <div><b>Your merged PRs</b>Sizes and review asks → <i>conventions skill, scorer, backtest</i></div>
+            <div><b>Your tracker</b>Labels, states, criteria → <i>automations and gates</i></div>
+            <div><b>Your chat and alerts</b>Where work arrives → <i>Slack intake, incident fixer, MCPs</i></div>
+          </div>
+          <ul class="checks">
+            <li><span><b>Evidence, not guesses.</b> Every choice cites a file, PR or ticket in FACTORY.md.</span></li>
+            <li><span><b>Proven before trusted.</b> A backtest replays your last merged PRs from their base commits.</span></li>
+            <li><span><b>You stay in charge.</b> It asks before reading Slack or your tracker, and before applying anything.</span></li>
+          </ul>
+        </div>
+        <div class="term ai reveal" id="archterm">
+          <div class="bar"><i></i><i></i><i></i><span>~/acme/web</span></div>
+<pre><span class="l"><span class="c-p">$</span> kiln architect</span><span class="l"><span class="c-g">✓</span> wrote .kiln/architect.md · .claude/skills/kiln-architect</span><span class="l"> </span><span class="l"><span class="c-p">›</span> /kiln-architect</span><span class="l"><span class="c-c">  kiln scan</span>   pnpm · vitest · GitHub Actions · Sentry</span><span class="l"><span class="c-c">  40 PRs</span>      62% small · reviewers ask for tests, the logger</span><span class="l"><span class="c-y">  ? May I read Linear (Web) and Slack #support? </span><span class="c-g">yes</span></span><span class="l"><span class="c-c">  Linear</span>      "Ready" means go · 41% of tickets lack criteria</span><span class="l"><span class="c-c">  Slack</span>       bugs arrive in #support, mostly screenshots</span><span class="l"><span class="c-g">✓</span> wrote kiln/ · 6 agents · 4 automations · 2 skills · 2 scorers</span><span class="l"><span class="c-g">✓</span> backtest: 20 tasks from your merged pull requests</span><span class="l"><span class="c-g">✓</span> kiln validate kiln · ok · FACTORY.md explains every choice</span><span class="l"><span class="c-y">  ? Apply this factory? </span><span class="c-c">(y/N)</span></span></pre>
         </div>
       </div>
     </div>
@@ -728,7 +775,7 @@
       <div class="grid reveal">
         <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg></div><h3>Factories as code</h3><p>Agents, automations, pipelines, scorers and skills live in a Git repo you own. Changes are reviewed like code and apply on merge.</p></div>
         <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg></div><h3>Sandboxed runs</h3><p>Every run starts in a Docker or gVisor sandbox behind an egress allowlist. Every shell command passes a guardrail.</p></div>
-        <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div><h3>Agents never merge</h3><p>Agents push only <code>kiln/*</code> branches with short-lived tokens. No agent identity can approve or merge.</p></div>
+        <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div><h3>You decide what merges</h3><p>Agents push only <code>kiln/*</code> branches with short-lived tokens and can't approve or merge. A person merges by default; turn on a merge gate and Kiln merges the pull requests your rules call safe, such as a small front-end fix.</p></div>
         <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 10l5-3v10l-5-3"/></svg></div><h3>Evidence on every PR</h3><p>Test output, a video for each acceptance criterion and a preview URL are attached to the pull request.</p></div>
         <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div><h3>Scorers and self-improvement</h3><p>Scorers grade every run. Repeated failures turn into definition PRs, replayed against the failing runs first.</p></div>
         <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><h3>Cost you can see</h3><p>Spend per agent, per run and per merged PR: compute, inference and platform, with team budgets.</p></div>
@@ -753,7 +800,7 @@
             <tr><td>Models</td><td class="kiln yes">Your Claude subscription, Anthropic, OpenAI, Bedrock, OpenRouter, Gemini</td><td>Platform default, or bring your own</td></tr>
             <tr><td>Definitions</td><td class="kiln yes">kiln/v1 in Git, with validate, diff, canary and replay</td><td>Config in Git</td></tr>
             <tr><td>Evidence</td><td class="kiln yes">Tests, a video per acceptance criterion and a preview on every PR</td><td>Depends on the platform</td></tr>
-            <tr><td>Merge rights</td><td class="kiln yes">No agent identity can approve or merge. Enforced, not a setting</td><td>Depends on configuration</td></tr>
+            <tr><td>Merge rights</td><td class="kiln yes">A person merges by default. Turn on a merge gate and Kiln merges safe pull requests by your rules. Agent tokens can never merge</td><td>Depends on configuration</td></tr>
             <tr><td>Lock-in</td><td class="kiln yes">None. Fork it, read it, change it</td><td>Platform account</td></tr>
           </tbody>
         </table>
@@ -803,7 +850,7 @@
         <details><summary>Is it really free?</summary><p>Yes. Kiln is MIT licensed and has no per-run fee. You pay your model provider (or use your Claude subscription) and run it on hardware you already have.</p></details>
         <details><summary>Which models and agents can I use?</summary><p>Claude Code with a Claude subscription, an Anthropic key or AWS Bedrock; Codex with an OpenAI key; OpenCode and Pi with OpenRouter, Gemini and others. Set the harness and model per agent, or route by task difficulty.</p></details>
         <details><summary>I'm moving from Warp Factories. Can I bring my definitions?</summary><p><code>kiln import</code> converts a v1alpha1 factory definition tree to kiln/v1, and a connected config repo in that format is converted on every sync.</p></details>
-        <details><summary>Can an agent merge to main?</summary><p>No. Agents push only <code>kiln/*</code> branches with short-lived tokens, and no agent identity can approve or merge. A person merges, or a merge gate you turned on does.</p></details>
+        <details><summary>Can an agent merge to main?</summary><p>No. Agents push only <code>kiln/*</code> branches with short-lived tokens, and no agent identity can approve or merge. A person merges, or Kiln's merge gate does when you turned it on: it merges a pull request only when your merge-safety rules call it safe, and sends the rest to a person.</p></details>
         <details><summary>Where does my code go?</summary><p>Into sandboxes on your own infrastructure (Docker, or Kubernetes under gVisor) with an egress allowlist. The only outside calls are the ones you configure, such as your model provider.</p></details>
         <details><summary>How big a team does it need?</summary><p>One person can run it with <code>pnpm dev</code>. Teams use Docker Compose or the Helm chart, with RBAC, an audit log, budgets and spend limits.</p></details>
       </div>
@@ -1135,6 +1182,19 @@ for support to accept. If it isn't, explain what the customer saw.` },
     document.querySelectorAll("#mtabs button").forEach((x) => x.classList.toggle("on", x === b));
     document.querySelectorAll(".mview > div").forEach((v) => v.classList.toggle("on", v.dataset.v === b.dataset.m));
   }));
+
+  // Factory Architect terminal: type the session out when it scrolls into view, then loop.
+  (() => {
+    const lines = [...document.querySelectorAll("#archterm .l")];
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) { lines.forEach((l) => l.classList.add("on")); return; }
+    let timer = null;
+    const play = () => {
+      lines.forEach((l) => l.classList.remove("on"));
+      lines.forEach((l, i) => setTimeout(() => l.classList.add("on"), 300 + i * 520));
+      timer = setTimeout(play, 300 + lines.length * 520 + 4200);
+    };
+    new IntersectionObserver(([e]) => { if (e.isIntersecting && !timer) play(); else if (!e.isIntersecting && timer) { clearTimeout(timer); timer = null; } }, { threshold: .3 }).observe(document.getElementById("archterm"));
+  })();
 
   // Light up the pipeline stage by stage.
   const stages = [...document.querySelectorAll("#stages .stage")];

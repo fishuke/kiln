@@ -13,6 +13,11 @@ Set `KILN_URL` (default `http://localhost:4000`) and `KILN_TOKEN`, or put `{ "ur
 ```text
 kiln — self-hostable software factories
 
+Factory Architect (your favorite coding agent writes your factory)
+  kiln architect [dir] [--agent claude,cursor,copilot,all] [--force] [--print]   Install the instructions (.kiln/architect.md + agent wrappers)
+  kiln scan [dir] [--json]                                            Profile a repo: stack, commands, CI, MCP servers to connect
+  kiln bench from-prs --repo owner/name [--limit 20] [--dir kiln]     Backtest suite from recent merged pull requests
+
 Definitions (local)
   kiln init [dir] [--template sdlc|single-repo|po-feature|incident]   Scaffold a definition tree
   kiln validate [path]                                                Schema and reference checks; exit 1 on errors

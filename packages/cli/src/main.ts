@@ -7,15 +7,26 @@ import { parseArgs } from "node:util";
 import { diffTrees, formatDiff, formatErrors, importV1alpha1, loadTree, validateTree, writeTree } from "@kiln/definitions";
 import { jsonSchemaFor, type FileKind } from "@kiln/schema";
 import { KilnApiError, KilnClient } from "@kiln/sdk-ts";
+import { ARCHITECT_FILES, ARCHITECT_MD, installArchitect, parseAgents } from "./architect";
+import { backtestSuite, GhPullRequestSource, type PullRequestSource } from "./backtest";
+import { formatProfile, scanRepo } from "./scan";
 import { KilnWorker, parseDuration, readConfigFile, WorkerConfig } from "./worker";
 
 export { KilnWorker, WorkerConfig, parseDuration, readConfigFile } from "./worker";
+export { ARCHITECT_MD, installArchitect, detectAgents } from "./architect";
+export { backtestSuite, FakePullRequestSource, GhPullRequestSource, type PullRequest, type PullRequestSource } from "./backtest";
+export { scanRepo, type RepoProfile } from "./scan";
 
-export type CliIO = { out: (s: string) => void; err: (s: string) => void; cwd: string; env: NodeJS.ProcessEnv; client?: KilnClient };
+export type CliIO = { out: (s: string) => void; err: (s: string) => void; cwd: string; env: NodeJS.ProcessEnv; client?: KilnClient; prs?: PullRequestSource };
 
 const TEMPLATES = fileURLToPath(new URL("../../../factories/templates/", import.meta.url));
 
 export const HELP = `kiln — self-hostable software factories
+
+Factory Architect (your favorite coding agent writes your factory)
+  kiln architect [dir] [--agent claude,cursor,copilot,all] [--force] [--print]   Install the instructions (.kiln/architect.md + agent wrappers)
+  kiln scan [dir] [--json]                                            Profile a repo: stack, commands, CI, MCP servers to connect
+  kiln bench from-prs --repo owner/name [--limit 20] [--dir kiln]     Backtest suite from recent merged pull requests
 
 Definitions (local)
   kiln init [dir] [--template sdlc|single-repo|po-feature|incident]   Scaffold a definition tree
@@ -119,6 +130,11 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
       "metrics-port": { type: "string" },
       "log-level": { type: "string" },
       url: { type: "string" },
+      agent: { type: "string" },
+      force: { type: "boolean" },
+      print: { type: "boolean" },
+      limit: { type: "string" },
+      out: { type: "string" },
     },
   });
   const str = (k: string) => values[k] as string | undefined;
@@ -385,8 +401,36 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
         io.out("Sent.");
         return 0;
       }
+      case "architect": {
+        if (values.print) { io.out(ARCHITECT_MD); return 0; }
+        const dir = path(positionals[0]);
+        const r = installArchitect(dir, { agents: parseAgents(str("agent")), force: !!values.force });
+        for (const f of r.written) io.out(`wrote ${f}`);
+        for (const f of r.kept) io.out(`kept ${f} (exists; --force to overwrite)`);
+        const how: Record<string, string> = { claude: "Claude Code: run /kiln-architect", cursor: "Cursor: ask the agent to use the kiln-architect rule", copilot: "Copilot: run the kiln-architect prompt" };
+        io.out(["", "Now ask your coding agent to build your factory:", ...r.agents.map((a) => `  ${how[a]}  (${ARCHITECT_FILES[a].path})`), "  Codex, Gemini CLI or any other agent: \"Follow .kiln/architect.md\""].join("\n"));
+        return 0;
+      }
+      case "scan": {
+        const profile = scanRepo(path(positionals[0]));
+        io.out(values.json ? JSON.stringify(profile, null, 2) : formatProfile(profile));
+        return 0;
+      }
       case "bench": {
         const [sub, suite] = positionals;
+        if (sub === "from-prs") {
+          const repo = values.repo as string[] | undefined;
+          if (!repo?.[0]) throw new Error("usage: kiln bench from-prs --repo owner/name [--limit 20] [--dir kiln] [--out backtest]");
+          const prs = await (io.prs ?? new GhPullRequestSource()).listMerged(repo[0], Number(str("limit") ?? 20));
+          const { files, skipped } = backtestSuite(repo[0], prs, { suite: str("out") ?? "backtest" });
+          const dir = path(str("dir"));
+          writeTree(dir, files);
+          const tasks = Object.keys(files).filter((f) => f.includes("/tasks/")).length;
+          io.out(`wrote ${tasks} task${tasks === 1 ? "" : "s"} to ${join(dir, "benchmarks", str("out") ?? "backtest")}`);
+          for (const s of skipped) io.out(`  #${s.number} skipped: ${s.reason}`);
+          if (tasks) io.out(`Run it: kiln bench run ${str("out") ?? "backtest"} --factory <alias>`);
+          return 0;
+        }
         const factory = str("factory");
         if (sub !== "run" || !suite || !factory) throw new Error("usage: kiln bench run <suite> --factory <id>");
         const r = await client(io).runBenchmark(factory, suite);

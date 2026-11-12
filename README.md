@@ -3,7 +3,7 @@
 **CI/CD for AI coding agents.** An open source, self-hosted alternative to Warp Factories.
 
 <p align="center">
-  <img src="docs/screenshots/01-new-run.png" alt="Kiln: start a run, then follow it from spec to merged pull request" width="900">
+  <img src="website/assets/hero.png" alt="Kiln: describe the change, then follow it from spec to merged pull request" width="900">
 </p>
 
 <!-- Demo video: in the GitHub web editor, drag an .mp4 (under 100 MB) onto this line. GitHub replaces it with a

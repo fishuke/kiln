@@ -50,7 +50,9 @@
   nav.top .wrap { display: flex; align-items: center; gap: 28px; height: 64px; }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 18px; letter-spacing: -.01em; }
   .brand svg { width: 28px; height: 28px; }
-  .links { display: flex; gap: 24px; color: var(--muted); font-size: 14px; }
+  .links { display: flex; gap: 20px; color: var(--muted); font-size: 14px; white-space: nowrap; }
+  .btn { white-space: nowrap; }
+  @media (max-width: 1180px) { .links a.opt { display: none; } }
   .links a:hover { color: var(--text); }
   .spacer { flex: 1; }
   .btn {
@@ -252,6 +254,27 @@
   .ide .cmds b { color: var(--ember); font-weight: 400; }
   .k { color: #93c5fd; } .s { color: #fdba74; } .cm { color: var(--dim); } .n { color: #86efac; }
 
+  /* Use cases */
+  .uc { margin-top: 48px; display: grid; grid-template-columns: 340px 1fr; gap: 20px; }
+  .uc-list { display: grid; gap: 8px; align-content: start; }
+  .uc-list button { display: grid; grid-template-columns: 36px 1fr; gap: 12px; align-items: center; text-align: left; border: 1px solid var(--line); background: var(--bg-2); color: var(--text); border-radius: 14px; padding: 12px 14px; cursor: pointer; font: inherit; transition: border-color .2s, background .2s, transform .2s; }
+  .uc-list button:hover { transform: translateX(3px); border-color: var(--line-2); }
+  .uc-list button.on { border-color: rgba(255,122,26,.55); background: linear-gradient(90deg, rgba(255,122,26,.09), var(--bg-2)); }
+  .uc-list .ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: rgba(255,255,255,.04); font-size: 18px; }
+  .uc-list button.on .ico { background: rgba(255,122,26,.14); }
+  .uc-list b { display: block; font-size: 14.5px; font-weight: 600; letter-spacing: -.01em; }
+  .uc-list span.t { display: block; font: 11.5px var(--mono); color: var(--dim); margin-top: 2px; }
+  .uc-view { border: 1px solid var(--line-2); border-radius: 18px; background: #0d0d0f; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 40px 100px -40px rgba(0,0,0,.9); }
+  .uc-head { padding: 22px 24px 18px; border-bottom: 1px solid var(--line); }
+  .uc-head h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.02em; }
+  .uc-head p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  .uc-head .beats { margin-top: 10px; font-size: 13px; color: var(--ember-2); }
+  .uc-file { font: 12.5px var(--mono); color: var(--muted); padding: 10px 24px; border-bottom: 1px solid var(--line); background: #0b0b0d; }
+  .uc-view pre { margin: 0; padding: 18px 24px; font-size: 13px; line-height: 1.7; color: #d4d4d8; overflow: auto; flex: 1; }
+  .uc-flow { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 24px 18px; border-top: 1px solid var(--line); }
+  .uc-flow span { font: 12px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }
+  .uc-flow span.end { color: var(--green); border-color: rgba(74,222,128,.35); background: rgba(74,222,128,.06); }
+
   /* Building blocks */
   .blocks { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 48px; }
   .blk { border: 1px solid var(--line); border-radius: 14px; padding: 18px; background: var(--card); transition: border-color .2s, transform .2s, background .2s; }
@@ -332,6 +355,8 @@
     .compare, .split { grid-template-columns: 1fr; }
     .keys { grid-template-columns: repeat(2, 1fr); }
     .grid { grid-template-columns: repeat(2, 1fr); }
+    .uc { grid-template-columns: 1fr; }
+    .uc-list { grid-template-columns: repeat(2, 1fr); }
     .ide { grid-template-columns: 1fr; }
     .ide .tree { border-right: 0; border-bottom: 1px solid var(--line); display: flex; overflow-x: auto; gap: 4px; padding: 10px; }
     .ide .tree .hd, .ide .tree .dir { display: none; }
@@ -352,6 +377,9 @@
     .keys, .grid { grid-template-columns: 1fr; }
     .blocks { grid-template-columns: repeat(2, 1fr); }
     .mtabs { grid-template-columns: 1fr; }
+    .uc-list { grid-template-columns: 1fr; }
+    .uc-head, .uc-file, .uc-view pre, .uc-flow { padding-left: 16px; padding-right: 16px; }
+    .uc-view pre { font-size: 12px; }
     .mview { padding: 16px; }
     .ide pre { font-size: 12px; padding: 14px; }
     .vs th, .vs td { padding: 12px; font-size: 13px; }
@@ -380,9 +408,10 @@
     </a>
     <div class="links">
       <a href="#how">How it works</a>
+      <a href="#use-cases">Use cases</a>
       <a href="#code">Factories as code</a>
       <a href="#measure">Benchmarks</a>
-      <a href="#byok">Bring your own key</a>
+      <a class="opt" href="#byok">Bring your own key</a>
       <a href="#compare">Compare</a>
       <a data-repo="/tree/main/docs/site" href="#">Docs</a>
     </div>
@@ -473,6 +502,25 @@
             <li><span>defined in</span><span>A factory tree in a repo you own</span></li>
             <li><span>gate</span><span>Spec approval, preview acceptance, a person merges</span></li>
           </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="use-cases">
+    <div class="wrap">
+      <div class="reveal">
+        <div class="eyebrow">Use cases</div>
+        <h2>The work nobody wants to do,<br>done before standup</h2>
+        <p class="sub">Every use case is one automation file: a trigger, a filter and a prompt. Copy one into <code>automations/</code>, apply, done.</p>
+      </div>
+      <div class="uc reveal">
+        <div class="uc-list" id="uc-list"></div>
+        <div class="uc-view">
+          <div class="uc-head"><h3 id="uc-title"></h3><p id="uc-desc"></p><div class="beats" id="uc-beats"></div></div>
+          <div class="uc-file" id="uc-file"></div>
+          <pre id="uc-code"></pre>
+          <div class="uc-flow" id="uc-flow"></div>
         </div>
       </div>
     </div>
@@ -920,6 +968,148 @@ description: How this repository names things, tests code and opens pull request
     b.addEventListener("click", () => show(f, b));
     tree.appendChild(b);
     if (!tree.querySelector("button.on")) show(f, b);
+  });
+
+  // Use cases: each is a real automation file (kiln/v1 trigger syntax).
+  const CASES = [
+    { ico: "🔴", name: "main went red", file: "fix-ci", title: "Fix CI the moment main breaks",
+      desc: "When a workflow fails on main, an agent reads the logs, finds the commit that broke it, and opens a fix with a regression test.",
+      beats: "Instead of a Slack alert someone has to pick up at 2am.",
+      flow: ["workflow failed on main", "read logs + bisect", "fix + regression test", "PR to on-call"],
+      code: `---
+displayName: Fix red main
+triggers:
+  - provider: github
+    event: workflow_run_completed
+    filter:
+      branches: [main]
+      conclusions: [failure]
+---
+CI failed on main. Read the failing job's logs, find the commit that
+broke it, and fix the cause, not the symptom. Add a regression test.
+If the failure is flaky rather than broken, say so and quarantine it.` },
+    { ico: "📦", name: "dependency PR failing", file: "finish-dependency-upgrades", title: "Finish the dependency PRs your bot can't",
+      desc: "Version-bump bots open the PR; when the major version breaks your build, Kiln reads the changelog, migrates the code and gets CI green.",
+      beats: "Bots bump versions. Kiln does the migration.",
+      flow: ["bot PR fails CI", "read changelog + migration guide", "update call sites", "green PR"],
+      code: `---
+displayName: Finish dependency upgrades
+triggers:
+  - provider: github
+    event: workflow_run_completed
+    filter:
+      authors: [dependabot[bot], renovate[bot]]
+      conclusions: [failure]
+      skip_bots: none
+---
+A dependency upgrade broke the build. Read the package's changelog and
+migration guide, update our code to the new API, and push to the same
+branch until CI is green. Never pin back to the old version.` },
+    { ico: "🛡️", name: "nightly, 03:00 UTC", file: "security-sweep", title: "Nightly security sweep",
+      desc: "Every night: audit dependencies, scan for committed secrets and unsafe patterns, and open one small PR per real finding, with proof it's exploitable.",
+      beats: "A scanner gives you 400 warnings. This gives you 3 PRs.",
+      flow: ["cron 0 3 * * *", "audit + scan", "triage false positives", "one PR per finding"],
+      code: `---
+displayName: Security sweep
+triggers:
+  - provider: schedule
+    event: cron_fired
+    schedule: { cron: "0 3 * * *", name: nightly }
+model: claude-fable-5-1
+---
+Run the dependency audit and a secret scan. For each high or critical
+finding that is reachable from our code, open a separate PR that fixes
+it and explains the exploit path. Close out the rest in one summary
+issue labeled security-triage.` },
+    { ico: "🚨", name: "fatal Sentry error", file: "production-errors", title: "Production error to fix, before the ticket",
+      desc: "A fatal error lands from your error tracker. Kiln reproduces it in a sandbox from the stack trace, writes a failing test, then the fix.",
+      beats: "The PR is waiting when on-call opens the alert.",
+      flow: ["webhook: fatal error", "reproduce in sandbox", "failing test → fix", "PR with repro video"],
+      code: `---
+displayName: Fix production errors
+triggers:
+  - provider: webhook
+    event: received
+    filter:
+      webhook_ids: [sentry]
+      payload: { data: { issue: { level: [fatal] } } }
+---
+Reproduce the error from the stack trace and breadcrumbs in the payload.
+Write a failing test first, then fix it. Link the alert in the PR.` },
+    { ico: "📝", name: "new ticket in Product", file: "spec-new-tickets", title: "Every new ticket gets a real spec",
+      desc: "A product owner writes two lines in Linear. The spec agent turns it into user stories and testable acceptance criteria, asks the open questions, and waits for approval.",
+      beats: "No more building the wrong thing from a vague ticket.",
+      flow: ["Linear issue created", "user stories + criteria", "open questions to PO", "spec gate → build"],
+      code: `---
+displayName: Spec new tickets
+agent: spec
+triggers:
+  - provider: linear
+    event: issue_created
+    filter: { teams: [Product], states: [Triage] }
+---
+Write a spec for this ticket: user stories, acceptance criteria a test
+or a video can prove, and what is out of scope. Ask the requester the
+questions you can't answer from the codebase. Don't build until approved.` },
+    { ico: "🎲", name: "Mondays, 06:00 UTC", file: "flaky-tests", title: "Hunt flaky tests weekly",
+      desc: "Looks at the last week of CI runs, finds tests that pass and fail on the same commit, and fixes the race instead of adding a retry.",
+      beats: "Your suite gets more trustworthy every week, not less.",
+      flow: ["cron weekly", "find flips on same SHA", "fix root cause", "PR per test"],
+      code: `---
+displayName: Flaky test hunter
+triggers:
+  - provider: schedule
+    event: cron_fired
+    schedule: { cron: "0 6 * * 1", name: weekly }
+---
+Find tests that both passed and failed on the same commit in the last
+7 days of CI. Fix the root cause (timing, shared state, ordering).
+Adding retries or sleeps doesn't count as a fix.` },
+    { ico: "🧹", name: "1st of the month", file: "feature-flag-cleanup", title: "Delete dead feature flags",
+      desc: "Monthly: find flags that have been 100% on or off for 30 days, remove them and the dead branch of code, and keep the tests passing.",
+      beats: "Tech debt paid down on a schedule, reviewed like any PR.",
+      flow: ["cron monthly", "find stale flags", "remove dead code", "small PRs"],
+      code: `---
+displayName: Feature flag cleanup
+triggers:
+  - provider: schedule
+    event: cron_fired
+    schedule: { cron: "0 7 1 * *", name: monthly }
+---
+List feature flags fully rolled out or fully off for 30+ days.
+For each, remove the flag and the dead code path in its own PR.
+Leave flags marked "kill-switch" alone.` },
+    { ico: "💬", name: "@kiln in #support", file: "support-bugs", title: "Support thread to fix, in the thread",
+      desc: "Support tags @kiln on a customer report. It reproduces the bug, replies with what it found, and posts the preview when the fix is ready.",
+      beats: "Support gets an answer in minutes, not a ticket number.",
+      flow: ["Slack mention", "reproduce + reply in thread", "fix + preview", "support accepts"],
+      code: `---
+displayName: Support bugs
+triggers:
+  - provider: slack
+    event: app_mention
+    filter: { channels: [support] }
+---
+A customer reported this. Reproduce it first and reply in the thread
+with what you found. If it's a bug, fix it and post the preview here
+for support to accept. If it isn't, explain what the customer saw.` },
+  ];
+  const ucList = document.getElementById("uc-list");
+  const showCase = (c, btn) => {
+    document.getElementById("uc-title").textContent = c.title;
+    document.getElementById("uc-desc").textContent = c.desc;
+    document.getElementById("uc-beats").textContent = "→ " + c.beats;
+    document.getElementById("uc-file").textContent = `automations/${c.file}/automation.md`;
+    document.getElementById("uc-code").innerHTML = hl(c.code);
+    document.getElementById("uc-flow").innerHTML = c.flow.map((s, i) => `<span${i === c.flow.length - 1 ? ' class="end"' : ""}>${esc(s)}</span>`).join("");
+    ucList.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === btn));
+  };
+  CASES.forEach((c, i) => {
+    const b = document.createElement("button");
+    b.innerHTML = `<span class="ico">${c.ico}</span><span><b>${esc(c.title)}</b><span class="t">${esc(c.name)}</span></span>`;
+    b.addEventListener("click", () => showCase(c, b));
+    ucList.appendChild(b);
+    if (i === 0) showCase(c, b);
   });
 
   // Measure & improve tabs.

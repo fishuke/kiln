@@ -230,6 +230,97 @@
   footer .wrap { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
   footer a:hover { color: var(--text); }
 
+  /* Hero stats */
+  .stats { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+  .stats span { font: 500 12.5px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; background: rgba(255,255,255,.02); }
+  .stats b { color: var(--ember-2); font-weight: 500; }
+
+  /* Definitions-as-code IDE */
+  .ide { margin-top: 48px; display: grid; grid-template-columns: 250px 1fr; border: 1px solid var(--line-2); border-radius: 18px; overflow: hidden; background: #0d0d0f; box-shadow: 0 40px 100px -40px rgba(0,0,0,.9); }
+  .ide .tree { border-right: 1px solid var(--line); padding: 14px 8px; font: 13px var(--mono); background: #0b0b0d; }
+  .ide .tree .hd { color: var(--dim); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; padding: 4px 10px 10px; }
+  .ide .tree button { display: flex; width: 100%; align-items: center; gap: 8px; text-align: left; background: none; border: 0; color: var(--muted); font: inherit; padding: 6px 10px; border-radius: 7px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ide .tree button:hover { background: rgba(255,255,255,.04); color: var(--text); }
+  .ide .tree button.on { background: rgba(255,122,26,.12); color: var(--ember-2); }
+  .ide .tree .dir { color: var(--dim); padding: 6px 10px 2px; }
+  .ide .tree .ind { padding-left: 24px; }
+  .ide .pane { display: flex; flex-direction: column; min-width: 0; }
+  .ide .tabbar { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); padding: 10px 16px; font: 12.5px var(--mono); color: var(--muted); }
+  .ide .tabbar .what { margin-left: auto; color: var(--dim); font-family: Inter, sans-serif; font-size: 13px; text-align: right; }
+  .ide pre { margin: 0; padding: 18px 20px; font-size: 13px; line-height: 1.7; color: #d4d4d8; overflow: auto; flex: 1; min-height: 300px; }
+  .ide .cmds { border-top: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 18px; flex-wrap: wrap; font: 12.5px var(--mono); color: var(--dim); }
+  .ide .cmds b { color: var(--ember); font-weight: 400; }
+  .k { color: #93c5fd; } .s { color: #fdba74; } .cm { color: var(--dim); } .n { color: #86efac; }
+
+  /* Building blocks */
+  .blocks { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 48px; }
+  .blk { border: 1px solid var(--line); border-radius: 14px; padding: 18px; background: var(--card); transition: border-color .2s, transform .2s, background .2s; }
+  .blk:hover { border-color: rgba(255,122,26,.45); transform: translateY(-3px); background: linear-gradient(180deg, rgba(255,122,26,.06), var(--card)); }
+  .blk code { font-size: 11.5px; color: var(--ember-2); }
+  .blk h3 { margin: 8px 0 4px; font-size: 15px; letter-spacing: -.01em; }
+  .blk p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+  /* Measure & improve */
+  .measure { margin-top: 48px; display: grid; grid-template-columns: 300px 1fr; gap: 20px; }
+  .mtabs { display: grid; gap: 8px; align-content: start; }
+  .mtabs button { text-align: left; border: 1px solid var(--line); background: var(--bg-2); color: var(--muted); border-radius: 14px; padding: 16px 18px; cursor: pointer; font: inherit; transition: border-color .2s, background .2s; }
+  .mtabs button b { display: block; color: var(--text); font-size: 15.5px; margin-bottom: 2px; }
+  .mtabs button span { font-size: 13.5px; line-height: 1.45; display: block; }
+  .mtabs button.on { border-color: rgba(255,122,26,.55); background: linear-gradient(180deg, rgba(255,122,26,.08), var(--bg-2)); }
+  .mview { border: 1px solid var(--line-2); border-radius: 18px; background: #0d0d0f; padding: 24px; min-height: 380px; position: relative; overflow: hidden; }
+  .mview > div { display: none; }
+  .mview > div.on { display: block; animation: fade .4s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .mview h4 { margin: 0 0 4px; font-size: 16px; }
+  .mview .cap { color: var(--dim); font-size: 13px; margin: 0 0 18px; }
+  .chart { width: 100%; height: auto; display: block; }
+  .tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .tbl th, .tbl td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+  .tbl th { color: var(--dim); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .tbl td.r, .tbl th.r { text-align: right; font-family: var(--mono); }
+  .bar-s { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--ember), var(--ember-2)); }
+  .chip { font: 500 11px var(--mono); padding: 2px 8px; border-radius: 6px; }
+  .chip.g { background: rgba(74,222,128,.12); color: var(--green); }
+  .chip.y { background: rgba(255,179,71,.12); color: var(--ember-2); }
+  .chip.r { background: rgba(248,113,113,.12); color: #fca5a5; }
+  .loop { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 6px; }
+  .loop div { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--card); font-size: 13px; color: var(--muted); }
+  .loop div b { display: block; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+  .loop div i { font-style: normal; font: 11px var(--mono); color: var(--ember); }
+  .canary { margin-top: 18px; height: 34px; border-radius: 10px; overflow: hidden; display: flex; font: 500 12px var(--mono); }
+  .canary span { display: grid; place-items: center; }
+
+  /* Product owners */
+  .po { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 48px; }
+  .po .card { border: 1px solid var(--line); border-radius: 16px; padding: 24px; background: var(--bg-2); }
+  .po .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .po .card p { margin: 0 0 16px; color: var(--muted); font-size: 14.5px; }
+  .chat { font-size: 13px; display: grid; gap: 8px; }
+  .chat div { padding: 8px 12px; border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid var(--line); color: var(--muted); }
+  .chat div.me { background: rgba(106,163,255,.10); border-color: rgba(106,163,255,.25); color: #dbe7ff; justify-self: end; }
+  .chat div b { color: var(--text); }
+
+  /* Comparison */
+  .vs { margin-top: 48px; border: 1px solid var(--line-2); border-radius: 18px; overflow: hidden; }
+  .vs table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  .vs th, .vs td { padding: 16px 20px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .vs tr:last-child td { border-bottom: 0; }
+  .vs thead th { background: var(--bg-2); font-size: 13px; color: var(--muted); font-weight: 500; }
+  .vs thead th.kiln { color: var(--ember-2); background: linear-gradient(180deg, rgba(255,122,26,.10), var(--bg-2)); }
+  .vs td:first-child { color: var(--dim); font: 13px var(--mono); width: 22%; }
+  .vs td.kiln { color: var(--text); background: rgba(255,122,26,.035); }
+  .vs td:last-child { color: var(--muted); }
+  .vs .yes::before { content: "✓ "; color: var(--green); font-weight: 600; }
+
+  /* FAQ */
+  .faq { max-width: 820px; margin: 48px auto 0; display: grid; gap: 10px; }
+  .faq details { border: 1px solid var(--line); border-radius: 14px; background: var(--bg-2); padding: 0 20px; }
+  .faq summary { cursor: pointer; list-style: none; padding: 18px 0; font-weight: 500; display: flex; justify-content: space-between; gap: 16px; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: "+"; color: var(--dim); font-size: 20px; line-height: 1; transition: transform .2s; }
+  .faq details[open] summary::after { transform: rotate(45deg); }
+  .faq details p { margin: 0 0 18px; color: var(--muted); font-size: 15px; }
+
   /* Reveal */
   .reveal { opacity: 0; transform: translateY(24px); transition: opacity .8s ease, transform .8s cubic-bezier(.2,.7,.1,1); }
   .reveal.in { opacity: 1; transform: none; }
@@ -241,6 +332,17 @@
     .compare, .split { grid-template-columns: 1fr; }
     .keys { grid-template-columns: repeat(2, 1fr); }
     .grid { grid-template-columns: repeat(2, 1fr); }
+    .ide { grid-template-columns: 1fr; }
+    .ide .tree { border-right: 0; border-bottom: 1px solid var(--line); display: flex; overflow-x: auto; gap: 4px; padding: 10px; }
+    .ide .tree .hd, .ide .tree .dir { display: none; }
+    .ide .tree .ind { padding-left: 10px; }
+    .ide .tree button { width: auto; flex: none; }
+    .ide .tabbar .what { display: none; }
+    .blocks { grid-template-columns: repeat(3, 1fr); }
+    .measure { grid-template-columns: 1fr; }
+    .mtabs { grid-template-columns: repeat(2, 1fr); }
+    .po { grid-template-columns: 1fr; }
+    .loop { grid-template-columns: repeat(2, 1fr); }
   }
   @media (max-width: 600px) {
     .wrap { padding: 0 16px; }
@@ -248,6 +350,12 @@
     .hero { padding-top: 64px; }
     .stages { grid-template-columns: repeat(2, 1fr); }
     .keys, .grid { grid-template-columns: 1fr; }
+    .blocks { grid-template-columns: repeat(2, 1fr); }
+    .mtabs { grid-template-columns: 1fr; }
+    .mview { padding: 16px; }
+    .ide pre { font-size: 12px; padding: 14px; }
+    .vs th, .vs td { padding: 12px; font-size: 13px; }
+    .vs td:first-child { width: auto; }
     .col li { grid-template-columns: 1fr; gap: 2px; }
     .install { font-size: 12px; }
     .pill { font-size: 12px; text-align: left; border-radius: 14px; }
@@ -272,9 +380,10 @@
     </a>
     <div class="links">
       <a href="#how">How it works</a>
+      <a href="#code">Factories as code</a>
+      <a href="#measure">Benchmarks</a>
       <a href="#byok">Bring your own key</a>
-      <a href="#features">Features</a>
-      <a href="#start">Quickstart</a>
+      <a href="#compare">Compare</a>
       <a data-repo="/tree/main/docs/site" href="#">Docs</a>
     </div>
     <div class="spacer"></div>
@@ -302,6 +411,7 @@
     <div>
       <div class="install"><span class="p">$</span><code id="cmd">git clone https://github.com/fishuke/kiln &amp;&amp; cd kiln &amp;&amp; pnpm install &amp;&amp; pnpm dev</code><button class="copy" data-copy="#cmd">Copy</button></div>
     </div>
+    <div class="stats"><span><b>MIT</b> all of it, not just the CLI</span><span><b>$0</b> per run, ever</span><span><b>your</b> keys, cloud and data</span><span><b>0</b> agents that can merge</span></div>
 
     <div class="shot">
       <div class="glow"></div>
@@ -313,7 +423,7 @@
 
     <div class="strip reveal">
       Works with the tools your team already uses
-      <ul><li>GitHub</li><li>GitHub Enterprise</li><li>Slack</li><li>Linear</li><li>Jira</li><li>Docker</li><li>Kubernetes</li><li>MCP</li></ul>
+      <ul><li>GitHub</li><li>GitHub Enterprise</li><li>GitLab</li><li>Bitbucket</li><li>Azure DevOps</li><li>Slack</li><li>Microsoft Teams</li><li>Discord</li><li>Linear</li><li>Jira</li><li>Vercel</li><li>Kubernetes</li><li>MCP</li></ul>
     </div>
   </div>
 </header>
@@ -368,6 +478,128 @@
     </div>
   </section>
 
+  <section class="block" id="code">
+    <div class="wrap">
+      <div class="reveal">
+        <div class="eyebrow">Factories as code</div>
+        <h2>Your whole factory is a folder in Git</h2>
+        <p class="sub">Agents, pipelines, gates, model routing, guardrails, scorers and skills are plain files. Review them in a pull request, validate them in CI, apply them atomically or as a canary. Click around: this is the real starter template.</p>
+      </div>
+      <div class="ide reveal">
+        <div class="tree" id="tree">
+          <div class="hd">my-factory/</div>
+        </div>
+        <div class="pane">
+          <div class="tabbar"><span id="fname">factory.yaml</span><span class="what" id="fwhat"></span></div>
+          <pre id="fcode"></pre>
+          <div class="cmds"><span><b>$</b> kiln validate my-factory</span><span><b>$</b> kiln apply my-factory --canary 10%</span><span><b>$</b> kiln diff my-factory</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="customize">
+    <div class="wrap">
+      <div class="center reveal">
+        <div class="eyebrow">Customize everything</div>
+        <h2>Ten building blocks. No black box.</h2>
+        <p class="sub">Every decision your factory makes is something you can read, change and version. Start from a template, then make it yours.</p>
+      </div>
+      <div class="blocks reveal">
+        <div class="blk"><code>agents/</code><h3>Agents</h3><p>Foreman, triage, spec, implement, verify, review, or your own role. Harness and model per agent.</p></div>
+        <div class="blk"><code>pipelines/</code><h3>Pipelines</h3><p>Fix the stages, fan out per user story, loop verify → build until it passes.</p></div>
+        <div class="blk"><code>gates/</code><h3>Gates</h3><p>Who approves, what evidence they see, when to nudge and when to park the work.</p></div>
+        <div class="blk"><code>routers/</code><h3>Model routing</h3><p>Easy tasks to a small model, hard ones to the best. Or route by benchmark results.</p></div>
+        <div class="blk"><code>automations/</code><h3>Automations</h3><p>Start work from issues, mentions, PR comments, schedules or any webhook.</p></div>
+        <div class="blk"><code>skills/</code><h3>Skills</h3><p>Reusable know-how in SKILL.md, per factory or per agent, shared across teams.</p></div>
+        <div class="blk"><code>decisions/</code><h3>Typed decisions</h3><p>Command guard and triage as typed questions with thresholds, LLM only as fallback.</p></div>
+        <div class="blk"><code>policies/</code><h3>Policies &amp; budgets</h3><p>Protected paths, two-approval files, denied actions, a cap per work item.</p></div>
+        <div class="blk"><code>runners/</code><h3>Runners &amp; workers</h3><p>Sandbox image, CPU and memory, setup commands, egress allowlist, your own machines.</p></div>
+        <div class="blk"><code>scorers/</code><h3>Scorers</h3><p>Rubrics with labels and a passing score that grade a sample of every agent's runs.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="measure">
+    <div class="wrap">
+      <div class="reveal">
+        <div class="eyebrow">Measure and improve</div>
+        <h2>Know which setup actually ships.<br>Then let the factory fix itself.</h2>
+        <p class="sub">Stop guessing which model or prompt is better. Kiln measures every run, benchmarks configurations on your own past tickets, and proposes its own fixes, with proof.</p>
+      </div>
+      <div class="measure reveal">
+        <div class="mtabs" id="mtabs">
+          <button class="on" data-m="bench"><b>Benchmarks</b><span>Up to six configurations on tasks pinned to exact commits. Find the cost and success frontier.</span></button>
+          <button data-m="score"><b>Scorers</b><span>Grade a sample of each agent's runs against a rubric you wrote.</span></button>
+          <button data-m="improve"><b>Self-improvement</b><span>Repeated failures become a definition PR, replayed against the runs that failed.</span></button>
+          <button data-m="canary"><b>Replay &amp; canary</b><span>Re-run past work under a new definition, then roll it out to a slice of traffic.</span></button>
+        </div>
+        <div class="mview">
+          <div class="on" data-v="bench">
+            <h4>benchmarks/core · implement · 24 tasks from real tickets</h4>
+            <p class="cap">Illustrative results. Every point is a configuration; the frontier shows what's worth paying for.</p>
+            <svg class="chart" viewBox="0 0 640 260" role="img" aria-label="Scatter chart of success rate against cost per task for four configurations">
+              <defs><linearGradient id="fr" x1="0" x2="1"><stop offset="0" stop-color="#ff7a1a"/><stop offset="1" stop-color="#ffb347"/></linearGradient></defs>
+              <g stroke="rgba(255,255,255,.07)"><line x1="50" y1="20" x2="620" y2="20"/><line x1="50" y1="80" x2="620" y2="80"/><line x1="50" y1="140" x2="620" y2="140"/><line x1="50" y1="200" x2="620" y2="200"/></g>
+              <g fill="#71717a" font-size="11" font-family="JetBrains Mono, monospace"><text x="10" y="24">100%</text><text x="16" y="84">80%</text><text x="16" y="144">60%</text><text x="16" y="204">40%</text><text x="50" y="245">$0</text><text x="230" y="245">$0.50</text><text x="420" y="245">$1.00</text><text x="590" y="245">$1.50</text></g>
+              <polyline points="126,128 331,62 522,44" fill="none" stroke="url(#fr)" stroke-width="2.5" stroke-dasharray="6 6"/>
+              <g font-family="Inter, sans-serif" font-size="12.5">
+                <circle cx="126" cy="128" r="8" fill="#ffb347"/><text x="104" y="156" fill="#e4e4e7">haiku · 64% · $0.21</text>
+                <circle cx="331" cy="62" r="10" fill="#ff7a1a"/><text x="347" y="92" fill="#fff" font-weight="600">sonnet · 86% · $0.78</text><text x="347" y="108" fill="#4ade80" font-size="11.5">best value → route medium tasks here</text>
+                <circle cx="522" cy="44" r="8" fill="#ffb347"/><text x="478" y="30" fill="#e4e4e7">fable · 92% · $1.31</text>
+                <circle cx="374" cy="140" r="8" fill="#6aa3ff"/><text x="388" y="144" fill="#a1a1aa">codex · 60% · $0.90</text>
+              </g>
+            </svg>
+            <p class="cap" style="margin:10px 0 0">Results turn into routing rules: <code class="mono" style="color:var(--ember-2)">easy → haiku · medium → sonnet · hard → fable</code></p>
+          </div>
+          <div data-v="score">
+            <h4>scorers/criteria · implement · sampling 25% of runs</h4>
+            <p class="cap">Does the pull request meet every acceptance criterion? (Illustrative week.)</p>
+            <table class="tbl">
+              <thead><tr><th>Run</th><th>Label</th><th class="r">Score</th><th style="width:35%">Pass rate trend</th></tr></thead>
+              <tbody>
+                <tr><td>Saved carts</td><td><span class="chip g">meets</span></td><td class="r">1.0</td><td><div class="bar-s" style="width:92%"></div></td></tr>
+                <tr><td>Delivery estimate</td><td><span class="chip g">meets</span></td><td class="r">1.0</td><td><div class="bar-s" style="width:88%"></div></td></tr>
+                <tr><td>Rate limit header</td><td><span class="chip y">partly</span></td><td class="r">0.5</td><td><div class="bar-s" style="width:74%"></div></td></tr>
+                <tr><td>Checkout typo</td><td><span class="chip g">meets</span></td><td class="r">1.0</td><td><div class="bar-s" style="width:81%"></div></td></tr>
+                <tr><td>CSV export</td><td><span class="chip r">misses</span></td><td class="r">0.0</td><td><div class="bar-s" style="width:63%"></div></td></tr>
+              </tbody>
+            </table>
+            <p class="cap" style="margin:14px 0 0">Failures feed self-improvement automatically. Dashboards show autonomy, cycle time, cost per merged PR and pass rate per agent.</p>
+          </div>
+          <div data-v="improve">
+            <h4>The factory files a pull request against itself</h4>
+            <p class="cap">Guarded: policies and gates are protected paths the improver can't touch.</p>
+            <div class="loop">
+              <div><i>01</i><b>Detect</b>25 runs fail the <code>criteria</code> scorer for the same reason.</div>
+              <div><i>02</i><b>Propose</b>An improver agent drafts a change to <code>agents/implement/agent.md</code>.</div>
+              <div><i>03</i><b>Prove</b>The change is replayed against the failing runs: 19 of 25 now pass.</div>
+              <div><i>04</i><b>Review</b>A person reviews the definition PR with the replay table and merges it.</div>
+            </div>
+            <div class="term" style="margin-top:18px;box-shadow:none">
+<pre style="padding:14px 18px;font-size:12.5px"><span class="c-g">+</span> Before opening the PR, write one test per acceptance criterion
+<span class="c-g">+</span> and record a video of each criterion passing.
+<span class="c-c">  replay: 19/25 previously failing runs pass · 0 regressions</span></pre>
+            </div>
+          </div>
+          <div data-v="canary">
+            <h4>Ship definition changes like you ship code</h4>
+            <p class="cap">Replay any past run from its saved start state under a new definition, then canary it.</p>
+            <table class="tbl">
+              <thead><tr><th>Replayed run</th><th>Current</th><th>Proposed</th></tr></thead>
+              <tbody>
+                <tr><td>Fix flaky login test</td><td><span class="chip r">failed</span></td><td><span class="chip g">passed</span></td></tr>
+                <tr><td>Add audit export</td><td><span class="chip g">passed</span></td><td><span class="chip g">passed</span></td></tr>
+                <tr><td>Paginate invoices</td><td><span class="chip y">partly</span></td><td><span class="chip g">passed</span></td></tr>
+              </tbody>
+            </table>
+            <div class="canary"><span style="width:10%;background:var(--ember);color:#1a0d00">10%</span><span style="width:90%;background:rgba(255,255,255,.05);color:var(--dim)">90% stays on the current definition until you promote</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="block" id="byok">
     <div class="wrap">
       <div class="reveal">
@@ -380,6 +612,43 @@
         <div class="key reveal" style="--accent:#10a37f"><div class="tag">Codex</div><h3>OpenAI</h3><p>Run Codex with your OpenAI API key.</p><code>OPENAI_API_KEY=sk-…</code></div>
         <div class="key reveal" style="--accent:#ff9900"><div class="tag">Claude Code on Bedrock</div><h3>AWS Bedrock</h3><p>A Bedrock API key, or access keys and a region.</p><code>AWS_BEARER_TOKEN_BEDROCK=…</code></div>
         <div class="key reveal" style="--accent:#8b8bff"><div class="tag">OpenCode · Pi</div><h3>Anything else</h3><p>OpenRouter, Gemini and more through open harnesses.</p><code>OPENROUTER_API_KEY=…</code></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="owners">
+    <div class="wrap">
+      <div class="reveal">
+        <div class="eyebrow">Not just for engineers</div>
+        <h2>Product owners ship too</h2>
+        <p class="sub">Approve a spec from Slack, accept a preview from your phone, turn meeting notes into a roadmap. Or build an app by talking to it.</p>
+      </div>
+      <div class="po">
+        <div class="card reveal">
+          <h3>Approve where you already are</h3>
+          <p>Specs and previews come to Slack, Teams, the issue or the Kiln inbox, with the evidence to decide.</p>
+          <div class="chat">
+            <div><b>@kiln</b> Spec for "Saved carts" is ready: 4 acceptance criteria, 1 open question.</div>
+            <div class="me">Looks good, approve. Keep carts for 30 days.</div>
+            <div><b>@kiln</b> Building. Preview with a video per criterion in ~20 min.</div>
+          </div>
+        </div>
+        <div class="card reveal">
+          <h3>Plan with an agent</h3>
+          <p>Paste a goal, a PRD or meeting notes. The plan agent writes epics and tracker issues with testable acceptance criteria, each routed to the right factory.</p>
+          <div class="chat">
+            <div class="me">Here are the notes from Tuesday's checkout review.</div>
+            <div><b>Plan</b> 3 epics, 11 issues in Linear, each with criteria. 8 go to the Shop factory, 3 to API.</div>
+          </div>
+        </div>
+        <div class="card reveal">
+          <h3>Studio: build an app by talking</h3>
+          <p>Chat, or press Talk and speak. Studio builds in a sandbox, shows a live preview of every version, and opens a pull request when you're happy.</p>
+          <div class="chat">
+            <div class="me">Add a dark mode toggle to the settings page.</div>
+            <div><b>Studio</b> Version 7 is live in the preview. Open a pull request?</div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -397,6 +666,31 @@
         <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 10l5-3v10l-5-3"/></svg></div><h3>Evidence on every PR</h3><p>Test output, a video for each acceptance criterion and a preview URL are attached to the pull request.</p></div>
         <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div><h3>Scorers and self-improvement</h3><p>Scorers grade every run. Repeated failures turn into definition PRs, replayed against the failing runs first.</p></div>
         <div class="feat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><h3>Cost you can see</h3><p>Spend per agent, per run and per merged PR: compute, inference and platform, with team budgets.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="compare">
+    <div class="wrap">
+      <div class="center reveal">
+        <div class="eyebrow">Why Kiln</div>
+        <h2>Everything a factory platform does.<br>Nothing it charges per run for.</h2>
+        <p class="sub">Hosted software-factory platforms are a great idea. Kiln is the same idea that you own, end to end.</p>
+      </div>
+      <div class="vs reveal">
+        <table>
+          <thead><tr><th></th><th class="kiln">Kiln</th><th>Hosted factory platforms</th></tr></thead>
+          <tbody>
+            <tr><td>License</td><td class="kiln yes">MIT, the whole platform</td><td>Proprietary platform</td></tr>
+            <tr><td>Pricing</td><td class="kiln yes">Free. You pay your model provider directly</td><td>Usage-based, per agent run</td></tr>
+            <tr><td>Where it runs</td><td class="kiln yes">Your laptop, a VM, Docker Compose or Kubernetes</td><td>Their cloud, or your VPC</td></tr>
+            <tr><td>Models</td><td class="kiln yes">Your Claude subscription, Anthropic, OpenAI, Bedrock, OpenRouter, Gemini</td><td>Platform default, or bring your own</td></tr>
+            <tr><td>Definitions</td><td class="kiln yes">kiln/v1 in Git, with validate, diff, canary and replay</td><td>Config in Git</td></tr>
+            <tr><td>Evidence</td><td class="kiln yes">Tests, a video per acceptance criterion and a preview on every PR</td><td>Depends on the platform</td></tr>
+            <tr><td>Merge rights</td><td class="kiln yes">No agent identity can approve or merge. Enforced, not a setting</td><td>Depends on configuration</td></tr>
+            <tr><td>Lock-in</td><td class="kiln yes">None. Fork it, read it, change it</td><td>Platform account</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>
@@ -429,6 +723,23 @@
 <span class="c-p">$</span> pnpm kiln send "Fix the typo in the README"
 <span class="c-g">→</span> triaging → building → reviewing
 <span class="c-g">✓</span> PR opened · waiting for a person to merge</pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="faq">
+    <div class="wrap">
+      <div class="center reveal">
+        <div class="eyebrow">FAQ</div>
+        <h2>Questions</h2>
+      </div>
+      <div class="faq reveal">
+        <details><summary>Is it really free?</summary><p>Yes. Kiln is MIT licensed and has no per-run fee. You pay your model provider (or use your Claude subscription) and run it on hardware you already have.</p></details>
+        <details><summary>Which models and agents can I use?</summary><p>Claude Code with a Claude subscription, an Anthropic key or AWS Bedrock; Codex with an OpenAI key; OpenCode and Pi with OpenRouter, Gemini and others. Set the harness and model per agent, or route by task difficulty.</p></details>
+        <details><summary>I'm moving from Warp Factories. Can I bring my definitions?</summary><p><code>kiln import</code> converts a v1alpha1 factory definition tree to kiln/v1, and a connected config repo in that format is converted on every sync.</p></details>
+        <details><summary>Can an agent merge to main?</summary><p>No. Agents push only <code>kiln/*</code> branches with short-lived tokens, and no agent identity can approve or merge. A person merges, or a merge gate you turned on does.</p></details>
+        <details><summary>Where does my code go?</summary><p>Into sandboxes on your own infrastructure (Docker, or Kubernetes under gVisor) with an egress allowlist. The only outside calls are the ones you configure, such as your model provider.</p></details>
+        <details><summary>How big a team does it need?</summary><p>One person can run it with <code>pnpm dev</code>. Teams use Docker Compose or the Helm chart, with RBAC, an audit log, budgets and spend limits.</p></details>
       </div>
     </div>
   </section>
@@ -476,6 +787,146 @@
 
   const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { threshold: 0.12 });
   document.querySelectorAll(".reveal, #frame").forEach((el) => io.observe(el));
+
+  // Factories-as-code viewer: real files from factories/templates/sdlc (plus a pipeline and a benchmark suite).
+  const FILES = [
+    ["factory.yaml", "", "Name, repos, integrations, defaults, budgets", `schemaVersion: kiln/v1
+name: Web app
+alias: webapp
+repositories:
+  - { owner: acme, name: web-app }
+integrations: [github, slack, linear]
+agentDefaults:
+  harness: { type: claude-code, model: router:by-task }
+  runner: linux-node
+selfImprovement: { failedRunThreshold: 25, reviewers: { type: team } }
+budgets: { perWorkItemUsd: 40, monthlyUsd: 6000 }`],
+    ["agents/", "dir"],
+    ["foreman/agent.md", "agents/", "The router that talks to people", `---
+description: Routes each work item and talks to people where the request started
+agentType: FOREMAN
+---
+# Foreman
+
+You coordinate the factory. Pick the shortest path that meets the quality bar:
+
+1. Triage when the cause or scope is unknown; skip it when the request already says what to change.
+2. Ask whether a spec is needed when there is ambiguity a person must resolve.
+3. Dispatch implementation, then an adversarial review.
+4. Hand the pull request to a person with its evidence. Never merge.`],
+    ["pipelines/", "dir"],
+    ["feature.yaml", "pipelines/", "Stages, skips, fan-out and retry loops", `description: Feature pipeline with spec and preview approvals
+stages:
+  - { id: triage,  agent: triage }
+  - { id: spec,    agent: spec, skip_if: "triage.size in ['xs','s']", gate: spec-approval }
+  - { id: build,   agent: implement, fan_out: per_user_story }
+  - { id: verify,  agent: verify, requires: [ci_green, criteria_videos], on_fail: build, max_loops: 3 }
+  - { id: preview, action: preview.deploy, gate: preview-acceptance }
+  - { id: review,  agent: review, advisory: true }
+  - { id: handoff, action: handoff }`],
+    ["gates/", "dir"],
+    ["spec-approval.yaml", "gates/", "Who approves, with what evidence", `kind: approval
+approvers: [requester, role:po]
+evidence: [spec, open_questions]
+nudge: 24h
+expire: 72h -> park`],
+    ["routers/", "dir"],
+    ["by-task.yaml", "routers/", "Right-size the model per task", `name: By task
+type: complexity
+default: claude-sonnet-5-5
+routing:
+  easy: claude-haiku-5-5
+  medium: claude-sonnet-5-5
+  hard: claude-fable-5-1`],
+    ["decisions/", "dir"],
+    ["command-guard.yaml", "decisions/", "Every sandbox command is checked", `description: Command guardrail for every sandbox command
+state: [command, cwd, repo, branch]
+questions:
+  risk_level: { type: choice, options: [safe, risky, destructive] }
+  remote_exec: { type: probability }
+  touches_prod: { type: probability }
+policy:
+  block: "risk_level.destructive >= 0.8 or touches_prod >= 0.8"
+  ask_human: "risk_level.risky >= 0.3"
+on_error: llm
+timeout_ms: 800`],
+    ["policies/", "dir"],
+    ["default.yaml", "policies/", "What agents may never touch or do", `description: What agents may touch and spend
+protectedPaths: [policies/**, gates/**, .github/workflows/**]
+twoApprovalPaths: [decisions/**]
+deniedActions: [merge, approve, deploy]
+maxUsdPerWorkItem: 40`],
+    ["scorers/", "dir"],
+    ["criteria/scorer.md", "scorers/", "A rubric that grades sampled runs", `---
+name: criteria
+description: Does the pull request meet every acceptance criterion?
+agents: [implement]
+labels:
+  - { value: meets, score: 1 }
+  - { value: partly, score: 0.5 }
+  - { value: misses, score: 0 }
+passingScore: 1
+samplingRate: 25
+selfImprovement: true
+---
+Grade the run against the work item's acceptance criteria.
+Pass only when every criterion is covered.`],
+    ["benchmarks/", "dir"],
+    ["core/suite.yaml", "benchmarks/", "Compare configurations on real tasks", `name: core
+agent: implement
+configurations:
+  - { name: sonnet }
+  - { name: haiku, agents: [{ agent: implement, model: claude-haiku-5-5 }] }
+  - { name: codex, agents: [{ agent: implement, harness: { type: codex } }] }
+tasks: [t0, t1]`],
+    ["runners/", "dir"],
+    ["linux-node.yaml", "runners/", "The sandbox your agents run in", `description: Linux sandbox with Node 22 and pnpm
+backend: docker
+shape: { vcpus: 4, memoryGb: 8 }
+setupCommands:
+  - corepack enable
+  - pnpm install --frozen-lockfile
+egress: [registry.npmjs.org, github.com, api.github.com]`],
+    ["skills/", "dir"],
+    ["conventions/SKILL.md", "skills/", "House rules, loaded on demand", `---
+name: repository-conventions
+description: How this repository names things, tests code and opens pull requests
+---
+- Named exports; no default exports except framework entry points.
+- Validate input at every boundary with zod.
+- One behavior per test; test names say what should happen.`],
+  ];
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const hl = (src) => esc(src).split("\n").map((l) => {
+    if (/^\s*#/.test(l) && !/^#\s/.test(l)) return `<span class="cm">${l}</span>`;
+    if (/^#+\s/.test(l)) return `<span class="n">${l}</span>`;
+    if (l === "---") return `<span class="cm">${l}</span>`;
+    return l
+      .replace(/("[^"]*")/g, '<span class="s">$1</span>')
+      .replace(/^(\s*-?\s*)([\w.-]+)(:)(?=\s|$)/, '$1<span class="k">$2</span>$3')
+      .replace(/([{,]\s*)([\w-]+)(:)/g, '$1<span class="k">$2</span>$3');
+  }).join("\n");
+  const tree = document.getElementById("tree");
+  const show = (f, btn) => {
+    document.getElementById("fname").textContent = f[1] + f[0];
+    document.getElementById("fwhat").textContent = f[2];
+    document.getElementById("fcode").innerHTML = hl(f[3]);
+    tree.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === btn));
+  };
+  FILES.forEach((f) => {
+    if (f[1] === "dir") { const d = document.createElement("div"); d.className = "dir"; d.textContent = f[0]; tree.appendChild(d); return; }
+    const b = document.createElement("button");
+    b.textContent = f[0]; if (f[1]) b.className = "ind"; b.title = f[2];
+    b.addEventListener("click", () => show(f, b));
+    tree.appendChild(b);
+    if (!tree.querySelector("button.on")) show(f, b);
+  });
+
+  // Measure & improve tabs.
+  document.querySelectorAll("#mtabs button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("#mtabs button").forEach((x) => x.classList.toggle("on", x === b));
+    document.querySelectorAll(".mview > div").forEach((v) => v.classList.toggle("on", v.dataset.v === b.dataset.m));
+  }));
 
   // Light up the pipeline stage by stage.
   const stages = [...document.querySelectorAll("#stages .stage")];

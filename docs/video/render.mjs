@@ -1,8 +1,8 @@
-// Renders promo.html to frames, then to MP4 and GIF.
+// Renders a scene (promo.html by default) to frames, then to MP4 and GIF.
 // Usage (from this folder):
 //   npm i --no-save puppeteer-core
-//   CHROME=/path/to/chrome node render.mjs [out-dir]
-// Needs ffmpeg on PATH. Writes kiln-promo.mp4 and kiln-promo.gif to out-dir (default: ../../website/assets).
+//   CHROME=/path/to/chrome [SCENE=factory.html NAME=kiln-factory] node render.mjs [out-dir]
+// Needs ffmpeg on PATH. Writes <NAME>.mp4 and <NAME>.gif (default kiln-promo) to out-dir (default: ../../website/assets).
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -12,6 +12,7 @@ import puppeteer from "puppeteer-core";
 const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(process.argv[2] ?? join(here, "../../website/assets"));
 const frames = join(process.env.FRAMES_DIR ?? join(here, ".frames"));
+const SCENE = process.env.SCENE ?? "promo.html", NAME = process.env.NAME ?? "kiln-promo";
 const FPS = 30,
   SCALE = 1.5;
 
@@ -20,7 +21,7 @@ mkdirSync(frames, { recursive: true });
 const browser = await puppeteer.launch({ executablePath: process.env.CHROME, args: ["--hide-scrollbars"] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: SCALE });
-await page.goto(pathToFileURL(join(here, "promo.html")).href + "?render=1", { waitUntil: "networkidle0" });
+await page.goto(pathToFileURL(join(here, SCENE)).href + "?render=1", { waitUntil: "networkidle0" });
 await page.evaluate(() => document.fonts.ready);
 const duration = await page.evaluate(() => window.DURATION);
 const total = Math.round(duration * FPS);
@@ -47,18 +48,18 @@ ff([
   "yuv420p",
   "-movflags",
   "+faststart",
-  join(out, "kiln-promo.mp4"),
+  join(out, `${NAME}.mp4`),
 ]);
 const palette = join(frames, "palette.png");
 const vf = "fps=12,scale=800:-1:flags=lanczos";
-ff(["-i", join(out, "kiln-promo.mp4"), "-vf", `${vf},palettegen=stats_mode=diff:max_colors=128`, palette]);
+ff(["-i", join(out, `${NAME}.mp4`), "-vf", `${vf},palettegen=stats_mode=diff:max_colors=128`, palette]);
 ff([
   "-i",
-  join(out, "kiln-promo.mp4"),
+  join(out, `${NAME}.mp4`),
   "-i",
   palette,
   "-lavfi",
   `${vf}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`,
-  join(out, "kiln-promo.gif"),
+  join(out, `${NAME}.gif`),
 ]);
-console.log(`wrote ${join(out, "kiln-promo.mp4")} and kiln-promo.gif`);
+console.log(`wrote ${join(out, `${NAME}.mp4`)} and ${NAME}.gif`);

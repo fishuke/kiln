@@ -1,0 +1,293 @@
+<!doctype html>
+<!--
+  "How a Kiln factory runs": an isometric factory floor driven by pipelines/feature.yaml.
+  Deterministic: window.render(t) draws the frame at t seconds. Render with: SCENE=factory.html NAME=kiln-factory node render.mjs
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kiln factory</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0a0a0b; --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.16); --text:#f4f4f5; --muted:#a1a1aa; --dim:#71717a;
+    --ember:#ff7a1a; --ember2:#ffb347; --blue:#6aa3ff; --green:#4ade80; --red:#f87171; --mono:"JetBrains Mono", ui-monospace, monospace; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--bg); }
+  body { width:1280px; height:720px; overflow:hidden; position:relative; font:16px/1.5 Inter, system-ui, sans-serif; color:var(--text); -webkit-font-smoothing:antialiased; }
+  #bg { position:absolute; inset:0; background: radial-gradient(800px 420px at 62% 40%, rgba(255,122,26,.10), transparent 70%), radial-gradient(900px 500px at 10% 110%, rgba(106,163,255,.08), transparent 70%), var(--bg); }
+  svg#floor { position:absolute; inset:0; }
+  .abs { position:absolute; }
+  #title { left:0; right:0; top:250px; text-align:center; }
+  #title h1 { margin:0; font-size:72px; font-weight:800; letter-spacing:-.045em; line-height:1.02; }
+  #title h1 span { background:linear-gradient(92deg,#fff,#ffb347 45%,#ff7a1a); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  #title p { margin:18px 0 0; font-size:24px; color:var(--muted); font-weight:500; letter-spacing:-.01em; }
+  #yaml { left:28px; top:96px; width:372px; border:1px solid var(--line2); border-radius:14px; background:rgba(13,13,15,.92); overflow:hidden; box-shadow:0 30px 80px -30px rgba(0,0,0,.9); }
+  #yaml .hd { display:flex; align-items:center; gap:7px; padding:10px 14px; border-bottom:1px solid var(--line); font:12px var(--mono); color:var(--dim); }
+  #yaml .hd i { width:10px; height:10px; border-radius:50%; background:rgba(255,255,255,.14); }
+  #yaml .hd span { margin-left:6px; }
+  #ylines { padding:10px 0 12px; font:12.5px/1.72 var(--mono); }
+  .yl { padding:0 16px; white-space:pre; color:#d4d4d8; position:relative; }
+  .yl .k { color:#93c5fd; } .yl .s { color:#fdba74; } .yl .c { color:var(--dim); }
+  .yl.on { background:rgba(255,122,26,.13); box-shadow:inset 3px 0 0 var(--ember); }
+  .yl.on2 { background:rgba(106,163,255,.14); box-shadow:inset 3px 0 0 var(--blue); }
+  .yl.bad { background:rgba(248,113,113,.14); box-shadow:inset 3px 0 0 var(--red); }
+  .card { position:absolute; width:268px; padding:11px 14px; border-radius:12px; background:rgba(20,20,22,.96); border:1px solid var(--line2); box-shadow:0 20px 50px -20px rgba(0,0,0,.9); font-size:13px; }
+  .card .t { display:flex; align-items:center; gap:8px; font-weight:600; font-size:13.5px; }
+  .card .t small { margin-left:auto; font:500 10.5px var(--mono); padding:2px 7px; border-radius:6px; }
+  .card .b { color:var(--muted); margin-top:3px; line-height:1.4; }
+  .st-run { color:var(--ember2); background:rgba(255,179,71,.12); } .st-you { color:var(--blue); background:rgba(106,163,255,.14); }
+  .st-ok { color:var(--green); background:rgba(74,222,128,.12); } .st-bad { color:var(--red); background:rgba(248,113,113,.14); }
+  #caption { position:absolute; left:430px; right:0; bottom:26px; text-align:center; font-weight:700; font-size:22px; letter-spacing:-.02em; }
+  #caption span { color:var(--ember2); }
+  #counter { right:30px; top:24px; font:500 13px var(--mono); color:var(--muted); text-align:right; }
+  #counter b { color:var(--green); font-size:28px; font-family:Inter; font-weight:800; display:block; letter-spacing:-.02em; }
+  #end { left:0; right:0; top:236px; text-align:center; }
+  #end h2 { margin:0; font-size:62px; font-weight:800; letter-spacing:-.045em; }
+  #end h2 span { background:linear-gradient(92deg,#fff,#ffb347 45%,#ff7a1a); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  #end p { color:var(--muted); font-size:22px; margin:14px 0 26px; }
+  #end .u { font:20px var(--mono); }
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<svg id="floor" width="1280" height="720" viewBox="0 0 1280 720"></svg>
+<div class="abs" id="yaml"><div class="hd"><i></i><i></i><i></i><span>pipelines/feature.yaml</span></div><div id="ylines"></div></div>
+<div id="cards"></div>
+<div class="abs" id="counter"><b id="cnt">0</b>merged · by a person</div>
+<div id="caption"></div>
+<div class="abs" id="title"><h1>How a Kiln <span>factory</span> runs</h1><p>Your pipeline is a file. Here it is, running.</p></div>
+<div class="abs" id="end"><h2>Your pipeline. <span>Your factory.</span></h2><p>Open source · self-hosted · bring your own key</p><div class="u"><span style="color:var(--ember)">$</span> github.com/fishuke/kiln</div></div>
+
+<script>
+const DURATION = 36;
+const C = (x) => Math.max(0, Math.min(1, x));
+const E = (x) => 1 - Math.pow(1 - C(x), 3);
+const EIO = (x) => { x = C(x); return x < .5 ? 4*x*x*x : 1 - Math.pow(-2*x+2, 3)/2; };
+const P = (t, a, b) => E((t - a) / (b - a));
+const $ = (id) => document.getElementById(id);
+const lerp = (a, b, k) => a + (b - a) * k;
+const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+// ---------- isometric projection ----------
+const S = 76, O = [560, 178];
+const iso = (x, y, z = 0) => [O[0] + (x - y) * 0.866 * S, O[1] + (x + y) * 0.5 * S - z * S];
+const pts = (a) => a.map((p) => iso(...p).map((v) => v.toFixed(1)).join(",")).join(" ");
+function prism(cx, cy, w, d, h, cls = {}) {
+  const x0 = cx - w/2, x1 = cx + w/2, y0 = cy - d/2, y1 = cy + d/2;
+  const top = pts([[x0,y0,h],[x1,y0,h],[x1,y1,h],[x0,y1,h]]);
+  const right = pts([[x1,y0,0],[x1,y1,0],[x1,y1,h],[x1,y0,h]]);
+  const left = pts([[x0,y1,0],[x1,y1,0],[x1,y1,h],[x0,y1,h]]);
+  const st = cls.stroke ?? "rgba(255,122,26,.55)", sw = cls.sw ?? 1.2;
+  return `<polygon points="${left}" fill="${cls.left ?? "#0f0f12"}" stroke="${st}" stroke-width="${sw}" stroke-linejoin="round"/>` +
+         `<polygon points="${right}" fill="${cls.right ?? "#131317"}" stroke="${st}" stroke-width="${sw}" stroke-linejoin="round"/>` +
+         `<polygon points="${top}" fill="${cls.top ?? "#1b1b20"}" stroke="${st}" stroke-width="${sw}" stroke-linejoin="round"/>`;
+}
+
+// ---------- the factory ----------
+const ST = [
+  { id: "intake",  x: 0.0, label: "intake",  icon: "📥", h: .30 },
+  { id: "triage",  x: 1.35, label: "triage",  icon: "🔎", h: .55, yaml: [2,3] },
+  { id: "spec",    x: 2.7, label: "spec",    icon: "📝", h: .55, yaml: [4,5,6,7], gate: true },
+  { id: "build",   x: 4.05, label: "build",   icon: "⌨️", h: .62, yaml: [8,9,10], big: true },
+  { id: "verify",  x: 5.4, label: "verify",  icon: "🧪", h: .55, yaml: [11,12,13] },
+  { id: "preview", x: 6.75, label: "preview", icon: "👁️", h: .55, yaml: [14,15,16], gate: true },
+  { id: "review",  x: 8.1, label: "review",  icon: "✅", h: .55, yaml: [17,18] },
+  { id: "main",    x: 9.4, label: "main",    icon: "🔀", h: .34, yaml: [19], gate: true, dock: true },
+];
+const SX = Object.fromEntries(ST.map((s) => [s.id, s]));
+const YAML = [
+  ["c", "# runs every work item, top to bottom"],
+  ["", "<k>stages:</k>"],
+  ["", "  - <k>id:</k> triage"],
+  ["", "    <k>agent:</k> triage"],
+  ["", "  - <k>id:</k> spec"],
+  ["", "    <k>agent:</k> spec"],
+  ["", "    <k>gate:</k> spec-approval        <c># you</c>"],
+  ["", "    <k>skip_if:</k> <s>size in [xs, s]</s>"],
+  ["", "  - <k>id:</k> build"],
+  ["", "    <k>agent:</k> implement"],
+  ["", "    <k>fan_out:</k> per_user_story"],
+  ["", "  - <k>id:</k> verify"],
+  ["", "    <k>requires:</k> [ci_green, videos]"],
+  ["", "    <k>on_fail:</k> build  <c># max_loops: 3</c>"],
+  ["", "  - <k>id:</k> preview"],
+  ["", "    <k>action:</k> preview.deploy"],
+  ["", "    <k>gate:</k> preview-acceptance   <c># you</c>"],
+  ["", "  - <k>id:</k> review"],
+  ["", "    <k>agent:</k> review"],
+  ["", "  - <k>id:</k> handoff              <c># a person merges</c>"],
+];
+$("ylines").innerHTML = YAML.map((l, i) => `<div class="yl" id="yl${i}">${l[0] === "c" ? `<span class="c">${esc(l[1])}</span>` : l[1].replace(/<k>(.*?)<\/k>/g, '<span class="k">$1</span>').replace(/<s>(.*?)<\/s>/g, '<span class="s">$1</span>').replace(/<c>(.*?)<\/c>/g, '<span class="c">$1</span>')}</div>`).join("");
+
+// Belts: main line, the on_fail return loop, the skip_if bypass.
+const RET = [[5.4,0],[5.4,1.45],[4.05,1.45],[4.05,0]];
+const BYP = [[1.35,0],[1.35,-1.3],[4.05,-1.3],[4.05,0]];
+
+// ---------- work items: keyframes [t, x, y, state] ----------
+// state: run | wait | bad | ok
+const P1 = [ // "Saved carts" (size M): full path, fails verify once
+  [6.0,-0.0,0,"run"],[6.9,1.35,0],[8.2,1.35,0],[9.0,2.7,0],[11.0,2.7,0,"wait"],[11.0,2.7,0,"run"],[11.8,4.05,0],[13.6,4.05,0],
+  [14.4,5.4,0],[15.3,5.4,0,"bad"],[15.6,5.4,0.0],[16.2,5.4,1.45],[17.0,4.05,1.45],[17.5,4.05,0,"run"],[18.3,4.05,0],
+  [19.0,5.4,0],[20.2,5.4,0,"ok"],[20.2,5.4,0,"run"],[21.0,6.75,0],[23.0,6.75,0,"wait"],[23.0,6.75,0,"run"],[23.8,8.1,0],[25.0,8.1,0],
+  [25.8,9.4,0],[27.2,9.4,0,"wait"],[27.2,9.4,0,"ok"],[36,9.4,0,"ok"],
+];
+const P2 = [ // "Fix typo" (size xs): skips the spec on the bypass lane
+  [12.0,0,0,"run"],[12.8,1.35,0],[13.7,1.35,0],[14.2,1.35,-1.3],[15.2,4.05,-1.3],[15.6,4.05,0],[16.6,4.05,0],
+  [17.3,5.4,0],[17.9,5.4,0,"ok"],[17.9,5.4,0,"run"],[18.6,6.75,0],[19.6,6.75,0],[20.4,8.1,0],[21.0,8.1,0],[21.8,9.4,0],[22.6,9.4,0,"ok"],[36,9.4,0,"ok"],
+];
+function at(K, t) {
+  if (t < K[0][0]) return null;
+  let state = K[0][3];
+  for (let i = 0; i < K.length; i++) if (K[i][3] && t >= K[i][0]) state = K[i][3];
+  for (let i = 1; i < K.length; i++) if (t <= K[i][0]) {
+    const a = K[i-1], b = K[i], k = b[0] === a[0] ? 1 : EIO((t - a[0]) / (b[0] - a[0]));
+    return { x: lerp(a[1], b[1], k), y: lerp(a[2], b[2], k), state };
+  }
+  const l = K[K.length-1]; return { x: l[1], y: l[2], state };
+}
+const lift = (x, y) => { let z = 0; for (const s of ST) { const d = Math.hypot(x - s.x, y); z = Math.max(z, s.h * C(1 - (d - .22) / .3)); } return z; };
+const COL = { run: ["#ff8a2a","#c2570f","#e06a14"], wait: ["#8fb8ff","#4b74c9","#6a93e6"], bad: ["#ff8a8a","#b93b3b","#d65252"], ok: ["#6ee79a","#22a356","#3fc172"] };
+function cube(x, y, z, size, state, glow) {
+  const c = COL[state] ?? COL.run;
+  let g = prism(x, y, size, size, size, { top: c[0], right: c[1], left: c[2], stroke: "rgba(0,0,0,.35)", sw: .8 });
+  g = g.replace(/(-?\d+\.\d),(-?\d+\.\d)/g, (m, a, b) => `${a},${(+b - z * S).toFixed(1)}`);
+  if (glow) { const [px, py] = iso(x, y, z + size); g = `<circle cx="${px}" cy="${py}" r="26" fill="${c[0]}" opacity=".18"/>` + g; }
+  return g;
+}
+function person(x, y, t0, ok, t) {
+  const [px, py] = iso(x, y, 0);
+  const a = P(t, t0, t0 + .4); if (a <= 0) return "";
+  const done = ok != null && t >= ok;
+  const col = done ? "#4ade80" : "#6aa3ff";
+  const bob = Math.sin(t * 5) * (done ? 0 : 1.2);
+  return `<g opacity="${a}" transform="translate(${px},${py - 6 + bob})">
+    <ellipse cx="0" cy="22" rx="16" ry="6" fill="${col}" opacity=".18"/>
+    <rect x="-10" y="-2" width="20" height="24" rx="9" fill="${col}"/>
+    <circle cx="0" cy="-12" r="8.5" fill="${col}"/>
+    ${done ? `<g transform="translate(16,-30) scale(${.6 + .4 * P(t, ok, ok + .3)})"><circle r="11" fill="#4ade80"/><path d="M-5 0 l3.5 3.5 l6.5 -7" stroke="#062b14" stroke-width="2.6" fill="none" stroke-linecap="round"/></g>`
+           : `<g transform="translate(16,-30)"><rect x="-11" y="-9" width="22" height="16" rx="5" fill="#6aa3ff"/><text x="0" y="3" text-anchor="middle" font-family="JetBrains Mono" font-size="10" font-weight="600" fill="#08101f">?</text></g>`}
+  </g>`;
+}
+function belt(path, w, op, t, color = "rgba(255,122,26,.75)") {
+  const d = "M" + path.map((p) => iso(...p).join(",")).join(" L");
+  return `<path d="${d}" stroke="#1a1a1f" stroke-width="${w}" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="${op}"/>` +
+         `<path d="${d}" stroke="rgba(255,255,255,.07)" stroke-width="${w - 4}" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="${op}"/>` +
+         `<path d="${d}" stroke="${color}" stroke-width="1.6" fill="none" stroke-dasharray="3 9" stroke-dashoffset="${(-t * 24).toFixed(1)}" opacity="${op}"/>`;
+}
+function stationLabel(s, op, hl) {
+  const [lx, ly] = iso(s.x - .05, .95, 0);
+  return `<text x="${lx}" y="${ly + 8}" text-anchor="middle" font-family="JetBrains Mono" font-size="12.5" font-weight="${hl ? 600 : 500}" fill="${hl ? "#ffb347" : "#a1a1aa"}" opacity="${op}">${s.label}</text>`;
+}
+
+// ---------- cards ----------
+const CARDS = [ // [from, to, item, title, badge, badgeClass, body]
+  [6.2, 8.6, 1, "Saved carts", "triage", "st-run", "From GitHub #418 · size M · needs a spec"],
+  [8.8, 10.5, 1, "Spec · 4 criteria", "waiting for you", "st-you", "How long should a cart be kept?"],
+  [10.5, 11.6, 1, "Spec approved", "✓ Priya", "st-ok", "30 days. Building."],
+  [11.8, 13.8, 1, "Build · fan_out", "3 in parallel", "st-run", "One agent per user story, in sandboxes"],
+  [14.4, 16.6, 1, "Verify", "✗ criterion 2", "st-bad", "Cart expired early → back to build (1/3)"],
+  [17.0, 18.6, 1, "Build · retry", "fixing", "st-run", "Clock math off by one day"],
+  [19.0, 20.6, 1, "Verify", "✓ 4/4", "st-ok", "Tests green · a video per criterion"],
+  [20.8, 22.2, 1, "Preview", "waiting for you", "st-you", "pr-418.preview.acme.dev"],
+  [22.2, 23.2, 1, "Preview accepted", "✓ Priya", "st-ok", "Looks right on mobile too."],
+  [23.4, 25.4, 1, "Review agent", "no blockers", "st-ok", "2 suggestions, both applied"],
+  [25.6, 27.2, 1, "Ready to merge", "a person merges", "st-you", "Agents have no merge rights"],
+  [27.2, 29.6, 1, "Merged", "✓ main", "st-ok", "#418 Saved carts · 2h 10m · $2.40"],
+  [12.2, 13.6, 2, "Fix typo in checkout", "size xs", "st-run", "From Slack #support"],
+  [13.7, 15.6, 2, "skip_if: xs", "skips spec", "st-you", "Small, clear change → straight to build"],
+  [21.8, 23.4, 2, "Merged", "✓ main", "st-ok", "Fix typo · 9m · $0.12"],
+];
+const CAPS = [
+  [6.2, 11.4, "Work comes in. <span>Agents triage it.</span> You answer what they can't."],
+  [11.6, 18.6, "<span>fan_out</span> builds stories in parallel. <span>on_fail</span> loops back until it's right."],
+  [18.8, 23.6, "Every criterion proven. You accept the <span>preview</span>."],
+  [23.8, 29.6, "A review agent checks it. <span>A person merges.</span>"],
+];
+
+window.render = function (t) {
+  // intro / outro visibility
+  const intro = 1 - P(t, 2.6, 3.3), outro = P(t, 30.2, 31.0);
+  $("title").style.opacity = Math.min(P(t, .2, .9), intro); $("title").style.transform = `translateY(${(1 - P(t, .2, .9)) * 20}px) scale(${1 - .05 * P(t, 2.6, 3.3)})`;
+  const stage = Math.min(P(t, 3.0, 3.8), 1 - outro);
+  $("end").style.opacity = P(t, 30.8, 31.6); $("end").style.transform = `translateY(${(1 - P(t, 30.8, 31.6)) * 16}px)`;
+  $("yaml").style.opacity = stage; $("yaml").style.transform = `translateX(${(1 - P(t, 3.2, 4.0)) * -30}px)`;
+  $("counter").style.opacity = stage;
+
+  // floor
+  let svg = `<g opacity="${stage}">`;
+  // floor grid diamond
+  const g = []; for (let i = -1; i <= 10; i++) g.push(`<path d="M${iso(i,-2.2).join(",")} L${iso(i,2.4).join(",")}" stroke="rgba(255,255,255,.035)"/>`);
+  for (let j = -2; j <= 2; j++) g.push(`<path d="M${iso(-1,j+.2).join(",")} L${iso(10,j+.2).join(",")}" stroke="rgba(255,255,255,.035)"/>`);
+  svg += g.join("");
+  const beltIn = P(t, 3.6, 5.2);
+  svg += belt([[-0.5,0],[lerp(-0.5, 9.9, beltIn), 0]], 16, 1, t);
+  svg += belt(BYP, 11, P(t, 13.4, 14.0) * (1 - P(t, 16, 17)) * .9 + .25 * P(t, 4.6, 5.4), t, "rgba(106,163,255,.85)");
+  svg += belt(RET, 11, P(t, 15.0, 15.5) * (1 - P(t, 18, 19)) * .9 + .25 * P(t, 4.6, 5.4), t, "rgba(248,113,113,.85)");
+  // lane labels
+  const [bx, by] = iso(2.7, -1.3), [rx, ry] = iso(4.7, 1.45);
+  svg += `<text x="${bx + 8}" y="${by - 10}" font-family="JetBrains Mono" font-size="11.5" fill="#6aa3ff" opacity="${.35 + .65 * P(t, 13.6, 14.0) * (1 - P(t, 16, 17))}">skip_if: xs</text>`;
+  svg += `<text x="${rx - 140}" y="${ry + 24}" font-family="JetBrains Mono" font-size="11.5" fill="#f87171" opacity="${.35 + .65 * P(t, 15.2, 15.6) * (1 - P(t, 18, 19))}">on_fail: build</text>`;
+
+  // active station for P1
+  const p1 = at(P1, t), p2 = at(P2, t);
+  const activeId = p1 ? (ST.reduce((best, s) => Math.abs(s.x - p1.x) < Math.abs(best.x - p1.x) ? s : best, ST[0])).id : null;
+
+  // stations, back to front (sorted by x+y)
+  ST.forEach((s, i) => {
+    const k = P(t, 3.8 + i * .16, 4.3 + i * .16); if (k <= 0) return;
+    const h = s.h * k, hl = activeId === s.id && Math.abs(SX[s.id].x - p1.x) < .3;
+    const glowStroke = hl ? "rgba(255,179,71,.95)" : s.dock ? "rgba(74,222,128,.6)" : "rgba(255,122,26,.5)";
+    const w = s.big ? 1.0 : .82;
+    if (hl) { const [gx, gy] = iso(s.x, 0, h); svg += `<ellipse cx="${gx}" cy="${gy + 18}" rx="70" ry="34" fill="rgba(255,122,26,.16)"/>`; }
+    svg += prism(s.x, 0, w, w, h, { stroke: glowStroke, sw: hl ? 1.8 : 1.2, top: s.dock ? "#14241a" : "#1b1b20" });
+    const [ix, iy] = iso(s.x, 0, h);
+    svg += `<text x="${ix}" y="${iy + 7}" text-anchor="middle" font-size="20" opacity="${k}">${s.icon}</text>`;
+    svg += stationLabel(s, k, hl);
+  });
+
+  // gate people: spec (approve 10.4), preview (accept 22.2), main (merge 26.8)
+  svg += person(2.45, -1.15, 8.9, 10.4, t);
+  svg += person(6.5, -1.15, 20.9, 22.2, t);
+  svg += person(9.15, -1.15, 25.7, 26.8, t);
+
+  // items, sorted by depth
+  const items = [];
+  if (p1) {
+    const fan = t > 11.9 && t < 13.5;
+    if (fan) {
+      const k = Math.min(P(t, 11.9, 12.3), 1 - P(t, 13.1, 13.5));
+      [-.38, 0, .38].forEach((dy, j) => { const jig = Math.sin(t * 9 + j) * .03; items.push([p1.x + jig, dy * k, lift(p1.x, 0) , .26, "run", true]); });
+    } else items.push([p1.x, p1.y, lift(p1.x, p1.y), .34, p1.state, true]);
+  }
+  if (p2 && t < 23.4) { const sink = P(t, 22.8, 23.4); items.push([p2.x, p2.y, lift(p2.x, p2.y) - .3 * sink, .26 * (1 - sink * .9), p2.state, false]); }
+  items.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1])).forEach((it) => { if (!(it[0] > 9.3 && t > 29.5)) svg += cube(...it); });
+  // merged items drop into the dock
+  svg += "</g>";
+  $("floor").innerHTML = svg;
+
+  // YAML highlight follows P1; the skip line lights blue for P2; on_fail lights red
+  YAML.forEach((_, i) => $("yl" + i).className = "yl");
+  const act = activeId && SX[activeId].yaml && p1 && Math.abs(SX[activeId].x - p1.x) < .35 && Math.abs(p1.y) < .2 ? SX[activeId].yaml : null;
+  if (act && t < 29.6) act.forEach((i) => $("yl" + i).classList.add(p1.state === "bad" ? "bad" : "on"));
+  if (t > 13.6 && t < 15.6) $("yl7").classList.add("on2");
+  if (t > 15.0 && t < 17.4) { $("yl13").className = "yl bad"; }
+
+  // cards near the item they describe
+  $("cards").innerHTML = CARDS.filter((c) => t >= c[0] - .05 && t <= c[1] + .25).map((c) => {
+    const p = c[2] === 1 ? p1 : p2; if (!p) return "";
+    const op = Math.min(P(t, c[0], c[0] + .3), 1 - P(t, c[1], c[1] + .25));
+    let [x, y] = iso(p.x, p.y, 1.1); x = Math.min(Math.max(x + (c[2] === 1 ? 26 : -294), 420), 1280 - 290); y = Math.max(y - (c[2] === 1 ? 80 : 40), 70);
+    return `<div class="card" style="left:${x}px;top:${y}px;opacity:${op * stage};transform:translateY(${(1 - P(t, c[0], c[0] + .3)) * 8}px)"><div class="t">${c[3]}<small class="${c[5]}">${c[4]}</small></div><div class="b">${c[6]}</div></div>`;
+  }).join("");
+
+  const cap = CAPS.find((c) => t >= c[0] && t <= c[1]);
+  $("caption").innerHTML = cap ? cap[2] : "";
+  $("caption").style.opacity = cap ? Math.min(P(t, cap[0], cap[0] + .4), 1 - P(t, cap[1] - .4, cap[1])) * stage : 0;
+  $("cnt").textContent = (t >= 22.6 ? 1 : 0) + (t >= 27.2 ? 1 : 0);
+};
+window.DURATION = DURATION;
+if (!/render=1/.test(location.search)) { const t0 = performance.now(); const loop = () => { render(((performance.now() - t0) / 1000) % DURATION); requestAnimationFrame(loop); }; document.fonts.ready.then(loop); }
+else render(0);
+</script>
+</body>
+</html>

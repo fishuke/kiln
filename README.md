@@ -39,6 +39,14 @@ pnpm kiln send "Fix the typo in the README" --factory <alias>
 
 ## How it works
 
+<p align="center">
+  <a href="https://kiln.fishu.workers.dev/assets/kiln-factory.mp4">
+    <img src="website/assets/kiln-factory.gif" alt="A Kiln factory floor running pipelines/feature.yaml: work items ride a conveyor through triage, spec, build, verify, preview, review and merge; a person approves the spec and preview gates; the build fans out per user story; a failed verify loops back to build; a small fix skips the spec on a bypass lane; a person merges" width="900">
+  </a>
+  <br>
+  <sub>Your pipeline is a file. Here it is, running. <a href="https://kiln.fishu.workers.dev/assets/kiln-factory.mp4">Watch in HD</a></sub>
+</p>
+
 A work item moves through `triaging → planning → awaiting_spec → building → awaiting_preview → reviewing → handed_off → complete`. The foreman picks the shortest path (small, clear changes skip the spec), or a pipeline file fixes the graph. Each run happens in a sandbox; every shell command passes a guardrail; evidence (tests, a video per acceptance criterion, a preview URL) is attached to the PR. Scorers grade runs, and self-improvement turns repeated failures into definition PRs that are replayed against the failing runs before a person reviews them.
 
 Read more in the [docs](docs/site/index.md), also served at `/docs` in the web app. Design decisions are in [docs/adr](docs/adr/README.md).

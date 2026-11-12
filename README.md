@@ -1,6 +1,6 @@
 # Kiln
 
-**CI/CD for AI coding agents.** An open source, self-hosted alternative to Warp Factories. · [kiln.fishu.workers.dev](https://kiln.fishu.workers.dev)
+**The open source software factory.** AI agents plan, write, review and verify your code. A self-hosted alternative to Warp Factories. · [kiln.fishu.workers.dev](https://kiln.fishu.workers.dev)
 
 <p align="center">
   <a href="https://kiln.fishu.workers.dev/assets/kiln-promo.mp4">
@@ -10,7 +10,7 @@
   <sub><a href="https://kiln.fishu.workers.dev/assets/kiln-promo.mp4">Watch in HD</a> · <a href="https://kiln.fishu.workers.dev">Website</a></sub>
 </p>
 
-CI/CD made shipping code a pipeline: every change is built, tested and gated the same way. Kiln does the same for the work AI agents do. Issues, Slack threads and tracker tickets go in. Each one runs through a pipeline you define: triage, spec, build in a sandbox, tests, a preview, review. A reviewed pull request comes out. People approve the spec, accept the preview and merge. Scorers grade every run, and repeated failures turn into pull requests that improve the pipeline itself.
+CI/CD is the assembly line that builds, tests and ships code people wrote. A software factory extends that line to the whole development lifecycle: AI agents plan the change, write it, review it and prove it works, and your CI/CD still runs on every pull request. Issues, Slack threads, tracker tickets and schedules go in. Each one runs through a pipeline you define: triage, spec, build in a sandbox, tests, a preview, review. A reviewed pull request comes out. People approve the spec, accept the preview and merge. Scorers grade every run, and repeated failures turn into pull requests that improve the factory itself.
 
 - **Bring your own key.** No Kiln-hosted model and no markup. Plug in what you already pay for:
   - **Claude:** a Claude subscription (`claude setup-token`) or an Anthropic API key

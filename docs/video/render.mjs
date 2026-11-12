@@ -1,27 +1,56 @@
-// Renders a scene (promo.html by default) to frames, then to MP4 and GIF.
-// Usage (from this folder):
-//   npm i --no-save puppeteer-core
-//   CHROME=/path/to/chrome [SCENE=../../website/factory.html NAME=kiln-factory] node render.mjs [out-dir]
-// Needs ffmpeg on PATH. Writes <NAME>.mp4 and <NAME>.gif (default kiln-promo) to out-dir (default: ../../website/assets).
+// Renders a scene to frames, then to MP4 and GIF. From the repository root:
+//   pnpm video:promo      docs/video/promo.html    -> website/assets/kiln-promo.{mp4,gif}
+//   pnpm video:factory    website/factory.html     -> website/assets/kiln-factory.{mp4,gif}
+// Or: node docs/video/render.mjs <scene.html> <name> [out-dir]
+// Needs ffmpeg on PATH and Chrome or Chromium (found automatically; set CHROME to override).
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import puppeteer from "puppeteer-core";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const out = resolve(process.argv[2] ?? join(here, "../../website/assets"));
-const frames = join(process.env.FRAMES_DIR ?? join(here, ".frames"));
-const SCENE = process.env.SCENE ?? "promo.html", NAME = process.env.NAME ?? "kiln-promo";
+const root = resolve(here, "../..");
+const SCENE = resolve(root, process.argv[2] ?? process.env.SCENE ?? "docs/video/promo.html");
+const NAME = process.argv[3] ?? process.env.NAME ?? "kiln-promo";
+const out = resolve(root, process.argv[4] ?? "website/assets");
+const frames = process.env.FRAMES_DIR ?? join(here, ".frames");
+
+function findChrome() {
+  if (process.env.CHROME) return process.env.CHROME;
+  const candidates = [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+  ];
+  const pw = join(homedir(), "Library/Caches/ms-playwright");
+  if (existsSync(pw))
+    for (const d of readdirSync(pw)
+      .filter((d) => d.startsWith("chromium-"))
+      .sort()
+      .reverse())
+      candidates.push(
+        join(pw, d, "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"),
+        join(pw, d, "chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
+      );
+  const found = candidates.find((c) => existsSync(c));
+  if (!found) throw new Error("No Chrome or Chromium found. Install Chrome, or set CHROME=/path/to/chrome.");
+  return found;
+}
+if (!existsSync(SCENE)) throw new Error(`Scene not found: ${SCENE}`);
+console.log(`rendering ${SCENE} -> ${join(out, NAME)}.{mp4,gif}`);
 const FPS = 30,
   SCALE = 1.5;
 
 rmSync(frames, { recursive: true, force: true });
 mkdirSync(frames, { recursive: true });
-const browser = await puppeteer.launch({ executablePath: process.env.CHROME, args: ["--hide-scrollbars"] });
+const browser = await puppeteer.launch({ executablePath: findChrome(), args: ["--hide-scrollbars"] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: SCALE });
-await page.goto(pathToFileURL(join(here, SCENE)).href + "?render=1", { waitUntil: "networkidle0" });
+await page.goto(pathToFileURL(SCENE).href + "?render=1", { waitUntil: "networkidle0" });
 await page.evaluate(() => document.fonts.ready);
 const duration = await page.evaluate(() => window.DURATION);
 const total = Math.round(duration * FPS);

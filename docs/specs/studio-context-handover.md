@@ -2,7 +2,7 @@
 
 Read [studio-context.md](studio-context.md) first (the plan), then [studio.md](studio.md) (the current contract), then `CLAUDE.md`.
 
-Repository: `fishuke/kiln`. Branch: `studio-context` (cut from `main` at `827afa5`). Work was paused mid Phase 1 on 2026-11-23 and committed as work in progress.
+Repository: `fishuke/kiln`. Branch: `studio-context` (cut from `main` at `827afa5`). On 2026-11-23 Phase 1 was built and Phase 2 was started; the state is below.
 
 ## Standing instructions from the owner
 
@@ -35,3 +35,24 @@ Run it: `NEXT_PUBLIC_KILN_STUDIO_FAKE=1 KILN_STUDIO_CONTEXT=1 pnpm --filter @kil
 - **Nobody has looked at the page.** The machine it was built on has no browser. Everything in the "Done when" list of the plan that is about what a person sees is unchecked: the layout and the block handle's column, BlockNote's shadcn styles next to the app's own, the question-to-decision morph, the agent cursor's position, the composer's move to the dock, the split, the two-tab sync in real tabs, reduced motion. Expect visual fixes.
 - The `design-taste-frontend` skill was not available in the session that built the page, so the visual and motion pass against section 4.10 has not been done with it.
 - Not built in Phase 1 by design (later phases): comment threads, My review, Threads, members and invites, Inspect and prototype links beyond the route, export.
+
+## Phase 2 (server truth): started
+
+Done:
+
+- `docs/adr/0019-studio-context.md` (status: proposed, like ADR-012) and its line in `docs/adr/README.md`.
+- `packages/studio/src/context-types.ts`, `context-doc.ts`, `context-model.ts` (+ `context-types.test.ts`, `context-model.test.ts`, 28 passing), exported from the package: the same shapes and rules as the web's, for the server to enforce. The web keeps its own copy because the page doesn't depend on `packages/studio`.
+
+Not done: store collections, the Yjs endpoint with viewer enforcement, the six tools, the new turn instructions, answers starting the follow-up turn, events, routes, SDK and MCP additions, `ApiStudioClient`'s `context`.
+
+Three things need the owner before the rest of Phase 2:
+
+1. **Authenticating the WebSocket upgrade.** `apps/api/src/main.ts` only upgrades preview hosts today. The Context socket needs the session check the routes use, which lives behind `apps/api/src/app.ts` and `packages/auth/**` (protected). New routes fit in `apps/api/src/routes/studio.ts` (`register`) without touching `app.ts`; the upgrade check may not. Say whether `app.ts` or `packages/auth` may export what the upgrade needs.
+2. **How the server's agent peer writes BlockNote's document.** The Context is BlockNote's ProseMirror tree in a `Y.XmlFragment`. BlockNote's editor only binds to Yjs once it has a DOM view (checked: two headless editors on synced documents don't see each other), so the server can't use a headless editor as the agent peer. The choices are `@blocknote/server-util` (a new dependency that brings jsdom; check its licence first, per the plan), or Kiln writing the `Y.XmlFragment` itself for the block types in `schema.tsx`. `apps/api` and `packages/studio` also need `yjs` and `y-protocols` (both MIT).
+3. **ADR-019 is proposed.** Accept it or change it.
+
+## Tests on the machine this was built on (2026-11-23)
+
+- `pnpm typecheck` and `pnpm lint`: clean. `next build`: passes.
+- `apps/web`: 310 passing. `apps/api`: 194. `e2e`: 55. `scripts`: 17 (1 skipped). `packages`: 817 passing, 2 failing, both in `packages/studio/src/studio.test.ts`; that file fails the same way on `main` at `827afa5` (timing in the sandbox fakes), so it is not from this branch.
+- `pnpm test` in one go often dies at start with vitest's "Channel closed" (a worker crash, also on `main`); running the directories one at a time gets through.

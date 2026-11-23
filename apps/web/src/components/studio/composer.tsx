@@ -337,12 +337,15 @@ export function Composer({
   autoFocus,
   placeholder,
   voice,
+  className,
 }: {
-  mode: ChatMode;
-  onModeChange: (m: ChatMode) => void;
+  /** Omit `mode` and `onModeChange` for a composer with no mode picker (the Context page). */
+  mode?: ChatMode;
+  onModeChange?: (m: ChatMode) => void;
   model?: string;
-  onModelChange: (m: string | undefined) => void;
-  modelLocked: boolean;
+  /** Omit for a composer with no Model Selector. */
+  onModelChange?: (m: string | undefined) => void;
+  modelLocked?: boolean;
   harness?: string;
   working: boolean;
   usage?: ReturnType<typeof chatUsage>;
@@ -352,6 +355,7 @@ export function Composer({
   placeholder?: string;
   /** The page's voice session; Talk shows when it's given. */
   voice?: Voice;
+  className?: string;
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -377,6 +381,7 @@ export function Composer({
       placeholder={hint}
       autoFocus={autoFocus}
       textareaRef={textareaRef}
+      className={className}
       textareaClassName="max-h-60 min-h-16"
       trailing={
         <>
@@ -387,8 +392,8 @@ export function Composer({
       }
       tools={
         <>
-          <ModeMenu mode={mode} onChange={onModeChange} />
-          <ModelSelector model={model} onChange={onModelChange} locked={modelLocked} harness={harness} />
+          {mode && onModeChange && <ModeMenu mode={mode} onChange={onModeChange} />}
+          {onModelChange && <ModelSelector model={model} onChange={onModelChange} locked={Boolean(modelLocked)} harness={harness} />}
         </>
       }
     />

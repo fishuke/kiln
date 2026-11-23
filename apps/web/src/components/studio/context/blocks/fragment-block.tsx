@@ -2,6 +2,7 @@
 
 import { Check, Crosshair, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
+import { useState } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TYPED_FRAGMENTS, type TypedFragment } from "@/lib/studio/context-doc";
@@ -58,10 +59,13 @@ export function FragmentBlock({
   const meta = FRAGMENT_META[type];
   const owner = FunctionalRole.safeParse(props.ownerRole);
   const version = ui.versions[blockId];
+  // A fragment that arrives while the page is open carries a tint that fades.
+  const [arrived] = useState(ui.live);
   return (
     <motion.div
       className={cn("ctx-fragment group/fragment", meta.tone)}
       data-fragment={type}
+      data-arrived={arrived || undefined}
       initial={ui.live ? { opacity: 0, y: 6 } : false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.15, ease: "easeOut" }}

@@ -26,9 +26,23 @@ export function suggestionIds(editor: ContextEditor): string[] {
   return [...ids];
 }
 
-/** Marks the text the agent was asked about as "would be removed". */
+/**
+ * Marks the text the agent was asked about as "would be removed". Like the text that streams in
+ * after it, this stays out of undo history: ⌘Z after Accept or Reject brings the suggestion back.
+ */
 export function startSuggestion(editor: ContextEditor, id: string, range: Range): void {
-  editor.transact((tr) => tr.addMark(range.from, range.to, editor.pmSchema.marks[DEL]!.create({ stringValue: id })));
+  editor.transact((tr) => {
+    tr.setMeta("addToHistory", false);
+    tr.addMark(range.from, range.to, editor.pmSchema.marks[DEL]!.create({ stringValue: id }));
+  });
+}
+
+/** Where a suggestion is in the document: from the start of what it removes to the end of what it adds. */
+export function suggestionRange(editor: ContextEditor, id: string): Range | undefined {
+  const doc = editor.prosemirrorState.doc;
+  const all = [...ranges(doc, DEL, id), ...ranges(doc, ADD, id)];
+  if (!all.length) return undefined;
+  return { from: Math.min(...all.map((r) => r.from)), to: Math.max(...all.map((r) => r.to)) };
 }
 
 /** Streams the agent's text in right after what it replaces, marked as "would be added". */
@@ -36,6 +50,7 @@ export function appendSuggestion(editor: ContextEditor, id: string, text: string
   editor.transact((tr) => {
     const at = ranges(tr.doc, ADD, id).at(-1)?.to ?? ranges(tr.doc, DEL, id).at(-1)?.to;
     if (at === undefined) return;
+    tr.setMeta("addToHistory", false);
     tr.insert(at, editor.pmSchema.text(text, [editor.pmSchema.marks[ADD]!.create({ stringValue: id })]));
   });
 }

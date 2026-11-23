@@ -20,6 +20,8 @@ export type ContextUI = {
   reopen(q: Question): Promise<void>;
   /** Opens "Ask the agent" on a whole fragment. */
   askAbout(blockId: string): void;
+  /** Opens "Ask the agent" on the selected text. */
+  askSelection(): void;
   showInPrototype(route: string): void;
 };
 

@@ -135,6 +135,8 @@ docker build --target studio --build-context template=templates/nextjs -t kiln-r
 
 Studio is off unless the API has `KILN_STUDIO=1`; without it, the Studio routes answer 503. Set `KILN_STUDIO_IMAGE=kiln-runner-studio:local` on the API. Without it, Studio uses `KILN_RUNNER_IMAGE` and creates the App with `create-next-app`, which downloads everything and takes minutes. `runners/studio.yaml` is the matching runner file.
 
+`KILN_STUDIO_CONTEXT=1` on the web turns on the experimental Context page for an App (the Context document on the left, the prototype on the right, no chat rail). The server side is not built yet, so today the page runs only on the development fake (`NEXT_PUBLIC_KILN_STUDIO_FAKE=1`); with the API, an App opens the current Studio page whether or not the flag is set. The plan is `docs/specs/studio-context.md`.
+
 The template is App Router, TypeScript, Tailwind CSS 4 and shadcn/ui, with `AGENTS.md` (and a `CLAUDE.md` that imports it) telling agents to keep the dev server running, use the components in `components/ui/` and keep turns small. Its Studio settings are in `templates/templates.json`:
 
 | Step                       | Command                                                                  | Time              |

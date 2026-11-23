@@ -216,6 +216,11 @@ export function PreviewPane({
   loadDiff,
   diffKey,
   onRestart,
+  route: routeProp,
+  onRouteChange,
+  tabs = true,
+  actions,
+  footer,
   children,
 }: {
   preview?: Preview;
@@ -231,9 +236,23 @@ export function PreviewPane({
   loadDiff?: () => Promise<{ diff: string }>;
   /** Changes when the diff should be fetched again. */
   diffKey: string;
+  /** The route shown, when the page around the pane sets it (a fragment's link to the prototype). */
+  route?: string;
+  onRouteChange?: (route: string) => void;
+  /** False hides the Preview and Code tabs: the pane is only the preview. */
+  tabs?: boolean;
+  /** Extra controls at the right of the toolbar. */
+  actions?: React.ReactNode;
+  /** A row under the frame (the Context page's freshness chip). */
+  footer?: React.ReactNode;
   children?: React.ReactNode;
 }) {
-  const [route, setRoute] = useState("/");
+  const [ownRoute, setOwnRoute] = useState("/");
+  const route = routeProp ?? ownRoute;
+  const setRoute = (r: string) => {
+    setOwnRoute(r);
+    onRouteChange?.(r);
+  };
   const [device, setDevice] = useState<Device>("desktop");
   const [nonce, setNonce] = useState(0);
   const [loaded, setLoaded] = useState(false);
@@ -261,7 +280,7 @@ export function PreviewPane({
   return (
     <Tabs value={view} onValueChange={(v) => onViewChange(v as PreviewView)} className="flex h-full min-h-0 flex-col gap-0 bg-muted/30 dark:bg-background">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3">
-        <TabsList className="shrink-0">
+        <TabsList className={cn("shrink-0", !tabs && "hidden")}>
           <TabsTrigger value="preview" className="px-2.5">
             <Eye />
             <span className="hidden sm:inline">Preview</span>
@@ -295,6 +314,7 @@ export function PreviewPane({
             </ToggleGroupItem>
           </ToggleGroup>
         )}
+        {actions}
         {onRestart && preview && !children && (
           <IconButton label="Restart the dev server" onClick={() => void onRestart()}>
             <Power />
@@ -347,6 +367,7 @@ export function PreviewPane({
       <TabsContent value="code" className="flex min-h-0 flex-1 flex-col bg-background p-3">
         {!loadDiff ? <EmptyPreview /> : diffError ? <p className="text-sm text-destructive">{diffError}</p> : <DiffView diff={diff} className="min-h-0 flex-1" />}
       </TabsContent>
+      {footer}
     </Tabs>
   );
 }

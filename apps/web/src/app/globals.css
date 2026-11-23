@@ -275,3 +275,193 @@ html.dark {
   background-clip: text;
   color: transparent;
 }
+
+/* ------------------------------------------------------------------------------------------------
+   Studio Context (docs/specs/studio-context.md): the document, its fragments and question blocks.
+   Motion is 150–250 ms ease-out on transform and opacity, and off under prefers-reduced-motion.
+   ------------------------------------------------------------------------------------------------ */
+@source "../../node_modules/@blocknote/shadcn";
+
+.ctx-doc .bn-container {
+  --bn-colors-editor-background: transparent;
+  background: transparent;
+}
+.ctx-doc .bn-editor {
+  padding-inline: 0;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.ctx-doc .bn-editor:focus-visible { outline: none; }
+.ctx-doc .bn-block-outer { border-radius: 8px; }
+.ctx-doc .bn-block-content[data-content-type="heading"] { margin-top: 0.6em; }
+.ctx-doc .bn-block-outer.ctx-flash { animation: ctx-flash 1.4s ease-out; }
+.ctx-doc .bn-block-content:has(.ctx-fragment),
+.ctx-doc .bn-block-content:has(.ctx-question) { width: 100%; }
+
+/* A typed fragment: its mark, the text, and a gutter that shows on hover or focus */
+.ctx-fragment {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border-radius: 8px;
+  padding-block: 1px;
+}
+.ctx-fragment[data-arrived] { animation: ctx-tint 1.2s ease-out; }
+.ctx-fragment-mark { display: flex; height: 1.65em; flex-shrink: 0; align-items: center; user-select: none; }
+.ctx-fragment-text { min-width: 0; flex: 1; color: var(--foreground); }
+.ctx-fragment-gutter {
+  display: flex;
+  height: 1.65em;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 1px;
+  opacity: 0;
+  user-select: none;
+  transition: opacity 150ms ease-out;
+}
+.ctx-fragment:hover .ctx-fragment-gutter,
+.ctx-fragment:focus-within .ctx-fragment-gutter,
+.bn-block-outer:hover > .bn-block > .bn-block-content .ctx-fragment-gutter { opacity: 1; }
+@media (hover: none) { .ctx-fragment-gutter { opacity: 1; } }
+
+/* A question block: open it is a card; answered it settles into the document as a decision */
+.ctx-question { width: 100%; border-radius: 12px; outline: none; user-select: none; }
+.ctx-question-open {
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 0.75rem;
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.04);
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+.ctx-question-open:focus-visible,
+.ctx-question-open:focus-within {
+  border-color: color-mix(in oklch, var(--foreground) 30%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 25%, transparent);
+}
+.ctx-question-settled { padding-block: 2px; }
+.ctx-input {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--input);
+  background: var(--background);
+  padding-inline: 0.625rem;
+  font-size: 0.875rem;
+  color: var(--foreground);
+  outline: none;
+  user-select: text;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+.ctx-input:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 30%, transparent); }
+.ctx-input::placeholder { color: var(--muted-foreground); }
+
+.ctx-range {
+  width: 100%;
+  height: 1.25rem;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.ctx-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--foreground) var(--fill, 50%), var(--muted) var(--fill, 50%));
+}
+.ctx-range::-moz-range-track { height: 6px; border-radius: 999px; background: var(--muted); }
+.ctx-range::-moz-range-progress { height: 6px; border-radius: 999px; background: var(--foreground); }
+.ctx-range::-webkit-slider-thumb {
+  appearance: none;
+  margin-top: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid var(--foreground);
+  background: var(--background);
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.2);
+  transition: transform 150ms ease-out;
+}
+.ctx-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 999px; border: 2px solid var(--foreground); background: var(--background); }
+.ctx-range:active::-webkit-slider-thumb { transform: scale(1.12); }
+.ctx-range:focus-visible { outline: none; }
+.ctx-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in oklch, var(--ring) 40%, transparent); }
+
+/* "Ask the agent": what would be added and what would be removed */
+.ctx-suggest-add { border-radius: 3px; background: oklch(0.72 0.17 150 / 0.2); text-decoration: none; }
+.ctx-suggest-del { border-radius: 3px; background: oklch(0.63 0.21 25 / 0.14); color: var(--muted-foreground); text-decoration: line-through; }
+
+/* The agent's cursor in the document */
+.ctx-agent-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  width: 2px;
+  border-radius: 1px;
+  background: oklch(0.6 0.22 293);
+  pointer-events: none;
+}
+.ctx-agent-cursor-label {
+  position: absolute;
+  bottom: 100%;
+  left: -1px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 5px 5px 5px 0;
+  background: oklch(0.6 0.22 293);
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  white-space: nowrap;
+  color: white;
+}
+.ctx-pulse { animation: ctx-pulse 1.4s ease-in-out infinite; }
+
+/* The draggable split between the Context and the prototype */
+.ctx-separator {
+  position: relative;
+  width: 1px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: var(--border);
+  outline: none;
+  touch-action: none;
+}
+.ctx-separator::before { content: ""; position: absolute; inset: 0 -5px; z-index: 10; }
+.ctx-separator::after {
+  content: "";
+  position: absolute;
+  inset: 0 -1px;
+  background: var(--ring);
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+.ctx-separator:hover::after,
+.ctx-separator:focus-visible::after,
+.ctx-separator-active::after { opacity: 1; }
+
+@keyframes ctx-tint {
+  from { background-color: color-mix(in oklch, currentColor 14%, transparent); }
+  to { background-color: transparent; }
+}
+@keyframes ctx-flash {
+  0%, 40% { background-color: color-mix(in oklch, var(--ring) 28%, transparent); }
+  100% { background-color: transparent; }
+}
+@keyframes ctx-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ctx-fragment[data-arrived],
+  .ctx-doc .bn-block-outer.ctx-flash,
+  .ctx-pulse { animation: none; }
+  .ctx-fragment-gutter,
+  .ctx-question-open,
+  .ctx-input,
+  .ctx-separator::after,
+  .ctx-range::-webkit-slider-thumb { transition: none; }
+}

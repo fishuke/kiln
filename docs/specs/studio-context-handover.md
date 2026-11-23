@@ -54,5 +54,5 @@ Three things need the owner before the rest of Phase 2:
 ## Tests on the machine this was built on (2026-11-23)
 
 - `pnpm typecheck` and `pnpm lint`: clean. `next build`: passes.
-- `apps/web`: 310 passing. `apps/api`: 194. `e2e`: 55. `scripts`: 17 (1 skipped). `packages`: 817 passing, 2 failing, both in `packages/studio/src/studio.test.ts`; that file fails the same way on `main` at `827afa5` (timing in the sandbox fakes), so it is not from this branch.
-- `pnpm test` in one go often dies at start with vitest's "Channel closed" (a worker crash, also on `main`); running the directories one at a time gets through.
+- `apps/web`: 310 passing. `apps/api`: 194. `e2e`: 55. `scripts`: 17 (1 skipped). `packages`: 817 passing, 2 failing, both in `packages/studio/src/studio.test.ts`; that file also fails on `main` at `827afa5` (3 failures there in one run; which tests fail varies between runs), and this branch doesn't touch it or what it tests. The cause was not looked into.
+- `pnpm test` in one go often dies at start with vitest's "Channel closed" (a worker crash before any test reports; it comes and goes between identical runs, and was not seen or ruled out on `main`). Running the directories one at a time, with a retry, gets through.

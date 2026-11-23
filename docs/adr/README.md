@@ -18,3 +18,4 @@
 - [0016](./0016-guard-never-asks.md) The command guard never asks a person (proposed)
 - [0017](./0017-sandboxes-only.md) Agents run in sandboxes only: no host backend (proposed; supersedes the host/sandbox split of 0016)
 - [0018](./0018-per-sandbox-egress-rules.md) Each Docker sandbox has its own egress rule (proposed)
+- [0019](./0019-studio-context.md) Studio Context: a shared document the prototype is built from, changed by the agent only through tools, with editors and viewers (proposed)

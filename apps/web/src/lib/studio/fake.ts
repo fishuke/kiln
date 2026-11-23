@@ -1,4 +1,5 @@
 import { StudioClientError, type StudioClient } from "./client";
+import { FakeContext } from "./fake-context";
 import { defaultShipMode } from "./model";
 import type {
   Activity,
@@ -31,6 +32,8 @@ export type FakeOptions = {
   stepMs?: number;
   /** Base URL of the fake preview route. */
   previewBase?: string;
+  /** False keeps the Context local instead of syncing it between browser tabs (tests). */
+  channel?: boolean;
 };
 
 export type FakeScenario = "empty" | "demo" | "none";
@@ -59,12 +62,23 @@ export class FakeStudioClient implements StudioClient {
   private readonly schedule: (fn: () => void, ms: number) => void;
   private readonly stepMs: number;
   private readonly previewBase: string;
+  /** The Context page's side of the fake (docs/specs/studio-context.md). */
+  readonly context: FakeContext;
 
   constructor(opts: FakeOptions = {}) {
     this.now = opts.now ?? (() => new Date());
     this.schedule = opts.schedule ?? ((fn, ms) => void setTimeout(fn, ms));
     this.stepMs = opts.stepMs ?? 700;
     this.previewBase = opts.previewBase ?? "/api/studio/fake-preview";
+    this.context = new FakeContext({
+      now: this.now,
+      schedule: this.schedule,
+      stepMs: this.stepMs,
+      id: (prefix) => this.id(prefix),
+      app: (id) => this.appsById.get(id),
+      previewBase: this.previewBase,
+      channel: opts.channel ?? true,
+    });
   }
 
   subscribe(listener: () => void): () => void {
@@ -581,6 +595,7 @@ export class FakeStudioClient implements StudioClient {
       updatedAt: at(2900),
     });
     if (scenario === "empty") return project.id;
+    this.context.seedApp = project.id;
 
     const chat = (id: string, title: string, minAgo: number, port: number): Chat => ({
       id,

@@ -138,7 +138,9 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
   const serverAgent: AgentStatus = snap?.agent ?? { state: "idle", label: "" };
   const serverBusy = serverAgent.state !== "idle" && serverAgent.state !== "waiting";
   // The page answers a click at once: "Starting" shows until the server's own status takes over.
-  const agent: AgentStatus = !serverBusy && starting ? { state: "thinking", label: starting } : serverAgent;
+  // The prompt the App was created with waits for setup; the server hands it to the agent once the App is ready.
+  const waitingFirst = !serverBusy && app?.status !== "failed" ? app?.firstPrompt?.text : undefined;
+  const agent: AgentStatus = !serverBusy && starting ? { state: "thinking", label: starting } : waitingFirst ? { state: "thinking", label: "Setting up the App", object: waitingFirst } : serverAgent;
   const busy = agent.state !== "idle" && agent.state !== "waiting";
   useEffect(() => {
     if (!starting) return;

@@ -123,6 +123,11 @@ export type StudioOptions = {
   fetch?: typeof fetch;
   /** Spans for Studio's slow steps; records nothing by default. */
   tracer?: StudioTracer;
+  /**
+   * Where the prompt an App was created with goes once the App is ready. By default it starts the
+   * App's first chat; the Context page sends it to the Context agent instead (docs/specs/studio-context.md).
+   */
+  firstPrompt?: (app: App, prompt: { text: string; via: Via }) => Promise<unknown>;
 };
 
 /**
@@ -452,7 +457,7 @@ export class Studio {
     const { firstPrompt, ...rest } = p;
     this.touch<App>(C.apps, rest);
     await this.trace("studio.first_chat", { "kiln.studio.app.id": appId }, () =>
-      this.newChat(appId, { by: p.createdBy, via: firstPrompt.via, prompt: firstPrompt.text }),
+      this.opts.firstPrompt ? this.opts.firstPrompt(p, firstPrompt) : this.newChat(appId, { by: p.createdBy, via: firstPrompt.via, prompt: firstPrompt.text }),
     ).catch(() => {
       // Already recorded on the studio.first_chat span.
     });

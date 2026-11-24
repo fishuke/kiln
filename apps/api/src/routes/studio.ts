@@ -211,7 +211,7 @@ export function studioFor(kiln: Kiln): Studio | undefined {
     services.set(kiln, null);
     return undefined;
   }
-  const studio = new Studio({
+  const studio: Studio = new Studio({
     store: kiln.store,
     objects: kiln.objects,
     bus: kiln.bus,
@@ -236,6 +236,10 @@ export function studioFor(kiln: Kiln): Studio | undefined {
     image: process.env.KILN_STUDIO_IMAGE || kiln.options.defaultImage || DEFAULT_RUNNER_IMAGE,
     previewUrl: previewUrlFor(),
     tracer: otelStudioTracer(),
+    // With the Context page on, the prompt an App was created with starts the Context agent, not a chat the page never shows.
+    ...(process.env.KILN_STUDIO_CONTEXT === "1"
+      ? { firstPrompt: (app: { id: string; createdBy: string; team: string }, p: { text: string }): Promise<unknown> => contextFor(kiln, studio).prompt(app.id, { user: app.createdBy, team: app.team, mayWrite: true }, p.text) }
+      : {}),
     ...(previewConfig() ? { previewDomain: process.env.KILN_STUDIO_PREVIEW_DOMAIN!.trim() } : {}),
     ...(process.env.KILN_STUDIO_TEMPLATES?.trim() ? { templatesDir: process.env.KILN_STUDIO_TEMPLATES.trim() } : {}),
     ...over,

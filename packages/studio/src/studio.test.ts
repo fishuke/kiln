@@ -167,6 +167,23 @@ describe("apps", () => {
     expect(studio.getChat(chats[0]!.id)!.turns.map((t) => [t.prompt, t.by, t.via])).toEqual([["write home.md", "me@x.test", "web"]]);
   });
 
+  it("hands the first prompt to the firstPrompt hook instead of a chat when one is set", async () => {
+    const handed: [string, string, string][] = [];
+    const { studio } = make({ firstPrompt: async (app, p) => void handed.push([app.id, app.createdBy, p.text]) });
+    const p = await studio.createApp({
+      team: teams.get(studio)!,
+      by: "me@x.test",
+      name: "Daily Done",
+      source: { kind: "template", template: "test" },
+      firstPrompt: { text: "make a todo app", via: "web" },
+    });
+    await studio.ready(p.id);
+    const { app: ready, chats } = studio.getApp(p.id)!;
+    expect(ready.firstPrompt).toBeUndefined();
+    expect(chats).toEqual([]);
+    expect(handed).toEqual([[p.id, "me@x.test", "make a todo app"]]);
+  });
+
   it("keeps the first prompt of an App whose setup failed and starts it when the App is retried", async () => {
     const marker = join(mkdtempSync(join(tmpdir(), "kiln-marker-")), "ok");
     const { studio } = make({ templates: { test: { ...TEST, scaffold: [`test -e ${marker}`, ...TEST.scaffold] } } });

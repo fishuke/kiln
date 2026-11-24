@@ -58,11 +58,8 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("Studio's bridge in the App template", () => {
-  it("says it is ready, and again when Studio asks", () => {
-    const p = page([]);
-    expect(p.sent).toEqual([{ message: { type: "kiln:ready" }, origin: "*" }]);
-    p.tell({ type: "kiln:hello" });
-    expect(p.sent).toHaveLength(2);
+  it("says it is ready when it loads", () => {
+    expect(page([]).sent).toEqual([{ message: { type: "kiln:ready" }, origin: "*" }]);
   });
 
   it("does nothing outside a frame", () => {

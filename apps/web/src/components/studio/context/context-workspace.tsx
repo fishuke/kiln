@@ -1,6 +1,6 @@
 "use client";
 
-import { AppWindow, Check, ChevronsUpDown, ClipboardCheck, Columns2, Eye, FileText, LoaderCircle, MessagesSquare, PanelLeft, PanelRight, ScrollText } from "lucide-react";
+import { AppWindow, Check, ChevronsUpDown, ClipboardCheck, Columns2, Eye, FileText, LoaderCircle, MessagesSquare, MousePointerClick, PanelLeft, PanelRight, ScrollText } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import { memberColor, memberLine, PERMISSION_LABEL, Presence, type Present } fro
 import { ReviewPanel, reviewState, ThreadsPanel } from "./review";
 import { Share, type MemberInput } from "./share";
 import { useBrief, useContextPreview, useContextSnapshot } from "./use-context";
+import { usePreviewBridge } from "./use-preview-bridge";
 
 const EXAMPLES = ["A recipe box I can search by ingredient", "Daily habits I can tick off, with a streak for each", "A shared packing list for a weekend trip"];
 const SPLIT_KEY = "kiln:studio:context-split";
@@ -290,11 +291,27 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
     setBriefOpen(false);
     requestAnimationFrame(() => docRef.current?.scrollTo(fragmentId));
   }, []);
-  const showInPrototype = useCallback((r: string) => {
-    setRoute(r);
-    setPane("prototype");
-    setFull((f) => (f === "context" ? undefined : f));
-  }, []);
+  // Inspect: a click on an element of the prototype scrolls the document to its fragment.
+  const fragmentIds = useRef(new Set<string>());
+  fragmentIds.current = new Set(fragments.map((f) => f.id));
+  const pick = useCallback(
+    (fragmentId: string) => {
+      if (fragmentIds.current.has(fragmentId)) go(fragmentId);
+      else toast.message("That part is no longer in the Context.");
+    },
+    [go],
+  );
+  const bridge = usePreviewBridge({ route, onPick: pick });
+  const highlightInPrototype = bridge.highlight;
+  const showInPrototype = useCallback(
+    (r: string, fragmentId?: string) => {
+      setRoute(r);
+      setPane("prototype");
+      setFull((f) => (f === "context" ? undefined : f));
+      if (fragmentId) highlightInPrototype(fragmentId, r);
+    },
+    [highlightInPrototype],
+  );
   const decide = useCallback(
     (p: Proposal, decision: "accept" | "reject") =>
       void act(async () => {
@@ -636,6 +653,19 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
                 tabs={false}
                 route={route}
                 onRouteChange={setRoute}
+                onFrame={bridge.onFrame}
+                actions={
+                  bridge.ready ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={<Button size="icon-sm" variant={bridge.inspecting ? "secondary" : "ghost"} aria-label="Inspect" aria-pressed={bridge.inspecting} onClick={() => bridge.setInspect(!bridge.inspecting)} />}
+                      >
+                        <MousePointerClick />
+                      </TooltipTrigger>
+                      <TooltipContent>{bridge.inspecting ? "Click a part of the prototype to see it in the Context" : "Inspect: find a part of the prototype in the Context"}</TooltipContent>
+                    </Tooltip>
+                  ) : undefined
+                }
                 footer={<FreshnessBar fresh={fresh} building={agent.state === "building"} canEdit={canEdit} onUpdate={build} onGo={go} />}
               >
                 {fresh.kind === "never" ? (

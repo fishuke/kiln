@@ -119,7 +119,7 @@ export function FragmentBlock({
           {version && version > 1 ? ` · v${version}` : ""}
         </span>
         {props.route && (
-          <GutterButton label={`Show in the prototype (${props.route})`} onClick={() => ui.showInPrototype(props.route)}>
+          <GutterButton label={`Show in the prototype (${props.route})`} onClick={() => ui.showInPrototype(props.route, blockId)}>
             <Crosshair className="size-3.5" />
           </GutterButton>
         )}

@@ -101,8 +101,6 @@
     if (!data || typeof data !== "object") return;
     if (data.type === "kiln:highlight" && typeof data.fragment === "string") highlight(data.fragment);
     else if (data.type === "kiln:inspect" && typeof data.on === "boolean") inspect(data.on);
-    // Studio asks again when it starts listening after this page loaded.
-    else if (data.type === "kiln:hello") send({ type: "kiln:ready" });
   });
 
   send({ type: "kiln:ready" });

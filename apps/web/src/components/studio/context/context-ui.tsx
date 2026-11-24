@@ -28,7 +28,8 @@ export type ContextUI = {
   openThreads(blockId: string): void;
   /** Opens "Ask the agent" on the selected text. */
   askSelection(): void;
-  showInPrototype(route: string): void;
+  /** Shows a route in the prototype and, given the fragment, outlines the elements that implement it. */
+  showInPrototype(route: string, fragmentId?: string): void;
 };
 
 const Ctx = createContext<ContextUI | undefined>(undefined);

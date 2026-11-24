@@ -17,7 +17,7 @@ import {
   Tablet,
   Undo2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
@@ -221,6 +221,7 @@ export function PreviewPane({
   tabs = true,
   actions,
   footer,
+  onFrame,
   children,
 }: {
   preview?: Preview;
@@ -245,6 +246,8 @@ export function PreviewPane({
   actions?: React.ReactNode;
   /** A row under the frame (the Context page's freshness chip). */
   footer?: React.ReactNode;
+  /** The preview frame's window, and null when the frame goes away (the Context page talks to the prototype through it). */
+  onFrame?: (win: Window | null) => void;
   children?: React.ReactNode;
 }) {
   const [ownRoute, setOwnRoute] = useState("/");
@@ -260,6 +263,7 @@ export function PreviewPane({
   const [diffError, setDiffError] = useState<string>();
   const src = preview?.status === "ready" ? previewSrc(preview.url, route) : undefined;
   const frameKey = `${src}|${reload}|${nonce}`;
+  const frameRef = useCallback((el: HTMLIFrameElement | null) => onFrame?.(el?.contentWindow ?? null), [onFrame]);
 
   useEffect(() => setLoaded(false), [frameKey]);
   useEffect(() => {
@@ -354,6 +358,7 @@ export function PreviewPane({
                 {!loaded && <FrameLoading label="Loading…" />}
                 <iframe
                   key={frameKey}
+                  ref={frameRef}
                   src={src}
                   title="App preview"
                   onLoad={() => setLoaded(true)}

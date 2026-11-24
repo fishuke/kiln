@@ -117,7 +117,7 @@ export function ContextDocument({
   onBlocks(blocks: DocBlock[]): void;
   /** True while the agent writes somewhere the person scrolled away from. */
   onAway(away: boolean): void;
-  onShowInPrototype(route: string): void;
+  onShowInPrototype(route: string, fragmentId?: string): void;
   /** Per fragment id: its open comment threads. */
   threadCounts: Record<string, number>;
   onOpenThreads(fragmentId: string): void;

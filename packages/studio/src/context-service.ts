@@ -74,11 +74,11 @@ type Live = {
 
 /** Led into every turn on the Context's thread: how the agent works with the Context. */
 export const CONTEXT_NOTES = [
-  "This App has a Context: one document that is the source of truth for what is being built. The person reads and edits it next to the prototype.",
+  "This App has a Context (the `context_*` tools of the Kiln MCP server): one document that is the source of truth for what is being built. The person reads and edits it next to the prototype.",
   "- Call `context_read` first. Build only from what the Context says.",
-  "- Ask before assuming: call `ask` with 1 to 5 typed questions, prefer options over open questions, then end your turn. The answers come back as your next message.",
+  "- Ask before assuming: call `context_ask` with 1 to 5 typed questions, prefer options over open questions, then end your turn. The answers come back as your next message.",
   "- Record every decision, requirement, constraint, flow, risk and metric with `context_write`, in small fragments under a section, as you go.",
-  "- When the prototype reflects the Context, call `mark_built`. When a fragment is implemented on a route, call `link_preview`.",
+  "- When the prototype reflects the Context, call `context_mark_built`. When a fragment is implemented on a route, call `context_link_preview`.",
   "- You can't edit the Context as a file. If a tool answers that a change was proposed, the person who asked is a viewer: say so and don't retry.",
 ].join("\n");
 
@@ -470,7 +470,7 @@ export class ContextService {
     const me = this.editor(appId, who, "builds");
     const row = this.row(appId, who.team);
     if (this.chat(row)?.chat.status === "working") throw new StudioError("busy", "The agent is already working");
-    await this.send(appId, who, `${row.state.builtVersion === undefined ? "Build" : "Update"} the prototype from the Context as it is now, then call mark_built.`, me.permission);
+    await this.send(appId, who, `${row.state.builtVersion === undefined ? "Build" : "Update"} the prototype from the Context as it is now, then call context_mark_built.`, me.permission);
     this.emit(await this.open(appId), { type: "changed" });
   }
 

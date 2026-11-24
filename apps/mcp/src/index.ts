@@ -1,6 +1,6 @@
 import { AppSettingsPatch } from "@kiln/studio";
 import { KilnClient, type TaskStage } from "@kiln/sdk-ts";
-import { STUDIO_TOOLS } from "@kiln/studio";
+import { CONTEXT_TOOL_NAMES, CONTEXT_TOOLS, STUDIO_TOOLS } from "@kiln/studio";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
@@ -458,6 +458,18 @@ export function createKilnMcpServer(client: KilnClient): McpServer {
         inputSchema: inputShape(tool.input),
       },
       async (args) => json(await client.studioTool(tool.name, args)),
+    );
+  }
+  // ---- The Context (ADR-019): how an App's agent reads and writes the document its prototype is built from ----
+  for (const name of CONTEXT_TOOL_NAMES) {
+    const tool = CONTEXT_TOOLS[name];
+    server.registerTool(
+      name.startsWith("context_") ? name : `context_${name}`,
+      {
+        description: `Studio Context: ${tool.description}`,
+        inputSchema: { ...tool.input.shape, app: z.string().optional().describe("The App. Leave it out inside an App's run: the App is the run's own") },
+      },
+      async ({ app, ...input }: { app?: string } & Record<string, unknown>) => json(await client.studioContextTool(name, input, app)),
     );
   }
   // ---- Studio App definitions ----

@@ -22,6 +22,7 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { HttpError, type Env, type RouteContext } from "../app";
 import type { Route } from "../openapi";
+import { contextRoutes, registerContext } from "./studio-context";
 import { previewConfig, previewUrlFor, setPreviewResolver } from "./studio-preview";
 import { otelStudioTracer, reportError } from "../trace-context";
 
@@ -180,6 +181,7 @@ export const routes: Route[] = [
     scope: "send",
     tag: S,
   },
+  ...contextRoutes,
 ];
 
 /** Tools that only read (or only move the caller's screen). */
@@ -359,6 +361,9 @@ export function register(ctx: RouteContext) {
       }
     };
   const id = (c: Context<Env>) => c.req.param("id")!;
+
+  // The Context (ADR-019).
+  registerContext(ctx, { studio, wrap });
 
   app.get(
     "/api/v1/studio/apps",

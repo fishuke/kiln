@@ -475,6 +475,22 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/studio/status` | `read` | What is working and what needs you, across your team's Apps |
 | GET | `/api/v1/studio/events` | `read` | Server-sent events for your team's Apps: Studio events and merge gate reviews |
 | POST | `/api/v1/studio/tools/{name}` | `send` | Run a Studio tool by name (status, open_app, new_chat, send, apply, restore, bookmark, look, restart_preview, ship, set_ship_mode, focus, show); status, look, focus and show need read, the rest send |
+| GET | `/api/v1/studio/apps/{id}/context` | `read` | An App's Context: its version, the caller's place in it, members, proposals, changes, what the agent is doing and the thread's turns |
+| GET | `/api/v1/studio/apps/{id}/context/sync` | `read` | The Context document as server-sent events: its state, then each Yjs update and presence change, and `changed` when the rest moved |
+| POST | `/api/v1/studio/apps/{id}/context/sync` | `send` | Send a page's Yjs update (editors only) or presence to the Context document |
+| POST | `/api/v1/studio/apps/{id}/context/prompt` | `send` | Ask the agent for something on the Context's thread; a viewer's request yields proposals |
+| POST | `/api/v1/studio/apps/{id}/context/build` | `send` | Build or update the prototype from the Context as it is now |
+| POST | `/api/v1/studio/apps/{id}/context/stop` | `send` | Stop the agent's turn on the Context's thread |
+| POST | `/api/v1/studio/apps/{id}/context/questions/{question}/answer` | `send` | Answer a question the agent asked; a viewer's answer is a proposal |
+| POST | `/api/v1/studio/apps/{id}/context/questions/{question}/reopen` | `send` | Open an answered question again |
+| POST | `/api/v1/studio/apps/{id}/context/questions/continue` | `send` | Go on with what is answered; the agent assumes the rest |
+| POST | `/api/v1/studio/apps/{id}/context/proposals` | `send` | Propose a change to the Context |
+| POST | `/api/v1/studio/apps/{id}/context/proposals/{proposal}/decide` | `send` | Accept or reject a proposal (editors) |
+| GET | `/api/v1/studio/apps/{id}/context/brief` | `read` | The Brief: five lines written from the Context at its current version |
+| POST | `/api/v1/studio/apps/{id}/context/seen` | `send` | Record that the caller has seen the Context at its current version |
+| GET | `/api/v1/studio/apps/{id}/context/preview` | `read` | The prototype's preview |
+| GET | `/api/v1/studio/apps/{id}/context/export` | `read` | The Context as Markdown, each fragment with its id |
+| POST | `/api/v1/studio/context/tools/{name}` | `send` | Run one of the agent's Context tools (context_read, context_write, context_remove, ask, link_preview, mark_built). With a run's token the App is the run's and writes follow the permission of the person who prompted its turn |
 | GET | `/api/v1/studio/apps/{id}/definition` | — | An App's own Studio definition layer: tree, sha and history |
 | PUT | `/api/v1/studio/apps/{id}/definition` | — | Replace an App's own definition layer (kiln/v1 App tree) |
 | PATCH | `/api/v1/studio/apps/{id}/definition` | — | Change an App's own definition layer from settings |

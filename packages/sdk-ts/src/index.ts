@@ -432,6 +432,10 @@ export class KilnClient {
   studioStatus() {
     return this.request<StudioStatusReport>("GET", "/api/v1/studio/status");
   }
+  /** One of the agent's Context tools (ADR-019). A run's token needs no `app`: the App is the run's. */
+  studioContextTool(name: string, input: unknown, app?: string) {
+    return this.request<StudioToolResult>("POST", `/api/v1/studio/context/tools/${encodeURIComponent(name)}`, { input: input ?? {}, ...(app ? { app } : {}) });
+  }
   studioTool(name: string, input: unknown) {
     return this.request<StudioToolResult>("POST", `/api/v1/studio/tools/${encodeURIComponent(name)}`, input ?? {});
   }

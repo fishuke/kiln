@@ -62,6 +62,8 @@ const ALLOWED: { method: string; path: RegExp; check?: "run" | "task" | "factory
   { method: "GET", path: /^\/api\/v1\/factories\/[^/]+\/tasks\/([^/]+)(\/outputs)?$/, check: "task" },
   { method: "POST", path: /^\/api\/v1\/factories\/[^/]+\/tasks\/([^/]+)\/complete$/, check: "task" },
   { method: "GET", path: /^\/api\/v1\/gates\/([^/]+)$/ },
+  // A Studio App's run uses its Context's tools; the route takes the App from the run and the permission from who prompted its turn.
+  { method: "POST", path: /^\/api\/v1\/studio\/context\/tools\/[a-z_]+$/ },
   { method: "POST", path: /^\/api\/v1\/uploads$/ },
   { method: "GET", path: /^\/api\/v1\/files\/.+$/ },
 ];

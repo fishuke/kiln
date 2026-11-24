@@ -34,6 +34,12 @@ List my factories, then help me send a task to the right one and follow it throu
 | --- | --- |
 | `ask_user` | Ask the requester a question and get a gate id; read the answer with get_gate. Questions can be single or multi select with a recommended option. |
 | `complete_task` | Close a task. Safe to call more than once. A factory agent may close it only after its pull request merged; a person (decide:merge) confirms completion. Pass task_id, or run_id to find the task. |
+| `context_ask` | Studio Context: Ask the person 1 to 5 questions with typed answers (single, multi, boolean, scale, rank, text, sketch). They appear in the Context under Decisions. End your turn after calling it. |
+| `context_link_preview` | Studio Context: Record where the prototype implements a fragment. |
+| `context_mark_built` | Studio Context: Record that the prototype now reflects the Context as you last read it. |
+| `context_read` | Studio Context: Read the App's Context: the document as Markdown, each fragment with its id and type. Call it before anything else. |
+| `context_remove` | Studio Context: Remove a fragment from the Context, with what is nested under it. |
+| `context_write` | Studio Context: Insert a fragment into the Context, or replace one (pass its id). Write small fragments, one statement each, under a section. |
 | `create_factory` | Create a factory: repos, agents to enable (the foreman is always there), Slack, tracker, cost preset, self-improvement and starter automations. Use dry_run first to show the files. |
 | `create_team` | Create a team. You become its owner. Needs a user token (session or personal API key). |
 | `decide_gate` | Approve, reject or answer a gate. Needs the decide scope for the gate's kind. |

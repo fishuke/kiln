@@ -84,6 +84,14 @@ describe("Studio's Next.js template", () => {
     for (const f of sources) expect(readFileSync(f, "utf8"), f).not.toMatch(/next\/font\/google|https?:\/\//);
   });
 
+  it("loads Studio's bridge from the root layout, in development only", () => {
+    const layout = readFileSync(join(ROOT, "templates/nextjs/app/layout.tsx"), "utf8");
+    expect(layout).toContain('process.env.NODE_ENV !== "production" && <script src="/kiln-bridge.js" async />');
+    const bridge = readFileSync(join(ROOT, "templates/nextjs/public/kiln-bridge.js"), "utf8");
+    expect(bridge).not.toMatch(/\beval\b|new Function|innerHTML|https?:\/\//);
+    expect(readFileSync(join(ROOT, "templates/nextjs/AGENTS.md"), "utf8")).toContain("data-kiln-fragment");
+  });
+
   it("has a runner definition for the Studio image with the template's egress", () => {
     const runner = Runner.parse(parse(readFileSync(join(ROOT, "runners/studio.yaml"), "utf8")));
     expect(runner.image).toBe("kiln-runner-studio:local");

@@ -17,6 +17,7 @@ This is a Kiln Studio app: Next.js 15 (App Router), TypeScript, Tailwind CSS 4 a
 - Icons come from `lucide-react`. Fonts are Geist (`font-sans`, `font-mono`), loaded locally.
 - Components are server components by default; add `"use client"` only to files that need state, effects or event handlers.
 - Don't add dependencies unless the task needs one. The network may only reach the npm registry; don't fetch fonts, images or APIs from other hosts.
+- When the App has a Context, put `data-kiln-fragment="<fragment id>"` on the element that implements a fragment. Studio uses it to link the Context and the preview. Leave `public/kiln-bridge.js` and its `<script>` in `app/layout.tsx` alone.
 - Check types with `pnpm typecheck` when you've changed more than one file.
 - Don't push or create branches, and don't commit unless Studio's instructions for the turn ask you to. Studio checkpoints your changes after each turn.
 

@@ -452,9 +452,14 @@ del.ctx-suggest-del,
   to { background-color: transparent; }
 }
 /* A peer's words fade in one after another (arrive.ts sets each word's delay). */
-.ctx-doc .ctx-arrive { animation: ctx-arrive 420ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.ctx-doc .ctx-arrive { animation: ctx-arrive 750ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.ctx-doc .ctx-arrive-block { animation: ctx-arrive-block 750ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+@keyframes ctx-arrive-block {
+  from { opacity: 0; filter: blur(4px); transform: translateY(6px); }
+  to { opacity: 1; filter: blur(0); transform: none; }
+}
 @keyframes ctx-arrive {
-  from { opacity: 0; filter: blur(3px); }
+  from { opacity: 0; filter: blur(4px); }
   to { opacity: 1; filter: blur(0); }
 }
 @keyframes ctx-flash {
@@ -469,6 +474,7 @@ del.ctx-suggest-del,
   .ctx-fragment[data-arrived],
   .ctx-doc .bn-block-outer.ctx-flash,
   .ctx-doc .ctx-arrive,
+  .ctx-doc .ctx-arrive-block,
   .ctx-pulse { animation: none; }
   .ctx-fragment-gutter,
   .ctx-question-open,

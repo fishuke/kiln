@@ -1,4 +1,5 @@
 import { Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/pm/state";
+import { Mapping, StepMap } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
 
@@ -14,26 +15,43 @@ const Y_SYNC = "y-sync$";
 const key = new PluginKey<DecorationSet>("ctx-arrive");
 const CLEAR = "clear";
 
-/** One word's fade, then the next word starts a little later; a long passage stays under SPAN ms. */
-export const ARRIVE = { duration: 420, step: 28, span: 1400, max: 4000 };
+/**
+ * Each word fades in over `duration`, `step` after the one before (about 11 words a second, close
+ * to reading pace); a block without text of its own (a question card) fades up and counts as
+ * `block` words. What arrives while earlier words are still appearing waits its turn;
+ * when more than `backlog` is waiting, new text starts sooner so the page never lags far behind.
+ */
+export const ARRIVE = { duration: 750, step: 90, block: 6, backlog: 6000, max: 4000 };
 
 export type Arrived = { from: number; to: number };
 
-/** The range of `after` that differs from `before`, or undefined when nothing was added. */
-export function arrivedRange(before: PMNode, after: PMNode): Arrived | undefined {
+/** Where `after` differs from `before`: from `from`, `before` had up to `a` and `after` has up to `b`. */
+export function changed(before: PMNode, after: PMNode): { from: number; a: number; b: number } | undefined {
   const from = before.content.findDiffStart(after.content);
   if (from == null) return undefined;
-  const end = before.content.findDiffEnd(after.content);
-  if (!end) return undefined;
-  // The two ends can overlap when the change repeats text at its edge; the added part is never negative.
-  const to = Math.max(end.b, from);
-  return to > from ? { from, to } : undefined;
+  const end = before.content.findDiffEnd(after.content) ?? { a: before.content.size, b: after.content.size };
+  // The two ends can overlap the start when the change repeats text at its edge; move both back.
+  const over = Math.max(0, from - Math.min(end.a, end.b));
+  return { from, a: end.a + over, b: end.b + over };
 }
 
-/** The words in [from, to) as document ranges, in reading order. */
-export function wordsIn(doc: PMNode, { from, to }: Arrived): Arrived[] {
-  const out: Arrived[] = [];
+/** The range of `after` that differs from `before`, or undefined when nothing was added. */
+export function arrivedRange(before: PMNode, after: PMNode): Arrived | undefined {
+  const c = changed(before, after);
+  return c && c.b > c.from ? { from: c.from, to: c.b } : undefined;
+}
+
+/** A word, or a whole block with no text of its own (a question card), that arrived. */
+export type Piece = Arrived & { block?: boolean };
+
+/** The words (and text-less blocks) in [from, to) as document ranges, in reading order. */
+export function wordsIn(doc: PMNode, { from, to }: Arrived): Piece[] {
+  const out: Piece[] = [];
   doc.nodesBetween(from, to, (node, pos) => {
+    if (node.isBlock && node.isLeaf) {
+      if (pos >= from && pos + node.nodeSize <= to) out.push({ from: pos, to: pos + node.nodeSize, block: true });
+      return false;
+    }
     if (!node.isText || !node.text) return;
     const t = node.text;
     // The diff's end can stop inside a word ("one" → "one place" shares the final "e"): finish that word.
@@ -46,30 +64,58 @@ export function wordsIn(doc: PMNode, { from, to }: Arrived): Arrived[] {
   return out;
 }
 
-function decorate(doc: PMNode, range: Arrived): { set: DecorationSet; ms: number } | undefined {
-  const words = wordsIn(doc, range);
-  if (!words.length || words.length > ARRIVE.max) return undefined;
-  const step = Math.min(ARRIVE.step, ARRIVE.span / words.length);
-  const decos = words.map((w, i) => Decoration.inline(w.from, w.to, { class: "ctx-arrive", style: `animation-delay:${Math.round(i * step)}ms` }));
-  return { set: DecorationSet.create(doc, decos), ms: Math.round(words.length * step) + ARRIVE.duration };
+/** When each piece of a batch starts, in ms from now, given how much is still waiting (`waiting` ms). */
+export function schedule(pieces: number | Piece[], waiting: number): { delays: number[]; length: number } {
+  const list: Piece[] = typeof pieces === "number" ? Array.from({ length: pieces }, () => ({ from: 0, to: 0 })) : pieces;
+  let at = Math.min(Math.max(0, waiting), ARRIVE.backlog);
+  const delays = list.map((p) => {
+    const d = Math.round(at);
+    at += (p.block ? ARRIVE.block : 1) * ARRIVE.step;
+    return d;
+  });
+  return { delays, length: at };
 }
+
+/** A piece that starts fading in at `start` (a Date.now() time). */
+const word = (p: Piece, start: number, now: number) => {
+  const style = `animation-delay:${Math.round(start - now)}ms`;
+  return p.block
+    ? Decoration.node(p.from, p.to, { class: "ctx-arrive-block", style }, { start, block: true })
+    : Decoration.inline(p.from, p.to, { class: "ctx-arrive", style }, { start });
+};
 
 /** The plugin; `enabled` is read on each change, so it can follow "loaded" and reduced motion. */
 export function arrivePlugin(enabled: () => boolean): Plugin<DecorationSet> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  /** When the last word queued so far starts (a Date.now() time). */
+  let queueEnd = 0;
   return new Plugin<DecorationSet>({
     key,
     state: {
       init: () => DecorationSet.empty,
       apply(tr: Transaction, set: DecorationSet, before: EditorState, after: EditorState) {
         if (tr.getMeta(key) === CLEAR) return DecorationSet.empty;
-        const mapped = set.map(tr.mapping, tr.doc);
         const remote = (tr.getMeta(Y_SYNC) as { isChangeOrigin?: boolean } | undefined)?.isChangeOrigin;
-        if (!remote || !tr.docChanged || !enabled()) return mapped;
-        const range = arrivedRange(before.doc, after.doc);
-        const fresh = range && decorate(after.doc, range);
-        if (!fresh) return mapped;
-        return mapped.add(after.doc, fresh.set.find());
+        if (!remote || !tr.docChanged) return set.map(tr.mapping, tr.doc);
+        // A remote change replaces the whole document, which would drop every word still waiting to
+        // appear; map them through the part that really changed instead.
+        const c = changed(before.doc, after.doc);
+        if (!c) return set;
+        const now = Date.now();
+        // The editor redraws a paragraph whose text changed, which restarts its words' animations;
+        // each word keeps its start time, so its delay is worked out again (negative once it began).
+        const kept = set
+          .map(new Mapping([new StepMap([c.from, c.a - c.from, c.b - c.from])]), tr.doc)
+          .find()
+          .flatMap((d) => {
+            const { start, block } = d.spec as { start: number; block?: boolean };
+            return start + ARRIVE.duration < now ? [] : [word({ from: d.from, to: d.to, block }, start, now)];
+          });
+        const words = enabled() && c.b > c.from ? wordsIn(after.doc, { from: c.from, to: c.b }) : [];
+        if (words.length > ARRIVE.max) words.length = 0;
+        const { delays, length } = schedule(words, queueEnd - now);
+        if (words.length) queueEnd = now + length;
+        return DecorationSet.create(after.doc, [...kept, ...words.map((w, i) => word(w, now + delays[i]!, now))]);
       },
     },
     props: { decorations: (state) => key.getState(state) },
@@ -81,7 +127,7 @@ export function arrivePlugin(enabled: () => boolean): Plugin<DecorationSet> {
         clearTimeout(timer);
         timer = setTimeout(() => {
           if (!view.isDestroyed && key.getState(view.state) !== DecorationSet.empty) view.dispatch(view.state.tr.setMeta(key, CLEAR));
-        }, ARRIVE.span + ARRIVE.duration + 100);
+        }, Math.max(0, queueEnd - Date.now()) + ARRIVE.duration + 100);
       },
       destroy: () => clearTimeout(timer),
     }),

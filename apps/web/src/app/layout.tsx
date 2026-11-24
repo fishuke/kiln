@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
 import { headers } from "next/headers";
 import { AppearanceSync } from "@/components/kiln/appearance-sync";
+import { NewVersion } from "@/components/kiln/new-version";
 import { Sidebar } from "@/components/kiln/sidebar";
 import { THEME_SCRIPT } from "@/components/kiln/theme";
 import { Toaster } from "@/components/ui/sonner";
@@ -65,6 +66,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <main>{children}</main>
           )}
           <Toaster position="bottom-right" />
+          <NewVersion />
         </TooltipProvider>
       </body>
     </html>

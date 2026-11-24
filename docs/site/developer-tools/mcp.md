@@ -39,7 +39,7 @@ List my factories, then help me send a task to the right one and follow it throu
 | `context_mark_built` | Studio Context: Record that the prototype now reflects the Context as you last read it. |
 | `context_read` | Studio Context: Read the App's Context: the document as Markdown, each fragment with its id and type. Call it before anything else. |
 | `context_remove` | Studio Context: Remove a fragment from the Context, with what is nested under it. |
-| `context_write` | Studio Context: Insert a fragment into the Context, or replace one (pass its id). Write small fragments, one statement each, under a section. |
+| `context_write` | Studio Context: Write into the Context document, or replace a fragment (pass its id). `title` is the document's title. `text` is a paragraph of plain prose: use it for the story (what, why, for whom). `section` is a heading. `step` is one item of the plan, with `done`. `bullet` is a list item. The typed kinds (requirement, flow, constraint, risk, metric, decision, assumption) are one statement each. |
 | `create_factory` | Create a factory: repos, agents to enable (the foreman is always there), Slack, tracker, cost preset, self-improvement and starter automations. Use dry_run first to show the files. |
 | `create_team` | Create a team. You become its owner. Needs a user token (session or personal API key). |
 | `decide_gate` | Approve, reject or answer a gate. Needs the decide scope for the gate's kind. |

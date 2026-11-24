@@ -157,7 +157,7 @@ describe("the Context service", () => {
     const t = await make(async (prompt, tool) => {
       if (!prompt.endsWith("recipes")) return;
       await tool("context_read");
-      await tool("context_write", { type: "section", content: "Recipe box" });
+      await tool("context_write", { type: "title", content: "Recipe box" });
       const w = (await tool("context_write", { type: "requirement", content: "Search matches titles and ingredients as you type.", section: "Requirements", ownerRole: "design", reviewerRoles: ["qa"] })) as { data: { id: string } };
       await tool("context_write", { type: "constraint", content: "Works on a 390 px wide phone.", section: "Constraints" });
       await tool("context_write", { type: "requirement", content: "Recipes carry tags.", section: "Requirements" });
@@ -319,5 +319,104 @@ describe("the Context service", () => {
     applyAwarenessUpdate(after, (await t.ctx.syncState(t.appId, t.ada)).awareness, "server");
     expect([...after.getStates().values()].filter((s) => (s as { user?: unknown }).user)).toEqual([]);
     for (const x of [a, fresh, after]) x.destroy();
+  });
+  it("lets the owner make a teammate a viewer or an editor, and nobody else", async () => {
+    const t = await make();
+    const eve = { ...t.ada, user: "Eve@x.test", name: "Eve" };
+    expect(t.ctx.member(t.appId, eve).permission).toBe("editor");
+    await expect(t.ctx.setMember(t.appId, eve, { user: "sam@x.test", permission: "editor", role: "qa" })).rejects.toMatchObject({ code: "forbidden" });
+    expect(await t.ctx.setMember(t.appId, t.ada, { user: "eve@x.test", permission: "viewer", role: "security" })).toMatchObject({ user: "eve@x.test", permission: "viewer", role: "security", invitedBy: "ada@x.test" });
+    expect(t.ctx.member(t.appId, eve)).toMatchObject({ user: "Eve@x.test", permission: "viewer", role: "security" });
+    await expect(t.ctx.applyUpdate(t.appId, eve, await pageUpdate(t, (y) => y.insert({ type: "paragraph", text: "x" }, "end")))).rejects.toMatchObject({ code: "forbidden" });
+    await expect(t.ctx.setMember(t.appId, t.ada, { user: "ada@x.test", permission: "viewer", role: "qa" })).rejects.toMatchObject({ code: "invalid" });
+    await expect(t.ctx.setMember(t.appId, t.ada, { user: "not an email", permission: "viewer", role: "qa" })).rejects.toMatchObject({ code: "invalid" });
+    expect((await t.ctx.snapshot(t.appId, t.ada)).members.map((m) => `${m.user}:${m.permission}`).sort()).toEqual(["ada@x.test:owner", "eve@x.test:viewer"]);
+    expect(await t.ctx.setRole(t.appId, t.ada, "design")).toMatchObject({ permission: "owner", role: "design" });
+    expect(t.ctx.member(t.appId, t.ada)).toMatchObject({ permission: "owner", role: "design" });
+    await t.ctx.removeMember(t.appId, t.ada, "eve@x.test");
+    expect(t.ctx.member(t.appId, eve).permission).toBe("editor");
+  });
+
+  it("keeps comment threads on fragments: anyone comments, a reply reopens, and they are in the snapshot", async () => {
+    const t = await make();
+    await t.ctx.applyUpdate(t.appId, t.ada, await pageUpdate(t, (y) => y.insert({ type: "requirement", text: "Search by ingredient." }, "end")));
+    const [block] = await t.blocks();
+    const thread = await t.ctx.comment(t.appId, t.sam, { fragmentId: block!.id, text: " Does this cover tags? " });
+    expect(thread).toMatchObject({ fragmentId: block!.id, title: "Search by ingredient.", status: "open", comments: [{ by: "sam@x.test", text: "Does this cover tags?" }] });
+    await t.ctx.comment(t.appId, t.ada, { threadId: thread.id, text: "Not yet." });
+    expect(await t.ctx.resolveThread(t.appId, t.ada, thread.id, true)).toMatchObject({ status: "resolved", resolvedBy: "ada@x.test" });
+    expect(await t.ctx.comment(t.appId, t.sam, { threadId: thread.id, text: "It should." })).toMatchObject({ status: "open", comments: [{}, {}, {}] });
+    expect((await t.ctx.snapshot(t.appId, t.ada)).threads).toMatchObject([{ id: thread.id, status: "open" }]);
+    await expect(t.ctx.comment(t.appId, t.ada, { fragmentId: "nope", text: "x" })).rejects.toMatchObject({ code: "not_found" });
+    await expect(t.ctx.comment(t.appId, t.ada, { threadId: thread.id, text: "  " })).rejects.toMatchObject({ code: "invalid" });
+  });
+
+  it("signs a fragment off for the reviewer's role at its version, and a later edit makes the sign-off stale", async () => {
+    const t = await make();
+    await t.ctx.applyUpdate(t.appId, t.ada, await pageUpdate(t, (y) => y.insert({ type: "risk", text: "Data is lost when the browser is cleared.", props: { reviewerRoles: "security" } }, "end")));
+    await t.ctx.flush();
+    const [block] = await t.blocks();
+    await expect(t.ctx.signOff(t.appId, t.ada, block!.id, "approved")).rejects.toMatchObject({ code: "forbidden" });
+    await t.ctx.setRole(t.appId, t.ada, "security");
+    expect(await t.ctx.signOff(t.appId, t.ada, block!.id, "approved")).toMatchObject({ role: "security", state: "approved", version: 1, by: "ada@x.test" });
+    await t.ctx.applyUpdate(t.appId, t.ada, await pageUpdate(t, (y) => y.update(block!.id, { text: "Data is lost when the browser's storage is cleared." })));
+    await t.ctx.flush();
+    const s = await t.ctx.snapshot(t.appId, t.ada);
+    expect(s.versions[block!.id]).toBe(2);
+    expect(s.signoffs).toMatchObject([{ fragmentId: block!.id, version: 1 }]);
+
+    // Anyone may ask another role to look; the fragment then waits for that role too.
+    await t.ctx.requestReview(t.appId, t.sam, block!.id, "legal");
+    expect((await t.blocks())[0]!.props.reviewerRoles).toBe("security,legal");
+    await expect(t.ctx.requestReview(t.appId, t.sam, "nope", "legal")).rejects.toMatchObject({ code: "not_found" });
+  });
+  it("writes a document a newcomer can read: a title, an opening, sections in reading order, and a plan it ticks off", async () => {
+    const t = await make(async (prompt, tool) => {
+      if (prompt.endsWith("habits")) {
+        // Written out of order on purpose: each lands where it reads.
+        await tool("context_ask", { questions: [{ kind: "boolean", title: "Should it work offline?" }] });
+        await tool("context_write", { type: "requirement", content: "Each habit shows its streak.", section: "Requirements" });
+        await tool("context_write", { type: "step", content: "The daily list", section: "Plan" });
+        await tool("context_write", { type: "step", content: "Streaks", section: "Plan" });
+        await tool("context_write", { type: "text", content: "People start habits and lose track of them within a week.", section: "Why" });
+        await tool("context_write", { type: "bullet", content: "Accounts: one person, one device, for now.", section: "Not doing" });
+        await tool("context_write", { type: "title", content: "Habit tracker" });
+        await tool("context_write", { type: "text", content: "A daily list you tick off, with a streak for each habit." });
+        await tool("context_write", { type: "section", content: "Who it's for" });
+        await tool("context_write", { type: "title", content: "Habits" });
+      } else if (prompt.endsWith("tick")) {
+        const read = (await tool("context_read")) as { data: { context: string } };
+        const id = /- \[ \] The daily list <!-- (\S+) -->/.exec(read.data.context)![1];
+        await tool("context_write", { id, type: "step", content: "The daily list", done: true });
+      }
+    });
+    await t.ctx.prompt(t.appId, t.ada, "habits");
+    await t.idle();
+    expect((await t.blocks()).map((b) => `${b.type}:${b.text}`)).toEqual([
+      "heading:Habits",
+      "paragraph:A daily list you tick off, with a streak for each habit.",
+      "heading:Why",
+      "paragraph:People start habits and lose track of them within a week.",
+      "heading:Who it's for",
+      "heading:Requirements",
+      "requirement:Each habit shows its streak.",
+      "heading:Plan",
+      "checkListItem:The daily list",
+      "checkListItem:Streaks",
+      "heading:Not doing",
+      "bulletListItem:Accounts: one person, one device, for now.",
+      "heading:Decisions",
+      "question:",
+    ]);
+    expect((await t.blocks())[0]!.props.level).toBe(1);
+    expect((await t.ctx.brief(t.appId, t.ada)).lines[0]).toBe("Recipe box: A daily list you tick off, with a streak for each habit.");
+    await t.ctx.continueQuestions(t.appId, t.ada);
+    await t.idle();
+    await t.ctx.prompt(t.appId, t.ada, "tick");
+    await t.idle();
+    const md = await t.ctx.markdown(t.appId);
+    expect(md).toContain("- [x] The daily list");
+    expect(md).toContain("- [ ] Streaks");
+    expect(md.indexOf("## Why")).toBeLessThan(md.indexOf("## Plan"));
   });
 });

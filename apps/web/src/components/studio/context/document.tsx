@@ -21,8 +21,8 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { StudioContextClient } from "@/lib/studio/client";
-import { TYPED_FRAGMENTS, type DocBlock } from "@/lib/studio/context-doc";
-import { canEdit as mayEdit, fragmentTitle, questionsFrom } from "@/lib/studio/context-model";
+import { questionProps, TYPED_FRAGMENTS, type DocBlock } from "@/lib/studio/context-doc";
+import { canEdit as mayEdit, delegatedAnswer, fragmentTitle, questionsFrom, statusFor } from "@/lib/studio/context-model";
 import type { AgentStatus, Member, Proposal } from "@/lib/studio/types";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -99,6 +99,9 @@ export function ContextDocument({
   onBlocks,
   onAway,
   onShowInPrototype,
+  threadCounts,
+  onOpenThreads,
+  onActed,
   handle,
   header,
   empty,
@@ -115,6 +118,11 @@ export function ContextDocument({
   /** True while the agent writes somewhere the person scrolled away from. */
   onAway(away: boolean): void;
   onShowInPrototype(route: string): void;
+  /** Per fragment id: its open comment threads. */
+  threadCounts: Record<string, number>;
+  onOpenThreads(fragmentId: string): void;
+  /** The person did something the agent will pick up (an answer): the page shows it at once. */
+  onActed(): void;
   handle: React.Ref<DocumentHandle>;
   header?: React.ReactNode;
   /** The first-run state, shown in place of the document while it is empty. */
@@ -354,6 +362,19 @@ export function ContextDocument({
       live,
       nameOf,
       async answer(q, answer) {
+        // An editor's answer shows at once: the block settles here and now, and the server hears of it
+        // in the background. If the server refuses, the question opens again and says why.
+        const block = canEdit ? editor.getBlock(q.fragmentId) : undefined;
+        if (block) {
+          const recorded = answer.type === "delegated" ? delegatedAnswer(q.spec) : answer;
+          editor.updateBlock(q.fragmentId, { props: questionProps({ ...q, status: statusFor(answer), answer: recorded, answeredBy: me.user, answeredAt: new Date().toISOString() }) } as never);
+          onActed();
+          void ctx.answer(appId, q.id, answer).catch((err: unknown) => {
+            if (editor.getBlock(q.fragmentId)) editor.updateBlock(q.fragmentId, { props: questionProps(q) } as never);
+            toast.error(message(err));
+          });
+          return true;
+        }
         try {
           const r = await ctx.answer(appId, q.id, answer);
           if (r.proposal) toast.success("Sent to an editor as a proposal");
@@ -364,14 +385,21 @@ export function ContextDocument({
         }
       },
       async reopen(q) {
-        await ctx.reopen(appId, q.id).catch((err: unknown) => toast.error(message(err)));
+        const was = editor.getBlock(q.fragmentId)?.props;
+        if (canEdit && was) editor.updateBlock(q.fragmentId, { props: { status: "open", by: "", at: "" } } as never);
+        await ctx.reopen(appId, q.id).catch((err: unknown) => {
+          if (canEdit && was && editor.getBlock(q.fragmentId)) editor.updateBlock(q.fragmentId, { props: was } as never);
+          toast.error(message(err));
+        });
       },
       canAsk: Boolean(ctx.askAgent),
+      threadCounts,
+      openThreads: onOpenThreads,
       askAbout,
       askSelection,
       showInPrototype: onShowInPrototype,
     }),
-    [appId, me, canEdit, questions, proposals, versions, live, nameOf, ctx, askAbout, askSelection, onShowInPrototype],
+    [appId, me, canEdit, questions, proposals, versions, live, nameOf, ctx, editor, askAbout, askSelection, onShowInPrototype, threadCounts, onOpenThreads, onActed],
   );
 
   const slashItems = useCallback(

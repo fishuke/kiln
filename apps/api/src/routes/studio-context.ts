@@ -5,7 +5,7 @@
  */
 import type { Scope } from "@kiln/auth";
 import type { Kiln } from "@kiln/engine";
-import { COLLECTIONS, CONTEXT_TOOL_NAMES, ContextService, QuestionAnswer, StudioError, type ContextEvent, type ContextPerson, type Studio, type Turn } from "@kiln/studio";
+import { COLLECTIONS, CONTEXT_TOOL_NAMES, ContextService, FunctionalRole, QuestionAnswer, StudioError, type ContextEvent, type ContextPerson, type Studio, type Turn } from "@kiln/studio";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
@@ -21,6 +21,11 @@ export const ContextPrompt = z.object({ text: z.string().min(1).max(20_000) });
 export const ContextAnswer = z.object({ answer: QuestionAnswer });
 export const ContextPropose = z.object({ kind: z.enum(["edit", "add", "remove", "answer"]), summary: z.string().min(1).max(400), patch: z.unknown(), fragmentId: z.string().optional() });
 export const ContextDecide = z.object({ decision: z.enum(["accept", "reject"]), reason: z.string().max(400).optional() });
+export const ContextMember = z.object({ user: z.string().min(3).max(200), name: z.string().max(80).optional(), permission: z.enum(["editor", "viewer"]), role: FunctionalRole });
+export const ContextRole = z.object({ role: FunctionalRole });
+export const ContextComment = z.object({ fragmentId: z.string().optional(), threadId: z.string().optional(), text: z.string().min(1).max(4000) });
+export const ContextResolve = z.object({ resolved: z.boolean() });
+export const ContextSignOff = z.object({ state: z.enum(["approved", "changes"]) });
 export const ContextTool = z.object({ app: z.string().optional(), input: z.unknown().optional() });
 
 export const contextRoutes: Route[] = [
@@ -35,6 +40,13 @@ export const contextRoutes: Route[] = [
   { method: "post", path: `${base}/questions/continue`, summary: "Go on with what is answered; the agent assumes the rest", scope: "send", tag: S },
   { method: "post", path: `${base}/proposals`, summary: "Propose a change to the Context", scope: "send", body: ContextPropose, tag: S },
   { method: "post", path: `${base}/proposals/{proposal}/decide`, summary: "Accept or reject a proposal (editors)", scope: "send", body: ContextDecide, tag: S },
+  { method: "post", path: `${base}/members`, summary: "Add a member, or change what a member may do and their role (the owner)", scope: "send", body: ContextMember, tag: S },
+  { method: "delete", path: `${base}/members/{user}`, summary: "Remove a member (the owner)", scope: "send", tag: S },
+  { method: "post", path: `${base}/role`, summary: "Set the caller's own functional role: what they review", scope: "send", body: ContextRole, tag: S },
+  { method: "post", path: `${base}/threads`, summary: "Comment on a fragment: start a thread, or reply in one", scope: "send", body: ContextComment, tag: S },
+  { method: "post", path: `${base}/threads/{thread}/resolve`, summary: "Resolve a thread, or open it again", scope: "send", body: ContextResolve, tag: S },
+  { method: "post", path: `${base}/fragments/{fragment}/signoff`, summary: "Sign a fragment off for the caller's role at its current version, or ask for changes", scope: "send", body: ContextSignOff, tag: S },
+  { method: "post", path: `${base}/fragments/{fragment}/review-request`, summary: "Ask a role to review a fragment", scope: "send", body: ContextRole, tag: S },
   { method: "get", path: `${base}/brief`, summary: "The Brief: five lines written from the Context at its current version", scope: "read", tag: S },
   { method: "post", path: `${base}/seen`, summary: "Record that the caller has seen the Context at its current version", scope: "send", tag: S },
   { method: "get", path: `${base}/preview`, summary: "The prototype's preview", scope: "read", tag: S },
@@ -173,6 +185,40 @@ export function registerContext(ctx: RouteContext, deps: { studio: () => Studio;
     wrap(async (c) => {
       const body = ContextDecide.parse(await c.req.json());
       return c.json(await service().decideProposal(id(c), person(c, "send"), c.req.param("proposal")!, body.decision, body.reason));
+    }),
+  );
+  app.post(
+    "/api/v1/studio/apps/:id/context/members",
+    wrap(async (c) => c.json(await service().setMember(id(c), person(c, "send"), ContextMember.parse(await c.req.json())))),
+  );
+  app.delete(
+    "/api/v1/studio/apps/:id/context/members/:user",
+    wrap(async (c) => {
+      await service().removeMember(id(c), person(c, "send"), decodeURIComponent(c.req.param("user")!));
+      return c.json({ ok: true });
+    }),
+  );
+  app.post(
+    "/api/v1/studio/apps/:id/context/role",
+    wrap(async (c) => c.json(await service().setRole(id(c), person(c, "send"), ContextRole.parse(await c.req.json()).role))),
+  );
+  app.post(
+    "/api/v1/studio/apps/:id/context/threads",
+    wrap(async (c) => c.json(await service().comment(id(c), person(c, "send"), ContextComment.parse(await c.req.json())), 201)),
+  );
+  app.post(
+    "/api/v1/studio/apps/:id/context/threads/:thread/resolve",
+    wrap(async (c) => c.json(await service().resolveThread(id(c), person(c, "send"), c.req.param("thread")!, ContextResolve.parse(await c.req.json()).resolved))),
+  );
+  app.post(
+    "/api/v1/studio/apps/:id/context/fragments/:fragment/signoff",
+    wrap(async (c) => c.json(await service().signOff(id(c), person(c, "send"), c.req.param("fragment")!, ContextSignOff.parse(await c.req.json()).state))),
+  );
+  app.post(
+    "/api/v1/studio/apps/:id/context/fragments/:fragment/review-request",
+    wrap(async (c) => {
+      await service().requestReview(id(c), person(c, "send"), c.req.param("fragment")!, ContextRole.parse(await c.req.json()).role);
+      return c.json({ ok: true });
     }),
   );
   app.get(

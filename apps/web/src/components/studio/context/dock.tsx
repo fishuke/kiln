@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownToLine, ChevronDown, CircleQuestionMark, Hammer, LoaderCircle, Square } from "lucide-react";
+import { ArrowDownToLine, ChevronDown, CircleAlert, CircleQuestionMark, Hammer, LoaderCircle, RotateCw, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,8 @@ export function DockStatus({
   canEdit,
   hasContext,
   away,
+  failure,
+  onRetry,
   onJump,
   onStop,
   onQuestions,
@@ -47,6 +49,9 @@ export function DockStatus({
   /** False while the Context has nothing to build from. */
   hasContext: boolean;
   away: boolean;
+  /** Why the last turn ended without doing its work, when it did. Never left unsaid. */
+  failure?: { text: string; stopped: boolean };
+  onRetry(): void;
   onJump(): void;
   onStop(): void;
   onQuestions(): void;
@@ -58,7 +63,7 @@ export function DockStatus({
   const busy = Boolean(line?.busy);
   const steps = turn?.activity ?? [];
   const canBuild = !busy && hasContext && openQuestions === 0 && fresh.kind !== "fresh";
-  if (!line && !openQuestions && !canBuild) return null;
+  if (!line && !openQuestions && !canBuild && !failure) return null;
   return (
     <div className="flex flex-col gap-1.5">
       <AnimatePresence initial={false}>
@@ -104,6 +109,18 @@ export function DockStatus({
           </motion.div>
         )}
       </AnimatePresence>
+      {failure && !busy && (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 py-2 pr-1.5 pl-2.5 text-sm">
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">{failure.stopped ? "The agent was stopped." : "The agent couldn't do that."}</span> <span className="break-words text-muted-foreground">{failure.text}</span>
+          </span>
+          <Button size="xs" variant="outline" onClick={onRetry} className="shrink-0">
+            <RotateCw data-icon="inline-start" />
+            Try again
+          </Button>
+        </div>
+      )}
       {(openQuestions > 0 || canBuild) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {openQuestions > 0 && (

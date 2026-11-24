@@ -153,6 +153,22 @@ export const SignOff = z.object({
 });
 export type SignOff = z.infer<typeof SignOff>;
 
+/** A comment thread on a fragment. Anyone who can open the Context can comment. */
+export const ThreadComment = z.object({ id: z.string(), by: z.string(), text: z.string(), at: z.string() });
+export type ThreadComment = z.infer<typeof ThreadComment>;
+export const Thread = z.object({
+  id: z.string(),
+  appId: z.string(),
+  fragmentId: z.string(),
+  /** The fragment in one line when the thread started, so the thread reads on its own. */
+  title: z.string(),
+  comments: z.array(ThreadComment),
+  status: z.enum(["open", "resolved"]),
+  resolvedBy: z.string().optional(),
+  at: z.string(),
+});
+export type Thread = z.infer<typeof Thread>;
+
 export const ContextState = z.object({
   appId: z.string(),
   version: z.number(),
@@ -214,4 +230,8 @@ export type ContextSnapshot = {
   changes: ContextChange[];
   agent: AgentStatus;
   turns: ContextTurn[];
+  threads: Thread[];
+  signoffs: SignOff[];
+  /** Per fragment id: how many times its content settled. A sign-off on an older version is stale. */
+  versions: Record<string, number>;
 };

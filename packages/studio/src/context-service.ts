@@ -25,13 +25,15 @@ import {
   type Permission,
   type Proposal,
   type Question,
+  type SignOff,
+  type Thread,
   type QuestionAnswer,
 } from "./context-types";
 import { WRITABLE_BLOCKS, YContextDoc } from "./context-ydoc";
 import type { Clock, Studio } from "./studio";
 import { StudioError, type Chat, type Preview, type Turn } from "./types";
 
-export const CONTEXT_COLLECTIONS = { context: "studio_context", members: "studio_members", proposals: "studio_proposals" } as const;
+export const CONTEXT_COLLECTIONS = { context: "studio_context", members: "studio_members", proposals: "studio_proposals", threads: "studio_threads", signoffs: "studio_signoffs" } as const;
 const C = CONTEXT_COLLECTIONS;
 
 /** The person a call is made by, or made for (the one who prompted the agent's turn). */
@@ -45,6 +47,8 @@ type Row = {
   /** The App's one thread on the Context page. */
   chatId?: string;
   hashes: Record<string, Hash>;
+  /** Per fragment: how many times its content settled. */
+  versions?: Record<string, number>;
   changes: ContextChange[];
   /** Each `ask` call: whether its answers were sent to the agent yet. */
   batches: Record<string, { state: "asked" | "sent"; turnId: string }>;
@@ -72,13 +76,34 @@ type Live = {
   cancelSettle?: () => void;
 };
 
+/**
+ * The Context's sections in reading order: the story first (what, why, who, how), then what is
+ * built and in what order, then the log. A new section goes in at its place in this order.
+ */
+export const SECTION_ORDER = ["Why", "Who it's for", "How it works", "Requirements", "Plan", "Constraints", "Risks", "Success", "Not doing", "Decisions"] as const;
+
 /** Led into every turn on the Context's thread: how the agent works with the Context. */
 export const CONTEXT_NOTES = [
-  "This App has a Context (the `context_*` tools of the Kiln MCP server): one document that is the source of truth for what is being built. The person reads and edits it next to the prototype.",
-  "- Call `context_read` first. Build only from what the Context says.",
-  "- Ask before assuming: call `context_ask` with 1 to 5 typed questions, prefer options over open questions, then end your turn. The answers come back as your next message.",
-  "- Record every decision, requirement, constraint, flow, risk and metric with `context_write`, in small fragments under a section, as you go.",
-  "- When the prototype reflects the Context, call `context_mark_built`. When a fragment is implemented on a route, call `context_link_preview`.",
+  "This App has a Context (the `context_*` tools of the Kiln MCP server): one living document that is the source of truth for what is being built. The person reads and edits it next to the prototype, and so does everyone who joins later.",
+  "",
+  "Write it as a document a person wants to read, not as a list of settings. Its reader is a teammate who joins next week, has five minutes, and asks: what are we making, why, for whom, how does it work, what is the plan, what is left out. They must find each answer in plain sentences. Use this shape, in this order:",
+  "- `title`: the product's name. Then one or two paragraphs of `text` right under it: what this is and what it is for, in words a non-engineer would use.",
+  "- **Why** (`text`): the problem, who has it today, and what gets better. No bullet points; write it.",
+  "- **Who it's for** (`text`): the people who use it and what they come to do.",
+  "- **How it works** (`flow`, with `text` around them): each main journey, step by step, as a person lives it.",
+  "- **Requirements** (`requirement`): what it must do, one statement each, each one testable.",
+  "- **Plan** (`step`): what gets built, in order, small enough to tick off. Mark a step `done: true` (pass its id) when the prototype has it. This is what tells a newcomer where things stand.",
+  "- **Constraints**, **Risks** (`constraint`, `risk`), **Success** (`metric`): only what is real for this product.",
+  "- **Not doing** (`bullet`): what was left out on purpose, and why, so nobody asks again.",
+  "- **Decisions**: your questions and their answers land here by themselves. Don't copy them elsewhere as a list; let the sections above say what follows from them.",
+  "",
+  "How to work:",
+  "- Call `context_read` first, every turn. Build only from what the Context says.",
+  "- On a new Context, write the title, the opening paragraphs and **Why** from what the person said before you ask anything, so they see their idea taking shape. Then ask.",
+  "- Ask before assuming: `context_ask` with 1 to 5 typed questions, options over open questions, then end your turn. The answers arrive as your next message.",
+  "- After answers, write the rest of the document before you build: who it's for, how it works, requirements, the plan, what is not being done. Then build, tick off the plan's steps, and call `context_mark_built`.",
+  "- Keep it true. When direction changes, rewrite the paragraphs that are now wrong (pass the fragment's id) instead of adding a note under them. Short sections beat long ones; cut what no longer matters.",
+  "- When a fragment is implemented on a route, call `context_link_preview`.",
   "- You can't edit the Context as a file. If a tool answers that a change was proposed, the person who asked is a viewer: say so and don't retry.",
 ].join("\n");
 
@@ -91,10 +116,12 @@ export const CONTEXT_TOOLS = {
     input: z.object({ fragment: z.string().optional().describe("A fragment id: read only it and what is nested under it") }),
   },
   context_write: {
-    description: "Insert a fragment into the Context, or replace one (pass its id). Write small fragments, one statement each, under a section.",
+    description:
+      "Write into the Context document, or replace a fragment (pass its id). `title` is the document's title. `text` is a paragraph of plain prose: use it for the story (what, why, for whom). `section` is a heading. `step` is one item of the plan, with `done`. `bullet` is a list item. The typed kinds (requirement, flow, constraint, risk, metric, decision, assumption) are one statement each.",
     input: z.object({
       id: z.string().optional().describe("Replace this fragment instead of inserting"),
-      type: z.enum(["text", "section", ...TYPED_FRAGMENTS]).describe("section is a heading; text is plain writing"),
+      type: z.enum(["title", "text", "section", "step", "bullet", ...TYPED_FRAGMENTS]),
+      done: z.boolean().optional().describe("For a step: whether the prototype has it"),
       content: z.string().min(1).max(2000),
       section: Section.optional().describe("The section heading to write under; it is made when it doesn't exist"),
       after: z.string().optional().describe("Insert right after this fragment id"),
@@ -232,19 +259,22 @@ export class ContextService {
     const person = [...l.people].at(-1) ?? "agent";
     const after: Record<string, Hash> = {};
     const changes: ContextChange[] = [];
+    const versions = { ...row.versions };
     const record = (fragmentId: string, x: Hash, change: ContextChange["change"]) =>
       changes.push({ version, fragmentId, type: x.type, title: x.title, change, by: l.agentTouched.has(fragmentId) ? "agent" : person, at: this.now() });
     for (const f of fragments) {
       const x: Hash = { h: `${f.type}|${f.content}`, title: fragmentTitle(f.content), type: f.type };
       after[f.id] = x;
       const was = row.hashes[f.id];
-      if (was?.h !== x.h) record(f.id, x, was ? "edited" : "added");
+      if (was?.h === x.h) continue;
+      versions[f.id] = (versions[f.id] ?? 0) + 1;
+      record(f.id, x, was ? "edited" : "added");
     }
     for (const [id, was] of Object.entries(row.hashes)) if (!after[id]) record(id, was, "removed");
     l.agentTouched.clear();
     l.people.clear();
     if (!changes.length) return;
-    this.save({ ...row, hashes: after, changes: [...row.changes, ...changes].slice(-300), state: { ...row.state, version } });
+    this.save({ ...row, hashes: after, versions, changes: [...row.changes, ...changes].slice(-300), state: { ...row.state, version } });
     this.opts.bus.publish("studio.context_changed", { appId, version, fragments: fragments.length, priority: "progress" });
     this.emit(l, { type: "changed" });
   }
@@ -270,7 +300,9 @@ export class ContextService {
   // --- people -----------------------------------------------------------------------------------
 
   private members(appId: string, createdBy: string, me?: ContextPerson): Member[] {
-    const rows = this.opts.store.list<MemberRow>(C.members, (m) => m.appId === appId).map(({ id: _, ...m }) => m);
+    const lower = (u: string) => u.toLowerCase();
+    // A stored row is keyed by the lower-cased email; it shows under the email the person signs in with.
+    const rows = this.opts.store.list<MemberRow>(C.members, (m) => m.appId === appId).map(({ id: _, ...m }) => (me && lower(me.user) === m.user ? { ...m, user: me.user } : lower(createdBy) === m.user ? { ...m, user: createdBy } : m));
     const seen = this.opts.store.get<Row>(C.context, appId)?.seen ?? {};
     const out = [...rows];
     const implicit = (user: string, name: string | undefined, permission: Permission) => {
@@ -292,6 +324,39 @@ export class ContextService {
     const m = this.member(appId, who);
     if (!canEdit(m.permission)) throw new StudioError("forbidden", `${VIEWER_NOTE}; an editor ${what}`);
     return m;
+  }
+
+  /** The owner sets who edits and who views, and each person's role. Nobody changes the owner's permission. */
+  async setMember(appId: string, who: ContextPerson, input: { user: string; name?: string; permission: "editor" | "viewer"; role: FunctionalRole }): Promise<Member> {
+    const app = this.app(appId, who.team);
+    if (this.member(appId, who).permission !== "owner") throw new StudioError("forbidden", "Only the owner invites members and changes what they may do");
+    const user = input.user.trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(user)) throw new StudioError("invalid", "A member is added by their email address");
+    if (user === app.createdBy.toLowerCase()) throw new StudioError("invalid", "The owner stays the owner");
+    const was = this.opts.store.get<MemberRow>(C.members, `${appId}:${user}`);
+    const row: MemberRow = { id: `${appId}:${user}`, appId, user, name: input.name?.trim() || was?.name || user.split("@")[0]!, permission: input.permission, role: input.role, invitedBy: was?.invitedBy ?? who.user };
+    this.opts.store.put<MemberRow>(C.members, row);
+    void this.live.get(appId)?.then((l) => this.emit(l, { type: "changed" }));
+    const { id: _, ...member } = row;
+    return member;
+  }
+
+  async removeMember(appId: string, who: ContextPerson, user: string): Promise<void> {
+    this.app(appId, who.team);
+    if (this.member(appId, who).permission !== "owner") throw new StudioError("forbidden", "Only the owner removes members");
+    this.opts.store.delete(C.members, `${appId}:${user.trim().toLowerCase()}`);
+    void this.live.get(appId)?.then((l) => this.emit(l, { type: "changed" }));
+  }
+
+  /** A person's own functional role: what they review. It never changes what they may do. */
+  async setRole(appId: string, who: ContextPerson, role: FunctionalRole): Promise<Member> {
+    const me = this.member(appId, who);
+    const row: MemberRow = { ...me, id: `${appId}:${who.user.toLowerCase()}`, role };
+    delete (row as Partial<Member>).lastSeenAt;
+    delete (row as Partial<Member>).lastSeenVersion;
+    this.opts.store.put<MemberRow>(C.members, row);
+    void this.live.get(appId)?.then((l) => this.emit(l, { type: "changed" }));
+    return { ...me, role };
   }
 
   async markSeen(appId: string, who: ContextPerson): Promise<void> {
@@ -349,6 +414,9 @@ export class ContextService {
       changes: row.changes,
       agent: this.agentStatus(row, l, open),
       turns: this.turns(row, open),
+      threads: this.opts.store.list<Thread>(C.threads, (t) => t.appId === appId).sort((a, b) => a.at.localeCompare(b.at)),
+      signoffs: this.opts.store.list<SignOff & { id: string }>(C.signoffs, (x) => x.appId === appId).map(({ id: _, ...x }) => x),
+      versions: row.versions ?? {},
     };
   }
 
@@ -390,6 +458,7 @@ export class ContextService {
         const said = q.answer && q.status !== "open" ? answerText(q.spec, q.answer) : undefined;
         lines.push(`${pad}- [${q.status === "answered" ? "decision" : q.status === "delegated" ? "assumption" : `question, ${q.status}`}] ${q.spec.title}${said ? ` → ${said}` : ""} <!-- ${b.id} -->`);
       } else if (b.type === "heading") lines.push("", `${"#".repeat(Number(b.props.level ?? 1))} ${b.text} <!-- ${b.id} -->`);
+      else if (b.type === "checkListItem") lines.push(`${pad}- [${b.props.checked ? "x" : " "}] ${b.text} <!-- ${b.id} -->`);
       else if (b.text.trim()) lines.push(`${pad}${b.type in markdownMark ? (markdownMark[b.type] ? `${markdownMark[b.type]} ` : "") : `- [${b.type}] `}${b.text} <!-- ${b.id} -->`);
     }
     return lines.join("\n").trim() || "(The Context is empty.)";
@@ -611,7 +680,87 @@ export class ContextService {
     } else if (p.kind === "remove" && p.fragmentId) y.remove(p.fragmentId);
   }
 
+  // --- threads and review -------------------------------------------------------------------------
+
+  private async fragment(appId: string, fragmentId: string) {
+    const l = await this.open(appId);
+    const row = this.opts.store.get<Row>(C.context, appId);
+    const f = fragmentsFrom(appId, l.y.read(), row?.versions ?? {}).find((x) => x.id === fragmentId);
+    if (!f) throw new StudioError("not_found", "That fragment is not in the Context");
+    return { l, f };
+  }
+
+  /** A comment on a fragment: a new thread, or a reply in one. Viewers comment too. */
+  async comment(appId: string, who: ContextPerson, input: { fragmentId?: string; threadId?: string; text: string }): Promise<Thread> {
+    this.app(appId, who.team);
+    const text = input.text.trim();
+    if (!text) throw new StudioError("invalid", "Write a comment");
+    const comment = { id: this.id("cm"), by: who.user, text: text.slice(0, 4000), at: this.now() };
+    let thread: Thread;
+    if (input.threadId) {
+      const was = this.opts.store.get<Thread>(C.threads, input.threadId);
+      if (!was || was.appId !== appId) throw new StudioError("not_found", "Thread not found");
+      // A reply opens a resolved thread again.
+      const { resolvedBy: _, ...rest } = was;
+      thread = { ...rest, status: "open", comments: [...was.comments, comment] };
+    } else {
+      if (!input.fragmentId) throw new StudioError("invalid", "A new thread is on a fragment");
+      const { f } = await this.fragment(appId, input.fragmentId);
+      thread = { id: this.id("th"), appId, fragmentId: f.id, title: fragmentTitle(f.content, 80), comments: [comment], status: "open", at: comment.at };
+    }
+    this.opts.store.put<Thread>(C.threads, thread);
+    this.opts.bus.publish("studio.comment_added", { appId, threadId: thread.id, fragmentId: thread.fragmentId, by: who.user, priority: "progress" });
+    void this.live.get(appId)?.then((l) => this.emit(l, { type: "changed" }));
+    return thread;
+  }
+
+  async resolveThread(appId: string, who: ContextPerson, threadId: string, resolved: boolean): Promise<Thread> {
+    this.app(appId, who.team);
+    const was = this.opts.store.get<Thread>(C.threads, threadId);
+    if (!was || was.appId !== appId) throw new StudioError("not_found", "Thread not found");
+    const { resolvedBy: _, ...rest } = was;
+    const thread: Thread = resolved ? { ...rest, status: "resolved", resolvedBy: who.user } : { ...rest, status: "open" };
+    this.opts.store.put<Thread>(C.threads, thread);
+    void this.live.get(appId)?.then((l) => this.emit(l, { type: "changed" }));
+    return thread;
+  }
+
+  /** A reviewer's verdict on a fragment at its current version, for their own role. It goes stale when the fragment changes. */
+  async signOff(appId: string, who: ContextPerson, fragmentId: string, state: "approved" | "changes"): Promise<SignOff> {
+    const me = this.member(appId, who);
+    const { f } = await this.fragment(appId, fragmentId);
+    if (!f.reviewerRoles.includes(me.role)) throw new StudioError("forbidden", `This fragment isn't waiting for ${me.role}'s review`);
+    const signoff: SignOff = { appId, fragmentId, role: me.role, by: who.user, state, version: f.version, at: this.now() };
+    this.opts.store.put<SignOff & { id: string }>(C.signoffs, { ...signoff, id: `${appId}:${fragmentId}:${me.role}` });
+    void this.live.get(appId)?.then((l) => this.emit(l, { type: "changed" }));
+    return signoff;
+  }
+
+  /** Anyone may ask another role to review a fragment. */
+  async requestReview(appId: string, who: ContextPerson, fragmentId: string, role: FunctionalRole): Promise<void> {
+    this.app(appId, who.team);
+    const { l, f } = await this.fragment(appId, fragmentId);
+    const block = l.y.read().find((b) => b.id === fragmentId)!;
+    if (!(TYPED_FRAGMENTS as readonly string[]).includes(block.type)) throw new StudioError("invalid", "Only a typed fragment (a requirement, a risk, ...) is reviewed");
+    if (!f.reviewerRoles.includes(role)) new YContextDoc(l.doc, { user: who.user }).update(fragmentId, { props: { reviewerRoles: [...f.reviewerRoles, role].join(",") } });
+    this.opts.bus.publish("studio.review_requested", { appId, fragmentId, role, by: who.user, priority: "needs_you" });
+    this.emit(l, { type: "changed" });
+  }
+
   // --- the agent's tools ------------------------------------------------------------------------
+
+  /** Where a new section's heading goes: before the first section that reads after it (SECTION_ORDER). Undefined puts it last. */
+  private sectionPlace(y: YContextDoc, title: string): { before: string } | undefined {
+    const order = SECTION_ORDER.map((x) => x.toLowerCase());
+    const rank = (t: string) => {
+      const at = order.indexOf(t.trim().toLowerCase());
+      // A section the order doesn't name reads with the product's own sections, before the plan's log.
+      return at < 0 ? order.indexOf("constraints") - 0.5 : at;
+    };
+    const mine = rank(title);
+    const later = y.read().find((b) => !b.parent && b.type === "heading" && Number(b.props.level ?? 1) > 1 && rank(b.text) > mine);
+    return later ? { before: later.id } : undefined;
+  }
 
   /** The last block of a section (its heading when it is empty), making the heading when it isn't there. */
   private sectionEnd(y: YContextDoc, title: string, touched?: Set<string>): string | undefined {
@@ -619,7 +768,7 @@ export class ContextService {
     let i = blocks.findIndex((b) => b.type === "heading" && b.text.trim().toLowerCase() === title.trim().toLowerCase());
     if (i < 0) {
       const last = blocks.findLast((b) => b.text || b.type !== "paragraph");
-      const id = y.insert({ type: "heading", props: { level: 2 }, text: title }, last ? { after: last.id } : blocks[0] ? { before: blocks[0].id } : "end");
+      const id = y.insert({ type: "heading", props: { level: 2 }, text: title }, this.sectionPlace(y, title) ?? (last ? { after: last.id } : blocks[0] ? { before: blocks[0].id } : "end"));
       touched?.add(id);
       return id;
     }
@@ -632,8 +781,10 @@ export class ContextService {
    * One call of an agent's tool, on behalf of `who`: the person who prompted the turn. An editor's
    * turn writes the document as the agent peer; a viewer's turn gets proposals back.
    */
-  async tool(appId: string, who: ContextPerson, name: string, input: unknown, turn?: { id: string }): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
-    if (!(name in CONTEXT_TOOLS)) return { ok: false, error: `Unknown tool: ${name}` };
+  async tool(appId: string, who: ContextPerson, called: string, input: unknown, turn?: { id: string }): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
+    // The agent sees every tool as context_<name>.
+    const name = called.replace(/^context_(ask|link_preview|mark_built)$/, "$1");
+    if (!(name in CONTEXT_TOOLS)) return { ok: false, error: `Unknown tool: ${called}` };
     const parsed = CONTEXT_TOOLS[name as ContextToolName].input.safeParse(input ?? {});
     if (!parsed.success) return { ok: false, error: parsed.error.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ") };
     try {
@@ -665,9 +816,11 @@ export class ContextService {
       }
       case "context_write": {
         const i = input as z.infer<(typeof CONTEXT_TOOLS)["context_write"]["input"]>;
-        const type = i.type === "text" ? "paragraph" : i.type === "section" ? "heading" : i.type;
+        const type = i.type === "text" ? "paragraph" : i.type === "section" || i.type === "title" ? "heading" : i.type === "step" ? "checkListItem" : i.type === "bullet" ? "bulletListItem" : i.type;
         if (!WRITABLE_BLOCKS.includes(type)) throw new StudioError("invalid", `Can't write a ${i.type} fragment`);
-        const existing = i.id ? l.y.read().find((b) => b.id === i.id) : undefined;
+        // The document has one title: writing it again rewrites it.
+        const titleBlock = i.type === "title" ? l.y.read().find((b) => !b.parent && b.type === "heading" && Number(b.props.level ?? 1) === 1) : undefined;
+        const existing = i.id ? l.y.read().find((b) => b.id === i.id) : titleBlock;
         if (i.id && !existing) throw new StudioError("not_found", `No fragment ${i.id}`);
         if (!writes)
           return proposed(
@@ -677,9 +830,11 @@ export class ContextService {
           );
         const props: DocProps =
           type === "heading"
-            ? { level: 2 }
-            : type === "paragraph"
-              ? {}
+            ? { level: i.type === "title" ? 1 : 2 }
+            : type === "checkListItem"
+              ? { checked: Boolean(i.done) }
+              : type === "paragraph" || type === "bulletListItem"
+                ? {}
               : {
                   by: "agent",
                   at: this.now(),
@@ -694,9 +849,25 @@ export class ContextService {
           return { id: existing.id, replaced: true };
         }
         const place = i.parent && l.y.read().some((b) => b.id === i.parent) ? { parent: i.parent } : i.after && l.y.read().some((b) => b.id === i.after) ? { after: i.after } : undefined;
-        const after = place ?? (type === "heading" ? undefined : i.section ? { after: this.sectionEnd(l.y, i.section, l.agentTouched)! } : undefined);
+        const top = l.y.read().find((b) => !b.parent);
+        const intro = l.y.read().filter((b) => !b.parent);
+        // Plain text with no section belongs to the opening: under the title, before the first section.
+        const opening = () => {
+          const firstSection = intro.findIndex((b) => b.type === "heading" && Number(b.props.level ?? 1) > 1);
+          const before = (firstSection < 0 ? intro : intro.slice(0, firstSection)).findLast((b) => b.text || b.type !== "paragraph");
+          return before ? { after: before.id } : firstSection >= 0 ? { before: intro[firstSection]!.id } : undefined;
+        };
+        const where =
+          place ??
+          (i.type === "title"
+            ? top && { before: top.id }
+            : type === "heading"
+              ? this.sectionPlace(l.y, i.content)
+              : i.section
+                ? { after: this.sectionEnd(l.y, i.section, l.agentTouched)! }
+                : opening());
         const last = l.y.read().findLast((b) => !b.parent && (b.text || b.type !== "paragraph"));
-        const id = touch(l.y.insert({ type, props }, after ?? (last ? { after: last.id } : "end")));
+        const id = touch(l.y.insert({ type, props }, where ?? (last ? { after: last.id } : "end")));
         if (turn) l.agent = { ...l.agent!, fragmentId: id };
         this.stream(l, id, i.content);
         return { id };

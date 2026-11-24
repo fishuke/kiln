@@ -43,4 +43,11 @@ export class ApiContext implements StudioContextClient {
   brief = (appId: string) => unwrap(actions.contextBrief(appId));
   markSeen = async (appId: string) => void (await unwrap(actions.contextSeen(appId)));
   preview = (appId: string) => unwrap(actions.contextPreview(appId));
+  setMember: StudioContextClient["setMember"] = (appId, input) => unwrap(actions.contextSetMember(appId, input));
+  removeMember = async (appId: string, user: string) => void (await unwrap(actions.contextRemoveMember(appId, user)));
+  setRole: StudioContextClient["setRole"] = (appId, role) => unwrap(actions.contextSetRole(appId, role));
+  comment: StudioContextClient["comment"] = (appId, input) => unwrap(actions.contextComment(appId, input));
+  resolveThread: StudioContextClient["resolveThread"] = (appId, threadId, resolved) => unwrap(actions.contextResolveThread(appId, threadId, resolved));
+  signOff: StudioContextClient["signOff"] = (appId, fragmentId, state) => unwrap(actions.contextSignOff(appId, fragmentId, state));
+  requestReview = async (appId: string, fragmentId: string, role: Parameters<StudioContextClient["requestReview"]>[2]) => void (await unwrap(actions.contextRequestReview(appId, fragmentId, role)));
 }

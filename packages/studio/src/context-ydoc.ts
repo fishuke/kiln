@@ -33,7 +33,7 @@ export function defaultProps(type: string): DocProps {
 }
 
 /** Block types the agent's tools may write. Anything else in the document is a person's, and is only read. */
-export const WRITABLE_BLOCKS: readonly string[] = ["paragraph", "heading", QUESTION_BLOCK, ...TYPED_FRAGMENTS];
+export const WRITABLE_BLOCKS: readonly string[] = ["paragraph", "heading", "checkListItem", "bulletListItem", QUESTION_BLOCK, ...TYPED_FRAGMENTS];
 
 const isElement = (n: unknown): n is Y.XmlElement => n instanceof Y.XmlElement;
 

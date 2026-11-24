@@ -22,6 +22,10 @@ export type ContextUI = {
   canAsk: boolean;
   /** Opens "Ask the agent" on a whole fragment. */
   askAbout(blockId: string): void;
+  /** Per fragment id: its open comment threads. */
+  threadCounts: Record<string, number>;
+  /** Opens the comments on a fragment. */
+  openThreads(blockId: string): void;
   /** Opens "Ask the agent" on the selected text. */
   askSelection(): void;
   showInPrototype(route: string): void;

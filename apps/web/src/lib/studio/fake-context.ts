@@ -32,7 +32,9 @@ import type {
   Question,
   QuestionAnswer,
   QuestionSpec,
+  SignOff,
   StudioApp,
+  Thread,
 } from "./types";
 
 /** What the Context fake needs from the Studio fake it lives in. */
@@ -68,6 +70,10 @@ type Meta = {
   batches: Record<string, Batch>;
   builds: number;
   seeded: boolean;
+  threads: Thread[];
+  signoffs: SignOff[];
+  /** What the owner set for a person, and the roles people picked. */
+  roster: Record<string, { permission?: "editor" | "viewer"; role?: FunctionalRole; name?: string }>;
 };
 
 /** What a fragment the agent writes looks like before it is in the document. */
@@ -128,6 +134,9 @@ export class FakeContext implements StudioContextClient {
       batches: {},
       builds: 0,
       seeded: false,
+      threads: [],
+      signoffs: [],
+      roster: {},
     };
     return defaults[key];
   }
@@ -168,7 +177,14 @@ export class FakeContext implements StudioContextClient {
 
   private members(appId: string): Member[] {
     const seen = this.get(appId, "seen");
-    return this.identities(appId).map((m) => (seen[m.user] ? { ...m, lastSeenAt: seen[m.user]!.at, lastSeenVersion: seen[m.user]!.version } : m));
+    const roster = this.get(appId, "roster");
+    const known = this.identities(appId);
+    const invited: Member[] = Object.entries(roster)
+      .filter(([user]) => !known.some((m) => m.user === user))
+      .map(([user, r]) => ({ appId, user, name: r.name ?? user.split("@")[0]!, permission: r.permission ?? "viewer", role: r.role ?? "product", invitedBy: ME }));
+    return [...known, ...invited]
+      .map((m) => ({ ...m, ...(m.permission !== "owner" && roster[m.user]?.permission ? { permission: roster[m.user]!.permission! } : {}), ...(roster[m.user]?.role ? { role: roster[m.user]!.role! } : {}) }))
+      .map((m) => (seen[m.user] ? { ...m, lastSeenAt: seen[m.user]!.at, lastSeenVersion: seen[m.user]!.version } : m));
   }
 
   private me(appId: string): Member {
@@ -177,6 +193,70 @@ export class FakeContext implements StudioContextClient {
 
   async markSeen(appId: string): Promise<void> {
     this.set(appId, "seen", { ...this.get(appId, "seen"), [this.as]: { at: this.iso(), version: this.get(appId, "state").version } });
+  }
+
+  async setMember(appId: string, input: { user: string; name?: string; permission: "editor" | "viewer"; role: FunctionalRole }): Promise<Member> {
+    if (this.me(appId).permission !== "owner") throw new StudioClientError("Only the owner invites members and changes what they may do", 403);
+    const user = input.user.trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(user)) throw new StudioClientError("A member is added by their email address", 400);
+    if (user === ME) throw new StudioClientError("The owner stays the owner", 400);
+    this.set(appId, "roster", { ...this.get(appId, "roster"), [user]: { permission: input.permission, role: input.role, ...(input.name ? { name: input.name } : {}) } });
+    return this.members(appId).find((m) => m.user === user)!;
+  }
+
+  async removeMember(appId: string, user: string): Promise<void> {
+    if (this.me(appId).permission !== "owner") throw new StudioClientError("Only the owner removes members", 403);
+    const rest = { ...this.get(appId, "roster") };
+    delete rest[user];
+    this.set(appId, "roster", rest);
+  }
+
+  async setRole(appId: string, role: FunctionalRole): Promise<Member> {
+    const roster = this.get(appId, "roster");
+    this.set(appId, "roster", { ...roster, [this.as]: { ...roster[this.as], role } });
+    return this.me(appId);
+  }
+
+  async comment(appId: string, input: { fragmentId?: string; threadId?: string; text: string }): Promise<Thread> {
+    const text = input.text.trim();
+    if (!text) throw new StudioClientError("Write a comment", 400);
+    const comment = { id: this.host.id("cm"), by: this.as, text, at: this.iso() };
+    const threads = this.get(appId, "threads");
+    const was = input.threadId ? threads.find((t) => t.id === input.threadId) : undefined;
+    if (input.threadId && !was) throw new StudioClientError("Thread not found", 404);
+    const f = was ? undefined : fragmentsFrom(appId, this.doc(appId).read()).find((x) => x.id === input.fragmentId);
+    if (!was && !f) throw new StudioClientError("That fragment is not in the Context", 404);
+    const thread: Thread = was
+      ? { id: was.id, appId, fragmentId: was.fragmentId, title: was.title, at: was.at, status: "open", comments: [...was.comments, comment] }
+      : { id: this.host.id("th"), appId, fragmentId: f!.id, title: fragmentTitle(f!.content, 80), comments: [comment], status: "open", at: comment.at };
+    this.set(appId, "threads", was ? threads.map((t) => (t.id === thread.id ? thread : t)) : [...threads, thread]);
+    return thread;
+  }
+
+  async resolveThread(appId: string, threadId: string, resolved: boolean): Promise<Thread> {
+    const threads = this.get(appId, "threads");
+    const was = threads.find((t) => t.id === threadId);
+    if (!was) throw new StudioClientError("Thread not found", 404);
+    const rest = { id: was.id, appId: was.appId, fragmentId: was.fragmentId, title: was.title, comments: was.comments, at: was.at };
+    const thread: Thread = resolved ? { ...rest, status: "resolved", resolvedBy: this.as } : { ...rest, status: "open" };
+    this.set(appId, "threads", threads.map((t) => (t.id === threadId ? thread : t)));
+    return thread;
+  }
+
+  async signOff(appId: string, fragmentId: string, state: "approved" | "changes"): Promise<SignOff> {
+    const me = this.me(appId);
+    const f = fragmentsFrom(appId, this.doc(appId).read(), this.get(appId, "versions")).find((x) => x.id === fragmentId);
+    if (!f) throw new StudioClientError("That fragment is not in the Context", 404);
+    if (!f.reviewerRoles.includes(me.role)) throw new StudioClientError(`This fragment isn't waiting for ${me.role}'s review`, 403);
+    const signoff: SignOff = { appId, fragmentId, role: me.role, by: this.as, state, version: f.version, at: this.iso() };
+    this.set(appId, "signoffs", [...this.get(appId, "signoffs").filter((x) => !(x.fragmentId === fragmentId && x.role === me.role)), signoff]);
+    return signoff;
+  }
+
+  async requestReview(appId: string, fragmentId: string, role: FunctionalRole): Promise<void> {
+    const f = fragmentsFrom(appId, this.doc(appId).read()).find((x) => x.id === fragmentId);
+    if (!f) throw new StudioClientError("That fragment is not in the Context", 404);
+    if (!f.reviewerRoles.includes(role)) this.doc(appId).update(fragmentId, { props: { reviewerRoles: [...f.reviewerRoles, role].join(",") } });
   }
 
   // --- reading --------------------------------------------------------------------------------
@@ -190,6 +270,9 @@ export class FakeContext implements StudioContextClient {
       changes: this.get(appId, "changes"),
       agent: this.get(appId, "agent"),
       turns: this.get(appId, "turns"),
+      threads: this.get(appId, "threads"),
+      signoffs: this.get(appId, "signoffs"),
+      versions: this.get(appId, "versions"),
     };
   }
 

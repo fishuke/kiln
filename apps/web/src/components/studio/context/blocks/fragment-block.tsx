@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Crosshair, Sparkles } from "lucide-react";
+import { Check, Crosshair, MessageSquare, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -123,10 +123,16 @@ export function FragmentBlock({
             <Crosshair className="size-3.5" />
           </GutterButton>
         )}
-{ui.canAsk && (
-          <GutterButton label={ui.canEdit ? "Ask the agent to change this" : "Ask the agent. Your change becomes a proposal"} onClick={() => ui.askAbout(blockId)}>
-          <Sparkles className="size-3.5" />
+        <GutterButton label={ui.threadCounts[blockId] ? `${ui.threadCounts[blockId]} open ${ui.threadCounts[blockId] === 1 ? "thread" : "threads"}` : "Comment"} onClick={() => ui.openThreads(blockId)}>
+          <span className="relative flex">
+            <MessageSquare className="size-3.5" />
+            {ui.threadCounts[blockId] ? <span className="absolute -top-1 -right-1.5 size-2 rounded-full bg-amber-500 ring-2 ring-background" /> : null}
+          </span>
         </GutterButton>
+        {ui.canAsk && (
+          <GutterButton label={ui.canEdit ? "Ask the agent to change this" : "Ask the agent. Your change becomes a proposal"} onClick={() => ui.askAbout(blockId)}>
+            <Sparkles className="size-3.5" />
+          </GutterButton>
         )}
       </div>
     </motion.div>

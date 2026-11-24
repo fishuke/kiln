@@ -239,12 +239,20 @@ function QuestionView({ q }: { q: Question }) {
     else setValue(id);
   };
 
+  // One press is one answer: a second press while the first is on its way does nothing.
+  const sending = useRef(false);
   const send = async (answer: QuestionAnswer) => {
+    if (sending.current) return;
     const checked = validateAnswer(spec, answer);
     if (!checked.ok) return setError(checked.error);
     setError(undefined);
     const el = root.current;
-    if (await ui.answer(q, checked.answer)) requestAnimationFrame(() => focusNextQuestion(el));
+    sending.current = true;
+    try {
+      if (await ui.answer(q, checked.answer)) requestAnimationFrame(() => focusNextQuestion(el));
+    } finally {
+      sending.current = false;
+    }
   };
   const confirm = () => {
     if (other !== undefined) return void send({ type: "other", text: other });

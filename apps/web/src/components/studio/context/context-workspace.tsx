@@ -1,6 +1,6 @@
 "use client";
 
-import { AppWindow, Check, ChevronsUpDown, Columns2, Eye, FileText, LoaderCircle, PanelLeft, PanelRight, ScrollText } from "lucide-react";
+import { AppWindow, Check, ChevronsUpDown, ClipboardCheck, Columns2, Eye, FileText, LoaderCircle, MessagesSquare, PanelLeft, PanelRight, ScrollText } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import type { StudioClient, StudioContextClient } from "@/lib/studio/client";
 import type { DocBlock } from "@/lib/studio/context-doc";
 import { canDecide, canEdit as mayEdit, catchUp, clampSplit, DEFAULT_SPLIT, fragmentsFrom, freshness, needsYou, questionsFrom, sinceLastVisit, VIEWER_NOTE } from "@/lib/studio/context-model";
 import { altTypes } from "@/lib/studio/shortcuts";
-import type { Member, Proposal } from "@/lib/studio/types";
+import type { AgentStatus, FunctionalRole, Member, Proposal } from "@/lib/studio/types";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { Composer } from "../composer";
@@ -29,6 +29,8 @@ import { ROLE_LABEL } from "./fragment-meta";
 import { FreshnessBar } from "./freshness";
 import { ActivityPanel, ProposalsMenu } from "./panels";
 import { memberColor, memberLine, PERMISSION_LABEL, Presence, type Present } from "./people";
+import { ReviewPanel, reviewState, ThreadsPanel } from "./review";
+import { Share, type MemberInput } from "./share";
 import { useBrief, useContextPreview, useContextSnapshot } from "./use-context";
 
 const EXAMPLES = ["A recipe box I can search by ingredient", "Daily habits I can tick off, with a streak for each", "A shared packing list for a weekend trip"];
@@ -97,7 +99,7 @@ function Waiting({ building, busy, progress, openQuestions, hasContext, canEdit,
  */
 export function ContextWorkspace({ client, context: ctx, appId }: { client: StudioClient; context: StudioContextClient; appId: string }) {
   const { detail, refresh } = useStudioApp(client, appId);
-  const { snap, error } = useContextSnapshot(ctx, appId);
+  const { snap, error, refresh: refreshSnap } = useContextSnapshot(ctx, appId);
   const app = detail?.app;
   const me = snap?.me;
   const canEdit = me ? mayEdit(me.permission) : false;
@@ -107,7 +109,12 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
   const [away, setAway] = useState(false);
   const [route, setRoute] = useState("/");
   const [pane, setPane] = useState<"context" | "prototype">("context");
-  const [activityOpen, setActivityOpen] = useState(false);
+  const [panel, setPanel] = useState<"activity" | "threads" | "review">();
+  const [threadFocus, setThreadFocus] = useState<string>();
+  const activityOpen = panel === "activity";
+  const setActivityOpen = (f: boolean | ((o: boolean) => boolean)) => setPanel((p) => ((typeof f === "function" ? f(p === "activity") : f) ? "activity" : p === "activity" ? undefined : p));
+  /** What the person just asked for, shown until the server says the agent is on it. */
+  const [starting, setStarting] = useState<string>();
   const [proposalsOpen, setProposalsOpen] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
   const docRef = useRef<DocumentHandle>(null);
@@ -122,17 +129,22 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
   }, [ctx, appId, me?.user]);
 
   const changes = useMemo(() => snap?.changes ?? [], [snap]);
-  const versions = useMemo(() => {
-    const v: Record<string, number> = {};
-    for (const c of changes) if (c.change !== "removed") v[c.fragmentId] = (v[c.fragmentId] ?? 0) + 1;
-    return v;
-  }, [changes]);
+  const versions = useMemo(() => snap?.versions ?? {}, [snap]);
   const questions = useMemo(() => questionsFrom(appId, blocks), [appId, blocks]);
   const fragments = useMemo(() => fragmentsFrom(appId, blocks, versions), [appId, blocks, versions]);
   const openQuestions = questions.filter((q) => q.status === "open");
   const fresh = useMemo(() => (snap ? freshness(snap.state, changes) : ({ kind: "never" } as const)), [snap, changes]);
-  const agent = snap?.agent ?? { state: "idle" as const, label: "" };
+  const serverAgent: AgentStatus = snap?.agent ?? { state: "idle", label: "" };
+  const serverBusy = serverAgent.state !== "idle" && serverAgent.state !== "waiting";
+  // The page answers a click at once: "Starting" shows until the server's own status takes over.
+  const agent: AgentStatus = !serverBusy && starting ? { state: "thinking", label: starting } : serverAgent;
   const busy = agent.state !== "idle" && agent.state !== "waiting";
+  useEffect(() => {
+    if (!starting) return;
+    if (serverBusy) return setStarting(undefined);
+    const t = setTimeout(() => setStarting(undefined), 12_000);
+    return () => clearTimeout(t);
+  }, [starting, serverBusy]);
   const turn = snap?.turns.find((t) => t.id === agent.turnId);
   const proposals = useMemo(() => snap?.proposals ?? [], [snap]);
   const members = snap?.members;
@@ -219,24 +231,59 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
 
   // --- what a person does ----------------------------------------------------------------------
 
-  const act = useCallback(async (fn: () => Promise<unknown>) => {
-    try {
-      await fn();
-      return true;
-    } catch (err) {
-      toast.error(message(err));
-      return false;
-    }
-  }, []);
+  const act = useCallback(
+    async (fn: () => Promise<unknown>, label?: string) => {
+      if (label) setStarting(label);
+      try {
+        await fn();
+        refreshSnap();
+        return true;
+      } catch (err) {
+        if (label) setStarting(undefined);
+        toast.error(message(err));
+        return false;
+      }
+    },
+    [refreshSnap],
+  );
   const send = useCallback(
     (text: string) =>
       act(async () => {
         const r = await ctx.prompt(appId, text);
         if (r.steered) toast("Sent to the running turn");
-      }),
+      }, "Starting"),
     [act, ctx, appId],
   );
-  const build = useCallback(() => void act(() => ctx.build(appId)), [act, ctx, appId]);
+  const build = useCallback(() => void act(() => ctx.build(appId), "Starting the build"), [act, ctx, appId]);
+  /** An answer went in: ask the server soon, and again a moment later, for what the agent does with it. */
+  const acted = useCallback(() => {
+    setTimeout(refreshSnap, 250);
+    setTimeout(refreshSnap, 1500);
+  }, [refreshSnap]);
+  const openThreads = useCallback((fragmentId?: string) => {
+    setThreadFocus(fragmentId);
+    setPanel("threads");
+  }, []);
+  const threads = useMemo(() => snap?.threads ?? [], [snap]);
+  const signoffs = useMemo(() => snap?.signoffs ?? [], [snap]);
+  const threadCounts = useMemo(() => {
+    const n: Record<string, number> = {};
+    for (const t of threads) if (t.status === "open") n[t.fragmentId] = (n[t.fragmentId] ?? 0) + 1;
+    return n;
+  }, [threads]);
+  /** Per fragment: the section it sits under, so it reads out of place. */
+  const sections = useMemo(() => {
+    const out: Record<string, string> = {};
+    let section = "";
+    for (const b of blocks) {
+      if (b.type === "heading" && !b.parent) section = b.text.trim();
+      else if (section) out[b.id] = section;
+    }
+    return out;
+  }, [blocks]);
+  const toReview = me ? fragments.filter((f) => f.reviewerRoles.includes(me.role)).filter((f) => ["waiting", "stale"].includes(reviewState(f, me.role, signoffs).state)).length : 0;
+  const setMember = useCallback((input: MemberInput) => act(() => ctx.setMember(appId, input)), [act, ctx, appId]);
+  const setRole = useCallback((role: FunctionalRole) => void act(() => ctx.setRole(appId, role)), [act, ctx, appId]);
   const go = useCallback((fragmentId: string) => {
     setPane("context");
     setFull((f) => (f === "prototype" ? undefined : f));
@@ -275,6 +322,9 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
     );
 
   const identities = ctx.identities?.();
+  const lastTurn = snap.turns.at(-1);
+  // A turn that ended without doing its work says so in the dock, with its reason, until the next one starts.
+  const failure = !busy && lastTurn?.status === "failed" ? { text: lastTurn.reply ?? "It ended before it started working.", stopped: false } : undefined;
   const composer = (
     <motion.div layoutId="ctx-composer" transition={{ duration: 0.25, ease: "easeOut" }}>
       <Composer working={busy} onSubmit={send} autoFocus placeholder={canEdit ? "Ask, change or build…" : "Ask, or propose a change…"} />
@@ -313,6 +363,35 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
               <TooltipContent>
                 Every turn and what the agent did <Kbd>⌥A</Kbd>
               </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger render={<Button size="sm" variant={panel === "review" ? "secondary" : "ghost"} aria-pressed={panel === "review"} onClick={() => setPanel((p) => (p === "review" ? undefined : "review"))} className="gap-1.5" />}>
+                <ClipboardCheck />
+                <span className="hidden md:inline">My review</span>
+                {toReview > 0 && <span className="rounded-full bg-amber-500 px-1.5 text-[11px] leading-4 font-semibold text-white tabular-nums">{toReview}</span>}
+              </TooltipTrigger>
+              <TooltipContent>What waits for your role&apos;s review</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="sm"
+                    variant={panel === "threads" ? "secondary" : "ghost"}
+                    aria-pressed={panel === "threads"}
+                    onClick={() => {
+                      setThreadFocus(undefined);
+                      setPanel((p) => (p === "threads" ? undefined : "threads"));
+                    }}
+                    className="gap-1.5"
+                  />
+                }
+              >
+                <MessagesSquare />
+                <span className="hidden md:inline">Threads</span>
+                {threads.some((t) => t.status === "open") && <span className="rounded-full bg-muted px-1.5 text-[11px] leading-4 font-medium tabular-nums">{threads.filter((t) => t.status === "open").length}</span>}
+              </TooltipTrigger>
+              <TooltipContent>Every open comment thread</TooltipContent>
             </Tooltip>
             <div className="ml-auto flex items-center gap-1.5">
               <ToggleGroup
@@ -380,6 +459,13 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
                   </Tooltip>
                 )
               )}
+              <Share
+                members={snap.members}
+                me={me}
+                onSet={setMember}
+                onRemove={(user) => void act(() => ctx.removeMember(appId, user))}
+                onRole={setRole}
+              />
               <ProposalsMenu proposals={proposals} me={me} open={proposalsOpen} onOpenChange={setProposalsOpen} nameOf={nameOf} onDecide={decide} />
               {app?.status === "ready" && fresh.kind !== "never" && (
                 <ShipControl
@@ -427,6 +513,9 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
                 onBlocks={setBlocks}
                 onAway={setAway}
                 onShowInPrototype={showInPrototype}
+                threadCounts={threadCounts}
+                onOpenThreads={openThreads}
+                onActed={acted}
                 handle={docRef}
                 empty={hero}
                 header={
@@ -457,20 +546,60 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
                       canEdit={canEdit}
                       hasContext={fragments.some((f) => f.type !== "section")}
                       away={away}
+                      failure={failure}
+                      onRetry={() => lastTurn && void send(lastTurn.prompt)}
                       onJump={() => docRef.current?.jumpToAgent()}
                       onStop={() => void act(() => ctx.stop(appId))}
                       onQuestions={() => {
                         setPane("context");
                         requestAnimationFrame(() => focusNextQuestion());
                       }}
-                      onContinue={() => void act(() => ctx.continueQuestions(appId))}
+                      onContinue={() => void act(() => ctx.continueQuestions(appId), "Going on with what is answered")}
                       onBuild={build}
                     />
                     {ready ? composer : <Skeleton className="h-24 rounded-xl" />}
                   </div>
                 </div>
               )}
-              <AnimatePresence>{activityOpen && <ActivityPanel key="activity" turns={snap.turns} nameOf={nameOf} onClose={() => setActivityOpen(false)} />}</AnimatePresence>
+              <AnimatePresence>
+                {panel === "activity" && <ActivityPanel key="activity" turns={snap.turns} nameOf={nameOf} onClose={() => setPanel(undefined)} />}
+                {panel === "review" && (
+                  <ReviewPanel
+                    key="review"
+                    fragments={fragments}
+                    sections={sections}
+                    signoffs={signoffs}
+                    me={me}
+                    nameOf={nameOf}
+                    onRole={setRole}
+                    onSignOff={(fragmentId, state) => void act(() => ctx.signOff(appId, fragmentId, state))}
+                    onGo={(fragmentId) => docRef.current?.scrollTo(fragmentId)}
+                    onDiscuss={openThreads}
+                    onClose={() => setPanel(undefined)}
+                  />
+                )}
+                {panel === "threads" && (
+                  <ThreadsPanel
+                    key="threads"
+                    threads={threads}
+                    fragments={fragments}
+                    focus={threadFocus}
+                    me={me}
+                    nameOf={nameOf}
+                    onComment={(input) => act(() => ctx.comment(appId, input))}
+                    onResolve={(threadId, resolved) => void act(() => ctx.resolveThread(appId, threadId, resolved))}
+                    onRequestReview={(fragmentId, role) =>
+                      void act(async () => {
+                        await ctx.requestReview(appId, fragmentId, role);
+                        toast.success(`Asked ${ROLE_LABEL[role]} to review it`);
+                      })
+                    }
+                    onGo={(fragmentId) => docRef.current?.scrollTo(fragmentId)}
+                    onAll={() => setThreadFocus(undefined)}
+                    onClose={() => setPanel(undefined)}
+                  />
+                )}
+              </AnimatePresence>
             </section>
 
             <div

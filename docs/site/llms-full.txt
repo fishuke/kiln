@@ -2261,6 +2261,13 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/studio/apps/{id}/context/questions/continue` | `send` | Go on with what is answered; the agent assumes the rest |
 | POST | `/api/v1/studio/apps/{id}/context/proposals` | `send` | Propose a change to the Context |
 | POST | `/api/v1/studio/apps/{id}/context/proposals/{proposal}/decide` | `send` | Accept or reject a proposal (editors) |
+| POST | `/api/v1/studio/apps/{id}/context/members` | `send` | Add a member, or change what a member may do and their role (the owner) |
+| DELETE | `/api/v1/studio/apps/{id}/context/members/{user}` | `send` | Remove a member (the owner) |
+| POST | `/api/v1/studio/apps/{id}/context/role` | `send` | Set the caller's own functional role: what they review |
+| POST | `/api/v1/studio/apps/{id}/context/threads` | `send` | Comment on a fragment: start a thread, or reply in one |
+| POST | `/api/v1/studio/apps/{id}/context/threads/{thread}/resolve` | `send` | Resolve a thread, or open it again |
+| POST | `/api/v1/studio/apps/{id}/context/fragments/{fragment}/signoff` | `send` | Sign a fragment off for the caller's role at its current version, or ask for changes |
+| POST | `/api/v1/studio/apps/{id}/context/fragments/{fragment}/review-request` | `send` | Ask a role to review a fragment |
 | GET | `/api/v1/studio/apps/{id}/context/brief` | `read` | The Brief: five lines written from the Context at its current version |
 | POST | `/api/v1/studio/apps/{id}/context/seen` | `send` | Record that the caller has seen the Context at its current version |
 | GET | `/api/v1/studio/apps/{id}/context/preview` | `read` | The prototype's preview |
@@ -2416,7 +2423,7 @@ List my factories, then help me send a task to the right one and follow it throu
 | `context_mark_built` | Studio Context: Record that the prototype now reflects the Context as you last read it. |
 | `context_read` | Studio Context: Read the App's Context: the document as Markdown, each fragment with its id and type. Call it before anything else. |
 | `context_remove` | Studio Context: Remove a fragment from the Context, with what is nested under it. |
-| `context_write` | Studio Context: Insert a fragment into the Context, or replace one (pass its id). Write small fragments, one statement each, under a section. |
+| `context_write` | Studio Context: Write into the Context document, or replace a fragment (pass its id). `title` is the document's title. `text` is a paragraph of plain prose: use it for the story (what, why, for whom). `section` is a heading. `step` is one item of the plan, with `done`. `bullet` is a list item. The typed kinds (requirement, flow, constraint, risk, metric, decision, assumption) are one statement each. |
 | `create_factory` | Create a factory: repos, agents to enable (the foreman is always there), Slack, tracker, cost preset, self-improvement and starter automations. Use dry_run first to show the files. |
 | `create_team` | Create a team. You become its owner. Needs a user token (session or personal API key). |
 | `decide_gate` | Approve, reject or answer a gate. Needs the decide scope for the gate's kind. |

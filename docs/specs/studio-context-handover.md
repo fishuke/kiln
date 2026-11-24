@@ -85,6 +85,23 @@ Deployed to anton's Coolify on 2026-11-24 from `main` at `b1fe246`, with `KILN_S
 - `studio.review_requested`, sign-offs and review requests (Phase 4). Typed SDK methods for the page's routes (the web calls them with `api.request`).
 - A turn's steps reach the page by a refresh every four seconds, not by push.
 
+## Phases 3 and 4 (people, review): built, not yet used by a person
+
+On `main` at `2de7ccd` (2026-11-24).
+
+- Members: the owner makes a teammate an editor or a viewer and sets roles in **Share** (`context/share.tsx`); everyone picks their own role. Server: `setMember`, `removeMember`, `setRole` in `ContextService`; rows in `studio_members`, keyed by lower-cased email. A teammate with no row is still an editor (or a viewer who can only watch, when they may only read).
+- Threads: comments on typed fragments from the gutter, replies, resolve and reopen, and every open thread from the top bar (`context/review.tsx`, `ThreadsPanel`). Kiln's own threads in `studio_threads`, not BlockNote's comments. Plain paragraphs and question blocks have no comment button yet.
+- Review: **My review** lists the fragments waiting for the caller's role with the section each sits under; Looks good and Needs changes sign off at the fragment's version (`studio_signoffs`), and a later edit shows "Changed since it was signed off". Anyone can ask a role to review a fragment from its comments. `studio.review_requested` and `studio.comment_added` are published.
+- Presence and cursors come from the shared document's awareness (Phase 1 and 2).
+
+Also changed after the owner's first use of the real page (2026-11-24):
+
+- **The document reads as a document.** `CONTEXT_NOTES` asks the agent for a title, what and why in prose, who it is for, how it works, requirements, a plan of steps it ticks off, what is not being done, and decisions as the log. `context_write` takes `title`, `step` (a checklist item, with `done`) and `bullet`; sections land in reading order (`SECTION_ORDER`) whatever order they are written in; plain text with no section goes under the title.
+- **Clicks answer at once.** An editor's answer and Change answer update the block on the page first and tell the server behind it (reverting with the reason if the server refuses); a second press while one is on its way does nothing; prompts, Build and Continue show "Starting" until the server's status takes over.
+- **A failed turn says so.** The dock shows why the last turn failed, with Try again.
+
+Not checked in a browser: the dev server would not stay up on anton when this was built (it died while compiling). These three panels and the instant answers have only been typechecked, linted and covered by the server and model tests.
+
 ## Tests on the machine this was built on (2026-11-23)
 
 - `pnpm typecheck` and `pnpm lint`: clean. `next build`: passes.

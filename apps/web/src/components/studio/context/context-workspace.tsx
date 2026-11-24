@@ -51,8 +51,14 @@ function usePresent(ctx: StudioContextClient, appId: string, me: Member | undefi
       setPeople([...seen.values()]);
     };
     read();
-    awareness.on("change", read);
-    return () => awareness.off("change", read);
+    // The editor announces its user while it is being created, which is during a render: read after it.
+    let stop = false;
+    const later = () => queueMicrotask(() => !stop && read());
+    awareness.on("change", later);
+    return () => {
+      stop = true;
+      awareness.off("change", later);
+    };
   }, [ctx, appId]);
   // The person themselves shows at once, before the editor has announced them.
   if (me && !people.some((p) => p.name === me.name)) return [{ name: me.name, color: memberColor(me.user) }, ...people];
@@ -60,10 +66,12 @@ function usePresent(ctx: StudioContextClient, appId: string, me: Member | undefi
 }
 
 /** What the prototype pane says before the first build: what it is waiting for, never an empty pane. */
-function Waiting({ building, progress, openQuestions, hasContext, canEdit, onBuild }: { building: boolean; progress?: string; openQuestions: number; hasContext: boolean; canEdit: boolean; onBuild(): void }) {
+function Waiting({ building, busy, progress, openQuestions, hasContext, canEdit, onBuild }: { building: boolean; busy: boolean; progress?: string; openQuestions: number; hasContext: boolean; canEdit: boolean; onBuild(): void }) {
   const text = building
     ? "Building the first version"
-    : openQuestions
+    : busy
+      ? "The agent is working on the Context. The first version follows"
+      : openQuestions
       ? "Answer the questions and I'll build the first version"
       : hasContext
         ? "The Context is ready to build from"
@@ -73,7 +81,7 @@ function Waiting({ building, progress, openQuestions, hasContext, canEdit, onBui
       <div className="flex size-14 items-center justify-center rounded-2xl border bg-background shadow-xs">{building ? <LoaderCircle className="size-6 animate-spin text-violet-600 dark:text-violet-400" /> : <AppWindow className="size-6 text-muted-foreground" />}</div>
       <p className={cn("max-w-xs text-sm text-pretty", building ? "shimmer" : "text-muted-foreground")}>{text}</p>
       {building && progress && <p className="text-xs text-muted-foreground tabular-nums">{progress}</p>}
-      {!building && !openQuestions && hasContext && canEdit && (
+      {!busy && !openQuestions && hasContext && canEdit && (
         <Button size="sm" onClick={onBuild}>
           Build prototype
         </Button>
@@ -422,7 +430,7 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
                 handle={docRef}
                 empty={hero}
                 header={
-                  ready && fragments.length > 0 && landing ? (
+                  ready && fragments.length > 0 && snap.state.version > 0 && landing ? (
                     <Brief
                       brief={brief}
                       open={briefOpen}
@@ -439,8 +447,8 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
                 }
               />
               {!firstRun && (
-                <div className="shrink-0 border-t bg-background/80 backdrop-blur-sm">
-                  <div className="mx-auto flex w-full max-w-[816px] flex-col gap-2 pt-2 pr-4 pb-3 pl-14 sm:pr-8 sm:pl-16">
+                <div className="@container shrink-0 border-t bg-background/80 backdrop-blur-sm">
+                  <div className="mx-auto flex w-full max-w-[816px] flex-col gap-2 pt-2 pr-3 pb-3 pl-10 @lg:pr-8 @lg:pl-16">
                     <DockStatus
                       agent={agent}
                       turn={turn}
@@ -504,6 +512,7 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
                 {fresh.kind === "never" ? (
                   <Waiting
                     building={agent.state === "building"}
+                    busy={busy}
                     progress={agent.total ? `${agent.done ?? 0} of ${agent.total} files` : undefined}
                     openQuestions={openQuestions.length}
                     hasContext={fragments.some((f) => f.type !== "section")}

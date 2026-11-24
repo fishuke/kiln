@@ -289,9 +289,19 @@ function QuestionView({ q }: { q: Question }) {
       }
       e.stopPropagation();
     };
+    // A press on the block must not reach the editor: it would select the block's node and redraw
+    // it before the click lands, so the button under the pointer never hears it.
+    const keep = (e: Event) => e.stopPropagation();
     el.addEventListener("keydown", onKey);
-    return () => el.removeEventListener("keydown", onKey);
-  }, []);
+    el.addEventListener("mousedown", keep);
+    el.addEventListener("pointerdown", keep);
+    return () => {
+      el.removeEventListener("keydown", onKey);
+      el.removeEventListener("mousedown", keep);
+      el.removeEventListener("pointerdown", keep);
+    };
+    // The block has no element while it is collapsed in a stepper.
+  }, [display]);
 
   if (display === "collapsed")
     return (
@@ -308,6 +318,7 @@ function QuestionView({ q }: { q: Question }) {
   const type = q.status === "answered" ? "decision" : q.status === "delegated" ? "assumption" : "question";
   const who = q.answeredBy ? (q.answeredBy === ui.me.user ? "you" : ui.nameOf(q.answeredBy)) : "";
   const freeAnswer = settled && q.answer && (q.answer.type === "other" || !choices.length);
+  const reopenLabel = q.status === "skipped" ? "Answer" : q.status === "delegated" ? "Decide yourself" : "Change answer";
 
   return (
     <motion.div
@@ -439,25 +450,21 @@ function QuestionView({ q }: { q: Question }) {
             {who ? `${q.status === "delegated" ? ", asked by" : " by"} ${who}` : ""}
             {q.answeredAt ? ` · ${ago(q.answeredAt)}` : ""}
           </span>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-disabled={!ui.canEdit}
-                  onClick={() => ui.canEdit && void ui.reopen(q)}
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-sm font-medium text-foreground/80 underline-offset-2 transition-colors hover:text-foreground hover:underline",
-                    !ui.canEdit && "cursor-not-allowed opacity-50 hover:no-underline",
-                  )}
-                />
-              }
-            >
+          {/* No tooltip for an editor: on a link this small its arrow sits over the link and takes the click. */}
+          {ui.canEdit ? (
+            <button type="button" onClick={() => void ui.reopen(q)} className="inline-flex items-center gap-1 rounded-sm font-medium text-foreground/80 underline-offset-2 transition-colors hover:text-foreground hover:underline">
               <Undo2 className="size-3" />
-              {q.status === "skipped" ? "Answer" : q.status === "delegated" ? "Decide yourself" : "Change answer"}
-            </TooltipTrigger>
-            <TooltipContent>{ui.canEdit ? "Open this question again" : VIEWER_NOTE}</TooltipContent>
-          </Tooltip>
+              {reopenLabel}
+            </button>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger render={<button type="button" aria-disabled className="inline-flex cursor-not-allowed items-center gap-1 rounded-sm font-medium text-foreground/80 opacity-50" />}>
+                <Undo2 className="size-3" />
+                {reopenLabel}
+              </TooltipTrigger>
+              <TooltipContent>{VIEWER_NOTE}</TooltipContent>
+            </Tooltip>
+          )}
         </motion.div>
       )}
     </motion.div>

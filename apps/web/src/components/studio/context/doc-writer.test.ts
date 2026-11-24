@@ -40,6 +40,11 @@ describe("editorWriter over the BlockNote editor", () => {
     expect(read(editor).find((b) => b.id === id)).toMatchObject({ type: "constraint", text: "People can search.", props: { ownerRole: "design", route: "/" } });
     w.update(id, { text: "Replaced." });
     expect(read(editor).find((b) => b.id === id)?.text).toBe("Replaced.");
+    // Clearing a block before rewriting it leaves nothing of the old text behind.
+    w.update(id, { text: "" });
+    expect(read(editor).find((b) => b.id === id)?.text).toBe("");
+    w.appendText(id, "Rewritten.");
+    expect(read(editor).find((b) => b.id === id)?.text).toBe("Rewritten.");
     w.remove(id);
     expect(read(editor).some((b) => b.id === id)).toBe(false);
     w.appendText(id, "ignored");
@@ -132,6 +137,8 @@ describe("Ask the agent's suggestions", () => {
     expect(suggestionText(editor, "s1")).toEqual({ from: "People should be able to search.", to: "People can search." });
     const whole = contentRange(editor, id)!;
     expect(suggestionRange(editor, "s1")).toEqual(whole);
+    // The new text is a word of its own, so the editor never reads "search.People" as a link.
+    expect(read(editor).find((b) => b.id === id)?.text).toBe("People should be able to search. People can search.");
   });
 
   it("Accept keeps the new text; Reject keeps the old", () => {

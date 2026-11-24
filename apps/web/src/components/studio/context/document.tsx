@@ -3,10 +3,12 @@
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from "@blocknote/core";
 import { withCollaboration } from "@blocknote/core/yjs";
 import {
+  BasicTextStyleButton,
+  BlockTypeSelect,
+  CreateLinkButton,
   FormattingToolbar,
   FormattingToolbarController,
   getDefaultReactSlashMenuItems,
-  getFormattingToolbarItems,
   SuggestionMenuController,
   useComponentsContext,
   useCreateBlockNote,
@@ -55,7 +57,7 @@ function useDark(): boolean {
   return dark;
 }
 
-/** "Ask the agent" in the toolbar that shows on a text selection. */
+/** "Ask the agent" in the toolbar that shows on a text selection. The toolbar is short on purpose: the Context is writing, and it must fit a narrow pane. */
 function AskButton() {
   const Components = useComponentsContext()!;
   const ui = useContextUI();
@@ -69,8 +71,13 @@ function AskButton() {
 function SelectionToolbar() {
   return (
     <FormattingToolbar>
-      {getFormattingToolbarItems()}
       <AskButton key="askAgent" />
+      <BlockTypeSelect key="blockTypeSelect" />
+      <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
+      <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
+      <BasicTextStyleButton basicTextStyle="underline" key="underlineStyleButton" />
+      <BasicTextStyleButton basicTextStyle="strike" key="strikeStyleButton" />
+      <CreateLinkButton key="createLinkButton" />
     </FormattingToolbar>
   );
 }
@@ -383,8 +390,8 @@ export function ContextDocument({
   const edge = (left: number, width: number) => Math.max(0, Math.min(left, (wrap.current?.clientWidth ?? width) - width));
 
   return (
-    <div ref={scroller} className="ctx-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain" data-context-scroller>
-      <div ref={wrap} className={cn("relative mx-auto w-full max-w-[816px] pt-6 pr-4 pb-24 pl-14 sm:pr-8 sm:pl-16", empty && "flex min-h-full flex-col justify-center px-4 pb-6 sm:px-8")}>
+    <div ref={scroller} className="ctx-scroll @container min-h-0 flex-1 overflow-y-auto overscroll-contain" data-context-scroller>
+      <div ref={wrap} className={cn("relative mx-auto w-full max-w-[816px] pt-6 pr-3 pb-24 pl-10 @lg:pr-8 @lg:pl-16", empty && "flex min-h-full flex-col justify-center px-4 pb-6 @lg:px-8")}>
         {empty}
         {!empty && header}
         <div className={cn("ctx-doc", empty && "invisible h-0 overflow-hidden")} aria-hidden={empty ? true : undefined}>
@@ -413,11 +420,12 @@ export function ContextDocument({
               key="agent-cursor"
               aria-hidden
               className="ctx-agent-cursor"
-              initial={{ opacity: 0, x: cursor.left, y: cursor.top }}
-              animate={{ opacity: 1, x: cursor.left, y: cursor.top }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: reduced ? 0 : 0.12, ease: "easeOut" }}
-              style={{ height: cursor.height }}
+              transition={{ duration: 0.15, ease: "easeOut" }}
+              // The position is set, not animated: the cursor stays on the last character as text streams in.
+              style={{ height: cursor.height, x: cursor.left, y: cursor.top }}
             >
               <span className="ctx-agent-cursor-label">
                 <Sparkles className="size-2.5" />

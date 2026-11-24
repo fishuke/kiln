@@ -48,10 +48,14 @@ export function suggestionRange(editor: ContextEditor, id: string): Range | unde
 /** Streams the agent's text in right after what it replaces, marked as "would be added". */
 export function appendSuggestion(editor: ContextEditor, id: string, text: string): void {
   editor.transact((tr) => {
-    const at = ranges(tr.doc, ADD, id).at(-1)?.to ?? ranges(tr.doc, DEL, id).at(-1)?.to;
+    const added = ranges(tr.doc, ADD, id).at(-1);
+    const old = ranges(tr.doc, DEL, id).at(-1);
+    const at = added?.to ?? old?.to;
     if (at === undefined) return;
+    // The new text starts a word of its own: glued to the old text, "device.It" reads as a link.
+    const gap = !added && old && !/\s$/.test(tr.doc.textBetween(old.from, old.to)) ? " " : "";
     tr.setMeta("addToHistory", false);
-    tr.insert(at, editor.pmSchema.text(text, [editor.pmSchema.marks[ADD]!.create({ stringValue: id })]));
+    tr.insert(at, editor.pmSchema.text(gap + text, [editor.pmSchema.marks[ADD]!.create({ stringValue: id })]));
   });
 }
 
@@ -60,8 +64,16 @@ export function resolveSuggestion(editor: ContextEditor, id: string, accept: boo
   editor.transact((tr) => {
     const drop = accept ? DEL : ADD;
     const keep = accept ? ADD : DEL;
-    for (const r of ranges(tr.doc, keep, id)) tr.removeMark(r.from, r.to, editor.pmSchema.marks[keep]!);
-    for (const r of ranges(tr.doc, drop, id).reverse()) tr.delete(r.from, r.to);
+    const gone = ranges(tr.doc, drop, id);
+    const kept = ranges(tr.doc, keep, id);
+    // Accepting drops the space that kept the new text apart, where the old text began a word or the block.
+    const [first, old] = [kept[0], gone[0]];
+    if (accept && first && old && tr.doc.textBetween(first.from, first.from + 1) === " ") {
+      const before = tr.doc.resolve(old.from).parentOffset === 0 ? " " : tr.doc.textBetween(old.from - 1, old.from);
+      if (/\s/.test(before)) gone.push({ from: first.from, to: first.from + 1 });
+    }
+    for (const r of kept) tr.removeMark(r.from, r.to, editor.pmSchema.marks[keep]!);
+    for (const r of gone.sort((a, b) => b.from - a.from)) tr.delete(r.from, r.to);
   });
 }
 
@@ -72,5 +84,5 @@ export function suggestionText(editor: ContextEditor, id: string): { from: strin
     ranges(doc, type, id)
       .map((r) => doc.textBetween(r.from, r.to))
       .join("");
-  return { from: read(DEL), to: read(ADD) };
+  return { from: read(DEL), to: read(ADD).trimStart() };
 }

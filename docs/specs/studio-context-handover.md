@@ -14,7 +14,7 @@ Repository: `fishuke/kiln`. Branch: `studio-context` (cut from `main` at `827afa
 - Phase 2 touches the server. `apps/api/src/app.ts` and `packages/auth/**` are protected paths: ask before editing them. Phase 2 also needs a new ADR ("Studio Context") before the server work.
 - Use the `design-taste-frontend` skill for the visual and motion pass, and hold the page to the principles table in section 4.10 of the plan.
 
-## Phase 1 (web only, on the fake): built, not yet seen in a browser
+## Phase 1 (web only, on the fake): built and checked in a browser
 
 Run it: `NEXT_PUBLIC_KILN_STUDIO_FAKE=1 KILN_STUDIO_CONTEXT=1 pnpm --filter @kiln/web dev`, then open `/studio/sa_demo` (a written Context) or `/studio/sa_demo?seed=empty` (first run). "View as" in the top bar switches between the owner, an editor and a viewer.
 
@@ -30,10 +30,28 @@ Run it: `NEXT_PUBLIC_KILN_STUDIO_FAKE=1 KILN_STUDIO_CONTEXT=1 pnpm --filter @kil
 - Tests: `context-model.test.ts` (25), `fake-context.test.ts` (9), `context-sync.test.ts` (4), `flag.test.ts` (1) and `components/studio/context/doc-writer.test.ts` (7), which runs the real BlockNote editor without a browser: the document writer, the scripted agent from first prompt to a built prototype, stale and fresh, and suggestions.
 - Passing on 2026-11-23: `tsc --noEmit` and `vitest run` in `apps/web` (310 tests), `eslint` on the Studio code, `next build`.
 
+### Checked in a browser (2026-11-24)
+
+Headless Chrome 158 driven with `puppeteer-core`, on the dev server with the fake. All of these passed with no console or page errors:
+
+- First run: the centred composer and examples, the first prompt, the title and problem streaming in with the agent's cursor on the last character, three questions of different kinds.
+- Answering by keyboard (`1`–`4`, `Enter`, focus moving to the next question) and by mouse; each answer settles into a decision; Change answer, Decide yourself and Skip.
+- The fragments written from the answers, the build, the prototype in the frame, "Up to date with the Context"; a hand edit gives "1 change behind" and Update clears it; changing an answer rewrites its fragments.
+- Ask the agent on a fragment and on a selection, the suggestion marks, Accept and Reject; the slash menu with the typed fragments.
+- A second tab shows the same document and receives typing from the first.
+- The split by drag and arrow keys (saved per person), ⌥1 and ⌥2, tabs below `lg`.
+- A viewer lands on the open Brief with "since your last visit", can't edit, and their prompt becomes a proposal; the owner accepts it and it is in the Context. Activity lists the turns.
+- With `prefers-reduced-motion`, the CSS transitions and the arrival tint are off.
+- Without `KILN_STUDIO_CONTEXT`, the current Studio page renders as before.
+
+Found and fixed by this pass: the agent cursor lagged the text; the prototype pane offered Build while the agent was still writing; the gutter icons were oversized; a suggestion glued to the old text became a link ("device.It") and its colours didn't show; the selection toolbar was wider than the pane; a tooltip's arrow covered "Change answer" and took the click; a rewrite after a changed answer was appended to the old sentence.
+
 ### Still open in Phase 1
 
-- **Nobody has looked at the page.** The machine it was built on has no browser. Everything in the "Done when" list of the plan that is about what a person sees is unchecked: the layout and the block handle's column, BlockNote's shadcn styles next to the app's own, the question-to-decision morph, the agent cursor's position, the composer's move to the dock, the split, the two-tab sync in real tabs, reduced motion. Expect visual fixes.
-- The `design-taste-frontend` skill was not available in the session that built the page, so the visual and motion pass against section 4.10 has not been done with it.
+- Checked with scripts and screenshots, not by a person using it. Not checked: dark theme, Firefox and Safari, a real phone, the feel of the animations (question to decision, composer to dock), dragging blocks, a question batch larger than three (the stepper).
+- In the app shell the sidebar stays open at phone width, so the page is cramped there. The sidebar belongs to the shell, not to this page; whether the current Studio page is cramped the same way was not checked.
+- The Accept and Reject pill sits just under the end of a suggestion and covers part of the next line while it is there.
+- The `design-taste-frontend` skill was not available in the sessions that built and checked the page, so the visual and motion pass against section 4.10 has not been done with it.
 - Not built in Phase 1 by design (later phases): comment threads, My review, Threads, members and invites, Inspect and prototype links beyond the route, export.
 
 ## Phase 2 (server truth): started

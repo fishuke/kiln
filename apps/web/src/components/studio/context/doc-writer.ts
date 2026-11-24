@@ -68,7 +68,7 @@ export function editorWriter(editor: ContextEditor): ContextDocWriter {
     },
     update(id: string, patch: { type?: string; props?: DocProps; text?: string }): void {
       if (!editor.getBlock(id)) return;
-      quiet(() => editor.updateBlock(id, { ...(patch.type ? { type: patch.type } : {}), ...(patch.props ? { props: patch.props } : {}), ...(patch.text !== undefined ? { content: patch.text } : {}) } as never));
+      quiet(() => editor.updateBlock(id, { ...(patch.type ? { type: patch.type } : {}), ...(patch.props ? { props: patch.props } : {}), ...(patch.text !== undefined ? { content: patch.text || [] } : {}) } as never));
     },
     remove(id: string): void {
       if (editor.getBlock(id)) quiet(() => editor.removeBlocks([id]));

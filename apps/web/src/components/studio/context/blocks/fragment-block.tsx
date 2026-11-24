@@ -24,7 +24,7 @@ export function GutterButton({ label, onClick, disabled, children }: { label: st
             aria-disabled={disabled}
             onClick={disabled ? undefined : onClick}
             className={cn(
-              "flex size-6 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-150 hover:bg-muted hover:text-foreground active:scale-95 [&_svg]:size-3.5",
+              "flex size-6 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-150 hover:bg-muted hover:text-foreground active:scale-95",
               disabled && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground active:scale-100",
             )}
           />
@@ -120,11 +120,11 @@ export function FragmentBlock({
         </span>
         {props.route && (
           <GutterButton label={`Show in the prototype (${props.route})`} onClick={() => ui.showInPrototype(props.route)}>
-            <Crosshair />
+            <Crosshair className="size-3.5" />
           </GutterButton>
         )}
         <GutterButton label={ui.canEdit ? "Ask the agent to change this" : "Ask the agent. Your change becomes a proposal"} onClick={() => ui.askAbout(blockId)}>
-          <Sparkles />
+          <Sparkles className="size-3.5" />
         </GutterButton>
       </div>
     </motion.div>

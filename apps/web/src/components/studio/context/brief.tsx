@@ -67,7 +67,7 @@ export function Brief({
 }) {
   const waiting = needs.questions.length + needs.reviews.length + proposalsToDecide.length;
   return (
-    <section aria-label="Brief" className="mb-6 rounded-xl border bg-card shadow-xs">
+    <section aria-label="Brief" className="mb-4 rounded-xl border bg-card shadow-xs">
       <button type="button" aria-expanded={open} onClick={() => onOpenChange(!open)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50">
         <Newspaper className="size-4 shrink-0 text-muted-foreground" />
         <span className="font-medium">Brief</span>
@@ -97,7 +97,7 @@ export function Brief({
                 </div>
               )}
               {(since.length > 0 || waiting > 0) && (
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-4">
                   {since.length > 0 && (
                     <Group title="Since your last visit" count={since.length}>
                       {since.slice(0, 6).map((c) => (

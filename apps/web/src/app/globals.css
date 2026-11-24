@@ -295,6 +295,8 @@ html.dark {
 .ctx-doc .bn-editor:focus-visible { outline: none; }
 .ctx-doc .bn-block-outer { border-radius: 8px; }
 .ctx-doc .bn-block-content[data-content-type="heading"] { margin-top: 0.6em; }
+.ctx-doc .bn-editor > .bn-block-group > .bn-block-outer:first-child .bn-block-content[data-content-type="heading"] { margin-top: 0; }
+.ctx-doc .bn-editor > .bn-block-group > .bn-block-outer:first-child > .bn-block { margin-top: 0; padding-top: 0; }
 .ctx-doc .bn-block-outer.ctx-flash { animation: ctx-flash 1.4s ease-out; }
 .ctx-doc .bn-block-content:has(.ctx-fragment),
 .ctx-doc .bn-block-content:has(.ctx-question) { width: 100%; }
@@ -388,8 +390,10 @@ html.dark {
 .ctx-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in oklch, var(--ring) 40%, transparent); }
 
 /* "Ask the agent": what would be added and what would be removed */
-.ctx-suggest-add { border-radius: 3px; background: oklch(0.72 0.17 150 / 0.2); text-decoration: none; }
-.ctx-suggest-del { border-radius: 3px; background: oklch(0.63 0.21 25 / 0.14); color: var(--muted-foreground); text-decoration: line-through; }
+ins.ctx-suggest-add,
+.ctx-doc .bn-editor ins.ctx-suggest-add { border-radius: 3px; background-color: oklch(0.72 0.17 150 / 0.22); text-decoration: none; }
+del.ctx-suggest-del,
+.ctx-doc .bn-editor del.ctx-suggest-del { border-radius: 3px; background-color: oklch(0.63 0.21 25 / 0.14); color: var(--muted-foreground); text-decoration: line-through; }
 
 /* The agent's cursor in the document */
 .ctx-agent-cursor {

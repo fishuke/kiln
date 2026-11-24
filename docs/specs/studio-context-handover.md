@@ -60,20 +60,30 @@ Found and fixed by this pass: the agent cursor lagged the text; the prototype pa
 - The `design-taste-frontend` skill was not available in the sessions that built and checked the page, so the visual and motion pass against section 4.10 has not been done with it.
 - Not built in Phase 1 by design (later phases): comment threads, My review, Threads, members and invites, Inspect and prototype links beyond the route, export.
 
-## Phase 2 (server truth): started
+## Phase 2 (server truth): built and deployed, not yet used by a person
 
-Done:
+Deployed to anton's Coolify on 2026-11-24 from `main` at `b1fe246`, with `KILN_STUDIO_CONTEXT=1` on the app. That deploy also moved Kiln's store from `kiln.json` to SQLite (ADR-015, already on `main`); a copy of the old file is in `~/backups/kiln/` on anton.
 
-- `docs/adr/0019-studio-context.md` (status: proposed, like ADR-012) and its line in `docs/adr/README.md`.
-- `packages/studio/src/context-types.ts`, `context-doc.ts`, `context-model.ts` (+ `context-types.test.ts`, `context-model.test.ts`, 28 passing), exported from the package: the same shapes and rules as the web's, for the server to enforce. The web keeps its own copy because the page doesn't depend on `packages/studio`.
+- `docs/adr/0019-studio-context.md`: accepted. It records the transport: the document syncs through the web server as an event stream and a POST, not a WebSocket, so nothing in `apps/api/src/app.ts` or `packages/auth` changed.
+- `packages/studio/src/`: `context-types.ts`, `context-doc.ts`, `context-model.ts` (the shapes and rules, mirrored from the web), `context-ydoc.ts` (`YContextDoc`: the server reads and writes the Yjs document in the editor's shape, with no editor), `context-service.ts` (`ContextService`: the live documents, settle and versions, snapshots in the object store, members, questions, proposals, the six tools, the thread). `Studio.send` takes a `note` that leads the message without being part of the turn's prompt.
+- `apps/api/src/routes/studio-context.ts`: the routes under `/api/v1/studio/apps/{id}/context`, and `POST /api/v1/studio/context/tools/{name}`. A run's token may call the tools route (`run-auth.ts`); the App is the run's and the permission is that of whoever prompted its turn (a viewer's turn runs in `chat` mode, which is how the route knows).
+- `apps/mcp`: the tools as `context_read`, `context_write`, `context_remove`, `context_ask`, `context_link_preview`, `context_mark_built`. `packages/sdk-ts`: `studioContextTool`. `packages/events`: `studio.question_asked`, `studio.question_answered`, `studio.context_changed`, `studio.proposal_opened`.
+- `apps/web`: `lib/studio/api-context.ts` and `context-server-sync.ts` (the real client), `app/studio/context-actions.ts`, `app/api/studio/apps/[id]/context/sync/route.ts`. `docker-compose.prod.yml` passes `KILN_STUDIO_CONTEXT` to the web service.
+- Tests: `packages/studio` `context-ydoc.test.ts` (5), `context-service.test.ts` (11); `apps/api` `studio-context.test.ts` (4, including a run using the tools with its own token and the sync stream); `apps/web` `ydoc.test.ts` (2, the server's writer against the real editor), `context-server-sync.test.ts` (5).
 
-Not done: store collections, the Yjs endpoint with viewer enforcement, the six tools, the new turn instructions, answers starting the follow-up turn, events, routes, SDK and MCP additions, `ApiStudioClient`'s `context`.
+### Not verified
 
-Three things need the owner before the rest of Phase 2:
+- **Nobody has used the page against the real API.** The page was checked in a browser only on the fake. The server and the client were each tested against a stand-in for the other. The first real use is the test: a signed-in person opening an App on the deployed Kiln. A second Kiln API must not be run on anton to try it: on start it removes sandboxes it doesn't know, which would be the deployed Kiln's.
+- Whether the real agent follows the Context's notes (reads first, asks with `context_ask`, ends its turn after asking, calls `context_mark_built`).
 
-1. **Authenticating the WebSocket upgrade.** `apps/api/src/main.ts` only upgrades preview hosts today. The Context socket needs the session check the routes use, which lives behind `apps/api/src/app.ts` and `packages/auth/**` (protected). New routes fit in `apps/api/src/routes/studio.ts` (`register`) without touching `app.ts`; the upgrade check may not. Say whether `app.ts` or `packages/auth` may export what the upgrade needs.
-2. **How the server's agent peer writes BlockNote's document.** The Context is BlockNote's ProseMirror tree in a `Y.XmlFragment`. BlockNote's editor only binds to Yjs once it has a DOM view (checked: two headless editors on synced documents don't see each other), so the server can't use a headless editor as the agent peer. The choices are `@blocknote/server-util` (a new dependency that brings jsdom; check its licence first, per the plan), or Kiln writing the `Y.XmlFragment` itself for the block types in `schema.tsx`. `apps/api` and `packages/studio` also need `yjs` and `y-protocols` (both MIT).
-3. **ADR-019 is proposed.** Accept it or change it.
+### Left out of Phase 2
+
+- "Ask the agent" on a selection has no server side; its buttons hide on the real client. `packages/decide` has an LLM provider that could serve it and the Brief.
+- The Brief is written by rule from the Context (`briefLines`), not by a model.
+- The agent's worktree gets no `.kiln/context.md`; it reads with `context_read`.
+- Members are not stored yet: the creator is the owner, anyone else who may send to the team's Apps is an editor, anyone who may only read is a viewer who can watch. Every change needs `send`, a proposal included, like the rest of the API. Invited viewers who can propose are Phase 3.
+- `studio.review_requested`, sign-offs and review requests (Phase 4). Typed SDK methods for the page's routes (the web calls them with `api.request`).
+- A turn's steps reach the page by a refresh every four seconds, not by push.
 
 ## Tests on the machine this was built on (2026-11-23)
 

@@ -6,13 +6,19 @@ Repository: `fishuke/kiln`. Branch: `studio-context` (cut from `main` at `827afa
 
 ## Standing instructions from the owner
 
-- Finish Phase 1, then continue with Phases 2, 3, 4 and 5 of the plan, in order. Do not stop for approval between phases; the defaults in section 9 of the plan are confirmed.
-- Kiln stays MIT. BlockNote core, react and shadcn only (0.57.0 is installed). Never add an `@blocknote/xl-*` package (GPL or commercial). The inline "Ask the agent" with Accept and Reject is built on Kiln's own agent, not on `@blocknote/xl-ai`.
+Updated 2026-11-24. Where these differ from the first handover, these win.
+
+- Build all the phases, in order, without stopping for approval. The defaults in section 9 of the plan are confirmed.
+- Push directly to `main`. No pull request, no Linear ticket. `main` was fast-forwarded to this work on 2026-11-24; the `studio-context` branch is kept at the same commit.
+- Deploy when a phase works. Kiln runs on anton's Coolify (app `kiln`, built from `main` with `docker-compose.prod.yml`).
+- Never add Claude as author or co-author, and add no "Generated with" footer. Commit as `fishuke <fishukee@gmail.com>`.
+- ADR-019 is accepted. The server's agent writes the Yjs document itself (`packages/studio/src/context-ydoc.ts`); no `@blocknote/server-util`.
+- Kiln stays MIT. BlockNote core, react and shadcn only (0.57.0). Never add an `@blocknote/xl-*` package (GPL or commercial). The inline "Ask the agent" is built on Kiln's own agent.
 - No mode picker. Permissions are editor or viewer; a viewer's prompt or answer becomes a proposal.
 - The new page is behind `KILN_STUDIO_CONTEXT=1`; the current Studio page must keep working without it.
-- Commit on this branch only. Do not push `main`, do not open a pull request. No Linear ticket. Never add Claude as author or co-author, and add no "Generated with" footer.
-- Phase 2 touches the server. `apps/api/src/app.ts` and `packages/auth/**` are protected paths: ask before editing them. Phase 2 also needs a new ADR ("Studio Context") before the server work.
-- Use the `design-taste-frontend` skill for the visual and motion pass, and hold the page to the principles table in section 4.10 of the plan.
+- The owner allowed `apps/api/src/app.ts` to export its session check for the Context socket. It turned out not to be needed (ADR-019, Transport); the other protected paths still need asking.
+- Use the `design-taste-frontend` skill for the visual and motion pass when it is available, and hold the page to the principles table in section 4.10 of the plan.
+- anton has been unstable (random crashes, an out-of-memory kill on 2026-11-24). Keep builds and test runs light there: one directory at a time, no parallel suites.
 
 ## Phase 1 (web only, on the fake): built and checked in a browser
 

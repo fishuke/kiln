@@ -27,6 +27,7 @@ import type { AgentStatus, Member, Proposal } from "@/lib/studio/types";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { AskAgent, type AskTarget } from "./ask-agent";
+import { arrivePlugin } from "./arrive";
 import { ContextUIProvider, useContextUI, type ContextUI } from "./context-ui";
 import { contentRange, editorWriter, readBlocks } from "./doc-writer";
 import { FRAGMENT_META, FragmentGlyph } from "./fragment-meta";
@@ -171,6 +172,15 @@ export function ContextDocument({
     };
   }, [editor, provider]);
   useEffect(() => onBlocks(blocks), [blocks, onBlocks]);
+
+  // A peer's text (the agent's, mostly) fades in word by word once the document has loaded.
+  const animate = useRef(false);
+  animate.current = live && !reduced;
+  useEffect(() => {
+    const plugin = arrivePlugin(() => animate.current);
+    editor._tiptapEditor.registerPlugin(plugin);
+    return () => void editor._tiptapEditor.unregisterPlugin(plugin.spec.key!);
+  }, [editor]);
 
   // Blocks already in the document when it loads don't animate in; what arrives after does.
   useEffect(() => {

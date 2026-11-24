@@ -27,7 +27,7 @@ import type { AgentStatus, Member, Proposal } from "@/lib/studio/types";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { AskAgent, type AskTarget } from "./ask-agent";
-import { arrivePlugin } from "./arrive";
+import { arrivePlugin, revealPoint } from "./arrive";
 import { ContextUIProvider, useContextUI, type ContextUI } from "./context-ui";
 import { contentRange, editorWriter, readBlocks } from "./doc-writer";
 import { FRAGMENT_META, FragmentGlyph } from "./fragment-meta";
@@ -236,12 +236,21 @@ export function ContextDocument({
     [onAway, behavior],
   );
 
+  // While words are still fading in, the cursor moves with them; tick until they all have.
+  const [revealing, setRevealing] = useState(0);
+  useEffect(() => {
+    if (revealPoint(editor.prosemirrorState) === undefined) return;
+    const t = setTimeout(() => setRevealing((n) => n + 1), 90);
+    return () => clearTimeout(t);
+  }, [editor, tick, revealing]);
+
   useLayoutEffect(() => {
     const range = writingIn ? contentRange(editor, writingIn) : undefined;
-    const next = range ? spot(range.to) : undefined;
+    const reached = revealPoint(editor.prosemirrorState);
+    const next = range ? spot(reached !== undefined && reached >= range.from && reached < range.to ? reached : range.to) : undefined;
     setCursor((was) => (was && next && was.top === next.top && was.left === next.left ? was : next));
     checkAway(next);
-  }, [editor, writingIn, tick, spot, checkAway]);
+  }, [editor, writingIn, tick, revealing, spot, checkAway]);
 
   useEffect(() => {
     const view = scroller.current;
@@ -467,9 +476,8 @@ export function ContextDocument({
               // The position is set, not animated: the cursor stays on the last character as text streams in.
               style={{ height: cursor.height, x: cursor.left, y: cursor.top }}
             >
-              <span className="ctx-agent-cursor-label">
+              <span className="ctx-agent-cursor-label" title="The agent">
                 <Sparkles className="size-2.5" />
-                Agent
               </span>
             </motion.div>
           )}

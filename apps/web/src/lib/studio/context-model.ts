@@ -312,9 +312,10 @@ export function decide(proposal: Proposal, member: Member, decision: "accept" | 
 // --- Activity line and layout ----------------------------------------------------------------
 
 /** The dock's one row: a state and its object. Undefined when there is nothing to say. */
-export function activityLine(agent: AgentStatus, openQuestions: number): { text: string; busy: boolean; progress?: number } | undefined {
+export function activityLine(agent: AgentStatus): { text: string; busy: boolean; progress?: number } | undefined {
   if (agent.state === "idle") return undefined;
-  if (agent.state === "waiting") return openQuestions ? { text: `Waiting for ${openQuestions} ${openQuestions === 1 ? "answer" : "answers"}`, busy: false } : undefined;
+  // Waiting on answers needs no line of its own: the "Answer N questions" button under it says so.
+  if (agent.state === "waiting") return undefined;
   if (agent.done !== undefined && agent.total) return { text: `${agent.label}: ${agent.done} of ${agent.total} files`, busy: true, progress: agent.done / agent.total };
   return { text: agent.object ? `${agent.label} ${agent.object}` : agent.label, busy: true };
 }

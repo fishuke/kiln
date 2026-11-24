@@ -161,7 +161,10 @@ export class FakeStudioClient implements StudioClient {
     this.appsById.set(id, rest);
     this.patchApp(id, { status: "ready" });
     this.addVersion(id, { title, kind: "initial" });
-    if (firstPrompt) void this.newChat(id, { prompt: firstPrompt.text });
+    if (!firstPrompt) return;
+    // Like the server with KILN_STUDIO_CONTEXT=1: on the Context page the prompt goes to the Context agent.
+    if (this.context.isOpen(id)) void this.context.prompt(id, firstPrompt.text);
+    else void this.newChat(id, { prompt: firstPrompt.text });
   }
 
   private patchApp(id: string, patch: Partial<StudioApp>) {

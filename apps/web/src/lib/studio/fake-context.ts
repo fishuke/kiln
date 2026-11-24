@@ -316,6 +316,11 @@ export class FakeContext implements StudioContextClient {
     };
   }
 
+  /** Whether an App's Context page is open in this tab (its document is attached). */
+  isOpen(appId: string): boolean {
+    return this.docs.has(appId);
+  }
+
   private doc(appId: string): ContextDocWriter {
     const d = this.docs.get(appId);
     if (!d) throw new StudioClientError("The Context isn't open", 409);

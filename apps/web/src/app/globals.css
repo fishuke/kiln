@@ -407,20 +407,19 @@ del.ctx-suggest-del,
   pointer-events: none;
 }
 .ctx-agent-cursor-label {
+  /* A small mark on top of the caret: the dock and the header say it is the agent, so no text covers the words. */
   position: absolute;
-  bottom: 100%;
-  left: -1px;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  border-radius: 5px 5px 5px 0;
+  bottom: calc(100% - 2px);
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  transform: translateX(-50%);
+  border-radius: 999px;
   background: oklch(0.6 0.22 293);
-  padding: 1px 5px;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 14px;
-  white-space: nowrap;
   color: white;
+  box-shadow: 0 0 0 2px var(--background);
 }
 .ctx-pulse { animation: ctx-pulse 1.4s ease-in-out infinite; }
 

@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { StudioClient } from "@/lib/studio/client";
 import type { AppSource, ForgeRepository } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
+import { nameFromPrompt } from "@/lib/studio/app-name";
 
 type Path = "template" | "repo";
 
@@ -32,7 +33,9 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
 
   const source: AppSource =
     path === "repo" && repo ? { kind: "repo", repo, ...(branch.trim() ? { branch: branch.trim() } : {}) } : { kind: "template", template: "nextjs" };
-  const appName = name.trim() || (path === "repo" && repo ? repo.split("/")[1]! : "");
+  // A prompt alone is enough: the name defaults to one made from it, shown as the field's placeholder.
+  const suggested = path === "repo" ? (repo ? repo.split("/")[1]! : "") : nameFromPrompt(prompt);
+  const appName = name.trim() || suggested;
 
   useEffect(() => {
     if (open && path === "repo" && !repos)
@@ -172,7 +175,7 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
               id="new-app-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={path === "repo" && repo ? repo.split("/")[1] : "Habit tracker"}
+              placeholder={suggested || "Habit tracker"}
             />
           </div>
         </form>

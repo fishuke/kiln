@@ -84,6 +84,19 @@ const word = (p: Piece, start: number, now: number) => {
     : Decoration.inline(p.from, p.to, { class: "ctx-arrive", style }, { start });
 };
 
+/**
+ * Where the reader has got to: the start of the next word still waiting to appear, or undefined
+ * when nothing is waiting. The agent's cursor stops here, so it moves with the words it writes.
+ */
+export function revealPoint(state: EditorState, now = Date.now()): number | undefined {
+  let next: { start: number; from: number } | undefined;
+  for (const d of key.getState(state)?.find() ?? []) {
+    const { start } = d.spec as { start: number };
+    if (start > now && (!next || start < next.start)) next = { start, from: d.from };
+  }
+  return next?.from;
+}
+
 /** The plugin; `enabled` is read on each change, so it can follow "loaded" and reduced motion. */
 export function arrivePlugin(enabled: () => boolean): Plugin<DecorationSet> {
   let timer: ReturnType<typeof setTimeout> | undefined;

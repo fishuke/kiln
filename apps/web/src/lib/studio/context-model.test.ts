@@ -313,15 +313,15 @@ describe("activity line and split", () => {
   const agent = (o: Partial<AgentStatus>): AgentStatus => ({ state: "idle", label: "", ...o });
 
   it("is one row: a state and its object", () => {
-    expect(activityLine(agent({ state: "writing", label: "Writing", object: "Requirements › Sign-in" }), 0)).toEqual({ text: "Writing Requirements › Sign-in", busy: true });
-    expect(activityLine(agent({ state: "building", label: "Building the prototype", done: 3, total: 7 }), 0)).toEqual({
+    expect(activityLine(agent({ state: "writing", label: "Writing", object: "Requirements › Sign-in" }))).toEqual({ text: "Writing Requirements › Sign-in", busy: true });
+    expect(activityLine(agent({ state: "building", label: "Building the prototype", done: 3, total: 7 }))).toEqual({
       text: "Building the prototype: 3 of 7 files",
       busy: true,
       progress: 3 / 7,
     });
-    expect(activityLine(agent({ state: "waiting", label: "Waiting" }), 2)).toEqual({ text: "Waiting for 2 answers", busy: false });
-    expect(activityLine(agent({ state: "waiting", label: "Waiting" }), 1)).toEqual({ text: "Waiting for 1 answer", busy: false });
-    expect(activityLine(agent({ state: "idle" }), 0)).toBeUndefined();
+    // The "Answer N questions" button says it; a second line would repeat it.
+    expect(activityLine(agent({ state: "waiting", label: "Waiting" }))).toBeUndefined();
+    expect(activityLine(agent({ state: "idle" }))).toBeUndefined();
   });
 
   it("keeps the split inside what both panes can use", () => {

@@ -31,7 +31,10 @@ function choicesOf(spec: QuestionSpec): Choice[] {
 function startValue(spec: QuestionSpec, previous?: QuestionAnswer): Value | undefined {
   if (previous?.type === "value") return previous.value;
   if (spec.kind === "scale" || spec.kind === "rank") return (delegatedAnswer(spec) as { value: Value }).value;
-  if (spec.kind === "multi") return [];
+  // What the agent recommends starts selected, so taking its advice is one press of Confirm.
+  if (spec.kind === "multi") return spec.options.filter((o) => o.recommended).map((o) => o.id).slice(0, spec.max);
+  if (spec.kind === "single" || spec.kind === "sketch") return spec.options.find((o) => o.recommended)?.id;
+  if (spec.kind === "boolean") return spec.recommended;
   if (spec.kind === "text") return "";
   return undefined;
 }

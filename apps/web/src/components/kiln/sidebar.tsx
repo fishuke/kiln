@@ -277,6 +277,18 @@ export function Sidebar({
 }) {
   const [width, setWidth] = useState(240);
   const [collapsed, setCollapsed] = useState(false);
+  // On a phone the sidebar is the icon rail; opening it lays it over the page until you go somewhere.
+  const [narrow, setNarrow] = useState(false);
+  const [peek, setPeek] = useState(false);
+  const here = usePathname();
+  useEffect(() => {
+    const q = window.matchMedia("(max-width: 767px)");
+    const on = () => setNarrow(q.matches);
+    on();
+    q.addEventListener("change", on);
+    return () => q.removeEventListener("change", on);
+  }, []);
+  useEffect(() => setPeek(false), [here, narrow]);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const [pinned, setPinned] = useState<string[]>([]);
@@ -319,6 +331,7 @@ export function Sidebar({
   }, []);
 
   const toggleCollapsed = (v: boolean) => {
+    if (narrow) return setPeek(!v);
     setCollapsed(v);
     try {
       localStorage.setItem("kiln-sidebar-collapsed", v ? "1" : "0");
@@ -336,7 +349,7 @@ export function Sidebar({
     }
   };
 
-  if (collapsed) {
+  if (narrow ? !peek : collapsed) {
     return (
       <aside className="sticky top-0 flex h-screen w-14 shrink-0 flex-col items-center gap-1 border-r bg-sidebar py-3">
         <button type="button" aria-label="Expand sidebar" onClick={() => toggleCollapsed(false)} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10">
@@ -365,7 +378,9 @@ export function Sidebar({
     .sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)));
 
   return (
-    <aside style={{ width }} className="sticky top-0 flex h-screen shrink-0 flex-col border-r bg-sidebar">
+    <>
+    {narrow && <div aria-hidden className="fixed inset-0 z-40 bg-black/30" onClick={() => setPeek(false)} />}
+    <aside style={{ width }} className={cn("top-0 flex h-screen shrink-0 flex-col border-r bg-sidebar", narrow ? "fixed left-0 z-50 shadow-xl" : "sticky")}>
       <div className="flex h-14 items-center gap-1 px-3">
         {searching ? (
           <div className="mr-2 flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border-2 border-foreground bg-background px-2">
@@ -450,5 +465,6 @@ export function Sidebar({
         className="absolute top-0 right-0 h-full w-1 translate-x-1/2 cursor-col-resize hover:bg-foreground/10"
       />
     </aside>
+    </>
   );
 }

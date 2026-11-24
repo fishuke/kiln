@@ -59,7 +59,7 @@ export function DockStatus({
   onBuild(): void;
 }) {
   const [open, setOpen] = useState(false);
-  const line = activityLine(agent, openQuestions);
+  const line = activityLine(agent);
   const busy = Boolean(line?.busy);
   const steps = turn?.activity ?? [];
   const canBuild = !busy && hasContext && openQuestions === 0 && fresh.kind !== "fresh";
@@ -127,7 +127,7 @@ export function DockStatus({
             <Tooltip>
               <TooltipTrigger render={<Button size="sm" variant="outline" onClick={onQuestions} className="border-orange-500/40" />}>
                 <CircleQuestionMark data-icon="inline-start" className="text-orange-600 dark:text-orange-400" />
-                {openQuestions} {openQuestions === 1 ? "question" : "questions"} waiting
+                Answer {openQuestions === 1 ? "1 question" : `${openQuestions} questions`}
               </TooltipTrigger>
               <TooltipContent>
                 Go to the next one. <Kbd>1</Kbd>–<Kbd>4</Kbd> pick, <Kbd>↵</Kbd> confirms

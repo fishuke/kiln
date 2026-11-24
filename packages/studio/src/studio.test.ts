@@ -169,7 +169,14 @@ describe("apps", () => {
 
   it("hands the first prompt to the firstPrompt hook instead of a chat when one is set", async () => {
     const handed: [string, string, string][] = [];
-    const { studio } = make({ firstPrompt: async (app, p) => void handed.push([app.id, app.createdBy, p.text]) });
+    const during: (string | undefined)[] = [];
+    const { studio } = make({
+      firstPrompt: async (app, p) => {
+        handed.push([app.id, app.createdBy, p.text]);
+        // A page that looks while the agent is being started still sees the prompt, never an empty App.
+        during.push(studio.getApp(app.id)!.app.firstPrompt?.text);
+      },
+    });
     const p = await studio.createApp({
       team: teams.get(studio)!,
       by: "me@x.test",
@@ -182,6 +189,7 @@ describe("apps", () => {
     expect(ready.firstPrompt).toBeUndefined();
     expect(chats).toEqual([]);
     expect(handed).toEqual([[p.id, "me@x.test", "make a todo app"]]);
+    expect(during).toEqual(["make a todo app"]);
   });
 
   it("keeps the first prompt of an App whose setup failed and starts it when the App is retried", async () => {

@@ -454,11 +454,18 @@ export class Studio {
   private async startFirstChat(appId: string) {
     const p = this.getApp(appId)?.app;
     if (p?.status !== "ready" || !p.firstPrompt) return;
-    const { firstPrompt, ...rest } = p;
-    this.touch<App>(C.apps, rest);
+    const { firstPrompt } = p;
+    // The prompt stays on the App until the agent has it, so a page never sees neither (an empty App).
     await this.trace("studio.first_chat", { "kiln.studio.app.id": appId }, () =>
       this.opts.firstPrompt ? this.opts.firstPrompt(p, firstPrompt) : this.newChat(appId, { by: p.createdBy, via: firstPrompt.via, prompt: firstPrompt.text }),
-    ).catch(() => {
+    )
+      .finally(() => {
+        const now = this.getApp(appId)?.app;
+        if (!now?.firstPrompt) return;
+        const { firstPrompt: _sent, ...rest } = now;
+        this.touch<App>(C.apps, rest);
+      })
+      .catch(() => {
       // Already recorded on the studio.first_chat span.
     });
   }

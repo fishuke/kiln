@@ -16,6 +16,9 @@ import type { AppSource, ForgeRepository } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
 import { nameFromPrompt } from "@/lib/studio/app-name";
 
+/** The first prompt of an imported App: the agent reads the repository and drafts its Context. */
+const IMPORT_PROMPT = "Read this repository and write its Context: what it is, who it is for, how it works and what is left to do. Ask about anything the code can't tell you.";
+
 type Path = "template" | "repo";
 
 /** "New app": Start from template (with a first prompt) or Import from GitHub (repository and branch). */
@@ -54,11 +57,13 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
   }, [open, path, client]);
 
   const create = async () => {
-    if (!appName || (path === "repo" && !repo)) return;
+    if (!appName || (path === "repo" ? !repo : !prompt.trim())) return;
     setBusy(true);
     try {
       // The first chat starts with the prompt once setup is done; the workspace shows setup until then.
-      const first = path === "template" ? prompt.trim() : "";
+      // Every App starts with the agent at work: a template App with what was asked; an imported
+      // repository with a first Context the agent drafts from the code.
+      const first = path === "template" ? prompt.trim() : IMPORT_PROMPT;
       const app = await client.createApp({ name: appName, source, ...(first ? { prompt: first } : {}) });
       setOpen(false);
       router.push(`/studio/${app.id}`);
@@ -180,7 +185,7 @@ export function NewAppDialog({ client, defaultOpen }: { client: StudioClient; de
           </div>
         </form>
         <DialogFooter>
-          <Button type="submit" form="new-app" disabled={busy || !appName || (path === "repo" && !repo)}>
+          <Button type="submit" form="new-app" disabled={busy || !appName || (path === "repo" ? !repo : !prompt.trim())}>
             {path === "repo" ? "Import" : "Create app"}
           </Button>
         </DialogFooter>

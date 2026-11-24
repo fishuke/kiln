@@ -34,6 +34,11 @@ export type KilnEventMap = {
   "studio.turn_started": { appId: string; chatId: string; turnId: string; priority: "progress" };
   "studio.turn_finished": { appId: string; chatId: string; turnId: string; title?: string; summary?: string; changed: boolean; priority: "finished" };
   "studio.version_created": { appId: string; versionId: string; title: string; kind: "initial" | "apply" | "restore"; priority: "finished" };
+  /** The Context (ADR-019): the agent asked, a person answered, the document settled at a new version, a proposal was opened. */
+  "studio.question_asked": { appId: string; turnId: string; questions: { id: string; title: string }[]; priority: "needs_you" };
+  "studio.question_answered": { appId: string; questionId: string; by: string; status: "answered" | "skipped" | "delegated"; priority: "progress" };
+  "studio.context_changed": { appId: string; version: number; fragments: number; priority: "progress" };
+  "studio.proposal_opened": { appId: string; proposalId: string; by: string; summary: string; priority: "needs_you" };
   "studio.needs_you": { appId: string; chatId: string; question: string; reason: "question" | "conflict" | "failed" | "approval"; priority: "needs_you" };
   /** A command a chat's run waited on (a command-approval gate) was allowed or blocked; `by` is the person, absent when nobody answered in time. */
   "studio.approval_decided": { appId: string; chatId: string; turnId: string; decision: "allowed" | "blocked"; by?: string; priority: "progress" };

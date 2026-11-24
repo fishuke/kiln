@@ -292,7 +292,7 @@ export function shipperFor(kiln: Kiln): Shipper | undefined {
   return shipper;
 }
 
-const STATUS: Record<StudioErrorCode, 400 | 404 | 409 | 503> = { not_found: 404, invalid: 400, busy: 409, conflict: 409, unavailable: 503 };
+const STATUS: Record<StudioErrorCode, 400 | 403 | 404 | 409 | 503> = { not_found: 404, invalid: 400, busy: 409, conflict: 409, unavailable: 503, forbidden: 403 };
 
 /** Studio's REST routes (docs/specs/studio.md). Every route acts as a signed-in user in their current team, with a team-wide scope. */
 export function register(ctx: RouteContext) {

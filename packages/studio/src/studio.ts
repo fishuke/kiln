@@ -723,7 +723,7 @@ export class Studio {
    * A message to a chat: steers its live run, or starts its next turn (a new run, or a follow-up that
    * continues the chat's finished run). Resolves once the run exists.
    */
-  async send(chatId: string, input: { by: string; via: Via; text: string; mode?: ChatMode; model?: string }, resolve = false): Promise<{ turn: Turn; steered: boolean }> {
+  async send(chatId: string, input: { by: string; via: Via; text: string; mode?: ChatMode; model?: string; note?: string }, resolve = false): Promise<{ turn: Turn; steered: boolean }> {
     // The last turn is still being saved in the worktree: the next one starts after it. A resolve turn is
     // started by that saving itself, once the worktree is free.
     if (!resolve) await this.settling.get(chatId);
@@ -744,7 +744,8 @@ export class Studio {
     const mode = input.mode ?? chat.mode;
     const turn = this.newTurn(p, chat, { prompt: input.text, mode, via: input.via, by: input.by, resolve });
     this.touch(C.chats, { ...chat, mode, status: "working", question: undefined });
-    const message = MODE_NOTES[mode] ? `${MODE_NOTES[mode]}\n\n${input.text}` : input.text;
+    // `note` leads the message like the mode note does, and is not part of the turn's prompt (the Context's instructions).
+    const message = [MODE_NOTES[mode], input.note, input.text].filter(Boolean).join("\n\n");
     try {
       const { runId } = chat.runId
         ? await this.opts.runs.followup(chat.runId, { message, by: input.by })

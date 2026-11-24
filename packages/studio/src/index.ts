@@ -11,3 +11,4 @@ export * from "./context-types";
 export * from "./context-doc";
 export * from "./context-model";
 export * from "./context-ydoc";
+export * from "./context-service";

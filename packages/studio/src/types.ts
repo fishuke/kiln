@@ -193,7 +193,7 @@ export type ApplyResult = { ok: true; version: Version } | { ok: false; conflict
 /** Store collections; runtime state only. Code lives in the app's Git repository. */
 export const COLLECTIONS = { apps: "studio_apps", chats: "studio_chats", turns: "studio_turns", versions: "studio_versions" } as const;
 
-export type StudioErrorCode = "not_found" | "invalid" | "busy" | "conflict" | "unavailable";
+export type StudioErrorCode = "not_found" | "invalid" | "busy" | "conflict" | "unavailable" | "forbidden";
 
 export class StudioError extends Error {
   constructor(

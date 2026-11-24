@@ -32,8 +32,15 @@ export type ShipperOptions = {
   previews?: PreviewProvider;
   /** Studio's own preview of a version, recorded on the pull request. */
   versionPreviewUrl?: (app: App, versionId: string) => string;
+  /**
+   * Files Kiln keeps in the App's repository (path from its root to content, e.g. the Context's
+   * export), committed on the main line before a push. Undefined when there is nothing to keep.
+   */
+  repoFiles?: (app: App) => Promise<RepoFiles | undefined>;
   audit: (actor: string, action: string, target: string, details?: unknown) => void;
 };
+
+export type RepoFiles = { message: string; files: Record<string, string> };
 
 export type ShipInput = { title?: string; state?: "uat" | "ready_for_review" | "cancelled" };
 
@@ -50,6 +57,8 @@ const slug = (s: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60) || "app";
+
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 const isPerson = (by: string) => by !== "studio" && !by.startsWith("agent:");
 
@@ -137,11 +146,13 @@ export class Shipper {
       throw err;
     }
     const ref = toRef(repo.repo, repo.forge);
+    let kept = false;
     const sha = await this.opts.studio.withWorkspace(ctx.app.id, async (sandbox, app) => {
       const main = mainBranchOf(app);
       // A fresh credential scoped to this one repository, only in this command's environment.
       const token = await forge.sandboxToken?.(ref);
       const url = forge.cloneUrl(ref, token);
+      kept = await this.keepRepoFiles(sandbox, app);
       const head = await gitOut(sandbox, `git rev-parse ${shellQuote(main)}`, token);
       await gitOut(sandbox, `git -c credential.helper= push --porcelain "$KILN_PUSH_URL" ${shellQuote(`${main}:refs/heads/${branch}`)}`, token, {
         KILN_PUSH_URL: url,
@@ -149,6 +160,11 @@ export class Shipper {
       });
       return head;
     });
+    // The new commit is in no turn's snapshot yet; without it a restart would leave the main line behind what was pushed.
+    if (kept)
+      await this.opts.studio.saveWorkspace(ctx.app.id).catch((err: unknown) => {
+        this.opts.audit(STUDIO_AGENT, "studio.repo_files_failed", repo.repo, { appId: ctx.app.id, error: `saving the workspace failed: ${message(err)}` });
+      });
     const optIn = branch !== studioBranch(ctx.app.id) && ctx.app.source.kind === "repo" ? this.opts.policyOf(ctx.app).changedBy.pushDefaultBranch : undefined;
     this.opts.audit(actor.by, "studio.push", repo.repo, {
       appId: ctx.app.id,
@@ -158,6 +174,32 @@ export class Shipper {
       ...(optIn ? { optedInBy: optIn.by, optedInAt: optIn.at } : {}),
     });
     return { repo, branch, sha };
+  }
+
+  /**
+   * Write `repoFiles` into the main line and commit them when they changed; true when a commit was
+   * made. A failure is audited and the push goes on without them: the App's code matters more.
+   */
+  private async keepRepoFiles(sandbox: Sandbox, app: App): Promise<boolean> {
+    if (!this.opts.repoFiles) return false;
+    let list = "";
+    try {
+      const kept = await this.opts.repoFiles(app);
+      const paths = Object.keys(kept?.files ?? {});
+      if (!kept || !paths.length) return false;
+      if (paths.some((p) => p.startsWith("/") || p.split("/").includes(".."))) throw new Error("a kept file must be inside the repository");
+      list = paths.map(shellQuote).join(" ");
+      for (const path of paths) await sandbox.writeFile(`app/${path}`, kept.files[path]!);
+      await gitOut(sandbox, `git add -- ${list}`, undefined);
+      if ((await sandbox.exec(`git diff --cached --quiet -- ${list}`, { cwd: "app", trusted: true })).code === 0) return false;
+      await gitOut(sandbox, `git commit -q -m ${shellQuote(kept.message)} -- ${list}`, undefined);
+      this.opts.audit(STUDIO_AGENT, "studio.repo_files_committed", app.id, { files: paths });
+      return true;
+    } catch (err) {
+      if (list) await sandbox.exec(`git reset -q -- ${list}`, { cwd: "app", trusted: true }).catch(() => undefined);
+      this.opts.audit(STUDIO_AGENT, "studio.repo_files_failed", app.id, { error: message(err) });
+      return false;
+    }
   }
 
   /** A template App's repository is created on its first push; an imported App's is the one it came from. */

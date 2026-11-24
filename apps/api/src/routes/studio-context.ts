@@ -5,7 +5,7 @@
  */
 import type { Scope } from "@kiln/auth";
 import type { Kiln } from "@kiln/engine";
-import { COLLECTIONS, CONTEXT_TOOL_NAMES, ContextService, FunctionalRole, QuestionAnswer, StudioError, type ContextEvent, type ContextPerson, type Studio, type Turn } from "@kiln/studio";
+import { COLLECTIONS, CONTEXT_TOOL_NAMES, ContextService, FunctionalRole, QuestionAnswer, StudioError, type ContextEvent, type ContextExport, type ContextPerson, type Studio, type Turn } from "@kiln/studio";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
@@ -50,7 +50,7 @@ export const contextRoutes: Route[] = [
   { method: "get", path: `${base}/brief`, summary: "The Brief: five lines written from the Context at its current version", scope: "read", tag: S },
   { method: "post", path: `${base}/seen`, summary: "Record that the caller has seen the Context at its current version", scope: "send", tag: S },
   { method: "get", path: `${base}/preview`, summary: "The prototype's preview", scope: "read", tag: S },
-  { method: "get", path: `${base}/export`, summary: "The Context as Markdown, each fragment with its id", scope: "read", tag: S },
+  { method: "get", path: `${base}/export`, summary: "The Context as it ships in the repository: Markdown (docs/context.md) and its fragments and questions (docs/context.json, null while it has no fragment)", scope: "read", tag: S },
   {
     method: "post",
     path: "/api/v1/studio/context/tools/{name}",
@@ -67,6 +67,12 @@ export function contextFor(kiln: Kiln, studio: Studio): ContextService {
   let s = services.get(kiln);
   if (!s) services.set(kiln, (s = new ContextService({ store: kiln.store, objects: kiln.objects, bus: kiln.bus, clock: kiln.clock, studio })));
   return s;
+}
+
+/** The Context as the files it ships as in the App's repository; undefined while it has no fragment. */
+export function contextRepoFiles(out: ContextExport | undefined): { message: string; files: Record<string, string> } | undefined {
+  if (!out) return undefined;
+  return { message: "Update the Context export", files: { "docs/context.md": `${out.markdown}\n`, "docs/context.json": `${JSON.stringify(out.json, null, 2)}\n` } };
 }
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
@@ -241,7 +247,8 @@ export function registerContext(ctx: RouteContext, deps: { studio: () => Studio;
     wrap(async (c) => {
       const who = person(c);
       await service().snapshot(id(c), who);
-      return c.json({ markdown: await service().markdown(id(c)) });
+      const out = await service().export(id(c));
+      return c.json({ markdown: out?.markdown ?? (await service().markdown(id(c))), json: out?.json ?? null });
     }),
   );
 

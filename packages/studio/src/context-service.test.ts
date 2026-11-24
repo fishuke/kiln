@@ -419,4 +419,18 @@ describe("the Context service", () => {
     expect(md).toContain("- [ ] Streaks");
     expect(md.indexOf("## Why")).toBeLessThan(md.indexOf("## Plan"));
   });
+  it("exports the Context for the App's repository, and nothing while it has no fragment", async () => {
+    const t = await make();
+    expect(await t.ctx.export(t.appId)).toBeUndefined();
+    await t.ctx.applyUpdate(t.appId, t.ada, await pageUpdate(t, (y) => y.insert({ type: "requirement", text: "Search by ingredient." }, "end")));
+    await t.ctx.flush();
+    const out = (await t.ctx.export(t.appId))!;
+    expect(out.markdown).toContain("- [requirement] Search by ingredient.");
+    expect(out.json).toMatchObject({ version: 1, builtVersion: null, questions: [], fragments: [{ appId: t.appId, type: "requirement", content: "Search by ingredient.", version: 1 }] });
+    expect(JSON.parse(JSON.stringify(out.json))).toEqual(out.json);
+  });
+
+  it("tells the agent to mark the elements that implement a fragment", () => {
+    expect(CONTEXT_NOTES).toContain('data-kiln-fragment="<fragment id>"');
+  });
 });

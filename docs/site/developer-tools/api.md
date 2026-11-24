@@ -496,7 +496,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/studio/apps/{id}/context/brief` | `read` | The Brief: five lines written from the Context at its current version |
 | POST | `/api/v1/studio/apps/{id}/context/seen` | `send` | Record that the caller has seen the Context at its current version |
 | GET | `/api/v1/studio/apps/{id}/context/preview` | `read` | The prototype's preview |
-| GET | `/api/v1/studio/apps/{id}/context/export` | `read` | The Context as Markdown, each fragment with its id |
+| GET | `/api/v1/studio/apps/{id}/context/export` | `read` | The Context as it ships in the repository: Markdown (docs/context.md) and its fragments and questions (docs/context.json, null while it has no fragment) |
 | POST | `/api/v1/studio/context/tools/{name}` | `send` | Run one of the agent's Context tools (context_read, context_write, context_remove, ask, link_preview, mark_built). With a run's token the App is the run's and writes follow the permission of the person who prompted its turn |
 | GET | `/api/v1/studio/apps/{id}/definition` | — | An App's own Studio definition layer: tree, sha and history |
 | PUT | `/api/v1/studio/apps/{id}/definition` | — | Replace an App's own definition layer (kiln/v1 App tree) |

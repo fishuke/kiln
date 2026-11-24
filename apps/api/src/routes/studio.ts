@@ -22,7 +22,7 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { HttpError, type Env, type RouteContext } from "../app";
 import type { Route } from "../openapi";
-import { contextRoutes, registerContext } from "./studio-context";
+import { contextFor, contextRepoFiles, contextRoutes, registerContext } from "./studio-context";
 import { previewConfig, previewUrlFor, setPreviewResolver } from "./studio-preview";
 import { otelStudioTracer, reportError } from "../trace-context";
 
@@ -277,6 +277,8 @@ export function shipperFor(kiln: Kiln): Shipper | undefined {
     policyOf: (app) => definitions.policy(targetOf(app)),
     mergeGate: kiln.mergeGate,
     ...(kiln.preview ? { previews: kiln.preview } : {}),
+    // On every push the Context goes along as docs/context.md and docs/context.json, once it has a fragment.
+    repoFiles: async (app) => contextRepoFiles(await contextFor(kiln, studio).export(app.id)),
     audit: (actor, action, target, details) => kiln.audit(actor, action, target, details),
   });
   shipper.start();

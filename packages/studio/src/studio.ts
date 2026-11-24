@@ -1184,6 +1184,11 @@ export class Studio {
     return this.locked(p.id, async () => fn((await this.ensureLive(p)).sandbox, this.app(appId)));
   }
 
+  /** Save the workspace now, so a commit made outside a turn (shipping's) is there after a restart. */
+  async saveWorkspace(appId: string): Promise<void> {
+    await this.snapshot(appId);
+  }
+
   // ---- previews ----
 
   async preview(target: { chatId: string } | { versionId: string }): Promise<Preview> {

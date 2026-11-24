@@ -18,7 +18,7 @@ export type ShipFixtureOptions = {
   /** Repositories a factory names; the test may add to it later. */
   linked?: string[];
   forge?: (f: FakeForge) => Forge;
-  shipper?: Pick<ShipperOptions, "previews" | "versionPreviewUrl">;
+  shipper?: Pick<ShipperOptions, "previews" | "versionPreviewUrl" | "repoFiles">;
 };
 
 /**

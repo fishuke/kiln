@@ -18,6 +18,7 @@ import {
   QuestionSpec,
   type AgentStatus,
   type ContextChange,
+  type Fragment,
   type ContextSnapshot,
   type ContextState,
   type ContextTurn,
@@ -103,7 +104,7 @@ export const CONTEXT_NOTES = [
   "- Ask before assuming: `context_ask` with 1 to 5 typed questions, options over open questions, then end your turn. The answers arrive as your next message.",
   "- After answers, write the rest of the document before you build: who it's for, how it works, requirements, the plan, what is not being done. Then build, tick off the plan's steps, and call `context_mark_built`.",
   "- Keep it true. When direction changes, rewrite the paragraphs that are now wrong (pass the fragment's id) instead of adding a note under them. Short sections beat long ones; cut what no longer matters.",
-  "- When a fragment is implemented on a route, call `context_link_preview`.",
+  "- When a fragment is implemented on a route, put `data-kiln-fragment=\"<fragment id>\"` on the element that implements it and call `context_link_preview`.",
   "- You can't edit the Context as a file. If a tool answers that a change was proposed, the person who asked is a viewer: say so and don't retry.",
 ].join("\n");
 
@@ -157,6 +158,9 @@ const SETTLE_MS = 2000;
 const SAVE_MS = 2000;
 const IDLE: AgentStatus = { state: "idle", label: "" };
 const key = (appId: string) => `studio/context/${appId}/doc`;
+/** What ships into the App's repository: the document as Markdown, and its fragments and questions as data. */
+export type ContextExport = { markdown: string; json: { version: number; builtVersion: number | null; fragments: Fragment[]; questions: Question[] } };
+
 const markdownMark: Record<string, string> = { heading: "#", paragraph: "", bulletListItem: "-", numberedListItem: "1.", checkListItem: "- [ ]", quote: ">" };
 
 export class ContextService {
@@ -462,6 +466,19 @@ export class ContextService {
       else if (b.text.trim()) lines.push(`${pad}${b.type in markdownMark ? (markdownMark[b.type] ? `${markdownMark[b.type]} ` : "") : `- [${b.type}] `}${b.text} <!-- ${b.id} -->`);
     }
     return lines.join("\n").trim() || "(The Context is empty.)";
+  }
+
+  /**
+   * The Context for the App's repository (docs/context.md and docs/context.json), or undefined
+   * while it has no fragment. Not checked against a person: the caller is Kiln itself, or a route that checked.
+   */
+  async export(appId: string): Promise<ContextExport | undefined> {
+    const row = this.opts.store.get<Row>(C.context, appId);
+    const blocks = (await this.open(appId)).y.read();
+    const fragments = fragmentsFrom(appId, blocks, row?.versions ?? {});
+    if (!fragments.length) return undefined;
+    const json = { version: row?.state.version ?? 0, builtVersion: row?.state.builtVersion ?? null, fragments, questions: questionsFrom(appId, blocks) };
+    return { markdown: await this.markdown(appId), json };
   }
 
   // --- sync -------------------------------------------------------------------------------------

@@ -12,7 +12,7 @@ import * as Y from "yjs";
 import { createApp } from "./app";
 import { ROUTES } from "./openapi";
 import { configureStudio, studioFor } from "./routes/studio";
-import { contextFor } from "./routes/studio-context";
+import { contextFor, contextRepoFiles } from "./routes/studio-context";
 
 const kilns: object[] = [];
 type Tool = (name: string, input?: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string }>;
@@ -108,6 +108,7 @@ describe("the Context over the API", () => {
     const appId = await t.make();
     const snap = (await (await t.app.request(`/api/v1/studio/apps/${appId}/context`)).json()) as ContextSnapshot;
     expect(snap).toMatchObject({ state: { version: 0 }, me: { permission: "owner" }, agent: { state: "idle" } });
+    expect(await (await t.app.request(`/api/v1/studio/apps/${appId}/context/export`)).json()).toEqual({ markdown: "(The Context is empty.)", json: null });
 
     const stream = await t.app.request(`/api/v1/studio/apps/${appId}/context/sync`);
     expect(stream.headers.get("content-type")).toContain("text/event-stream");
@@ -126,6 +127,14 @@ describe("the Context over the API", () => {
     await contextFor(t.kiln, t.studio()).flush();
     expect(((await (await t.app.request(`/api/v1/studio/apps/${appId}/context`)).json()) as ContextSnapshot).state.version).toBe(1);
     expect(((await (await t.app.request(`/api/v1/studio/apps/${appId}/context/export`)).json()) as { markdown: string }).markdown).toContain("- [requirement] Search by ingredient.");
+    const out = (await (await t.app.request(`/api/v1/studio/apps/${appId}/context/export`)).json()) as { markdown: string; json: { version: number; builtVersion: number | null; fragments: { type: string; content: string }[]; questions: unknown[] } };
+    expect(out.json).toMatchObject({ version: 1, builtVersion: null, questions: [], fragments: [{ type: "requirement", content: "Search by ingredient." }] });
+    // What ships in the repository on a push.
+    const kept = contextRepoFiles(await contextFor(t.kiln, t.studio()).export(appId))!;
+    expect(Object.keys(kept.files)).toEqual(["docs/context.md", "docs/context.json"]);
+    expect(kept.files["docs/context.md"]).toBe(`${out.markdown}\n`);
+    expect(JSON.parse(kept.files["docs/context.json"]!)).toEqual(out.json);
+    expect(contextRepoFiles(undefined)).toBeUndefined();
     expect((await t.app.request(`/api/v1/studio/apps/${appId}/context/sync`, json("POST", { update: "AQID+g==" }))).status).toBe(400);
     expect((await t.app.request(`/api/v1/studio/apps/sa_nope/context`)).status).toBe(404);
   });

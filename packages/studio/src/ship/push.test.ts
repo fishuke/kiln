@@ -143,3 +143,49 @@ describe("pushes per ship mode", () => {
     expect(forge.branchSha(web, "main")).toBe(before);
   });
 });
+
+describe("files Kiln keeps in the repository", () => {
+  const web1 = (app: { id: string }) => ({ owner: "acme", name: `daily-done-${app.id.slice(3, 9)}` });
+
+  it("commits them on the main line before the push, and only when they changed", async () => {
+    let text = "# Daily Done\n";
+    const { studio, shipper, forge, app, audit, change, mainSha } = await setup({
+      shipper: { repoFiles: async () => ({ message: "Update the Context export", files: { "docs/context.md": text, "docs/context.json": "{}\n" } }) },
+    });
+    const show = (path: string) => studio.withWorkspace(app.id, async (s) => (await s.exec(`git show HEAD:${path}`, { cwd: "app", trusted: true })).stdout);
+    const count = () => studio.withWorkspace(app.id, async (s) => (await s.exec("git log --format=%s", { cwd: "app", trusted: true })).stdout.split("\n").filter((l) => l === "Update the Context export").length);
+    await change("one");
+    expect(await show("docs/context.md")).toBe(text);
+    expect(await show("docs/context.json")).toBe("{}\n");
+    expect(forge.branchSha(web1(app), "main")).toBe(await mainSha());
+    expect(audit.map((a) => a.action)).toEqual(["studio.repo_created", "studio.repo_files_committed", "studio.push"]);
+    await change("two");
+    expect(await count()).toBe(1);
+    text = "# Daily Done\n\nA list.\n";
+    await shipper.push(app.id, admin);
+    expect(await count()).toBe(2);
+    expect(forge.branchSha(web1(app), "main")).toBe(await mainSha());
+    // The export is not a version of the App, and the next chat still applies on top of it.
+    await change("three");
+    expect(await show("docs/context.md")).toBe(text);
+    expect(forge.branchSha(web1(app), "main")).toBe(await mainSha());
+  });
+
+  it("commits nothing when there is nothing to keep, and still pushes when keeping fails", async () => {
+    let fail = false;
+    const { forge, app, audit, change, mainSha } = await setup({
+      shipper: {
+        repoFiles: async () => {
+          if (fail) throw new Error("no Context service");
+          return undefined;
+        },
+      },
+    });
+    await change("one");
+    expect(audit.map((a) => a.action)).toEqual(["studio.repo_created", "studio.push"]);
+    fail = true;
+    await change("two");
+    expect(audit.slice(2)).toMatchObject([{ action: "studio.repo_files_failed", details: { error: "no Context service" } }, { action: "studio.push" }]);
+    expect(forge.branchSha(web1(app), "main")).toBe(await mainSha());
+  });
+});

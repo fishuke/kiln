@@ -140,8 +140,9 @@ export class YContextDoc implements ContextDocWriter {
           return;
         }
       }
-      const ref = place !== "end" && ("after" in place ? this.find(place.after) : "before" in place ? this.find(place.before) : undefined);
-      if (ref) ref.group.insert(place !== "end" && "before" in place ? ref.index : ref.index + 1, [container]);
+      const before = place !== "end" && "before" in place;
+      const ref = place === "end" ? undefined : "after" in place ? this.find(place.after) : "before" in place ? this.find(place.before) : undefined;
+      if (ref) ref.group.insert(before ? ref.index : ref.index + 1, [container]);
       else root.insert(root.length, [container]);
     }, this.origin);
     return id;

@@ -114,6 +114,8 @@ services:
     environment:
       KILN_API_URL: http://api:4000
       KILN_PUBLIC_URL: ${KILN_PUBLIC_URL}
+      # 1 makes the Context page (ADR-019) the Studio page of an App.
+      KILN_STUDIO_CONTEXT: ${KILN_STUDIO_CONTEXT:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
       OTEL_SERVICE_NAME: kiln-web

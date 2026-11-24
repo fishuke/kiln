@@ -18,6 +18,8 @@ export type ContextUI = {
   nameOf(user: string): string;
   answer(q: Question, answer: QuestionAnswer): Promise<boolean>;
   reopen(q: Question): Promise<void>;
+  /** False where the server has no "Ask the agent" yet: its buttons are not shown. */
+  canAsk: boolean;
   /** Opens "Ask the agent" on a whole fragment. */
   askAbout(blockId: string): void;
   /** Opens "Ask the agent" on the selected text. */

@@ -1,5 +1,6 @@
 import * as actions from "@/app/studio/actions";
 import type { StudioResult } from "@/app/studio/actions";
+import { ApiContext } from "./api-context";
 import { StudioClientError, type StudioClient } from "./client";
 
 async function unwrap<T>(p: Promise<StudioResult<T>>): Promise<T> {
@@ -11,6 +12,7 @@ async function unwrap<T>(p: Promise<StudioResult<T>>): Promise<T> {
 /** The Studio routes through server actions (the SDK, as the signed-in user); chats update over SSE. */
 export class ApiStudioClient implements StudioClient {
   readonly kind = "api" as const;
+  readonly context = new ApiContext();
   apps = async () => (await unwrap(actions.studioApps())).apps;
   createApp: StudioClient["createApp"] = (input) => unwrap(actions.studioCreateApp(input));
   app = (id: string) => unwrap(actions.studioApp(id));

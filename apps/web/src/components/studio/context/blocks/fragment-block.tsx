@@ -123,9 +123,11 @@ export function FragmentBlock({
             <Crosshair className="size-3.5" />
           </GutterButton>
         )}
-        <GutterButton label={ui.canEdit ? "Ask the agent to change this" : "Ask the agent. Your change becomes a proposal"} onClick={() => ui.askAbout(blockId)}>
+{ui.canAsk && (
+          <GutterButton label={ui.canEdit ? "Ask the agent to change this" : "Ask the agent. Your change becomes a proposal"} onClick={() => ui.askAbout(blockId)}>
           <Sparkles className="size-3.5" />
         </GutterButton>
+        )}
       </div>
     </motion.div>
   );

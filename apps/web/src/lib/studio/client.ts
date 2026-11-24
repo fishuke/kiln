@@ -72,7 +72,7 @@ export interface StudioClient {
   watchChat?(chatId: string, onChange: () => void): () => void;
   /** Push updates for everything (the fake). */
   subscribe?(listener: () => void): () => void;
-  /** The Context page's methods (docs/specs/studio-context.md). Absent until the server has them (Phase 2). */
+  /** The Context page's methods (docs/specs/studio-context.md, ADR-019). */
   readonly context?: StudioContextClient;
 }
 
@@ -108,8 +108,8 @@ export interface StudioContextClient {
   propose(appId: string, input: Pick<Proposal, "kind" | "summary" | "patch"> & { fragmentId?: string }): Promise<Proposal>;
   /** `POST /proposals/{id}/decide`. */
   decideProposal(appId: string, proposalId: string, decision: "accept" | "reject", reason?: string): Promise<Proposal>;
-  /** Ask the agent to rewrite a piece of the Context. The new text streams through `onChunk`; nothing is written. */
-  askAgent(appId: string, input: { text: string; instruction: string; fragmentId?: string }, onChunk: (chunk: string) => void): Promise<{ text: string }>;
+  /** Ask the agent to rewrite a piece of the Context. The new text streams through `onChunk`; nothing is written. Absent where the server can't do it yet: the page then hides "Ask the agent". */
+  askAgent?(appId: string, input: { text: string; instruction: string; fragmentId?: string }, onChunk: (chunk: string) => void): Promise<{ text: string }>;
   /** `GET /apps/{id}/brief`, cached per Context version. */
   brief(appId: string): Promise<ContextBrief>;
   /** Records that the caller has seen the Context at its current version. */

@@ -61,6 +61,7 @@ function useDark(): boolean {
 function AskButton() {
   const Components = useComponentsContext()!;
   const ui = useContextUI();
+  if (!ui.canAsk) return null;
   return (
     <Components.FormattingToolbar.Button className="bn-button" label="Ask the agent" mainTooltip="Ask the agent to change this" icon={<Sparkles className="size-4" />} onClick={ui.askSelection}>
       Ask
@@ -300,7 +301,7 @@ export function ContextDocument({
       setRewriting((r) => [...r, id]);
       startSuggestion(editor, id, target.range);
       try {
-        await ctx.askAgent(appId, { text: target.text, instruction, fragmentId: target.blockId }, (chunk) => appendSuggestion(editor, id, chunk));
+        await ctx.askAgent!(appId, { text: target.text, instruction, fragmentId: target.blockId }, (chunk) => appendSuggestion(editor, id, chunk));
       } catch (err) {
         resolveSuggestion(editor, id, false);
         toast.error(message(err));
@@ -312,7 +313,7 @@ export function ContextDocument({
   );
 
   /** A viewer's request: nothing is written; the agent's text comes back to send as a proposal. */
-  const draft = useCallback((target: AskTarget, instruction: string, onChunk: (chunk: string) => void) => ctx.askAgent(appId, { text: target.text, instruction, fragmentId: target.blockId }, onChunk).then((r) => r.text), [ctx, appId]);
+  const draft = useCallback((target: AskTarget, instruction: string, onChunk: (chunk: string) => void) => ctx.askAgent!(appId, { text: target.text, instruction, fragmentId: target.blockId }, onChunk).then((r) => r.text), [ctx, appId]);
 
   const propose = useCallback(
     async (target: AskTarget, to: string) => {
@@ -365,6 +366,7 @@ export function ContextDocument({
       async reopen(q) {
         await ctx.reopen(appId, q.id).catch((err: unknown) => toast.error(message(err)));
       },
+      canAsk: Boolean(ctx.askAgent),
       askAbout,
       askSelection,
       showInPrototype: onShowInPrototype,

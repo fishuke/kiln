@@ -1,0 +1,10 @@
+# Stack sandbox (ADR-020): one product's whole stack as processes, with Postgres and Redis. Build it with
+#   docker build --target stack -t kiln-runner-stack:local runners/images/node
+# A full stack (an API, three Next.js dev servers, Postgres, Redis, Chromium) needs 8–12 GB.
+description: Stack sandbox with Postgres and Redis, for change set previews
+image: kiln-runner-stack:local
+backend: docker
+shape: { vcpus: 4, memoryGb: 12 }
+egress:
+  - registry.npmjs.org
+  - registry.yarnpkg.com

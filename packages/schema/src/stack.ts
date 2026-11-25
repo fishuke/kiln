@@ -6,7 +6,7 @@ import { z } from "zod";
  */
 
 /** A service name is part of a preview host name (`<target>-<service>.<domain>`). */
-const ServiceName = z.string().regex(/^[a-z][a-z0-9-]{0,30}$/, "use lowercase letters, digits and dashes, starting with a letter");
+const ServiceName = z.string().regex(/^[a-z][a-z0-9-]{0,19}$/, "use up to 20 lowercase letters, digits and dashes, starting with a letter");
 
 export const StackSeed = z.union([
   z.string().min(1),

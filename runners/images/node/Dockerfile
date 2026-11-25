@@ -59,5 +59,23 @@ COPY --from=template --chown=1000:1000 . .
 RUN pnpm install --frozen-lockfile && pnpm typecheck && rm -f tsconfig.tsbuildinfo
 WORKDIR /workspace
 
+# Stack sandbox (target "stack", ADR-020): the runner plus Postgres and Redis, so a product's whole
+# stack runs in one sandbox as processes (no Docker socket, ADR-017). `postgres-start` makes a
+# throwaway cluster with trust auth and runs it in the foreground on $PORT (default 5432):
+#   docker build --target stack -t kiln-runner-stack:local runners/images/node
+FROM runner AS stack
+USER root
+RUN apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends postgresql postgresql-contrib redis-server \
+  && rm -rf /var/lib/apt/lists/* \
+  && ln -s /usr/lib/postgresql/*/bin/initdb /usr/local/bin/initdb \
+  && ln -s /usr/lib/postgresql/*/bin/postgres /usr/local/bin/postgres \
+  && printf '%s\n' '#!/bin/sh' 'set -e' 'data="${PGDATA:-$HOME/.kiln/pg}"' \
+     'if [ ! -s "$data/PG_VERSION" ]; then mkdir -p "$data" && initdb -A trust -U "${PGUSER:-kiln}" -D "$data" >/dev/null; fi' \
+     'exec postgres -D "$data" -p "${PORT:-5432}" -k /tmp -c listen_addresses=localhost -c fsync=off -c full_page_writes=off' \
+     > /usr/local/bin/postgres-start && chmod 0755 /usr/local/bin/postgres-start
+USER 1000
+WORKDIR /workspace
+
 # The default target stays the runner image.
 FROM runner

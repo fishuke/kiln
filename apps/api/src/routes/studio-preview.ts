@@ -16,13 +16,22 @@ import type { RouteContext } from "../app";
 export type PreviewResolver = { resolvePreview(target: string): Promise<SandboxAddress | undefined> };
 export type PreviewConfig = { domain: string; port?: string; scheme: "http" | "https"; suffix?: string };
 
-const resolvers = new WeakMap<object, PreviewResolver>();
+/** Resolvers per `Kiln`, by target prefix (`st` for stack previews); "" is Studio's, for every other prefix. */
+const resolvers = new WeakMap<object, Map<string, PreviewResolver>>();
 /** routes/studio.ts calls this when it builds the Studio service for a `Kiln`. */
 export function setPreviewResolver(kiln: object, resolver: PreviewResolver) {
-  resolvers.set(kiln, resolver);
+  addPreviewResolver(kiln, "", resolver);
+}
+/** Another kind of preview (stack previews, ADR-020) resolves targets with this prefix. */
+export function addPreviewResolver(kiln: object, prefix: string, resolver: PreviewResolver) {
+  const map = resolvers.get(kiln) ?? new Map<string, PreviewResolver>();
+  map.set(prefix, resolver);
+  resolvers.set(kiln, map);
 }
 export function getPreviewResolver(kiln: object): PreviewResolver | undefined {
-  return resolvers.get(kiln);
+  const map = resolvers.get(kiln);
+  if (!map?.size) return undefined;
+  return { resolvePreview: (target) => (map.get(target.split("_")[0]!) ?? map.get(""))?.resolvePreview(target) ?? Promise.resolve(undefined) };
 }
 
 /**
@@ -48,7 +57,7 @@ export function previewUrlFor(env: Record<string, string | undefined> = process.
   const config = previewConfig(env);
   if (!config) return (_target, a) => `http://${a.host}:${a.port}`;
   return (target) => {
-    const label = target.replace("_", "-").toLowerCase();
+    const label = previewLabel(target);
     if (config.suffix) return `${config.scheme}://${label}${config.suffix}`;
     return `${config.scheme}://${label}.${config.domain}${config.port ? `:${config.port}` : ""}`;
   };
@@ -57,7 +66,13 @@ export function previewUrlFor(env: Record<string, string | undefined> = process.
 // "sc-<lowercase letters and digits>" for the id "sc_<…>": a DNS label with no "_". Real ids are "sc_" + 16
 // random bytes (32 hex), so "sc-<32>" is 35 characters. The id part is capped at 52 so that even with a short
 // suffix like "-preview" the leftmost label ("sc-<id>-preview") stays within the 63-character DNS-label limit.
-const LABEL = /^([a-z]{1,8})-([a-z0-9]{1,52})$/;
+// A stack preview (ADR-020) adds its service: "st-<id>-<service>" is the target "st_<id>.<service>".
+const LABEL = /^([a-z]{1,8})-([a-z0-9]{1,52})(?:-([a-z][a-z0-9-]{0,19}))?$/;
+
+/** The preview host label for a target: "sc_<id>" → "sc-<id>", "st_<id>.<service>" → "st-<id>-<service>". */
+export function previewLabel(target: string): string {
+  return target.replace("_", "-").replace(".", "-").toLowerCase();
+}
 
 /** The target id for a preview host; `undefined` for any other host, `null` for a preview host with a malformed label. */
 export function previewTarget(config: PreviewConfig, host: string | undefined): string | null | undefined {
@@ -66,7 +81,7 @@ export function previewTarget(config: PreviewConfig, host: string | undefined): 
   const suffix = config.suffix ?? `.${config.domain}`;
   if (!name.endsWith(suffix)) return undefined;
   const m = LABEL.exec(name.slice(0, -suffix.length));
-  return m ? `${m[1]}_${m[2]}` : null;
+  return m ? `${m[1]}_${m[2]}${m[3] ? `.${m[3]}` : ""}` : null;
 }
 
 /** Every unknown, stopped or malformed target gets this same answer, so a probe learns nothing. */

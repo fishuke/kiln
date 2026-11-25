@@ -14,6 +14,8 @@ import {
   previewUrlFor,
   refusePreviewPeers,
   setPreviewResolver,
+  addPreviewResolver,
+  getPreviewResolver,
   type PreviewResolver,
 } from "./routes/studio-preview";
 
@@ -89,6 +91,22 @@ describe("preview URLs and hosts", () => {
 
   it("maps a preview host back to its target, ignoring case and port", () => {
     expect(previewTarget(config, `${HOST.toUpperCase()}:443`)).toBe(ID);
+  });
+
+  it("maps a stack preview host to its target and service, and builds that host back", () => {
+    expect(previewTarget(config, `st-abc123-seller-app.${DOMAIN}`)).toBe("st_abc123.seller-app");
+    expect(previewUrlFor({ KILN_STUDIO_PREVIEW_DOMAIN: DOMAIN })("st_abc123.api", { host: "127.0.0.1", port: 1 })).toBe(`https://st-abc123-api.${DOMAIN}`);
+    expect(previewTarget(config, `st-abc123-Bad_Svc.${DOMAIN}`)).toBeNull();
+  });
+
+  it("sends each target prefix to its own resolver, and the rest to Studio's", async () => {
+    const kiln = {};
+    setPreviewResolver(kiln, resolver({ [ID]: { host: "studio", port: 1 } }));
+    addPreviewResolver(kiln, "st", resolver({ "st_abc.api": { host: "stack", port: 2 } }));
+    const r = getPreviewResolver(kiln)!;
+    expect(await r.resolvePreview(ID)).toEqual({ host: "studio", port: 1 });
+    expect(await r.resolvePreview("st_abc.api")).toEqual({ host: "stack", port: 2 });
+    expect(await r.resolvePreview("st_abc.web")).toBeUndefined();
   });
 
   it("leaves other hosts alone and rejects nested or malformed labels", () => {

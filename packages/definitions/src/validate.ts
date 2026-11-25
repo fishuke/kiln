@@ -1,4 +1,4 @@
-import { ExprError, parseExpr, refsOf, requiredRepoRef } from "@kiln/schema";
+import { ExprError, parseExpr, refsOf, requiredRepoRef, stackProblems } from "@kiln/schema";
 import { lineAt, parseTree, type DefinitionError, type ParsedFactory } from "./parse";
 import { resolve, type ResolvedFactory } from "./resolve";
 import type { DefinitionTree } from "./tree";
@@ -45,6 +45,16 @@ export function validateTree(tree: DefinitionTree, opts: { stored?: boolean } = 
       }
     }
   };
+
+  // ADR-020: the stack's services, ports and references hold together, and its repositories are the factory's.
+  // A problem about one service ("web: …") points at that service's line.
+  if (parsed.stack) {
+    const services = new Set(Object.keys(parsed.stack.services));
+    for (const problem of stackProblems(parsed.stack, f?.repositories.map((r) => `${r.owner}/${r.name}`))) {
+      const svc = /^([a-z][a-z0-9-]*):/.exec(problem)?.[1];
+      err("stack/", svc && services.has(svc) ? ["services", svc] : problem.startsWith("merge_order") ? ["merge_order"] : ["services"], "stack", problem);
+    }
+  }
 
   if (f) {
     if (!f.agentDefaults.harness && !f.agentDefaults.model) {

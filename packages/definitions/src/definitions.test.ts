@@ -205,3 +205,40 @@ describe("diff and sha", () => {
     expect(treeSha(withFiles({ "x.md": "" }))).not.toBe(treeSha(base));
   });
 });
+
+describe("stack.yaml (ADR-020)", () => {
+  const withStack = (stack: string) => ({ ...base, "stack.yaml": stack });
+
+  it("accepts a stack whose services hold together", () => {
+    const r = validateTree(withStack("name: shop\nservices:\n  db: { kind: datastore, start: postgres-start, port: 5432 }\n  web: { repo: acme/web-app, start: pnpm dev, port: 4000, depends_on: [db] }\n"));
+    expect(r.ok).toBe(true);
+    expect(r.parsed.stack?.services.web?.depends_on).toEqual(["db"]);
+  });
+
+  it("rejects cycles, duplicate ports, unknown references and repositories outside the factory, inside the service's block", () => {
+    const r = validateTree(
+      withStack(
+        [
+          "name: shop",
+          "services:",
+          "  db: { kind: datastore, start: postgres-start, port: 4000, depends_on: [web] }",
+          "  web:",
+          "    repo: acme/other",
+          "    start: pnpm dev",
+          "    port: 4000",
+          "    depends_on: [db]",
+          "    env: { API: '${services.api.url}' }",
+          "",
+        ].join("\n"),
+      ),
+    );
+    expect(r.ok).toBe(false);
+    const errors = r.ok ? [] : r.errors.filter((e) => e.file === "stack.yaml");
+    const text = errors.map((e) => `${e.line}: ${e.message}`).join("\n");
+    expect(text).toContain("5: web: env API names an unknown service api");
+    expect(text).toContain("5: web: repository acme/other is not in factory.yaml repositories");
+    expect(text).toMatch(/port 4000 is used by db and web/);
+    expect(text).toMatch(/depends_on has a cycle/);
+  });
+});
+

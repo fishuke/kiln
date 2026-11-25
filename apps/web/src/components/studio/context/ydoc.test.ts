@@ -14,7 +14,7 @@ const question = questionProps({ id: "sq_1", turnId: "st_1", spec: { kind: "bool
 /** The same writes, through any writer of the Context document. */
 function write(w: Pick<YContextDoc, "insert" | "appendText" | "update">) {
   const h = w.insert({ type: "heading", props: { level: 2 }, text: "Requirements" }, "end");
-  const r = w.insert({ type: "requirement", props: { ownerRole: "design", by: "agent" } }, { after: h });
+  const r = w.insert({ type: "requirement", props: { by: "agent" } }, { after: h });
   w.appendText(r, "People can ");
   w.appendText(r, "search.");
   w.insert({ type: "paragraph", text: "A detail" }, { parent: r });
@@ -22,7 +22,7 @@ function write(w: Pick<YContextDoc, "insert" | "appendText" | "update">) {
   const q = w.insert({ type: "question", props: question }, "end");
   w.update(q, { props: { status: "answered", answer: JSON.stringify({ type: "value", value: true }) } });
   const p = w.insert({ type: "paragraph", text: "Becomes a constraint" }, "end");
-  w.update(p, { type: "constraint", props: { ownerRole: "qa" } });
+  w.update(p, { type: "constraint", props: { route: "/" } });
 }
 const shape = (blocks: { type: string; text: string; props: unknown; parent?: string }[]) => blocks.filter((b) => b.text || b.type === "question").map((b) => ({ type: b.type, text: b.text, props: b.props, nested: Boolean(b.parent) }));
 
@@ -59,5 +59,16 @@ describe("the server's Context document and the editor's", () => {
     const doc = new Y.Doc();
     prosemirrorToYXmlFragment(editor.prosemirrorState.doc, doc.getXmlFragment("context"));
     expect(shape(new YContextDoc(doc).read())).toEqual(shape(readBlocks(editor.document as ContextBlock[])));
+  });
+
+  it("still renders documents written when fragments carried functional roles", () => {
+    const doc = new Y.Doc();
+    const y = new YContextDoc(doc);
+    const r = y.insert({ type: "requirement", props: { by: "agent", ownerRole: "engineering", reviewerRoles: "security,qa" }, text: "People can search." }, "end");
+    const node = yXmlFragmentToProseMirrorRootNode(doc.getXmlFragment("context"), create().pmSchema);
+    node.check();
+    expect(nodes(node.toJSON() as PM)).toMatchObject([{ type: "requirement", text: "People can search.", attrs: { by: "agent" } }]);
+    // The server still reads the block, and the editor keeps it.
+    expect(y.read().find((b) => b.id === r)).toMatchObject({ type: "requirement", text: "People can search." });
   });
 });

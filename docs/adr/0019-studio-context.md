@@ -49,3 +49,7 @@ Functional roles (product, design, engineering, security, legal, data, qa) are s
 - A Context can drift from the code. The page says so (the freshness chip compares the Context version the last build read with the current one); nothing forces them back together.
 - Two Yjs documents per App and their history grow without bound until snapshots are compacted. Compaction is not designed yet.
 - A viewer can spend the App's budget by prompting, even though their turn can only propose. The App's existing budget and running-chat limits apply; a per-role limit may be needed.
+
+## Update 2026-11-25
+
+At the owner's request, functional roles (product, design, engineering, security, legal, data, qa) are removed from Studio Context, and with them a fragment's owner and reviewer roles, sign-offs, review requests, the My review panel, their routes and the `studio.review_requested` event. The editor and viewer permissions (and the owner who manages members) stay as decided above; proposals and comment threads stay. Member rows and document blocks stored with `role`, `ownerRole` or `reviewerRoles` still load, and those keys are ignored. The decision text above is left as it was accepted.

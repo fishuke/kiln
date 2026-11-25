@@ -429,11 +429,11 @@ export function ContextDocument({
         aliases: [type],
         group: "Fragments",
         icon: <FragmentGlyph type={type} className="size-[18px]" />,
-        onItemClick: () => void insertOrUpdateBlockForSlashMenu(editor, { type, props: { by: me.user, at: new Date().toISOString(), ownerRole: me.role } }),
+        onItemClick: () => void insertOrUpdateBlockForSlashMenu(editor, { type, props: { by: me.user, at: new Date().toISOString() } }),
       }));
       return filterSuggestionItems([...fragments, ...getDefaultReactSlashMenuItems(editor)], query);
     },
-    [editor, me.user, me.role],
+    [editor, me.user],
   );
 
   const edge = (left: number, width: number) => Math.max(0, Math.min(left, (wrap.current?.clientWidth ?? width) - width));

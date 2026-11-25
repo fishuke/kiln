@@ -48,7 +48,7 @@ Keep: the preview pane and its failure states (`preview-pane.tsx`, `setup-panel.
 2. **Realtime: Yjs.** One Y.Doc per App for the Context (BlockNote's document), one for discussion (comment threads, proposals). The API holds both, syncs them over WebSocket and persists them. The agent is a peer with a cursor.
 3. **The agent changes the Context only through tools.** The Context is not a file the agent can edit. Every write goes through a server tool that checks the permission of **the person who prompted the turn**.
 4. **Permissions are two levels.** An App member is an **editor** or a **viewer**. Editors edit, answer questions and accept proposals; when an editor prompts the agent, the agent may write. Viewers read and comment; when a viewer prompts the agent, its writes become **proposals** an editor accepts or rejects. The creator is the owner (an editor who manages members).
-5. **Functional roles are separate from permissions.** A member also has a role (product, design, engineering, security, legal, data, qa). Roles drive ownership and review, never access.
+5. **No functional roles.** Members have a permission and nothing else: fragments have no owner or reviewer roles, and there are no sign-offs. (Roles, ownership and sign-offs were built in Phase 4 and removed at the owner's request on 2026-11-25; comments and proposals carry review.)
 6. **No modes.** The mode picker goes. The agent decides whether a request needs questions, Context changes, a prototype change or only an answer. One primary action remains: **Build prototype** (or **Update prototype**).
 7. **Questions never block a run.** `ask` records questions and the turn ends in `needs_you`. Answers start the next turn through the existing follow-up path (`followup(chat.runId)`), so a restart loses nothing and there is no timeout.
 8. **One main thread per App in this view.** Parallel chats and worktrees stay in the engine and under Activity, but the page stops showing chat tabs.
@@ -60,7 +60,7 @@ Keep: the preview pane and its failure states (`preview-pane.tsx`, `setup-panel.
 ### 4.1 Layout
 
 ```
-┌─ top bar: App ▾ · Context | My review | Threads ·········· presence · Share · Ship ─┐
+┌─ top bar: App ▾ · Context | Threads ······················ presence · Share · Ship ─┐
 ├──────────────────────────────────────┬───────────────────────────────────────────────┤
 │ CONTEXT (document, max 720 px text)  │ PROTOTYPE                                     │
 │                                      │  route ▾   ⟳   device   ↗   inspect           │
@@ -117,7 +117,7 @@ Rules:
 ### 4.5 Fragments in the document
 
 - Types: `text`, `section`, `requirement`, `decision`, `assumption`, `constraint`, `question`, `flow`, `risk`, `metric`, `image`. Plain writing stays plain: a `text` fragment has no chrome. Typed fragments get a small left mark (one glyph and one colour per type, used everywhere the type appears).
-- Resting state shows the content only. Hover or focus shows the gutter: handle (drag, type menu), owner role, reviewers, version, comment count, link-to-prototype. Selection opens details in place, one level deep (history, provenance, reviewers). No drawer inside a drawer.
+- Resting state shows the content only. Hover or focus shows the gutter: handle (drag, type menu), version, comment count, link-to-prototype. Selection opens details in place, one level deep (history, provenance). No drawer inside a drawer.
 - Slash menu inserts a typed fragment. Nesting is by indent, up to five levels; deeper nodes get a breadcrumb.
 - Every state change can be undone (`⌘Z` across people-safe Yjs undo) and every fragment has version history with restore.
 - Disabled, not hidden: a viewer sees edit controls greyed with "Viewers can comment and propose".
@@ -134,14 +134,12 @@ A person who opens an App they did not start, or returns after more than a day, 
 
 1. Five lines written by the agent: what this is, who it is for, the decisions that matter, what is still open.
 2. **Since your last visit**: changed fragments, grouped, each a link.
-3. **Needs you**: fragments waiting for your role's review, open questions, threads that mention you.
+3. **Needs you**: open questions and proposals you can decide.
 
 The Brief is a collapsible block, regenerated when the Context version moves, and cached per version. The owner's prompts are not shown anywhere on this path.
 
-### 4.8 Review lens and threads
+### 4.8 Threads
 
-- **My review** filters the document to fragments whose `reviewerRoles` include my role. Each shows its lineage (the path of parents, summarised in one line) so it makes sense out of place. Actions: **Looks good**, **Needs changes** (opens a thread), **Add what is missing** (a new fragment or a proposal). A sign-off is tied to the fragment version and goes stale when it changes.
-- Reviewer roles are assigned by the agent when it writes a fragment. A person who does not hold a role cannot remove it, and anyone can request another role's review.
 - **Threads**: comments on any fragment (BlockNote comments on the discussion doc), several people per thread, resolve and reopen. The Threads view lists every open thread across the document.
 
 ### 4.9 Motion and feel
@@ -176,7 +174,6 @@ Add to `packages/studio/src/types.ts` (zod, same conventions as `studio.md`) and
 
 ```ts
 export const FragmentType = z.enum(["text", "section", "requirement", "decision", "assumption", "constraint", "question", "flow", "risk", "metric", "image"]);
-export const FunctionalRole = z.enum(["product", "design", "engineering", "security", "legal", "data", "qa"]);
 export const Permission = z.enum(["owner", "editor", "viewer"]);
 
 /** Derived from the Context document; the document is the truth. */
@@ -185,8 +182,6 @@ export type Fragment = {
   appId: string;
   type: FragmentType;
   parent?: string;            // fragment id
-  ownerRole: FunctionalRole;
-  reviewerRoles: FunctionalRole[];
   content: string;            // plain text of the block, for search, briefs and exports
   version: number;            // +1 each time its content settles (2 s after the last change)
   provenance: Provenance[];   // newest last
@@ -194,7 +189,7 @@ export type Fragment = {
 };
 export type Provenance = { by: string; kind: "person" | "agent"; onBehalfOf?: string; turnId?: string; questionId?: string; at: string };
 
-export type Member = { appId: string; user: string; permission: Permission; role: FunctionalRole; invitedBy: string; lastSeenAt?: string; lastSeenVersion?: number };
+export type Member = { appId: string; user: string; permission: Permission; invitedBy: string; lastSeenAt?: string; lastSeenVersion?: number };
 
 export type Question = {
   id: string;                 // "sq_…"
@@ -207,11 +202,10 @@ export type Question = {
 };
 
 export type Proposal = { id: string; appId: string; by: string; kind: "edit" | "add" | "remove" | "answer"; fragmentId?: string; parent?: string; patch: unknown; status: "open" | "accepted" | "rejected"; decidedBy?: string; reason?: string; at: string };
-export type SignOff = { appId: string; fragmentId: string; role: FunctionalRole; by: string; state: "approved" | "changes"; version: number; at: string };
 export type ContextState = { appId: string; version: number; builtVersion?: number; briefVersion?: number; brief?: string };
 ```
 
-Store collections: `studio_members`, `studio_questions`, `studio_proposals`, `studio_signoffs`, `studio_context` (state plus the two Y.Doc snapshots in the object store), `studio_fragments` (derived index, rebuilt from the document; never written by a route).
+Store collections: `studio_members`, `studio_questions`, `studio_proposals`, `studio_threads`, `studio_context` (state plus the two Y.Doc snapshots in the object store), `studio_fragments` (derived index, rebuilt from the document; never written by a route).
 
 `ChatMode` stays in the engine. The new page sends no mode; the server picks `build` when the turn may change code and treats a Context-only turn like today's `plan` (code changes discarded).
 
@@ -222,7 +216,7 @@ Add to `packages/studio/src/tools.ts`, exposed to App runs through the existing 
 | Tool | Input | Effect |
 |------|-------|--------|
 | `context_read` | `{ fragment?: string; depth?: number }` | The document or a subtree as markdown with fragment ids |
-| `context_write` | `{ id?: string; type; parent?; after?; content; ownerRole?; reviewerRoles?; previewReference? }` | Insert or replace a fragment. Editor's turn: applied as the agent peer, streamed. Viewer's turn: a `Proposal` |
+| `context_write` | `{ id?: string; type; parent?; after?; content; previewReference? }` | Insert or replace a fragment. Editor's turn: applied as the agent peer, streamed. Viewer's turn: a `Proposal` |
 | `context_remove` | `{ id }` | Same rule |
 | `ask` | `{ questions: QuestionSpec[]; under?: string }` (1–5) | Inserts question blocks, records `Question`s, ends the turn in `needs_you` |
 | `link_preview` | `{ fragment; route; selector? }` | Sets `previewReference` |
@@ -238,8 +232,8 @@ The build agent gets a read-only copy at `.kiln/context.md` in its worktree at t
 - **Read-only enforcement.** For a viewer's socket the server drops incoming update messages on the Context doc and sends the current state back. The discussion doc accepts updates from every member. The UI also disables editing, but the server is the gate.
 - **Agent peer.** Tool calls apply to the server's copy of the doc in small transactions with the origin set to the agent, so every client sees the text arrive and the agent's awareness state carries its cursor and current action.
 - **Persistence.** Debounced snapshot (2 s) of each doc to the object store; state row in `studio_context`. A server observer rebuilds `studio_fragments`, bumps `version` on settle and appends provenance.
-- **Events** (`packages/events`): `studio.question_asked`, `studio.question_answered`, `studio.context_changed` (debounced, with the version), `studio.proposal_opened`, `studio.review_requested`. Questions also raise the existing `studio.needs_you` with `reason: "question"`.
-- **Routes** (`apps/api/src/routes/studio.ts`, same scopes and team checks): `GET …/apps/{id}/context` (state, members, open questions, proposals), `POST …/questions/{id}/answer`, `POST …/questions/continue`, `POST …/proposals/{id}/decide`, `GET|POST|PATCH|DELETE …/apps/{id}/members`, `POST …/fragments/{id}/signoff`, `POST …/fragments/{id}/review-request`, `GET …/apps/{id}/brief`, `GET …/apps/{id}/context/export`.
+- **Events** (`packages/events`): `studio.question_asked`, `studio.question_answered`, `studio.context_changed` (debounced, with the version), `studio.proposal_opened`, `studio.comment_added`. Questions also raise the existing `studio.needs_you` with `reason: "question"`.
+- **Routes** (`apps/api/src/routes/studio.ts`, same scopes and team checks): `GET …/apps/{id}/context` (state, members, open questions, proposals), `POST …/questions/{id}/answer`, `POST …/questions/continue`, `POST …/proposals/{id}/decide`, `GET|POST|PATCH|DELETE …/apps/{id}/members`, `POST …/threads`, `GET …/apps/{id}/brief`, `GET …/apps/{id}/context/export`.
 - **Client.** Extend `StudioClient` with the same methods and a `contextProvider(appId)` that returns a Yjs provider; `FakeStudioClient` implements it in memory with a scripted agent so the page runs with no backend.
 
 ## 8. Phases
@@ -258,7 +252,7 @@ Kiln's rules apply to each phase: failing tests first, `pnpm typecheck && pnpm t
 **Phase 3: people.** Members and invites, permissions in the UI, presence and cursors, comment threads, proposals with accept and reject, the Brief and "since your last visit".
 - Done when: a newly invited viewer lands on the Brief, sees no transcript, can comment and propose, and cannot edit.
 
-**Phase 4: review.** Reviewer roles from the agent, the My review lens with lineage, sign-offs that go stale, review requests, the Threads view.
+**Phase 4: review.** The Threads view. (Reviewer roles, the My review lens and sign-offs were built here and removed on 2026-11-25.)
 
 **Phase 5: prototype links and export.** `data-kiln-fragment` and a small postMessage bridge in the Next.js template (the preview is on another origin), fragment to element and element to fragment, `mark_built`, Context export on ship.
 
@@ -270,4 +264,4 @@ Do not stop to ask about these.
 2. The new page has one thread per App; parallel chats and subagents show under Activity.
 3. Only the owner invites members.
 4. The Brief is written by a separate cheap call when the Context version moves, cached per version.
-5. Functional roles are the fixed list in section 5; teams cannot add their own yet.
+5. ~~Functional roles are the fixed list in section 5.~~ Superseded 2026-11-25: functional roles, ownership and sign-offs are removed; editor and viewer permissions stay.

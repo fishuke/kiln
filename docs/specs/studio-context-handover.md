@@ -58,7 +58,7 @@ Found and fixed by this pass: the agent cursor lagged the text; the prototype pa
 - In the app shell the sidebar stays open at phone width, so the page is cramped there. The sidebar belongs to the shell, not to this page; whether the current Studio page is cramped the same way was not checked.
 - The Accept and Reject pill sits just under the end of a suggestion and covers part of the next line while it is there.
 - The `design-taste-frontend` skill was not available in the sessions that built and checked the page, so the visual and motion pass against section 4.10 has not been done with it.
-- Not built in Phase 1 by design (later phases): comment threads, My review, Threads, members and invites, Inspect and prototype links beyond the route, export.
+- Not built in Phase 1 by design (later phases): comment threads, Threads, members and invites, Inspect and prototype links beyond the route, export.
 
 ## Phase 2 (server truth): built and deployed, not yet used by a person
 
@@ -82,16 +82,17 @@ Deployed to anton's Coolify on 2026-11-24 from `main` at `b1fe246`, with `KILN_S
 - The Brief is written by rule from the Context (`briefLines`), not by a model.
 - The agent's worktree gets no `.kiln/context.md`; it reads with `context_read`.
 - Members are not stored yet: the creator is the owner, anyone else who may send to the team's Apps is an editor, anyone who may only read is a viewer who can watch. Every change needs `send`, a proposal included, like the rest of the API. Invited viewers who can propose are Phase 3.
-- `studio.review_requested`, sign-offs and review requests (Phase 4). Typed SDK methods for the page's routes (the web calls them with `api.request`).
+- Typed SDK methods for the page's routes (the web calls them with `api.request`).
 - A turn's steps reach the page by a refresh every four seconds, not by push.
 
 ## Phases 3 and 4 (people, review): built, not yet used by a person
 
 On `main` at `2de7ccd` (2026-11-24).
 
-- Members: the owner makes a teammate an editor or a viewer and sets roles in **Share** (`context/share.tsx`); everyone picks their own role. Server: `setMember`, `removeMember`, `setRole` in `ContextService`; rows in `studio_members`, keyed by lower-cased email. A teammate with no row is still an editor (or a viewer who can only watch, when they may only read).
-- Threads: comments on typed fragments from the gutter, replies, resolve and reopen, and every open thread from the top bar (`context/review.tsx`, `ThreadsPanel`). Kiln's own threads in `studio_threads`, not BlockNote's comments. Plain paragraphs and question blocks have no comment button yet.
-- Review: **My review** lists the fragments waiting for the caller's role with the section each sits under; Looks good and Needs changes sign off at the fragment's version (`studio_signoffs`), and a later edit shows "Changed since it was signed off". Anyone can ask a role to review a fragment from its comments. `studio.review_requested` and `studio.comment_added` are published.
+- Members: the owner makes a teammate an editor or a viewer in **Share** (`context/share.tsx`). Server: `setMember`, `removeMember` in `ContextService`; rows in `studio_members`, keyed by lower-cased email. A teammate with no row is still an editor (or a viewer who can only watch, when they may only read).
+- Threads: comments on typed fragments from the gutter, replies, resolve and reopen, and every open thread from the top bar (`context/threads.tsx`, `ThreadsPanel`). Kiln's own threads in `studio_threads`, not BlockNote's comments. Plain paragraphs and question blocks have no comment button yet.
+- Comments publish `studio.comment_added`.
+- **Removed 2026-11-25, at the owner's request:** functional roles (product, design, ...), a fragment's owner and reviewer roles, the **My review** panel, sign-offs (`studio_signoffs`) and review requests, with their routes (`…/context/role`, `…/fragments/{fragment}/signoff`, `…/fragments/{fragment}/review-request`) and the `studio.review_requested` event. Editor and viewer permissions, proposals and threads stay. Stored member rows and document blocks that still carry `role`, `ownerRole` or `reviewerRoles` load as before; those keys are ignored. Old `studio_signoffs` rows are left in place and removed only with their App.
 - Presence and cursors come from the shared document's awareness (Phase 1 and 2).
 
 Also changed after the owner's first use of the real page (2026-11-24):

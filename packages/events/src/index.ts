@@ -38,7 +38,6 @@ export type KilnEventMap = {
   "studio.question_asked": { appId: string; turnId: string; questions: { id: string; title: string }[]; priority: "needs_you" };
   "studio.question_answered": { appId: string; questionId: string; by: string; status: "answered" | "skipped" | "delegated"; priority: "progress" };
   "studio.context_changed": { appId: string; version: number; fragments: number; priority: "progress" };
-  "studio.review_requested": { appId: string; fragmentId: string; role: string; by: string; priority: "needs_you" };
   "studio.comment_added": { appId: string; threadId: string; fragmentId: string; by: string; priority: "progress" };
   "studio.proposal_opened": { appId: string; proposalId: string; by: string; summary: string; priority: "needs_you" };
   "studio.needs_you": { appId: string; chatId: string; question: string; reason: "question" | "conflict" | "failed" | "approval"; priority: "needs_you" };

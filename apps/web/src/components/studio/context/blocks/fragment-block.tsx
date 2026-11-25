@@ -7,10 +7,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TYPED_FRAGMENTS, type TypedFragment } from "@/lib/studio/context-doc";
 import { VIEWER_NOTE } from "@/lib/studio/context-model";
-import { FunctionalRole } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
 import { useContextUI } from "../context-ui";
-import { FRAGMENT_META, FragmentGlyph, ROLE_LABEL } from "../fragment-meta";
+import { FRAGMENT_META, FragmentGlyph } from "../fragment-meta";
 
 /** A small icon button in a block's gutter, with its tooltip. */
 export function GutterButton({ label, onClick, disabled, children }: { label: string; onClick?: () => void; disabled?: boolean; children: React.ReactNode }) {
@@ -39,7 +38,7 @@ export function GutterButton({ label, onClick, disabled, children }: { label: st
 
 /**
  * A typed fragment: its mark on the left (the type's glyph, which is also the type menu), the text,
- * and a gutter on the right that shows on hover or focus: owner, version, Ask the agent, and the
+ * and a gutter on the right that shows on hover or focus: version, Ask the agent, and the
  * link to where the prototype implements it.
  */
 export function FragmentBlock({
@@ -51,13 +50,12 @@ export function FragmentBlock({
 }: {
   type: TypedFragment;
   blockId: string;
-  props: { ownerRole: string; route: string; by: string };
+  props: { route: string; by: string };
   contentRef: (el: HTMLElement | null) => void;
   onType: (type: TypedFragment) => void;
 }) {
   const ui = useContextUI();
   const meta = FRAGMENT_META[type];
-  const owner = FunctionalRole.safeParse(props.ownerRole);
   const version = ui.versions[blockId];
   // A fragment that arrives while the page is open carries a tint that fades.
   const [arrived] = useState(ui.live);
@@ -114,10 +112,7 @@ export function FragmentBlock({
       </div>
       <p ref={contentRef} className="ctx-fragment-text" />
       <div contentEditable={false} className="ctx-fragment-gutter">
-        <span className="px-1 text-[11px] whitespace-nowrap text-muted-foreground">
-          {owner.success ? ROLE_LABEL[owner.data] : "Product"}
-          {version && version > 1 ? ` · v${version}` : ""}
-        </span>
+        {version && version > 1 ? <span className="px-1 text-[11px] whitespace-nowrap text-muted-foreground">v{version}</span> : null}
         {props.route && (
           <GutterButton label={`Show in the prototype (${props.route})`} onClick={() => ui.showInPrototype(props.route, blockId)}>
             <Crosshair className="size-3.5" />

@@ -10,7 +10,6 @@ import type {
   ContextTurn,
   CreateAppInput,
   ForgeRepository,
-  FunctionalRole,
   Member,
   MergeReview,
   NewChatInput,
@@ -19,7 +18,6 @@ import type {
   Proposal,
   QuestionAnswer,
   SendResult,
-  SignOff,
   StatusReport,
   ShipMode,
   StudioApp,
@@ -121,18 +119,12 @@ export interface StudioContextClient {
   markSeen(appId: string): Promise<void>;
   /** The prototype's preview. */
   preview(appId: string): Promise<Preview>;
-  /** The owner adds a member, or changes what one may do and their role. */
-  setMember(appId: string, input: { user: string; name?: string; permission: "editor" | "viewer"; role: FunctionalRole }): Promise<Member>;
+  /** The owner adds a member, or changes what one may do. */
+  setMember(appId: string, input: { user: string; name?: string; permission: "editor" | "viewer" }): Promise<Member>;
   removeMember(appId: string, user: string): Promise<void>;
-  /** The caller's own functional role: what they review. */
-  setRole(appId: string, role: FunctionalRole): Promise<Member>;
   /** A comment on a fragment: a new thread (`fragmentId`) or a reply (`threadId`). */
   comment(appId: string, input: { fragmentId?: string; threadId?: string; text: string }): Promise<Thread>;
   resolveThread(appId: string, threadId: string, resolved: boolean): Promise<Thread>;
-  /** The caller's verdict on a fragment, for their role, at its current version. */
-  signOff(appId: string, fragmentId: string, state: "approved" | "changes"): Promise<SignOff>;
-  /** Ask a role to review a fragment. */
-  requestReview(appId: string, fragmentId: string, role: FunctionalRole): Promise<void>;
   /** The fake's stand-in for the server's agent peer: how its scripted agent reads and writes the open document. */
   attachDocument?(appId: string, doc: ContextDocWriter): () => void;
   /** The fake only: the people one can be, to try the page as an editor, a viewer or a newcomer. */

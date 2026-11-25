@@ -158,7 +158,7 @@ describe("the Context service", () => {
       if (!prompt.endsWith("recipes")) return;
       await tool("context_read");
       await tool("context_write", { type: "title", content: "Recipe box" });
-      const w = (await tool("context_write", { type: "requirement", content: "Search matches titles and ingredients as you type.", section: "Requirements", ownerRole: "design", reviewerRoles: ["qa"] })) as { data: { id: string } };
+      const w = (await tool("context_write", { type: "requirement", content: "Search matches titles and ingredients as you type.", section: "Requirements" })) as { data: { id: string } };
       await tool("context_write", { type: "constraint", content: "Works on a 390 px wide phone.", section: "Constraints" });
       await tool("context_write", { type: "requirement", content: "Recipes carry tags.", section: "Requirements" });
       await tool("link_preview", { fragment: w.data.id, route: "/" });
@@ -175,7 +175,7 @@ describe("the Context service", () => {
       "heading:Constraints",
       "constraint:Works on a 390 px wide phone.",
     ]);
-    expect(blocks[2]!.props).toMatchObject({ by: "agent", ownerRole: "design", reviewerRoles: "qa", route: "/" });
+    expect(blocks[2]!.props).toMatchObject({ by: "agent", route: "/" });
     const s = await t.ctx.snapshot(t.appId, t.ada);
     expect(s.changes.every((c) => c.by === "agent")).toBe(true);
     expect(freshness(s.state, s.changes)).toEqual({ kind: "fresh" });
@@ -324,15 +324,13 @@ describe("the Context service", () => {
     const t = await make();
     const eve = { ...t.ada, user: "Eve@x.test", name: "Eve" };
     expect(t.ctx.member(t.appId, eve).permission).toBe("editor");
-    await expect(t.ctx.setMember(t.appId, eve, { user: "sam@x.test", permission: "editor", role: "qa" })).rejects.toMatchObject({ code: "forbidden" });
-    expect(await t.ctx.setMember(t.appId, t.ada, { user: "eve@x.test", permission: "viewer", role: "security" })).toMatchObject({ user: "eve@x.test", permission: "viewer", role: "security", invitedBy: "ada@x.test" });
-    expect(t.ctx.member(t.appId, eve)).toMatchObject({ user: "Eve@x.test", permission: "viewer", role: "security" });
+    await expect(t.ctx.setMember(t.appId, eve, { user: "sam@x.test", permission: "editor" })).rejects.toMatchObject({ code: "forbidden" });
+    expect(await t.ctx.setMember(t.appId, t.ada, { user: "eve@x.test", permission: "viewer" })).toMatchObject({ user: "eve@x.test", permission: "viewer", invitedBy: "ada@x.test" });
+    expect(t.ctx.member(t.appId, eve)).toMatchObject({ user: "Eve@x.test", permission: "viewer" });
     await expect(t.ctx.applyUpdate(t.appId, eve, await pageUpdate(t, (y) => y.insert({ type: "paragraph", text: "x" }, "end")))).rejects.toMatchObject({ code: "forbidden" });
-    await expect(t.ctx.setMember(t.appId, t.ada, { user: "ada@x.test", permission: "viewer", role: "qa" })).rejects.toMatchObject({ code: "invalid" });
-    await expect(t.ctx.setMember(t.appId, t.ada, { user: "not an email", permission: "viewer", role: "qa" })).rejects.toMatchObject({ code: "invalid" });
+    await expect(t.ctx.setMember(t.appId, t.ada, { user: "ada@x.test", permission: "viewer" })).rejects.toMatchObject({ code: "invalid" });
+    await expect(t.ctx.setMember(t.appId, t.ada, { user: "not an email", permission: "viewer" })).rejects.toMatchObject({ code: "invalid" });
     expect((await t.ctx.snapshot(t.appId, t.ada)).members.map((m) => `${m.user}:${m.permission}`).sort()).toEqual(["ada@x.test:owner", "eve@x.test:viewer"]);
-    expect(await t.ctx.setRole(t.appId, t.ada, "design")).toMatchObject({ permission: "owner", role: "design" });
-    expect(t.ctx.member(t.appId, t.ada)).toMatchObject({ permission: "owner", role: "design" });
     await t.ctx.removeMember(t.appId, t.ada, "eve@x.test");
     expect(t.ctx.member(t.appId, eve).permission).toBe("editor");
   });
@@ -351,25 +349,21 @@ describe("the Context service", () => {
     await expect(t.ctx.comment(t.appId, t.ada, { threadId: thread.id, text: "  " })).rejects.toMatchObject({ code: "invalid" });
   });
 
-  it("signs a fragment off for the reviewer's role at its version, and a later edit makes the sign-off stale", async () => {
+  it("loads members and fragments stored when they had functional roles, and drops the roles", async () => {
     const t = await make();
-    await t.ctx.applyUpdate(t.appId, t.ada, await pageUpdate(t, (y) => y.insert({ type: "risk", text: "Data is lost when the browser is cleared.", props: { reviewerRoles: "security" } }, "end")));
-    await t.ctx.flush();
-    const [block] = await t.blocks();
-    await expect(t.ctx.signOff(t.appId, t.ada, block!.id, "approved")).rejects.toMatchObject({ code: "forbidden" });
-    await t.ctx.setRole(t.appId, t.ada, "security");
-    expect(await t.ctx.signOff(t.appId, t.ada, block!.id, "approved")).toMatchObject({ role: "security", state: "approved", version: 1, by: "ada@x.test" });
-    await t.ctx.applyUpdate(t.appId, t.ada, await pageUpdate(t, (y) => y.update(block!.id, { text: "Data is lost when the browser's storage is cleared." })));
+    t.kiln.store.put("studio_members", { id: `${t.appId}:eve@x.test`, appId: t.appId, user: "eve@x.test", name: "Eve", permission: "viewer", role: "security", invitedBy: "ada@x.test" });
+    await t.ctx.applyUpdate(t.appId, t.ada, await pageUpdate(t, (y) => y.insert({ type: "risk", text: "Data is lost when the browser is cleared.", props: { ownerRole: "engineering", reviewerRoles: "security,legal" } }, "end")));
     await t.ctx.flush();
     const s = await t.ctx.snapshot(t.appId, t.ada);
-    expect(s.versions[block!.id]).toBe(2);
-    expect(s.signoffs).toMatchObject([{ fragmentId: block!.id, version: 1 }]);
-
-    // Anyone may ask another role to look; the fragment then waits for that role too.
-    await t.ctx.requestReview(t.appId, t.sam, block!.id, "legal");
-    expect((await t.blocks())[0]!.props.reviewerRoles).toBe("security,legal");
-    await expect(t.ctx.requestReview(t.appId, t.sam, "nope", "legal")).rejects.toMatchObject({ code: "not_found" });
+    const eve = s.members.find((m) => m.user === "eve@x.test")!;
+    expect(eve).toMatchObject({ permission: "viewer", name: "Eve" });
+    expect(eve).not.toHaveProperty("role");
+    expect(s).not.toHaveProperty("signoffs");
+    const [block] = await t.blocks();
+    expect(block).toMatchObject({ type: "risk", text: "Data is lost when the browser is cleared." });
+    expect(await t.ctx.comment(t.appId, t.ada, { fragmentId: block!.id, text: "Still reads." })).toMatchObject({ fragmentId: block!.id });
   });
+
   it("writes a document a newcomer can read: a title, an opening, sections in reading order, and a plan it ticks off", async () => {
     const t = await make(async (prompt, tool) => {
       if (prompt.endsWith("habits")) {

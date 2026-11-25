@@ -26,14 +26,12 @@ import type {
   ContextState,
   ContextTurn,
   FragmentType,
-  FunctionalRole,
   Member,
   Preview,
   Proposal,
   Question,
   QuestionAnswer,
   QuestionSpec,
-  SignOff,
   StudioApp,
   Thread,
 } from "./types";
@@ -74,13 +72,12 @@ type Meta = {
   /** The agent was started on drafting the empty Context from the App's code. */
   drafted: boolean;
   threads: Thread[];
-  signoffs: SignOff[];
-  /** What the owner set for a person, and the roles people picked. */
-  roster: Record<string, { permission?: "editor" | "viewer"; role?: FunctionalRole; name?: string }>;
+  /** What the owner set for a person. */
+  roster: Record<string, { permission?: "editor" | "viewer"; name?: string }>;
 };
 
 /** What a fragment the agent writes looks like before it is in the document. */
-type Draft = { section: string; type: string; text: string; owner?: FunctionalRole; reviewers?: FunctionalRole[]; route?: string; source?: string };
+type Draft = { section: string; type: string; text: string; route?: string; source?: string };
 type Ask = { key: string; spec: QuestionSpec };
 /** An activity step before it has a time. */
 type Step = Activity extends infer A ? (A extends unknown ? Omit<A, "at"> : never) : never;
@@ -139,7 +136,6 @@ export class FakeContext implements StudioContextClient {
       seeded: false,
       drafted: false,
       threads: [],
-      signoffs: [],
       roster: {},
     };
     return defaults[key];
@@ -167,9 +163,9 @@ export class FakeContext implements StudioContextClient {
   identities(appId = ""): Member[] {
     const base = { appId, invitedBy: ME };
     return [
-      { ...base, user: ME, name: "You", permission: "owner", role: "product" },
-      { ...base, user: "ada@example.com", name: "Ada", permission: "editor", role: "design" },
-      { ...base, user: "sam@example.com", name: "Sam", permission: "viewer", role: "engineering" },
+      { ...base, user: ME, name: "You", permission: "owner" },
+      { ...base, user: "ada@example.com", name: "Ada", permission: "editor" },
+      { ...base, user: "sam@example.com", name: "Sam", permission: "viewer" },
     ];
   }
 
@@ -185,9 +181,9 @@ export class FakeContext implements StudioContextClient {
     const known = this.identities(appId);
     const invited: Member[] = Object.entries(roster)
       .filter(([user]) => !known.some((m) => m.user === user))
-      .map(([user, r]) => ({ appId, user, name: r.name ?? user.split("@")[0]!, permission: r.permission ?? "viewer", role: r.role ?? "product", invitedBy: ME }));
+      .map(([user, r]) => ({ appId, user, name: r.name ?? user.split("@")[0]!, permission: r.permission ?? "viewer", invitedBy: ME }));
     return [...known, ...invited]
-      .map((m) => ({ ...m, ...(m.permission !== "owner" && roster[m.user]?.permission ? { permission: roster[m.user]!.permission! } : {}), ...(roster[m.user]?.role ? { role: roster[m.user]!.role! } : {}) }))
+      .map((m) => ({ ...m, ...(m.permission !== "owner" && roster[m.user]?.permission ? { permission: roster[m.user]!.permission! } : {}) }))
       .map((m) => (seen[m.user] ? { ...m, lastSeenAt: seen[m.user]!.at, lastSeenVersion: seen[m.user]!.version } : m));
   }
 
@@ -199,12 +195,12 @@ export class FakeContext implements StudioContextClient {
     this.set(appId, "seen", { ...this.get(appId, "seen"), [this.as]: { at: this.iso(), version: this.get(appId, "state").version } });
   }
 
-  async setMember(appId: string, input: { user: string; name?: string; permission: "editor" | "viewer"; role: FunctionalRole }): Promise<Member> {
+  async setMember(appId: string, input: { user: string; name?: string; permission: "editor" | "viewer" }): Promise<Member> {
     if (this.me(appId).permission !== "owner") throw new StudioClientError("Only the owner invites members and changes what they may do", 403);
     const user = input.user.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(user)) throw new StudioClientError("A member is added by their email address", 400);
     if (user === ME) throw new StudioClientError("The owner stays the owner", 400);
-    this.set(appId, "roster", { ...this.get(appId, "roster"), [user]: { permission: input.permission, role: input.role, ...(input.name ? { name: input.name } : {}) } });
+    this.set(appId, "roster", { ...this.get(appId, "roster"), [user]: { permission: input.permission, ...(input.name ? { name: input.name } : {}) } });
     return this.members(appId).find((m) => m.user === user)!;
   }
 
@@ -213,12 +209,6 @@ export class FakeContext implements StudioContextClient {
     const rest = { ...this.get(appId, "roster") };
     delete rest[user];
     this.set(appId, "roster", rest);
-  }
-
-  async setRole(appId: string, role: FunctionalRole): Promise<Member> {
-    const roster = this.get(appId, "roster");
-    this.set(appId, "roster", { ...roster, [this.as]: { ...roster[this.as], role } });
-    return this.me(appId);
   }
 
   async comment(appId: string, input: { fragmentId?: string; threadId?: string; text: string }): Promise<Thread> {
@@ -247,22 +237,6 @@ export class FakeContext implements StudioContextClient {
     return thread;
   }
 
-  async signOff(appId: string, fragmentId: string, state: "approved" | "changes"): Promise<SignOff> {
-    const me = this.me(appId);
-    const f = fragmentsFrom(appId, this.doc(appId).read(), this.get(appId, "versions")).find((x) => x.id === fragmentId);
-    if (!f) throw new StudioClientError("That fragment is not in the Context", 404);
-    if (!f.reviewerRoles.includes(me.role)) throw new StudioClientError(`This fragment isn't waiting for ${me.role}'s review`, 403);
-    const signoff: SignOff = { appId, fragmentId, role: me.role, by: this.as, state, version: f.version, at: this.iso() };
-    this.set(appId, "signoffs", [...this.get(appId, "signoffs").filter((x) => !(x.fragmentId === fragmentId && x.role === me.role)), signoff]);
-    return signoff;
-  }
-
-  async requestReview(appId: string, fragmentId: string, role: FunctionalRole): Promise<void> {
-    const f = fragmentsFrom(appId, this.doc(appId).read()).find((x) => x.id === fragmentId);
-    if (!f) throw new StudioClientError("That fragment is not in the Context", 404);
-    if (!f.reviewerRoles.includes(role)) this.doc(appId).update(fragmentId, { props: { reviewerRoles: [...f.reviewerRoles, role].join(",") } });
-  }
-
   // --- reading --------------------------------------------------------------------------------
 
   async snapshot(appId: string): Promise<ContextSnapshot> {
@@ -275,7 +249,6 @@ export class FakeContext implements StudioContextClient {
       agent: this.get(appId, "agent"),
       turns: this.get(appId, "turns"),
       threads: this.get(appId, "threads"),
-      signoffs: this.get(appId, "signoffs"),
       versions: this.get(appId, "versions"),
       ...(this.draftable(appId) ? { draft: "code" as const } : {}),
     };
@@ -455,7 +428,7 @@ export class FakeContext implements StudioContextClient {
   private async write(appId: string, run: Run, d: Draft): Promise<string> {
     const doc = this.doc(appId);
     const after = this.sectionEnd(appId, d.section);
-    const props: DocProps = { by: AGENT, at: this.iso(), ownerRole: d.owner ?? "product", reviewerRoles: (d.reviewers ?? []).join(","), ...(d.route ? { route: d.route } : {}), ...(d.source ? { source: d.source } : {}) };
+    const props: DocProps = { by: AGENT, at: this.iso(), ...(d.route ? { route: d.route } : {}), ...(d.source ? { source: d.source } : {}) };
     const id = doc.insert({ type: d.type, props: d.type === "paragraph" ? {} : props }, after ? { after } : "end");
     this.touched(appId).add(id);
     await this.type(appId, run, id, d.text, `${d.section} › ${fragmentTitle(d.text, 28)}`);
@@ -784,7 +757,7 @@ export class FakeContext implements StudioContextClient {
     const patch = (p.patch ?? {}) as Partial<Draft> & { questionId?: string; answer?: QuestionAnswer; from?: string; to?: string };
     if (p.kind === "add" && patch.text) {
       const after = this.sectionEnd(appId, patch.section ?? "Requirements");
-      doc.insert({ type: patch.type ?? "requirement", text: patch.text, props: { by: p.by, at: this.iso(), ownerRole: patch.owner ?? "product", reviewerRoles: (patch.reviewers ?? []).join(",") } }, after ? { after } : "end");
+      doc.insert({ type: patch.type ?? "requirement", text: patch.text, props: { by: p.by, at: this.iso() } }, after ? { after } : "end");
     } else if (p.kind === "answer" && patch.questionId && patch.answer) {
       this.applyAnswer(appId, this.question(appId, patch.questionId), patch.answer, p.by);
     } else if (p.kind === "edit" && p.fragmentId && patch.to !== undefined) {
@@ -815,8 +788,7 @@ export class FakeContext implements StudioContextClient {
     const top = doc.read().filter((b) => !b.parent)[0];
     let last = doc.insert({ type: "heading", props: { level: 1 }, text: "Habit tracker" }, top ? { before: top.id } : "end");
     const add = (type: string, text: string, props: DocProps = {}) => (last = doc.insert({ type, text, props }, { after: last }));
-    const typed = (type: string, text: string, owner: FunctionalRole, reviewers: FunctionalRole[], extra: DocProps = {}) =>
-      add(type, text, { by: AGENT, at: at(150), ownerRole: owner, reviewerRoles: reviewers.join(","), ...extra });
+    const typed = (type: string, text: string, extra: DocProps = {}) => add(type, text, { by: AGENT, at: at(150), ...extra });
     const decided = (key: string, index: number, spec: QuestionSpec, answer: QuestionAnswer, status: Question["status"] = "answered") =>
       add(QUESTION_BLOCK, "", questionProps({ id: `sq_${key}_seed`, turnId: "ct_seed1", spec, status, answer, answeredBy: ME, answeredAt: at(165), batch: { id: "sb_seed", index, total: 3 } }));
     add("paragraph", "People start habits and lose track of them within a week. This is a daily list you tick off, with a streak for each habit so a missed day is visible.");
@@ -838,19 +810,19 @@ export class FakeContext implements StudioContextClient {
     decided("scope", 1, { kind: "multi", title: "What belongs in the first version?", options: HABIT.scope.map((s) => ({ id: s.id, label: s.label })) }, { type: "value", value: ["streaks", "heatmap", "dark"] });
     decided("polish", 2, { kind: "scale", title: "How finished should the first prototype look?", min: 1, max: 5, step: 1, minLabel: "Rough sketch", maxLabel: "Demo-ready", default: 3 }, { type: "value", value: 3 }, "delegated");
     add("heading", "Requirements", { level: 2 });
-    typed("requirement", "It is built for one person first. No accounts: habits and streaks are saved on this device.", "product", ["engineering"], { source: "sq_audience_seed" });
-    typed("requirement", "Each habit shows its streak as a flame badge. A missed day resets it to zero.", "design", ["qa"], { source: "sq_scope_seed", route: "/" });
-    typed("requirement", "A two-week heatmap under the list shows how many habits were done each day.", "design", ["data"], { source: "sq_scope_seed", route: "/" });
-    typed("requirement", "A dark mode toggle in the header follows the system theme until the person picks one.", "design", [], { source: "sq_scope_seed" });
+    typed("requirement", "It is built for one person first. No accounts: habits and streaks are saved on this device.", { source: "sq_audience_seed" });
+    typed("requirement", "Each habit shows its streak as a flame badge. A missed day resets it to zero.", { source: "sq_scope_seed", route: "/" });
+    typed("requirement", "A two-week heatmap under the list shows how many habits were done each day.", { source: "sq_scope_seed", route: "/" });
+    typed("requirement", "A dark mode toggle in the header follows the system theme until the person picks one.", { source: "sq_scope_seed" });
     add("heading", "Constraints", { level: 2 });
-    typed("constraint", "Prototype polish is 3 of 5: real layout and copy, placeholder data.", "product", [], { source: "sq_polish_seed" });
-    typed("constraint", "Everything works on a 390 px wide phone; tap targets are at least 32 px.", "engineering", ["design", "qa"]);
+    typed("constraint", "Prototype polish is 3 of 5: real layout and copy, placeholder data.", { source: "sq_polish_seed" });
+    typed("constraint", "Everything works on a 390 px wide phone; tap targets are at least 32 px.");
     add("heading", "Flow", { level: 2 });
-    typed("flow", "Open the app → see today's habits → tick one off → its streak grows → check the heatmap at the end of the week.", "design", []);
+    typed("flow", "Open the app → see today's habits → tick one off → its streak grows → check the heatmap at the end of the week.");
     add("heading", "Risks", { level: 2 });
-    typed("risk", "Local storage is lost when the browser's data is cleared. Say so before someone relies on a long streak.", "engineering", ["security", "legal"]);
+    typed("risk", "Local storage is lost when the browser's data is cleared. Say so before someone relies on a long streak.");
     add("heading", "Success", { level: 2 });
-    typed("metric", "Someone who opens it for a week ticks at least one habit on five of seven days.", "data", ["product"]);
+    typed("metric", "Someone who opens it for a week ticks at least one habit on five of seven days.");
 
     // History, as if it happened over the last three hours: versions 1 to 6, built at 6.
     const fragments = fragmentsFrom(appId, doc.read());
@@ -910,10 +882,10 @@ const HABIT: Topic = {
     { id: "dark", label: "Dark mode", line: "A dark mode toggle in the header follows the system theme until you pick one." },
   ],
   rest: [
-    { section: "Constraints", type: "constraint", text: "Everything works on a 390 px wide phone, with tap targets of at least 32 px.", owner: "engineering", reviewers: ["design", "qa"] },
-    { section: "Flow", type: "flow", text: "Open the app → see today's habits → tick one off → its streak grows.", owner: "design" },
-    { section: "Risks", type: "risk", text: "Data kept on one device is lost when the browser's data is cleared. Say so before someone relies on it.", owner: "engineering", reviewers: ["security"] },
-    { section: "Success", type: "metric", text: "Someone who opens it for a week ticks at least one habit on five of seven days.", owner: "data", reviewers: ["product"] },
+    { section: "Constraints", type: "constraint", text: "Everything works on a 390 px wide phone, with tap targets of at least 32 px." },
+    { section: "Flow", type: "flow", text: "Open the app → see today's habits → tick one off → its streak grows." },
+    { section: "Risks", type: "risk", text: "Data kept on one device is lost when the browser's data is cleared. Say so before someone relies on it." },
+    { section: "Success", type: "metric", text: "Someone who opens it for a week ticks at least one habit on five of seven days." },
   ],
 };
 
@@ -926,10 +898,10 @@ const RECIPE: Topic = {
     { id: "shopping", label: "Shopping list", line: "Ingredients from a recipe can be added to one shared shopping list." },
   ],
   rest: [
-    { section: "Constraints", type: "constraint", text: "Everything works on a 390 px wide phone, with tap targets of at least 32 px.", owner: "engineering", reviewers: ["design", "qa"] },
-    { section: "Flow", type: "flow", text: "Open the app → search or pick a tag → open a recipe → cook from it with the screen kept awake.", owner: "design" },
-    { section: "Risks", type: "risk", text: "Recipes copied from sites and books may be copyrighted. Keep them private unless the person wrote them.", owner: "product", reviewers: ["legal"] },
-    { section: "Success", type: "metric", text: "Someone with twenty saved recipes finds the one they want in under ten seconds.", owner: "data", reviewers: ["product"] },
+    { section: "Constraints", type: "constraint", text: "Everything works on a 390 px wide phone, with tap targets of at least 32 px." },
+    { section: "Flow", type: "flow", text: "Open the app → search or pick a tag → open a recipe → cook from it with the screen kept awake." },
+    { section: "Risks", type: "risk", text: "Recipes copied from sites and books may be copyrighted. Keep them private unless the person wrote them." },
+    { section: "Success", type: "metric", text: "Someone with twenty saved recipes finds the one they want in under ten seconds." },
   ],
 };
 
@@ -942,10 +914,10 @@ const GENERIC: Topic = {
     { id: "offline", label: "Offline use", line: "Everything already loaded keeps working without a connection." },
   ],
   rest: [
-    { section: "Constraints", type: "constraint", text: "Everything works on a 390 px wide phone, with tap targets of at least 32 px.", owner: "engineering", reviewers: ["design", "qa"] },
-    { section: "Flow", type: "flow", text: "Open the app → see what matters now → add or change one thing → come back tomorrow.", owner: "design" },
-    { section: "Risks", type: "risk", text: "The first version tries to do too much. Anything not listed under Requirements waits.", owner: "product" },
-    { section: "Success", type: "metric", text: "A first-time visitor does the main thing within a minute, without help.", owner: "data", reviewers: ["product"] },
+    { section: "Constraints", type: "constraint", text: "Everything works on a 390 px wide phone, with tap targets of at least 32 px." },
+    { section: "Flow", type: "flow", text: "Open the app → see what matters now → add or change one thing → come back tomorrow." },
+    { section: "Risks", type: "risk", text: "The first version tries to do too much. Anything not listed under Requirements waits." },
+    { section: "Success", type: "metric", text: "A first-time visitor does the main thing within a minute, without help." },
   ],
 };
 
@@ -970,7 +942,7 @@ function requirementFrom(prompt: string): Draft {
     .replace(/^(please|can you|could you|i want|i'd like)\s+/i, "")
     .replace(/[.!]+$/, "");
   const text = /^(add|make|show|let|allow|support|change|remove|use)\b/i.test(clause) ? `${clause[0]!.toUpperCase()}${clause.slice(1)}.` : `People can ${clause[0]!.toLowerCase()}${clause.slice(1)}.`;
-  return { section: "Requirements", type: "requirement", text, owner: "product", reviewers: ["design"] };
+  return { section: "Requirements", type: "requirement", text };
 }
 
 const lower = (s: string) => (s ? s[0]!.toLowerCase() + s.slice(1) : s);
@@ -986,32 +958,32 @@ function draftsFor(q: Question, topic: Topic): Draft[] {
   switch (key) {
     case "why":
       return q.status === "delegated"
-        ? one({ section: "Why", type: "assumption", text: `Not said yet why this is wanted; assumed: ${topic.problem}`, owner: "product" })
+        ? one({ section: "Why", type: "assumption", text: `Not said yet why this is wanted; assumed: ${topic.problem}` })
         : one({ section: "Why", type: "paragraph", text: said });
     case "audience": {
       const consequence = "options" in q.spec ? q.spec.options.find((o) => o.id === value)?.consequence : undefined;
-      return one({ section: "Requirements", type: "requirement", text: `It is built for ${lower(said)} first.${consequence ? ` ${consequence}` : ""}`, owner: "product", reviewers: ["engineering"] });
+      return one({ section: "Requirements", type: "requirement", text: `It is built for ${lower(said)} first.${consequence ? ` ${consequence}` : ""}` });
     }
     case "scope": {
       const picked = Array.isArray(value) ? value : [];
-      if (!picked.length) return one({ section: "Requirements", type: "requirement", text: `The first version includes: ${said}.`, owner: "product", reviewers: ["design"] });
-      return picked.map((id) => ({ section: "Requirements", type: "requirement", text: topic.scope.find((s) => s.id === id)?.line ?? `${id} is part of the first version.`, owner: "design" as const, reviewers: ["qa" as const], route: "/", source }));
+      if (!picked.length) return one({ section: "Requirements", type: "requirement", text: `The first version includes: ${said}.` });
+      return picked.map((id) => ({ section: "Requirements", type: "requirement", text: topic.scope.find((s) => s.id === id)?.line ?? `${id} is part of the first version.`, route: "/", source }));
     }
     case "polish": {
       const n = typeof value === "number" ? value : 3;
       const what = n <= 2 ? "structure and flow matter more than visual detail" : n >= 4 ? "it should be ready to show to people outside the team" : "real layout and copy, placeholder data";
-      return one({ section: "Constraints", type: "constraint", text: `Prototype polish is ${typeof value === "number" ? `${n} of 5` : said}: ${what}.`, owner: "product" });
+      return one({ section: "Constraints", type: "constraint", text: `Prototype polish is ${typeof value === "number" ? `${n} of 5` : said}: ${what}.` });
     }
     case "layout":
-      return one({ section: "Requirements", type: "requirement", text: `The home screen uses the ${lower(said)} layout.`, owner: "design", reviewers: ["engineering"], route: "/" });
+      return one({ section: "Requirements", type: "requirement", text: `The home screen uses the ${lower(said)} layout.`, route: "/" });
     case "priority":
-      return one({ section: "Constraints", type: "constraint", text: `On a phone, in this order: ${said.replace(/\s{2}/g, ", ")}.`, owner: "design", reviewers: ["engineering"] });
+      return one({ section: "Constraints", type: "constraint", text: `On a phone, in this order: ${said.replace(/\s{2}/g, ", ")}.` });
     case "offline":
-      return one({ section: "Constraints", type: "constraint", text: value === true ? "It works without a connection: everything already loaded stays usable and syncs later." : `Connection: ${lower(said)}.`, owner: "engineering" });
+      return one({ section: "Constraints", type: "constraint", text: value === true ? "It works without a connection: everything already loaded stays usable and syncs later." : `Connection: ${lower(said)}.` });
     case "empty":
-      return one({ section: "Requirements", type: "requirement", text: `The empty state reads: "${said}"`, owner: "design" });
+      return one({ section: "Requirements", type: "requirement", text: `The empty state reads: "${said}"` });
     default:
-      return one({ section: "Requirements", type: "requirement", text: `${q.spec.title} ${said}.`, owner: "product" });
+      return one({ section: "Requirements", type: "requirement", text: `${q.spec.title} ${said}.` });
   }
 }
 

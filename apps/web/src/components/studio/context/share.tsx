@@ -5,26 +5,21 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { FunctionalRole, type Member } from "@/lib/studio/types";
-import { ROLE_LABEL } from "./fragment-meta";
+import type { Member } from "@/lib/studio/types";
 import { memberColor, PERMISSION_LABEL } from "./people";
 
 const select = "h-7 rounded-md border bg-background px-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60";
 
-export type MemberInput = { user: string; name?: string; permission: "editor" | "viewer"; role: FunctionalRole };
+export type MemberInput = { user: string; name?: string; permission: "editor" | "viewer" };
 
-/**
- * Share: who is in this Context, what each may do (editor or viewer) and their role (what they
- * review). Only the owner adds people and changes what they may do; everyone picks their own role.
- */
-export function Share({ members, me, onSet, onRemove, onRole }: { members: Member[]; me: Member; onSet(input: MemberInput): Promise<boolean>; onRemove(user: string): void; onRole(role: FunctionalRole): void }) {
+/** Share: who is in this Context and what each may do (editor or viewer). Only the owner adds people and changes what they may do. */
+export function Share({ members, me, onSet, onRemove }: { members: Member[]; me: Member; onSet(input: MemberInput): Promise<boolean>; onRemove(user: string): void }) {
   const owner = me.permission === "owner";
   const [email, setEmail] = useState("");
   const [permission, setPermission] = useState<"editor" | "viewer">("viewer");
-  const [role, setRole] = useState<FunctionalRole>("product");
   const add = async () => {
     if (!email.trim()) return;
-    if (await onSet({ user: email.trim(), permission, role })) setEmail("");
+    if (await onSet({ user: email.trim(), permission })) setEmail("");
   };
   return (
     <Popover>
@@ -52,23 +47,6 @@ export function Share({ members, me, onSet, onRemove, onRole }: { members: Membe
                   </span>
                   <span className="truncate text-xs text-muted-foreground">{m.user}</span>
                 </span>
-                <select
-                  aria-label={`${m.name}'s role`}
-                  className={select}
-                  value={m.role}
-                  disabled={!mine && !(owner && m.permission !== "owner")}
-                  onChange={(e) => {
-                    const r = e.target.value as FunctionalRole;
-                    if (mine) onRole(r);
-                    else if (m.permission !== "owner") void onSet({ user: m.user, name: m.name, permission: m.permission, role: r });
-                  }}
-                >
-                  {FunctionalRole.options.map((r) => (
-                    <option key={r} value={r}>
-                      {ROLE_LABEL[r]}
-                    </option>
-                  ))}
-                </select>
                 {m.permission === "owner" ? (
                   <span className="w-[4.5rem] text-center text-xs text-muted-foreground">Owner</span>
                 ) : (
@@ -77,7 +55,7 @@ export function Share({ members, me, onSet, onRemove, onRole }: { members: Membe
                     className={`${select} w-[4.5rem]`}
                     value={m.permission}
                     disabled={!owner}
-                    onChange={(e) => void onSet({ user: m.user, name: m.name, permission: e.target.value as "editor" | "viewer", role: m.role })}
+                    onChange={(e) => void onSet({ user: m.user, name: m.name, permission: e.target.value as "editor" | "viewer" })}
                   >
                     <option value="editor">{PERMISSION_LABEL.editor}</option>
                     <option value="viewer">{PERMISSION_LABEL.viewer}</option>
@@ -103,13 +81,6 @@ export function Share({ members, me, onSet, onRemove, onRole }: { members: Membe
             }}
           >
             <input type="email" aria-label="Email of the person to add" placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} className="ctx-input h-8 min-w-0 flex-1" />
-            <select aria-label="Role" className={`${select} h-8`} value={role} onChange={(e) => setRole(e.target.value as FunctionalRole)}>
-              {FunctionalRole.options.map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABEL[r]}
-                </option>
-              ))}
-            </select>
             <select aria-label="What they may do" className={`${select} h-8`} value={permission} onChange={(e) => setPermission(e.target.value as "editor" | "viewer")}>
               <option value="viewer">Viewer</option>
               <option value="editor">Editor</option>
@@ -120,9 +91,9 @@ export function Share({ members, me, onSet, onRemove, onRole }: { members: Membe
             </Button>
           </form>
         ) : (
-          <p className="border-t px-3 py-2 text-xs text-muted-foreground">Only the owner adds people and changes what they may do. Your role is yours to pick.</p>
+          <p className="border-t px-3 py-2 text-xs text-muted-foreground">Only the owner adds people and changes what they may do.</p>
         )}
-        <p className="border-t px-3 py-2 text-xs text-muted-foreground">Editors change the Context. A viewer&apos;s edits, answers and requests become proposals an editor decides. The role is what a person reviews; it never changes what they may do.</p>
+        <p className="border-t px-3 py-2 text-xs text-muted-foreground">Editors change the Context. A viewer&apos;s edits, answers and requests become proposals an editor decides.</p>
       </PopoverContent>
     </Popover>
   );

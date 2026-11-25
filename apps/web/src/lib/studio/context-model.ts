@@ -4,7 +4,6 @@
  */
 import { questionFromBlock, QUESTION_BLOCK, TYPED_FRAGMENTS, type DocBlock } from "./context-doc";
 import {
-  FunctionalRole,
   type AgentStatus,
   type ContextChange,
   type ContextTurn,
@@ -164,13 +163,6 @@ export function batchProgress(all: Question[], batchId: string): { done: number;
 
 const TYPED = new Set<string>(TYPED_FRAGMENTS);
 
-function roles(value: unknown): FunctionalRole[] {
-  return String(value ?? "")
-    .split(",")
-    .map((r) => FunctionalRole.safeParse(r.trim()))
-    .flatMap((r) => (r.success ? [r.data] : []));
-}
-
 /** The fragment type a document block is. A decided question is a decision; one left to the agent is an assumption. */
 export function fragmentType(block: Pick<DocBlock, "type" | "props">): FragmentType {
   if (TYPED.has(block.type)) return block.type as FragmentType;
@@ -189,14 +181,11 @@ export function fragmentsFrom(appId: string, blocks: DocBlock[], versions: Recor
     const content = q ? `${q.spec.title}${q.answer && q.status !== "open" ? ` ${answerText(q.spec, q.answer)}` : ""}` : b.text.trim();
     if (!content && type !== "image") continue;
     const by = String(b.props.by || q?.answeredBy || "");
-    const owner = FunctionalRole.safeParse(b.props.ownerRole);
     out.push({
       id: b.id,
       appId,
       type,
       ...(b.parent ? { parent: b.parent } : {}),
-      ownerRole: owner.success ? owner.data : "product",
-      reviewerRoles: roles(b.props.reviewerRoles),
       content,
       version: versions[b.id] ?? 1,
       provenance: by ? [{ by, kind: by === "agent" ? "agent" : "person", ...(q ? { questionId: q.id } : {}), at: String(b.props.at ?? "") }] : [],
@@ -256,15 +245,13 @@ export function sinceLastVisit(changes: ContextChange[], member: Member): Contex
     .filter((c) => c.by !== member.user);
 }
 
-export function needsYou({ member, questions, proposals, fragments }: { member: Member; questions: Question[]; proposals: Proposal[]; fragments: Fragment[] }): {
+export function needsYou({ member, questions, proposals }: { member: Member; questions: Question[]; proposals: Proposal[] }): {
   questions: Question[];
   proposals: Proposal[];
-  reviews: Fragment[];
 } {
   return {
     questions: questions.filter((q) => q.status === "open"),
     proposals: proposals.filter((p) => canDecide(member, p)),
-    reviews: fragments.filter((f) => f.reviewerRoles.includes(member.role)),
   };
 }
 

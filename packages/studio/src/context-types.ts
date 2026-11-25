@@ -1,6 +1,6 @@
 /**
  * The Context (ADR-019, docs/specs/studio-context.md section 5): the document's fragments, the
- * questions the agent asks, proposals, members and sign-offs. The document is the truth; fragments
+ * questions the agent asks, proposals and members. The document is the truth; fragments
  * and questions are derived from it. apps/web/src/lib/studio/types.ts mirrors these shapes.
  */
 import { z } from "zod";
@@ -17,8 +17,6 @@ export type ContextActivity = z.infer<typeof ContextActivity>;
 
 export const FragmentType = z.enum(["text", "section", "requirement", "decision", "assumption", "constraint", "question", "flow", "risk", "metric", "image"]);
 export type FragmentType = z.infer<typeof FragmentType>;
-export const FunctionalRole = z.enum(["product", "design", "engineering", "security", "legal", "data", "qa"]);
-export type FunctionalRole = z.infer<typeof FunctionalRole>;
 export const Permission = z.enum(["owner", "editor", "viewer"]);
 export type Permission = z.infer<typeof Permission>;
 
@@ -39,8 +37,6 @@ export const Fragment = z.object({
   appId: z.string(),
   type: FragmentType,
   parent: z.string().optional(),
-  ownerRole: FunctionalRole,
-  reviewerRoles: z.array(FunctionalRole),
   /** Plain text of the block, for search, briefs and exports. */
   content: z.string(),
   /** +1 each time its content settles. */
@@ -57,7 +53,6 @@ export const Member = z.object({
   /** Shown in presence and "Decided by". */
   name: z.string(),
   permission: Permission,
-  role: FunctionalRole,
   invitedBy: z.string(),
   lastSeenAt: z.string().optional(),
   lastSeenVersion: z.number().optional(),
@@ -142,17 +137,6 @@ export const Proposal = z.object({
 });
 export type Proposal = z.infer<typeof Proposal>;
 
-export const SignOff = z.object({
-  appId: z.string(),
-  fragmentId: z.string(),
-  role: FunctionalRole,
-  by: z.string(),
-  state: z.enum(["approved", "changes"]),
-  version: z.number(),
-  at: z.string(),
-});
-export type SignOff = z.infer<typeof SignOff>;
-
 /** A comment thread on a fragment. Anyone who can open the Context can comment. */
 export const ThreadComment = z.object({ id: z.string(), by: z.string(), text: z.string(), at: z.string() });
 export type ThreadComment = z.infer<typeof ThreadComment>;
@@ -231,8 +215,7 @@ export type ContextSnapshot = {
   agent: AgentStatus;
   turns: ContextTurn[];
   threads: Thread[];
-  signoffs: SignOff[];
-  /** Per fragment id: how many times its content settled. A sign-off on an older version is stale. */
+  /** Per fragment id: how many times its content settled. */
   versions: Record<string, number>;
   /** Set while the Context is empty and the agent can draft it from the App's code or earlier conversations (`POST …/context/draft`). */
   draft?: "code" | "conversations";

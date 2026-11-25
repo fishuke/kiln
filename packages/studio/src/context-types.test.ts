@@ -31,10 +31,14 @@ describe("the other Context shapes", () => {
   it("parse what the server stores", () => {
     expect(QuestionAnswer.parse({ type: "value", value: ["a", "b"] })).toEqual({ type: "value", value: ["a", "b"] });
     expect(QuestionAnswer.safeParse({ type: "value" }).success).toBe(false);
-    expect(Member.safeParse({ appId: "sa_1", user: "ada@example.com", name: "Ada", permission: "admin", role: "design", invitedBy: "x" }).success).toBe(false);
-    expect(Member.parse({ appId: "sa_1", user: "ada@example.com", name: "Ada", permission: "viewer", role: "design", invitedBy: "x" }).permission).toBe("viewer");
+    expect(Member.safeParse({ appId: "sa_1", user: "ada@example.com", name: "Ada", permission: "admin", invitedBy: "x" }).success).toBe(false);
+    // A member stored when members had a functional role still parses; the role is dropped.
+    const old = Member.parse({ appId: "sa_1", user: "ada@example.com", name: "Ada", permission: "viewer", role: "design", invitedBy: "x" });
+    expect(old.permission).toBe("viewer");
+    expect(old).not.toHaveProperty("role");
     expect(Proposal.safeParse({ id: "sp_1", appId: "sa_1", by: "sam", kind: "rewrite", summary: "x", patch: {}, status: "open", at: "2026-11-23T10:00:00Z" }).success).toBe(false);
-    expect(Fragment.safeParse({ id: "b1", appId: "sa_1", type: "requirement", ownerRole: "marketing", reviewerRoles: [], content: "x", version: 1, provenance: [] }).success).toBe(false);
+    expect(Fragment.safeParse({ id: "b1", appId: "sa_1", type: "marketing", content: "x", version: 1, provenance: [] }).success).toBe(false);
+    expect(Fragment.parse({ id: "b1", appId: "sa_1", type: "requirement", ownerRole: "marketing", reviewerRoles: [], content: "x", version: 1, provenance: [] })).not.toHaveProperty("ownerRole");
   });
 });
 
@@ -74,7 +78,7 @@ describe("MemoryDoc", () => {
     let changes = 0;
     doc.onChange(() => (changes += 1));
     doc.appendText(c, "!");
-    doc.update(c, { type: "requirement", props: { ownerRole: "qa" } });
+    doc.update(c, { type: "requirement", props: { route: "/" } });
     doc.remove(b);
     expect(doc.read().map((x) => `${x.type}:${x.text}`)).toEqual(["heading:A", "requirement:C!"]);
     expect(changes).toBe(3);

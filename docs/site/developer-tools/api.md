@@ -487,13 +487,10 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/studio/apps/{id}/context/questions/continue` | `send` | Go on with what is answered; the agent assumes the rest |
 | POST | `/api/v1/studio/apps/{id}/context/proposals` | `send` | Propose a change to the Context |
 | POST | `/api/v1/studio/apps/{id}/context/proposals/{proposal}/decide` | `send` | Accept or reject a proposal (editors) |
-| POST | `/api/v1/studio/apps/{id}/context/members` | `send` | Add a member, or change what a member may do and their role (the owner) |
+| POST | `/api/v1/studio/apps/{id}/context/members` | `send` | Add a member, or change what a member may do (the owner) |
 | DELETE | `/api/v1/studio/apps/{id}/context/members/{user}` | `send` | Remove a member (the owner) |
-| POST | `/api/v1/studio/apps/{id}/context/role` | `send` | Set the caller's own functional role: what they review |
 | POST | `/api/v1/studio/apps/{id}/context/threads` | `send` | Comment on a fragment: start a thread, or reply in one |
 | POST | `/api/v1/studio/apps/{id}/context/threads/{thread}/resolve` | `send` | Resolve a thread, or open it again |
-| POST | `/api/v1/studio/apps/{id}/context/fragments/{fragment}/signoff` | `send` | Sign a fragment off for the caller's role at its current version, or ask for changes |
-| POST | `/api/v1/studio/apps/{id}/context/fragments/{fragment}/review-request` | `send` | Ask a role to review a fragment |
 | GET | `/api/v1/studio/apps/{id}/context/brief` | `read` | The Brief: five lines written from the Context at its current version |
 | POST | `/api/v1/studio/apps/{id}/context/seen` | `send` | Record that the caller has seen the Context at its current version |
 | GET | `/api/v1/studio/apps/{id}/context/preview` | `read` | The prototype's preview |

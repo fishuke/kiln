@@ -1,6 +1,6 @@
 import { Sparkles } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { AgentStatus, Member, Permission } from "@/lib/studio/types";
+import type { AgentStatus, Permission } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
 
 const COLORS = ["#2563eb", "#059669", "#d97706", "#db2777", "#7c3aed", "#0891b2", "#dc2626", "#4d7c0f"];
@@ -46,9 +46,4 @@ export function Presence({ people, agent, className }: { people: Present[]; agen
       </div>
     </div>
   );
-}
-
-/** "Ada · Editor · Design", for menus. */
-export function memberLine(m: Member, role: string): string {
-  return `${PERMISSION_LABEL[m.permission]} · ${role}`;
 }

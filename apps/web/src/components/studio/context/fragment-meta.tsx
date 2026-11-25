@@ -1,5 +1,5 @@
 import { CircleCheckBig, CircleDashed, CircleQuestionMark, Gauge, Heading2, Image as ImageIcon, Ruler, SquareCheck, Text, TriangleAlert, Workflow, type LucideIcon } from "lucide-react";
-import type { FragmentType, FunctionalRole } from "@/lib/studio/types";
+import type { FragmentType } from "@/lib/studio/types";
 
 /**
  * One glyph and one colour per fragment type, used everywhere the type appears: the block's mark,
@@ -17,16 +17,6 @@ export const FRAGMENT_META: Record<FragmentType, { label: string; hint: string; 
   risk: { label: "Risk", hint: "What could go wrong", icon: TriangleAlert, tone: "text-rose-600 dark:text-rose-400" },
   metric: { label: "Metric", hint: "How success is measured", icon: Gauge, tone: "text-sky-600 dark:text-sky-400" },
   image: { label: "Image", hint: "A picture", icon: ImageIcon, tone: "text-muted-foreground" },
-};
-
-export const ROLE_LABEL: Record<FunctionalRole, string> = {
-  product: "Product",
-  design: "Design",
-  engineering: "Engineering",
-  security: "Security",
-  legal: "Legal",
-  data: "Data",
-  qa: "QA",
 };
 
 /** The fragment's glyph in its colour. */

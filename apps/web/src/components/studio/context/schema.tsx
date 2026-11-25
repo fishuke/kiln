@@ -6,10 +6,11 @@ import { QUESTION_BLOCK, type TypedFragment } from "@/lib/studio/context-doc";
 import { FragmentBlock } from "./blocks/fragment-block";
 import { QuestionBlock } from "./blocks/question-block";
 
-/** What every typed fragment carries besides its text. */
+/**
+ * What every typed fragment carries besides its text. Older documents may still carry `ownerRole`
+ * and `reviewerRoles` on these blocks: undeclared attributes are ignored when the document loads.
+ */
 const fragmentProps = {
-  ownerRole: { default: "product" },
-  reviewerRoles: { default: "" },
   /** Who wrote it last: a person's email, or "agent". */
   by: { default: "" },
   at: { default: "" },
@@ -20,7 +21,7 @@ const fragmentProps = {
   source: { default: "" },
 } as const;
 
-type FragmentRender = { block: { id: string; props: { ownerRole: string; route: string; by: string } }; editor: { updateBlock(id: string, update: { type: TypedFragment }): unknown }; contentRef: (el: HTMLElement | null) => void };
+type FragmentRender = { block: { id: string; props: { route: string; by: string } }; editor: { updateBlock(id: string, update: { type: TypedFragment }): unknown }; contentRef: (el: HTMLElement | null) => void };
 
 const renderFragment = (type: TypedFragment) =>
   function Fragment({ block, editor, contentRef }: FragmentRender) {

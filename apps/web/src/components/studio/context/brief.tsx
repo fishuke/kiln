@@ -4,8 +4,7 @@ import { formatDistanceToNowStrict } from "date-fns";
 import { ChevronDown, Newspaper } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { ContextBrief } from "@/lib/studio/client";
-import { fragmentTitle } from "@/lib/studio/context-model";
-import type { ContextChange, Fragment, Proposal, Question } from "@/lib/studio/types";
+import type { ContextChange, Proposal, Question } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
 import { FragmentGlyph } from "./fragment-meta";
 
@@ -59,13 +58,13 @@ export function Brief({
   onOpenChange(open: boolean): void;
   reason: "new" | "returning" | "current";
   since: ContextChange[];
-  needs: { questions: Question[]; reviews: Fragment[] };
+  needs: { questions: Question[] };
   proposalsToDecide: Proposal[];
   nameOf(user: string): string;
   onGo(fragmentId: string): void;
   onProposals(): void;
 }) {
-  const waiting = needs.questions.length + needs.reviews.length + proposalsToDecide.length;
+  const waiting = needs.questions.length + proposalsToDecide.length;
   return (
     <section aria-label="Brief" className="mb-4 rounded-xl border bg-card shadow-xs">
       <button type="button" aria-expanded={open} onClick={() => onOpenChange(!open)} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50">
@@ -128,14 +127,6 @@ export function Brief({
                           <span className="shrink-0 text-xs text-muted-foreground">Proposal · {formatDistanceToNowStrict(new Date(p.at))}</span>
                         </Row>
                       ))}
-                      {needs.reviews.slice(0, 5).map((f) => (
-                        <Row key={f.id} onClick={() => onGo(f.id)}>
-                          <FragmentGlyph type={f.type} className="size-3.5 shrink-0" />
-                          <span className="min-w-0 flex-1 truncate">{fragmentTitle(f.content)}</span>
-                          <span className="shrink-0 text-xs text-muted-foreground">Your review</span>
-                        </Row>
-                      ))}
-                      {needs.reviews.length > 5 && <li className="px-1.5 py-1 text-xs text-muted-foreground">and {needs.reviews.length - 5} more to review</li>}
                     </Group>
                   )}
                 </div>

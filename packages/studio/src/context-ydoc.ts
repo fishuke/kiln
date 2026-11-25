@@ -18,7 +18,7 @@ import { QUESTION_BLOCK, TYPED_FRAGMENTS, type ContextDocWriter, type DocBlock, 
 export const CONTEXT_FRAGMENT = "context";
 
 const TEXT_DEFAULTS: DocProps = { backgroundColor: "default", textColor: "default", textAlignment: "left" };
-const FRAGMENT_DEFAULTS: DocProps = { ownerRole: "product", reviewerRoles: "", by: "", at: "", route: "", selector: "", source: "" };
+const FRAGMENT_DEFAULTS: DocProps = { by: "", at: "", route: "", selector: "", source: "" };
 const QUESTION_DEFAULTS: DocProps = { questionId: "", spec: "", status: "open", answer: "", by: "", at: "", batch: "", index: 0, total: 1, turn: "" };
 const TYPED = new Set<string>(TYPED_FRAGMENTS);
 

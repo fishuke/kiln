@@ -32,12 +32,12 @@ describe("editorWriter over the BlockNote editor", () => {
   it("appends text as typing would, updates type, props and text, and removes", () => {
     const editor = create();
     const w = editorWriter(editor);
-    const id = w.insert({ type: "requirement", props: { ownerRole: "design" } }, "end");
+    const id = w.insert({ type: "requirement", props: { by: "agent" } }, "end");
     w.appendText(id, "People can ");
     w.appendText(id, "search.");
-    expect(read(editor).find((b) => b.id === id)).toMatchObject({ type: "requirement", text: "People can search.", props: { ownerRole: "design" } });
+    expect(read(editor).find((b) => b.id === id)).toMatchObject({ type: "requirement", text: "People can search.", props: { by: "agent" } });
     w.update(id, { type: "constraint", props: { route: "/" } });
-    expect(read(editor).find((b) => b.id === id)).toMatchObject({ type: "constraint", text: "People can search.", props: { ownerRole: "design", route: "/" } });
+    expect(read(editor).find((b) => b.id === id)).toMatchObject({ type: "constraint", text: "People can search.", props: { by: "agent", route: "/" } });
     w.update(id, { text: "Replaced." });
     expect(read(editor).find((b) => b.id === id)?.text).toBe("Replaced.");
     // Clearing a block before rewriting it leaves nothing of the old text behind.

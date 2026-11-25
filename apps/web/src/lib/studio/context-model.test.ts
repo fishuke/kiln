@@ -186,7 +186,6 @@ const member = (o: Partial<Member> = {}): Member => ({
   user: "ada@example.com",
   name: "Ada",
   permission: "editor",
-  role: "design",
   invitedBy: "you@example.com",
   ...o,
 });
@@ -226,16 +225,11 @@ describe("catch-up", () => {
       { id: "p2", appId: "sa_1", by: "sam@example.com", kind: "add", summary: "Done", patch: {}, status: "accepted", at: "" },
     ];
     const questions = [question("a", 0, 2), question("b", 1, 2, "answered")];
-    const fragments = fragmentsFrom("sa_1", [
-      { id: "f1", type: "requirement", props: { reviewerRoles: "design,security" }, text: "Sign in with a magic link" },
-      { id: "f2", type: "risk", props: { reviewerRoles: "legal" }, text: "Recipes may be copyrighted" },
-    ]);
-    const editor = needsYou({ member: member(), questions, proposals, fragments });
+    const editor = needsYou({ member: member(), questions, proposals });
     expect(editor.questions.map((q) => q.id)).toEqual(["a"]);
     expect(editor.proposals.map((p) => p.id)).toEqual(["p1"]);
-    expect(editor.reviews.map((f) => f.id)).toEqual(["f1"]);
     // A viewer can't decide proposals, so none wait for them.
-    expect(needsYou({ member: member({ permission: "viewer", role: "legal" }), questions, proposals, fragments }).proposals).toEqual([]);
+    expect(needsYou({ member: member({ permission: "viewer" }), questions, proposals }).proposals).toEqual([]);
   });
 });
 
@@ -293,11 +287,14 @@ describe("fragments and questions from the document", () => {
       ["img", "image"],
     ]);
     const r = fs.find((f) => f.id === "r")!;
-    expect(r).toMatchObject({ ownerRole: "engineering", reviewerRoles: ["security", "qa"], version: 3, parent: "h", previewReference: { route: "/login" }, content: "Sign in with a magic link" });
+    expect(r).toMatchObject({ version: 3, parent: "h", previewReference: { route: "/login" }, content: "Sign in with a magic link" });
     expect(r.provenance.at(-1)).toMatchObject({ by: "agent", kind: "agent" });
     // A decided question reads as its question and its answer.
     expect(fs.find((f) => f.id === "bq")!.content).toBe("Who is it for? A small team");
-    expect(fs.find((f) => f.id === "p")!).toMatchObject({ ownerRole: "product", reviewerRoles: [], version: 1 });
+    expect(fs.find((f) => f.id === "p")!).toMatchObject({ version: 1 });
+    // Blocks written when fragments had functional roles still carry them; they are ignored.
+    expect(r).not.toHaveProperty("ownerRole");
+    expect(r).not.toHaveProperty("reviewerRoles");
   });
 
   it("reads the questions back out of their blocks", () => {

@@ -27,13 +27,13 @@ describe("YContextDoc", () => {
 
   it("appends text, updates props, text and type, and removes a block with its children", () => {
     const { y } = setup();
-    const id = y.insert({ type: "requirement", props: { ownerRole: "design" } }, "end");
+    const id = y.insert({ type: "requirement", props: { by: "agent" } }, "end");
     y.appendText(id, "People can ");
     y.appendText(id, "search.");
-    expect(y.read()[0]).toMatchObject({ type: "requirement", text: "People can search.", props: { ownerRole: "design", reviewerRoles: "", route: "" } });
+    expect(y.read()[0]).toMatchObject({ type: "requirement", text: "People can search.", props: { by: "agent", at: "", route: "" } });
     y.update(id, { props: { route: "/" } });
     y.update(id, { type: "constraint" });
-    expect(y.read()[0]).toMatchObject({ id, type: "constraint", text: "People can search.", props: { ownerRole: "design", route: "/" } });
+    expect(y.read()[0]).toMatchObject({ id, type: "constraint", text: "People can search.", props: { by: "agent", route: "/" } });
     y.update(id, { text: "" });
     expect(y.read()[0]!.text).toBe("");
     y.appendText(id, "Rewritten.");

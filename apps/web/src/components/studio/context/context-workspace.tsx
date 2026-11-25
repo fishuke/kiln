@@ -1,6 +1,6 @@
 "use client";
 
-import { AppWindow, Check, ChevronsUpDown, ClipboardCheck, Columns2, MessageSquareText, Eye, FileText, LoaderCircle, MessagesSquare, MousePointerClick, PanelLeft, PanelRight, ScrollText } from "lucide-react";
+import { AppWindow, Check, ChevronsUpDown, Columns2, MessageSquareText, Eye, FileText, LoaderCircle, MessagesSquare, MousePointerClick, PanelLeft, PanelRight, ScrollText } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import type { StudioClient, StudioContextClient } from "@/lib/studio/client";
 import type { DocBlock } from "@/lib/studio/context-doc";
 import { canDecide, canEdit as mayEdit, catchUp, clampSplit, DEFAULT_SPLIT, LAYOUT_KEY, parseContextLayout, type ContextLayout, fragmentsFrom, freshness, needsYou, questionsFrom, sinceLastVisit, VIEWER_NOTE } from "@/lib/studio/context-model";
 import { altTypes } from "@/lib/studio/shortcuts";
-import type { AgentStatus, FunctionalRole, Member, Proposal } from "@/lib/studio/types";
+import type { AgentStatus, Member, Proposal } from "@/lib/studio/types";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { Composer } from "../composer";
@@ -26,12 +26,11 @@ import { Brief } from "./brief";
 import { ChatColumn } from "./chat-column";
 import { DockStatus } from "./dock";
 import { ContextDocument, type DocumentHandle } from "./document";
-import { ROLE_LABEL } from "./fragment-meta";
 import { FreshnessBar } from "./freshness";
 import { ActivityPanel, ProposalsMenu } from "./panels";
-import { memberColor, memberLine, PERMISSION_LABEL, Presence, type Present } from "./people";
-import { ReviewPanel, reviewState, ThreadsPanel } from "./review";
+import { memberColor, PERMISSION_LABEL, Presence, type Present } from "./people";
 import { Share, type MemberInput } from "./share";
+import { ThreadsPanel } from "./threads";
 import { useBrief, useContextPreview, useContextSnapshot } from "./use-context";
 import { usePreviewBridge } from "./use-preview-bridge";
 
@@ -118,7 +117,7 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
   const chatLayout = layout === "chat";
   /** The chat layout's right pane. */
   const [tab, setTab] = useState<"context" | "prototype">("context");
-  const [panel, setPanel] = useState<"activity" | "threads" | "review">();
+  const [panel, setPanel] = useState<"activity" | "threads">();
   const [threadFocus, setThreadFocus] = useState<string>();
   const activityOpen = panel === "activity";
   const setActivityOpen = (f: boolean | ((o: boolean) => boolean)) => setPanel((p) => ((typeof f === "function" ? f(p === "activity") : f) ? "activity" : p === "activity" ? undefined : p));
@@ -180,7 +179,7 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
     void ctx.markSeen(appId).catch(() => undefined);
   }, [ctx, appId, me, app, landing]);
   const since = useMemo(() => (landing ? sinceLastVisit(changes, landing.member) : []), [changes, landing]);
-  const needs = useMemo(() => (me ? needsYou({ member: me, questions, proposals, fragments }) : { questions: [], proposals: [], reviews: [] }), [me, questions, proposals, fragments]);
+  const needs = useMemo(() => (me ? needsYou({ member: me, questions, proposals }) : { questions: [], proposals: [] }), [me, questions, proposals]);
 
   // --- the split -------------------------------------------------------------------------------
 
@@ -320,25 +319,12 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
     setPanel("threads");
   }, []);
   const threads = useMemo(() => snap?.threads ?? [], [snap]);
-  const signoffs = useMemo(() => snap?.signoffs ?? [], [snap]);
   const threadCounts = useMemo(() => {
     const n: Record<string, number> = {};
     for (const t of threads) if (t.status === "open") n[t.fragmentId] = (n[t.fragmentId] ?? 0) + 1;
     return n;
   }, [threads]);
-  /** Per fragment: the section it sits under, so it reads out of place. */
-  const sections = useMemo(() => {
-    const out: Record<string, string> = {};
-    let section = "";
-    for (const b of blocks) {
-      if (b.type === "heading" && !b.parent) section = b.text.trim();
-      else if (section) out[b.id] = section;
-    }
-    return out;
-  }, [blocks]);
-  const toReview = me ? fragments.filter((f) => f.reviewerRoles.includes(me.role)).filter((f) => ["waiting", "stale"].includes(reviewState(f, me.role, signoffs).state)).length : 0;
   const setMember = useCallback((input: MemberInput) => act(() => ctx.setMember(appId, input)), [act, ctx, appId]);
-  const setRole = useCallback((role: FunctionalRole) => void act(() => ctx.setRole(appId, role)), [act, ctx, appId]);
   const go = useCallback((fragmentId: string) => {
     setPane("context");
     setTab("context");
@@ -488,21 +474,6 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
   const panelsEl = (
     <AnimatePresence>
       {panel === "activity" && <ActivityPanel key="activity" turns={snap.turns} nameOf={nameOf} onClose={() => setPanel(undefined)} />}
-      {panel === "review" && (
-        <ReviewPanel
-          key="review"
-          fragments={fragments}
-          sections={sections}
-          signoffs={signoffs}
-          me={me}
-          nameOf={nameOf}
-          onRole={setRole}
-          onSignOff={(fragmentId, state) => void act(() => ctx.signOff(appId, fragmentId, state))}
-          onGo={(fragmentId) => docRef.current?.scrollTo(fragmentId)}
-          onDiscuss={openThreads}
-          onClose={() => setPanel(undefined)}
-        />
-      )}
       {panel === "threads" && (
         <ThreadsPanel
           key="threads"
@@ -513,12 +484,6 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
           nameOf={nameOf}
           onComment={(input) => act(() => ctx.comment(appId, input))}
           onResolve={(threadId, resolved) => void act(() => ctx.resolveThread(appId, threadId, resolved))}
-          onRequestReview={(fragmentId, role) =>
-            void act(async () => {
-              await ctx.requestReview(appId, fragmentId, role);
-              toast.success(`Asked ${ROLE_LABEL[role]} to review it`);
-            })
-          }
           onGo={(fragmentId) => docRef.current?.scrollTo(fragmentId)}
           onAll={() => setThreadFocus(undefined)}
           onClose={() => setPanel(undefined)}
@@ -614,14 +579,6 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
               </TooltipContent>
             </Tooltip>
             <Tooltip>
-              <TooltipTrigger render={<Button size="sm" variant={panel === "review" ? "secondary" : "ghost"} aria-pressed={panel === "review"} onClick={() => setPanel((p) => (p === "review" ? undefined : "review"))} className="gap-1.5" />}>
-                <ClipboardCheck />
-                <span className="hidden md:inline">My review</span>
-                {toReview > 0 && <span className="rounded-full bg-amber-500 px-1.5 text-[11px] leading-4 font-semibold text-white tabular-nums">{toReview}</span>}
-              </TooltipTrigger>
-              <TooltipContent>What waits for your role&apos;s review</TooltipContent>
-            </Tooltip>
-            <Tooltip>
               <TooltipTrigger
                 render={
                   <Button
@@ -699,7 +656,7 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
                         <DropdownMenuItem key={m.user} onClick={() => ctx.setIdentity?.(m.user)} className="items-start gap-2.5">
                           <span className="flex flex-col">
                             <span className="font-medium">{m.name}</span>
-                            <span className="text-xs text-muted-foreground">{memberLine(m, ROLE_LABEL[m.role])}</span>
+                            <span className="text-xs text-muted-foreground">{PERMISSION_LABEL[m.permission]}</span>
                           </span>
                           {m.user === me.user && <Check className="ml-auto size-4" />}
                         </DropdownMenuItem>
@@ -720,7 +677,6 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
                 me={me}
                 onSet={setMember}
                 onRemove={(user) => void act(() => ctx.removeMember(appId, user))}
-                onRole={setRole}
               />
               <ProposalsMenu proposals={proposals} me={me} open={proposalsOpen} onOpenChange={setProposalsOpen} nameOf={nameOf} onDecide={decide} />
               {app?.status === "ready" && fresh.kind !== "never" && (

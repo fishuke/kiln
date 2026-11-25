@@ -14,7 +14,6 @@ import { questionProps, QUESTION_BLOCK, TYPED_FRAGMENTS, type DocBlock, type Doc
 import { answerText, batchProgress, briefLines, canEdit, decide, delegatedAnswer, recommendedAnswer, fragmentTitle, fragmentsFrom, freshness, questionsFrom, statusFor, validateAnswer, VIEWER_NOTE } from "./context-model";
 import {
   FragmentType,
-  FunctionalRole,
   QuestionSpec,
   type AgentStatus,
   type ContextChange,
@@ -26,7 +25,6 @@ import {
   type Permission,
   type Proposal,
   type Question,
-  type SignOff,
   type Thread,
   type QuestionAnswer,
 } from "./context-types";
@@ -34,8 +32,10 @@ import { WRITABLE_BLOCKS, YContextDoc } from "./context-ydoc";
 import type { Clock, Studio } from "./studio";
 import { StudioError, type App, type Chat, type Preview, type Turn } from "./types";
 
-export const CONTEXT_COLLECTIONS = { context: "studio_context", members: "studio_members", proposals: "studio_proposals", threads: "studio_threads", signoffs: "studio_signoffs" } as const;
+export const CONTEXT_COLLECTIONS = { context: "studio_context", members: "studio_members", proposals: "studio_proposals", threads: "studio_threads" } as const;
 const C = CONTEXT_COLLECTIONS;
+/** Sign-offs were removed; an App deleted later still takes its old rows with it. */
+const LEGACY_SIGNOFFS = "studio_signoffs";
 
 /** The person a call is made by, or made for (the one who prompted the agent's turn). */
 export type ContextPerson = { user: string; name?: string; team: string; mayWrite: boolean };
@@ -60,6 +60,11 @@ type Row = {
   drafted?: string;
 };
 type MemberRow = Member & { id: string };
+/** Rows stored before functional roles were removed still carry `role`; it is dropped on read. */
+const withoutLegacy = (m: Member & { role?: unknown }): Member => {
+  const { role: _, ...rest } = m;
+  return rest;
+};
 type ProposalRow = Proposal;
 
 export type ContextEvent = { type: "update"; update: Uint8Array; from?: string } | { type: "awareness"; update: Uint8Array; from?: string } | { type: "changed" };
@@ -111,7 +116,6 @@ export const CONTEXT_NOTES = [
 ].join("\n");
 
 const Section = z.string().min(1).max(80);
-const Roles = z.array(FunctionalRole).max(7);
 /** The agent's tools on the Context (docs/specs/studio-context.md, section 6). */
 export const CONTEXT_TOOLS = {
   context_read: {
@@ -129,8 +133,6 @@ export const CONTEXT_TOOLS = {
       section: Section.optional().describe("The section heading to write under; it is made when it doesn't exist"),
       after: z.string().optional().describe("Insert right after this fragment id"),
       parent: z.string().optional().describe("Nest under this fragment id"),
-      ownerRole: FunctionalRole.optional(),
-      reviewerRoles: Roles.optional(),
       previewReference: z.object({ route: z.string(), selector: z.string().optional() }).optional(),
     }),
   },
@@ -344,7 +346,7 @@ export class ContextService {
       l?.awareness.destroy();
     }
     this.opts.store.delete(C.context, appId);
-    for (const c of [C.members, C.proposals, C.threads, C.signoffs])
+    for (const c of [C.members, C.proposals, C.threads, LEGACY_SIGNOFFS])
       for (const r of this.opts.store.list<{ id: string; appId: string }>(c, (x) => x.appId === appId)) this.opts.store.delete(c, r.id);
   }
 
@@ -360,11 +362,12 @@ export class ContextService {
   private members(appId: string, createdBy: string, me?: ContextPerson): Member[] {
     const lower = (u: string) => u.toLowerCase();
     // A stored row is keyed by the lower-cased email; it shows under the email the person signs in with.
-    const rows = this.opts.store.list<MemberRow>(C.members, (m) => m.appId === appId).map(({ id: _, ...m }) => (me && lower(me.user) === m.user ? { ...m, user: me.user } : lower(createdBy) === m.user ? { ...m, user: createdBy } : m));
+    const rows = this.opts.store.list<MemberRow>(C.members, (m) => m.appId === appId).map(({ id: _, ...m }) => withoutLegacy(m))
+      .map((m) => (me && lower(me.user) === m.user ? { ...m, user: me.user } : lower(createdBy) === m.user ? { ...m, user: createdBy } : m));
     const seen = this.opts.store.get<Row>(C.context, appId)?.seen ?? {};
     const out = [...rows];
     const implicit = (user: string, name: string | undefined, permission: Permission) => {
-      if (!out.some((m) => m.user === user)) out.push({ appId, user, name: name || user.split("@")[0]!, permission, role: "product", invitedBy: createdBy });
+      if (!out.some((m) => m.user === user)) out.push({ appId, user, name: name || user.split("@")[0]!, permission, invitedBy: createdBy });
     };
     implicit(createdBy, me?.user === createdBy ? me.name : undefined, "owner");
     // Until members are invited (Phase 3), a teammate who may send to the App edits; one who may only read views.
@@ -384,15 +387,15 @@ export class ContextService {
     return m;
   }
 
-  /** The owner sets who edits and who views, and each person's role. Nobody changes the owner's permission. */
-  async setMember(appId: string, who: ContextPerson, input: { user: string; name?: string; permission: "editor" | "viewer"; role: FunctionalRole }): Promise<Member> {
+  /** The owner sets who edits and who views. Nobody changes the owner's permission. */
+  async setMember(appId: string, who: ContextPerson, input: { user: string; name?: string; permission: "editor" | "viewer" }): Promise<Member> {
     const app = this.app(appId, who.team);
     if (this.member(appId, who).permission !== "owner") throw new StudioError("forbidden", "Only the owner invites members and changes what they may do");
     const user = input.user.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(user)) throw new StudioError("invalid", "A member is added by their email address");
     if (user === app.createdBy.toLowerCase()) throw new StudioError("invalid", "The owner stays the owner");
     const was = this.opts.store.get<MemberRow>(C.members, `${appId}:${user}`);
-    const row: MemberRow = { id: `${appId}:${user}`, appId, user, name: input.name?.trim() || was?.name || user.split("@")[0]!, permission: input.permission, role: input.role, invitedBy: was?.invitedBy ?? who.user };
+    const row: MemberRow = { id: `${appId}:${user}`, appId, user, name: input.name?.trim() || was?.name || user.split("@")[0]!, permission: input.permission, invitedBy: was?.invitedBy ?? who.user };
     this.opts.store.put<MemberRow>(C.members, row);
     void this.live.get(appId)?.then((l) => this.emit(l, { type: "changed" }));
     const { id: _, ...member } = row;
@@ -404,17 +407,6 @@ export class ContextService {
     if (this.member(appId, who).permission !== "owner") throw new StudioError("forbidden", "Only the owner removes members");
     this.opts.store.delete(C.members, `${appId}:${user.trim().toLowerCase()}`);
     void this.live.get(appId)?.then((l) => this.emit(l, { type: "changed" }));
-  }
-
-  /** A person's own functional role: what they review. It never changes what they may do. */
-  async setRole(appId: string, who: ContextPerson, role: FunctionalRole): Promise<Member> {
-    const me = this.member(appId, who);
-    const row: MemberRow = { ...me, id: `${appId}:${who.user.toLowerCase()}`, role };
-    delete (row as Partial<Member>).lastSeenAt;
-    delete (row as Partial<Member>).lastSeenVersion;
-    this.opts.store.put<MemberRow>(C.members, row);
-    void this.live.get(appId)?.then((l) => this.emit(l, { type: "changed" }));
-    return { ...me, role };
   }
 
   async markSeen(appId: string, who: ContextPerson): Promise<void> {
@@ -474,7 +466,6 @@ export class ContextService {
       agent: this.agentStatus(row, l, open),
       turns: this.turns(row, open),
       threads: this.opts.store.list<Thread>(C.threads, (t) => t.appId === appId).sort((a, b) => a.at.localeCompare(b.at)),
-      signoffs: this.opts.store.list<SignOff & { id: string }>(C.signoffs, (x) => x.appId === appId).map(({ id: _, ...x }) => x),
       versions: row.versions ?? {},
       ...(draft ? { draft: draft.from } : {}),
     };
@@ -797,10 +788,10 @@ export class ContextService {
     const l = await this.open(appId);
     const y = new YContextDoc(l.doc, { user: p.by });
     l.people.add(p.by);
-    const patch = (p.patch ?? {}) as { type?: string; text?: string; section?: string; owner?: string; reviewers?: string[]; questionId?: string; answer?: QuestionAnswer; from?: string; to?: string };
+    const patch = (p.patch ?? {}) as { type?: string; text?: string; section?: string; questionId?: string; answer?: QuestionAnswer; from?: string; to?: string };
     if (p.kind === "add" && patch.text) {
       const after = this.sectionEnd(y, patch.section ?? "Requirements");
-      y.insert({ type: patch.type ?? "requirement", text: patch.text, props: { by: p.by, at: this.now(), ownerRole: patch.owner ?? "product", reviewerRoles: (patch.reviewers ?? []).join(",") } }, after ? { after } : "end");
+      y.insert({ type: patch.type ?? "requirement", text: patch.text, props: { by: p.by, at: this.now() } }, after ? { after } : "end");
     } else if (p.kind === "answer" && patch.questionId && patch.answer) {
       const { q } = await this.question(appId, patch.questionId);
       await this.applyAnswer(appId, who, q, patch.answer, p.by);
@@ -810,7 +801,7 @@ export class ContextService {
     } else if (p.kind === "remove" && p.fragmentId) y.remove(p.fragmentId);
   }
 
-  // --- threads and review -------------------------------------------------------------------------
+  // --- threads -------------------------------------------------------------------------------
 
   private async fragment(appId: string, fragmentId: string) {
     const l = await this.open(appId);
@@ -853,28 +844,6 @@ export class ContextService {
     this.opts.store.put<Thread>(C.threads, thread);
     void this.live.get(appId)?.then((l) => this.emit(l, { type: "changed" }));
     return thread;
-  }
-
-  /** A reviewer's verdict on a fragment at its current version, for their own role. It goes stale when the fragment changes. */
-  async signOff(appId: string, who: ContextPerson, fragmentId: string, state: "approved" | "changes"): Promise<SignOff> {
-    const me = this.member(appId, who);
-    const { f } = await this.fragment(appId, fragmentId);
-    if (!f.reviewerRoles.includes(me.role)) throw new StudioError("forbidden", `This fragment isn't waiting for ${me.role}'s review`);
-    const signoff: SignOff = { appId, fragmentId, role: me.role, by: who.user, state, version: f.version, at: this.now() };
-    this.opts.store.put<SignOff & { id: string }>(C.signoffs, { ...signoff, id: `${appId}:${fragmentId}:${me.role}` });
-    void this.live.get(appId)?.then((l) => this.emit(l, { type: "changed" }));
-    return signoff;
-  }
-
-  /** Anyone may ask another role to review a fragment. */
-  async requestReview(appId: string, who: ContextPerson, fragmentId: string, role: FunctionalRole): Promise<void> {
-    this.app(appId, who.team);
-    const { l, f } = await this.fragment(appId, fragmentId);
-    const block = l.y.read().find((b) => b.id === fragmentId)!;
-    if (!(TYPED_FRAGMENTS as readonly string[]).includes(block.type)) throw new StudioError("invalid", "Only a typed fragment (a requirement, a risk, ...) is reviewed");
-    if (!f.reviewerRoles.includes(role)) new YContextDoc(l.doc, { user: who.user }).update(fragmentId, { props: { reviewerRoles: [...f.reviewerRoles, role].join(",") } });
-    this.opts.bus.publish("studio.review_requested", { appId, fragmentId, role, by: who.user, priority: "needs_you" });
-    this.emit(l, { type: "changed" });
   }
 
   // --- the agent's tools ------------------------------------------------------------------------
@@ -956,7 +925,7 @@ export class ContextService {
           return proposed(
             this.addProposal(appId, who.user, existing
               ? { kind: "edit", fragmentId: existing.id, summary: `Change "${fragmentTitle(existing.text, 48)}" to "${fragmentTitle(i.content, 48)}"`, patch: { from: existing.text, to: i.content } }
-              : { kind: "add", summary: `Add a ${i.type}: ${fragmentTitle(i.content, 80)}`, patch: { type, text: i.content, section: i.section, owner: i.ownerRole, reviewers: i.reviewerRoles } }),
+              : { kind: "add", summary: `Add a ${i.type}: ${fragmentTitle(i.content, 80)}`, patch: { type, text: i.content, section: i.section } }),
           );
         const props: DocProps =
           type === "heading"
@@ -968,8 +937,6 @@ export class ContextService {
               : {
                   by: "agent",
                   at: this.now(),
-                  ...(i.ownerRole ? { ownerRole: i.ownerRole } : {}),
-                  ...(i.reviewerRoles ? { reviewerRoles: i.reviewerRoles.join(",") } : {}),
                   ...(i.previewReference ? { route: i.previewReference.route, selector: i.previewReference.selector ?? "" } : {}),
                 };
         status({ state: "writing", label: "Writing", object: `${i.section ? `${i.section} › ` : ""}${fragmentTitle(i.content, 28)}`, ...(existing ? { fragmentId: existing.id } : {}) });

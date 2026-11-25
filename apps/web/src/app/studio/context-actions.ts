@@ -3,7 +3,7 @@
 import { KilnApiError } from "@kiln/sdk-ts";
 import { z } from "zod";
 import { api, errorMessage } from "@/lib/kiln";
-import { AgentStatus, ContextChange, ContextState, ContextTurn, FunctionalRole, Member, Preview, Proposal, QuestionAnswer, SignOff, Thread } from "@/lib/studio/types";
+import { AgentStatus, ContextChange, ContextState, ContextTurn, Member, Preview, Proposal, QuestionAnswer, Thread } from "@/lib/studio/types";
 import type { StudioResult } from "./actions";
 
 /** The Context's routes (ADR-019) as the signed-in user, each response parsed with its schema. */
@@ -30,11 +30,10 @@ const Snapshot = z.object({
   agent: AgentStatus,
   turns: z.array(ContextTurn),
   threads: z.array(Thread),
-  signoffs: z.array(SignOff),
   versions: z.record(z.string(), z.number()),
   draft: z.enum(["code", "conversations"]).optional(),
 });
-const MemberInput = z.object({ user: z.string().trim().min(3).max(200), name: z.string().max(80).optional(), permission: z.enum(["editor", "viewer"]), role: FunctionalRole });
+const MemberInput = z.object({ user: z.string().trim().min(3).max(200), name: z.string().max(80).optional(), permission: z.enum(["editor", "viewer"]) });
 const CommentInput = z.object({ fragmentId: Ref.optional(), threadId: Ref.optional(), text: z.string().trim().min(1).max(4000) });
 const Prompted = z.object({ turn: ContextTurn, steered: z.boolean() });
 const Answered = z.object({ proposal: Proposal.optional() });
@@ -65,9 +64,5 @@ export const contextRemoveMember = async (appId: string, user: string) => {
     return { ok: false as const, error: errorMessage(err), status: err instanceof KilnApiError ? err.status : undefined };
   }
 };
-export const contextSetRole = async (appId: string, role: unknown) => call(Member, "POST", `${base(appId)}/role`, { role: FunctionalRole.parse(role) });
 export const contextComment = async (appId: string, input: unknown) => call(Thread, "POST", `${base(appId)}/threads`, CommentInput.parse(input));
 export const contextResolveThread = async (appId: string, threadId: string, resolved: boolean) => call(Thread, "POST", `${base(appId)}/threads/${Ref.parse(threadId)}/resolve`, { resolved: Boolean(resolved) });
-export const contextSignOff = async (appId: string, fragmentId: string, state: unknown) =>
-  call(SignOff, "POST", `${base(appId)}/fragments/${Ref.parse(fragmentId)}/signoff`, { state: z.enum(["approved", "changes"]).parse(state) });
-export const contextRequestReview = async (appId: string, fragmentId: string, role: unknown) => call(Ok, "POST", `${base(appId)}/fragments/${Ref.parse(fragmentId)}/review-request`, { role: FunctionalRole.parse(role) });

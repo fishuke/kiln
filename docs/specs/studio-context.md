@@ -81,6 +81,8 @@ Keep: the preview pane and its failure states (`preview-pane.tsx`, `setup-panel.
 
 The document shows one centred composer and three example requests. After the first prompt the composer moves to the dock (one shared layout animation), the document gets its title, and the first questions arrive. No empty panes: the prototype pane shows what it is waiting for ("Answer the questions and I'll build the first version").
 
+An App with a past opens on a Context being written, never on this empty page: when the Context is empty and the App has earlier conversations (any chat, the old Studio's included) or code beyond its template (an imported repository, applied changes), the snapshot carries `draft: "conversations" | "code"` and an editor's page calls `POST …/context/draft`. The agent reads the code and the quoted conversations (newest first, within a budget), writes the Context from what they support, then asks about the rest. The server drafts at most once per App, so a person who clears the Context, or two people opening it at once, never start a second draft.
+
 ### 4.3 Questions (generated UI)
 
 The agent calls `ask` with a typed spec. The page renders it from a fixed registry of components; the agent never sends markup.

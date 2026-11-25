@@ -153,7 +153,10 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
   const members = snap?.members;
   const nameOf = useCallback((user: string) => (user === "agent" ? "the agent" : (members?.find((m) => m.user === user)?.name ?? user)), [members]);
   const present = usePresent(ctx, appId, me);
-  const firstRun = ready && fragments.length === 0 && questions.length === 0 && (snap?.turns.length ?? 0) === 0 && !busy;
+  const empty = ready && fragments.length === 0 && questions.length === 0 && !busy;
+  // An empty Context with a past (the App's code, earlier chats) is drafted by the agent, not shown empty.
+  const draftFrom = canEdit ? snap?.draft : undefined;
+  const firstRun = empty && (snap?.turns.length ?? 0) === 0 && !draftFrom;
 
   const { preview, error: previewError } = useContextPreview(ctx, appId, snap?.state.builtVersion);
   const routes = useMemo(() => [...new Set(["/", ...fragments.flatMap((f) => (f.previewReference ? [f.previewReference.route] : []))])], [fragments]);
@@ -258,6 +261,17 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
     [act, ctx, appId],
   );
   const build = useCallback(() => void act(() => ctx.build(appId), "Starting the build"), [act, ctx, appId]);
+  // Opening an App whose Context is empty but which has code or earlier chats: the agent drafts it. Once per page;
+  // the server also drafts at most once per App, so two people opening it together start one turn.
+  const drafting = useRef<string>(undefined);
+  useEffect(() => {
+    if (!empty || !draftFrom || drafting.current === appId) return;
+    drafting.current = appId;
+    void act(async () => {
+      const r = await ctx.draft(appId);
+      if (!r.started) setStarting(undefined);
+    }, draftFrom === "conversations" ? "Drafting the Context from earlier conversations" : "Drafting the Context from the code");
+  }, [empty, draftFrom, act, ctx, appId]);
   /** An answer went in: ask the server soon, and again a moment later, for what the agent does with it. */
   const acted = useCallback(() => {
     setTimeout(refreshSnap, 250);

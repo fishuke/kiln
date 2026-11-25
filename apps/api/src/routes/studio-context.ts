@@ -33,6 +33,7 @@ export const contextRoutes: Route[] = [
   { method: "get", path: `${base}/sync`, summary: "The Context document as server-sent events: its state, then each Yjs update and presence change, and `changed` when the rest moved", scope: "read", tag: S },
   { method: "post", path: `${base}/sync`, summary: "Send a page's Yjs update (editors only) or presence to the Context document", scope: "send", body: ContextSync, tag: S },
   { method: "post", path: `${base}/prompt`, summary: "Ask the agent for something on the Context's thread; a viewer's request yields proposals", scope: "send", body: ContextPrompt, tag: S },
+  { method: "post", path: `${base}/draft`, summary: "Start the agent drafting an empty Context from the App's code and earlier conversations; once per App, editors only", scope: "send", tag: S },
   { method: "post", path: `${base}/build`, summary: "Build or update the prototype from the Context as it is now", scope: "send", tag: S },
   { method: "post", path: `${base}/stop`, summary: "Stop the agent's turn on the Context's thread", scope: "send", tag: S },
   { method: "post", path: `${base}/questions/{question}/answer`, summary: "Answer a question the agent asked; a viewer's answer is a proposal", scope: "send", body: ContextAnswer, tag: S },
@@ -149,6 +150,10 @@ export function registerContext(ctx: RouteContext, deps: { studio: () => Studio;
   app.post(
     "/api/v1/studio/apps/:id/context/prompt",
     wrap(async (c) => c.json(await service().prompt(id(c), person(c, "send"), ContextPrompt.parse(await c.req.json()).text))),
+  );
+  app.post(
+    "/api/v1/studio/apps/:id/context/draft",
+    wrap(async (c) => c.json(await service().draft(id(c), person(c, "send")))),
   );
   app.post(
     "/api/v1/studio/apps/:id/context/build",

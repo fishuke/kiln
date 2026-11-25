@@ -70,6 +70,8 @@ type Meta = {
   batches: Record<string, Batch>;
   builds: number;
   seeded: boolean;
+  /** The agent was started on drafting the empty Context from the App's code. */
+  drafted: boolean;
   threads: Thread[];
   signoffs: SignOff[];
   /** What the owner set for a person, and the roles people picked. */
@@ -134,6 +136,7 @@ export class FakeContext implements StudioContextClient {
       batches: {},
       builds: 0,
       seeded: false,
+      drafted: false,
       threads: [],
       signoffs: [],
       roster: {},
@@ -273,7 +276,25 @@ export class FakeContext implements StudioContextClient {
       threads: this.get(appId, "threads"),
       signoffs: this.get(appId, "signoffs"),
       versions: this.get(appId, "versions"),
+      ...(this.draftable(appId) ? { draft: "code" as const } : {}),
     };
+  }
+
+  /** An imported App whose Context is still empty can be drafted from its code, once. */
+  private draftable(appId: string): boolean {
+    const app = this.host.app(appId);
+    if (!app || app.source.kind !== "repo" || app.status !== "ready" || app.firstPrompt) return false;
+    if (this.get(appId, "drafted") || this.runs.has(appId) || this.get(appId, "turns").length) return false;
+    return !this.doc(appId).read().some((b) => b.text.trim() || b.type === QUESTION_BLOCK);
+  }
+
+  async draft(appId: string): Promise<{ started: boolean }> {
+    if (!canEdit(this.me(appId).permission) || !this.draftable(appId)) return { started: false };
+    this.set(appId, "drafted", true);
+    const text = "Draft the Context from the App's code";
+    const topic = topicFor(`${text} ${this.host.app(appId)?.name ?? "App"}`);
+    this.start(appId, "prompt", text, (run) => this.firstScript(appId, run, text, topic));
+    return { started: true };
   }
 
   async brief(appId: string): Promise<ContextBrief> {

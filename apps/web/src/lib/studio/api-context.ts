@@ -36,6 +36,7 @@ export class ApiContext implements StudioContextClient {
   answer: StudioContextClient["answer"] = (appId, questionId, answer) => unwrap(actions.contextAnswer(appId, questionId, answer));
   reopen = async (appId: string, questionId: string) => void (await unwrap(actions.contextReopen(appId, questionId)));
   continueQuestions = async (appId: string) => void (await unwrap(actions.contextContinue(appId)));
+  draft = (appId: string) => unwrap(actions.contextDraft(appId));
   build = async (appId: string) => void (await unwrap(actions.contextBuild(appId)));
   stop = async (appId: string) => void (await unwrap(actions.contextStop(appId)));
   propose: StudioContextClient["propose"] = (appId, input) => unwrap(actions.contextPropose(appId, input));

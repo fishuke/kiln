@@ -175,3 +175,21 @@ describe("the scripted agent on the Context", () => {
     expect(brief.version).toBe(s.state.version);
   });
 });
+
+describe("an imported App with an empty Context", () => {
+  it("is drafted from its code once, by an editor, instead of opening on an empty page", async () => {
+    const t = setup();
+    const app = await t.fake.createApp({ name: "Imported", source: { kind: "repo", repo: "acme/shop", branch: "main" } });
+    t.fake.context.attachDocument(app.id, new MemoryDoc());
+    await t.run();
+    expect((await t.ctx.snapshot(app.id)).draft).toBe("code");
+    expect(await t.ctx.draft(app.id)).toEqual({ started: true });
+    expect(await t.ctx.draft(app.id)).toEqual({ started: false });
+    await t.run();
+    const s = await t.ctx.snapshot(app.id);
+    expect(s.draft).toBeUndefined();
+    expect(s.turns).toHaveLength(1);
+    // A template App with no history keeps its first-run page.
+    expect((await t.snap()).draft).toBeUndefined();
+  });
+});

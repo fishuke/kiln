@@ -234,4 +234,6 @@ export type ContextSnapshot = {
   signoffs: SignOff[];
   /** Per fragment id: how many times its content settled. A sign-off on an older version is stale. */
   versions: Record<string, number>;
+  /** Set while the Context is empty and the agent can draft it from the App's code or earlier conversations (`POST …/context/draft`). */
+  draft?: "code" | "conversations";
 };

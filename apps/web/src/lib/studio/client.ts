@@ -103,6 +103,8 @@ export interface StudioContextClient {
   reopen(appId: string, questionId: string): Promise<void>;
   /** `POST /questions/continue`: go on with what is answered; the agent assumes the rest. */
   continueQuestions(appId: string): Promise<void>;
+  /** `POST /context/draft`: an empty Context with a past (code, earlier chats) gets drafted by the agent. Once per App. */
+  draft(appId: string): Promise<{ started: boolean }>;
   /** Build prototype / Update prototype: build from the Context as it is now. */
   build(appId: string): Promise<void>;
   /** Stop the running turn. */

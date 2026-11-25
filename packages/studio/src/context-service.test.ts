@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { AppDefinitions } from "./app-definitions";
 import { fragmentsFrom, freshness, questionsFrom } from "./context-model";
-import { CONTEXT_NOTES, ContextService, type ContextEvent, type ContextPerson } from "./context-service";
+import { CONTEXT_NOTES, ContextService, draftPrompt, type ContextEvent, type ContextPerson } from "./context-service";
 import { YContextDoc } from "./context-ydoc";
 import { studioEngineHooks, studioRuns } from "./engine-port";
 import { Studio } from "./studio";
@@ -432,5 +432,48 @@ describe("the Context service", () => {
 
   it("tells the agent to mark the elements that implement a fragment", () => {
     expect(CONTEXT_NOTES).toContain('data-kiln-fragment="<fragment id>"');
+  });
+
+  it("leaves a fresh template App nobody has talked to on its first-run page", async () => {
+    const t = await make();
+    expect((await t.ctx.snapshot(t.appId, t.ada)).draft).toBeUndefined();
+    expect(await t.ctx.draft(t.appId, t.ada)).toEqual({ started: false });
+    expect(t.prompts).toEqual([]);
+  });
+
+  it("drafts an empty Context from the App's earlier conversations, once, and only on an editor's call", async () => {
+    const t = await make(async (prompt, tool) => {
+      if (!prompt.includes("This App has no Context yet")) return;
+      await tool("context_read");
+      await tool("context_write", { type: "title", content: "Recipe box" });
+    });
+    const { chat } = await t.studio.newChat(t.appId, { by: t.ada.user, via: "web", prompt: "Make the search find recipes by ingredient" });
+    await t.studio.idle(chat.id);
+    expect((await t.ctx.snapshot(t.appId, t.ada)).draft).toBe("conversations");
+
+    expect(await t.ctx.draft(t.appId, t.sam)).toEqual({ started: false });
+    expect(await t.ctx.draft(t.appId, t.ada)).toEqual({ started: true });
+    expect(await t.ctx.draft(t.appId, t.ada)).toEqual({ started: false });
+    await t.idle();
+    const sent = t.prompts.at(-1)!;
+    expect(sent.startsWith(CONTEXT_NOTES)).toBe(true);
+    expect(sent).toContain("## Earlier conversations");
+    expect(sent).toContain("> Make the search find recipes by ingredient");
+    expect((await t.blocks()).map((b) => b.text)).toEqual(["Recipe box"]);
+    const s = await t.ctx.snapshot(t.appId, t.ada);
+    expect(s.draft).toBeUndefined();
+    expect(s.turns).toHaveLength(1);
+  });
+
+  it("quotes the newest conversations first when they don't all fit, and asks for code reading alone without any", () => {
+    const long = (n: number) => ({ title: `Chat ${n}`, turns: Array.from({ length: 10 }, (_, i) => ({ prompt: `ask ${n}.${i} ${"x".repeat(500)}`, reply: "y".repeat(500) })) });
+    const p = draftPrompt({ repository: true, conversations: [long(1), long(2), long(3)] });
+    expect(p).toContain("### Chat 3");
+    expect(p).not.toContain("### Chat 1");
+    expect(p.indexOf("Chat 2") < p.indexOf("Chat 3") || !p.includes("Chat 2")).toBe(true);
+    expect(p.length).toBeLessThan(9000);
+    const code = draftPrompt({ repository: true, conversations: [] });
+    expect(code).toContain("Read the App's code");
+    expect(code).not.toContain("Earlier conversations");
   });
 });

@@ -2254,6 +2254,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | GET | `/api/v1/studio/apps/{id}/context/sync` | `read` | The Context document as server-sent events: its state, then each Yjs update and presence change, and `changed` when the rest moved |
 | POST | `/api/v1/studio/apps/{id}/context/sync` | `send` | Send a page's Yjs update (editors only) or presence to the Context document |
 | POST | `/api/v1/studio/apps/{id}/context/prompt` | `send` | Ask the agent for something on the Context's thread; a viewer's request yields proposals |
+| POST | `/api/v1/studio/apps/{id}/context/draft` | `send` | Start the agent drafting an empty Context from the App's code and earlier conversations; once per App, editors only |
 | POST | `/api/v1/studio/apps/{id}/context/build` | `send` | Build or update the prototype from the Context as it is now |
 | POST | `/api/v1/studio/apps/{id}/context/stop` | `send` | Stop the agent's turn on the Context's thread |
 | POST | `/api/v1/studio/apps/{id}/context/questions/{question}/answer` | `send` | Answer a question the agent asked; a viewer's answer is a proposal |

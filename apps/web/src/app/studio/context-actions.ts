@@ -32,6 +32,7 @@ const Snapshot = z.object({
   threads: z.array(Thread),
   signoffs: z.array(SignOff),
   versions: z.record(z.string(), z.number()),
+  draft: z.enum(["code", "conversations"]).optional(),
 });
 const MemberInput = z.object({ user: z.string().trim().min(3).max(200), name: z.string().max(80).optional(), permission: z.enum(["editor", "viewer"]), role: FunctionalRole });
 const CommentInput = z.object({ fragmentId: Ref.optional(), threadId: Ref.optional(), text: z.string().trim().min(1).max(4000) });
@@ -46,6 +47,7 @@ export const contextAnswer = async (appId: string, questionId: string, answer: u
   call(Answered, "POST", `${base(appId)}/questions/${Ref.parse(questionId)}/answer`, { answer: QuestionAnswer.parse(answer) });
 export const contextReopen = async (appId: string, questionId: string) => call(Ok, "POST", `${base(appId)}/questions/${Ref.parse(questionId)}/reopen`);
 export const contextContinue = async (appId: string) => call(Ok, "POST", `${base(appId)}/questions/continue`);
+export const contextDraft = async (appId: string) => call(z.object({ started: z.boolean() }), "POST", `${base(appId)}/draft`);
 export const contextBuild = async (appId: string) => call(Ok, "POST", `${base(appId)}/build`);
 export const contextStop = async (appId: string) => call(Ok, "POST", `${base(appId)}/stop`);
 export const contextPropose = async (appId: string, input: unknown) => call(Proposal, "POST", `${base(appId)}/proposals`, ProposeInput.parse(input));

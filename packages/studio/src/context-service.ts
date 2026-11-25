@@ -32,7 +32,7 @@ import {
 } from "./context-types";
 import { WRITABLE_BLOCKS, YContextDoc } from "./context-ydoc";
 import type { Clock, Studio } from "./studio";
-import { StudioError, type Chat, type Preview, type Turn } from "./types";
+import { StudioError, type App, type Chat, type Preview, type Turn } from "./types";
 
 export const CONTEXT_COLLECTIONS = { context: "studio_context", members: "studio_members", proposals: "studio_proposals", threads: "studio_threads", signoffs: "studio_signoffs" } as const;
 const C = CONTEXT_COLLECTIONS;
@@ -56,6 +56,8 @@ type Row = {
   seen: Record<string, { at: string; version: number }>;
   /** Per turn: the Context version it read, for `mark_built`. */
   read: Record<string, number>;
+  /** When the agent was started on drafting an empty Context from the App's code and earlier chats. Once per App. */
+  drafted?: string;
 };
 type MemberRow = Member & { id: string };
 type ProposalRow = Proposal;
@@ -160,6 +162,43 @@ const IDLE: AgentStatus = { state: "idle", label: "" };
 const key = (appId: string) => `studio/context/${appId}/doc`;
 /** What ships into the App's repository: the document as Markdown, and its fragments and questions as data. */
 export type ContextExport = { markdown: string; json: { version: number; builtVersion: number | null; fragments: Fragment[]; questions: Question[] } };
+
+/** What an empty Context can be drafted from: the App's own code, or its earlier conversations (and code). */
+export type DraftSource = "code" | "conversations";
+/** One earlier conversation on the App, as the draft prompt quotes it. */
+export type DraftConversation = { title: string; turns: { prompt: string; reply?: string }[] };
+
+const DRAFT_BUDGET = 8000;
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
+
+/**
+ * The prompt that starts the agent on an App whose Context is empty but which has a past: code
+ * beyond its template (an imported repository, applied changes) or earlier conversations. Earlier
+ * conversations are quoted, newest last, within a budget, so the agent can record what was decided.
+ */
+export function draftPrompt(input: { repository: boolean; conversations: DraftConversation[] }): string {
+  const lines = [
+    "This App has no Context yet. Draft it now, before anyone asks for anything:",
+    input.repository ? "- Read the App's code: what it is, who it is for, how it works and what looks unfinished." : "- Read the App's code to see what is already built.",
+  ];
+  if (input.conversations.length) lines.push("- Read the earlier conversations below: what people asked for and what was decided. Record each decision that still holds, and the plan with what is already done ticked off.");
+  lines.push("- Write the Context in its usual shape from what you found. Only write what the code or the conversations support; don't invent requirements.", "- Then ask about what neither can tell you. Don't change any code in this turn.");
+  if (!input.conversations.length) return lines.join("\n");
+  // Newest conversations matter most: fill the budget from the end, then put them back in order.
+  const quoted: string[] = [];
+  let left = DRAFT_BUDGET;
+  for (const c of [...input.conversations].reverse()) {
+    const turns = c.turns.map((t) => `> ${clip(t.prompt.replace(/\s+/g, " ").trim(), 600)}${t.reply ? `\n${clip(t.reply.replace(/\s+/g, " ").trim(), 600)}` : ""}`);
+    const block = `### ${c.title}\n${turns.join("\n\n")}`;
+    if (block.length > left) {
+      if (left > 400) quoted.unshift(clip(block, left));
+      break;
+    }
+    quoted.unshift(block);
+    left -= block.length;
+  }
+  return [...lines, "", "## Earlier conversations", "", quoted.join("\n\n")].join("\n");
+}
 
 const markdownMark: Record<string, string> = { heading: "#", paragraph: "", bulletListItem: "-", numberedListItem: "1.", checkListItem: "- [ ]", quote: ">" };
 
@@ -425,6 +464,7 @@ export class ContextService {
     const l = await this.open(appId);
     const open = questionsFrom(appId, l.y.read()).filter((q) => q.status === "open").length;
     const members = this.members(appId, app.createdBy, who);
+    const draft = this.draftable(app, row, l.y.read());
     return {
       state: row.state,
       me: members.find((m) => m.user === who.user)!,
@@ -436,7 +476,56 @@ export class ContextService {
       threads: this.opts.store.list<Thread>(C.threads, (t) => t.appId === appId).sort((a, b) => a.at.localeCompare(b.at)),
       signoffs: this.opts.store.list<SignOff & { id: string }>(C.signoffs, (x) => x.appId === appId).map(({ id: _, ...x }) => x),
       versions: row.versions ?? {},
+      ...(draft ? { draft: draft.from } : {}),
     };
+  }
+
+  /**
+   * What an empty Context could be drafted from, if anything: nothing for an App the agent already
+   * drafted, one with a first prompt still on its way, or a fresh template App nobody has talked to.
+   */
+  private draftable(app: App, row: Row, blocks: DocBlock[]): { from: DraftSource; conversations: DraftConversation[] } | undefined {
+    if (row.drafted || app.firstPrompt || app.status !== "ready") return undefined;
+    if (blocks.some((b) => b.text.trim()) || questionsFrom(app.id, blocks).length) return undefined;
+    const found = this.opts.studio.getApp(app.id);
+    if (!found) return undefined;
+    const thread = this.chat(row);
+    if (thread?.chat.status === "working") return undefined;
+    const conversations: DraftConversation[] = [];
+    for (const c of [...found.chats].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+      const turns = (this.opts.studio.getChat(c.id)?.turns ?? []).filter((t) => t.prompt.trim()).map((t) => ({ prompt: t.prompt, ...(t.reply?.trim() ? { reply: t.reply } : {}) }));
+      if (turns.length) conversations.push({ title: c.id === row.chatId ? "This page's thread" : c.title, turns });
+    }
+    if (conversations.length) return { from: "conversations", conversations };
+    const changed = found.versions.some((v) => v.kind !== "initial");
+    return app.source.kind === "repo" || changed ? { from: "code", conversations } : undefined;
+  }
+
+  /**
+   * Starts the agent on drafting an empty Context from the App's code and earlier conversations, so
+   * opening such an App never lands on an empty page. Once per App; an editor's call; a no-op when
+   * there is nothing to draft from or the Context already has something in it.
+   */
+  async draft(appId: string, who: ContextPerson): Promise<{ started: boolean }> {
+    const app = this.app(appId, who.team);
+    const me = this.member(appId, who);
+    if (!canEdit(me.permission)) return { started: false };
+    const l = await this.open(appId);
+    const row = this.row(appId, who.team);
+    const draft = this.draftable(app, row, l.y.read());
+    if (!draft) return { started: false };
+    // Recorded before the turn starts, so a second page opening at the same moment doesn't start another.
+    this.save({ ...row, drafted: this.now() });
+    try {
+      await this.send(appId, who, draftPrompt({ repository: app.source.kind === "repo", conversations: draft.conversations }), me.permission);
+    } catch (err) {
+      const now = this.row(appId, who.team);
+      const { drafted: _, ...rest } = now;
+      this.save(rest);
+      throw err;
+    }
+    this.emit(l, { type: "changed" });
+    return { started: true };
   }
 
   /** The Brief: five lines from the Context at its current version, cached per version. */

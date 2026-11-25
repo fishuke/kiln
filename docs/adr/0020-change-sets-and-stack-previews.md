@@ -34,3 +34,9 @@ Atlas (the Cyrus fork) routes one issue to several repositories and opens cross-
 - ADR-010 and ADR-012 are not edited. They still describe a factory or App without a stack.
 
 Plan: `docs/specs/change-sets-and-stack-previews.md`.
+
+## Notes from phase 1
+
+- Until stacks exist, a factory opts into change sets with `change_sets: true` in `factory.yaml`; a stack will turn them on too.
+- `repos[]`, `prs[]` and `previews[]` are the truth. `repo`, `pr` and `previewUrl` stay as copies of the first entry for older readers, written only in `packages/engine/src/change-set.ts`; rows stored earlier read as a change set of one.
+- The `repositories` decision is one yes/no probability per repository (the decision layer has no multi-select). An answer between 0.4 and 0.6 opens a multi-select question for a person.

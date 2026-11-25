@@ -75,6 +75,11 @@ export type RunMode = "normal" | "plan" | "orchestrate";
 /** The API-facing task stage. Kiln's finer states map onto these. */
 export type TaskStage = "TRIAGE" | "SPEC" | "IMPLEMENT" | "REVIEW" | "COMPLETE" | "CANCELLED";
 
+export type PullRequestRef = { repo: string; number: number; url: string; openedAt?: string; firstReviewAt?: string; mergedAt?: string; closedAt?: string; additions?: number; deletions?: number; changedFiles?: number; commits?: number; humanCodeChange?: boolean };
+/** `base` is the branch the pull request targets; unset means the repository's default branch. */
+export type ChangeSetRepo = { repo: string; base?: string; role: "changed" | "context" };
+export type ServicePreview = { service: string; surface?: string; url: string; status: "starting" | "ready" | "failed" | "sleeping" };
+
 export type WorkItem = {
   id: string;
   factory: string;
@@ -109,8 +114,16 @@ export type WorkItem = {
   /** Set by a spec retry: spec gates whose notes the next spec run ignores, people's messages from `messagesFrom` on, and the model for that run only. */
   specRetry?: { ignoreGates: string[]; messagesFrom: number; model?: string };
   branch?: string;
-  pr?: { repo: string; number: number; url: string; openedAt?: string; firstReviewAt?: string; mergedAt?: string; closedAt?: string; additions?: number; deletions?: number; changedFiles?: number; commits?: number; humanCodeChange?: boolean };
+  /** The first of `prs`, kept for older readers (ADR-020). Write through `upsertPr`. */
+  pr?: PullRequestRef;
+  /** The first of `previews`, kept for older readers (ADR-020). */
   previewUrl?: string;
+  /** The repositories this work item changes (its change set) and reads for context, changed first (ADR-020). */
+  repos?: ChangeSetRepo[];
+  /** One pull request per changed repository, linked to each other. */
+  prs?: PullRequestRef[];
+  /** One live preview per service of the change set's stack (or one `app` preview without a stack). */
+  previews?: ServicePreview[];
   previewDeployedAt?: string;
   evidence?: EvidencePackage;
   /** `needsHuman: false` when review-risk said no person needs to read the code (ADR-010). */

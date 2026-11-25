@@ -8,6 +8,7 @@ import { KilnError, retriesAutomatically } from "./errors";
 import { BUILTIN_GATES } from "./gates";
 import type { Kiln } from "./kiln";
 import { isActive, transition, TRANSITIONS } from "./state";
+import { changedRepos, joinChangeSet, migrateWorkItem, prFor, setRepos, upsertPr, withChangeSetSection } from "./change-set";
 import { fileUrl } from "./media";
 import { reportedPullRequest } from "./runs";
 import { C, newId, type ForemanEvent, type Attachment, type ExecutionOverrides, type Gate, type Run, type RunMode, type Source, type WorkItem, type WorkItemState } from "./types";
@@ -90,12 +91,14 @@ export class Workflow {
   constructor(private readonly k: Kiln) {}
 
   get(id: string): Item | undefined {
-    return this.k.store.get<Item>(C.workItems, id);
+    const wi = this.k.store.get<Item>(C.workItems, id);
+    return wi && migrateWorkItem(wi);
   }
 
   list(filter: { factory?: string; state?: WorkItemState; projectId?: string } = {}): Item[] {
     return this.k.store
       .list<Item>(C.workItems, (w) => (!filter.factory || w.factory === filter.factory) && (!filter.state || w.state === filter.state) && (!filter.projectId || w.projectId === filter.projectId))
+      .map((w) => migrateWorkItem(w))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
@@ -479,7 +482,22 @@ export class Workflow {
     const first = wi.conversation.findIndex((c) => c.role === "human");
     const humans = wi.conversation.filter((c, i) => c.role === "human" && i > first && i >= since);
     if (humans.length) lines.push("", "Messages from people:", ...humans.map((c) => `- ${c.from}: ${c.text}`));
+    lines.push(...this.changeSetBrief(wi));
     return [...lines, ...extra].join("\n");
+  }
+
+  /** The repositories of a change set, as the agent sees them in its workspace (ADR-020). */
+  private changeSetBrief(wi: Item): string[] {
+    if (!this.changeSets(wi) || (wi.repos ?? []).length < 2) return [];
+    const described = (key: string) => this.repoByKey(wi, key)?.description;
+    return [
+      "",
+      "## Change set",
+      "This change spans several repositories. Each is a git checkout in its own folder of the workspace, on the same branch.",
+      'Change the ones marked "change"; read the others for context. If a "context" repository has to change too, change it: it joins the set.',
+      "Run git per folder (`git -C <folder> ...`). Kiln pushes every changed repository and opens one linked pull request per repository; do not open pull requests yourself.",
+      ...wi.repos!.map((r) => `- ${r.repo.split("/")[1]}/ (${r.repo}): ${r.role === "changed" ? "change" : "context"}${described(r.repo) ? ` — ${described(r.repo)}` : ""}`),
+    ];
   }
 
   /** The task's budget: its own, capped by the factory's policies. */
@@ -592,7 +610,7 @@ export class Workflow {
   private async foremanTurn(wi: Item): Promise<StepResult> {
     const st = (wi.foreman ??= { turns: 0, idleTurns: 0, failedTurns: 0 });
     if (wi.blockedReason === "waiting for CI") {
-      const checks = wi.branch ? await this.k.forge.checks(this.repoOf(wi), wi.branch) : { status: "success" as const, runs: [] };
+      const checks = wi.branch ? await this.checksOfSet(wi) : { status: "success" as const, runs: [] };
       if (checks.status === "pending") return "wait";
       wi.blockedReason = undefined;
       this.save(wi);
@@ -651,7 +669,7 @@ export class Workflow {
     const res = (run.result ?? {}) as Record<string, unknown>;
     if (type === "TRIAGE" && run.status === "succeeded") {
       wi.triage = { kind: String(res.kind ?? "feature"), size: String(res.size ?? "m"), summary: res.summary as string | undefined, duplicateOf: res.duplicateOf as string | undefined, confidence: 0.9 };
-      await this.chooseRepo(wi, res.repo as string | undefined);
+      await this.chooseRepo(wi, Array.isArray(res.repos) && res.repos.length ? (res.repos as string[]) : (res.repo as string | undefined));
     }
     if (type === "SPEC" && run.status === "succeeded") wi.spec = specFrom(wi, res as SpecResult, run);
     if (type === "REVIEW" && run.status === "succeeded") wi.review = { verdict: String(res.verdict ?? "accepted"), findings: (res.findings as string[] | undefined) ?? [], reviewers: wi.review?.reviewers ?? [] };
@@ -954,7 +972,7 @@ export class Workflow {
     const kind = top(outcome.answers.kind);
     const size = top(outcome.answers.size);
     const repos = r.factory.repositories;
-    let agentRepo: string | undefined;
+    let agentRepo: string | string[] | undefined;
     // fast_path: false makes a confident decision no reason to skip the stage's agent.
     const fastPath = stage.fast_path !== false || !stage.agent;
     if (fastPath && kind && size && kind.p >= 0.6 && size.p >= 0.6) {
@@ -972,12 +990,16 @@ export class Workflow {
           "",
           "Triage this request: classify kind and size, look for duplicates, and summarize the cause or scope.",
           ...(open.length ? ["", "Open tasks in this factory. If this request is the same incident or work as one of them, set duplicateOf to that task id:", ...open] : []),
-          ...(repos.length > 1 ? ["", "Set repo to the repository (owner/name) this request belongs to:", ...repos.map((x) => `- ${x.owner}/${x.name}${x.description ? `: ${x.description}` : ""}`)] : []),
+          ...(repos.length > 1
+            ? this.changeSets(wi)
+              ? ["", "Set repos to every repository (owner/name) this request needs to change, most important first:", ...repos.map((x) => `- ${x.owner}/${x.name}${x.description ? `: ${x.description}` : ""}`)]
+              : ["", "Set repo to the repository (owner/name) this request belongs to:", ...repos.map((x) => `- ${x.owner}/${x.name}${x.description ? `: ${x.description}` : ""}`)]
+            : []),
         ]),
         { push: false },
       );
-      const res = (run.result ?? {}) as { kind?: string; size?: string; summary?: string; duplicateOf?: string; repo?: string };
-      agentRepo = res.repo;
+      const res = (run.result ?? {}) as { kind?: string; size?: string; summary?: string; duplicateOf?: string; repo?: string; repos?: string[] };
+      agentRepo = Array.isArray(res.repos) && res.repos.length ? res.repos : res.repo;
       wi.triage = { kind: res.kind ?? kind?.option ?? "feature", size: res.size ?? size?.option ?? "m", summary: res.summary, duplicateOf: res.duplicateOf, confidence: 0.9 };
     } else {
       wi.triage = { kind: kind?.option ?? "feature", size: size?.option ?? "m", confidence: Math.min(kind?.p ?? 0, size?.p ?? 0) };
@@ -1000,9 +1022,11 @@ export class Workflow {
   }
 
   /** In a factory with several repositories, the one this work item belongs to: the triage agent's pick, else a typed decision. */
-  private async chooseRepo(wi: Item, agentPick?: string) {
+  private async chooseRepo(wi: Item, agentPick?: string | string[]) {
     const repos = this.resolved(wi).factory.repositories;
     if (repos.length < 2 || wi.repo) return;
+    if (this.changeSets(wi)) return this.chooseRepos(wi, Array.isArray(agentPick) ? agentPick : agentPick ? [agentPick] : []);
+    if (Array.isArray(agentPick)) agentPick = agentPick[0];
     const keys = repos.map((x) => `${x.owner}/${x.name}`);
     let pick = agentPick ? keys.find((k) => k.toLowerCase() === agentPick.toLowerCase()) : undefined;
     if (!pick) {
@@ -1012,8 +1036,68 @@ export class Workflow {
       const best = top(outcome.answers.repository);
       if (best && best.p >= 0.6) pick = best.option;
     }
-    wi.repo = pick ?? keys[0];
+    setRepos(wi, [{ repo: pick ?? keys[0]!, role: "changed" }]);
     this.say(wi, "foreman", "foreman", pick ? `Working in ${wi.repo}.` : `Could not tell which repository this belongs to; working in ${wi.repo}.`);
+  }
+
+  /** Whether a work item may change several repositories (ADR-020): the factory opts in. */
+  private changeSets(wi: Item): boolean {
+    const f = this.resolved(wi).factory;
+    return f.repositories.length > 1 && f.change_sets === true;
+  }
+
+  /**
+   * The change set: the triage agent's repositories, else a `repositories` decision with one
+   * yes/no question per repository. An answer between 0.4 and 0.6 is unclear: the foreman asks.
+   * Every other repository of the factory is cloned for context.
+   */
+  private async chooseRepos(wi: Item, agentPicks: string[]) {
+    const repos = this.resolved(wi).factory.repositories;
+    const keys = repos.map((x) => `${x.owner}/${x.name}`);
+    let picks = agentPicks.map((a) => keys.find((k) => k.toLowerCase() === a.toLowerCase())).filter((k): k is string => Boolean(k));
+    let unclear: string[] = [];
+    if (!picks.length) {
+      const described = repos.map((x) => `${x.owner}/${x.name}${x.description ? `: ${x.description}` : ""}`);
+      const outcome = await runDecision("repositories", repositoriesDecision(keys), { title: wi.title, body: wi.body, repositories: described }, this.k.decide);
+      this.k.logDecision(outcome, { title: wi.title }, { workItemId: wi.id });
+      const p = (k: string) => Number(outcome.answers[repoQuestion(k)] ?? 0);
+      picks = keys.filter((k) => p(k) >= 0.6);
+      unclear = keys.filter((k) => p(k) > 0.4 && p(k) < 0.6);
+      if (!picks.length) picks = [...unclear.slice(0, 1)];
+    }
+    const changed = picks.length ? picks : [keys[0]!];
+    setRepos(wi, [...changed.map((repo) => ({ repo, role: "changed" as const })), ...keys.map((repo) => ({ repo, role: "context" as const }))]);
+    this.say(wi, "foreman", "foreman", picks.length ? `Working in ${changed.join(", ")}.` : `Could not tell which repositories this needs; working in ${changed[0]}.`);
+    if (unclear.length || !picks.length) {
+      await this.k.gates.open({
+        workItem: wi,
+        kind: "question",
+        name: "repositories",
+        title: `Which repositories does "${wi.title}" change?`,
+        question: `I picked ${changed.join(", ")}. Pick every repository this change needs.`,
+        questions: [{ id: "repositories", question: "Repositories this change needs", type: "multi_select", options: keys }],
+      });
+    }
+  }
+
+  /** CI across every pull request of the change set: failure if any failed, pending if any is still running. */
+  private async checksOfSet(wi: Item): Promise<{ status: "success" | "failure" | "pending"; runs: { name: string; conclusion?: string | null }[] }> {
+    const runs: { name: string; conclusion?: string | null }[] = [];
+    let status: "success" | "failure" | "pending" = "success";
+    const repos = changedRepos(wi);
+    for (const key of repos.length ? repos : [`${this.repoOf(wi).owner}/${this.repoOf(wi).name}`]) {
+      const repo = this.repoByKey(wi, key);
+      if (!repo || (repos.length > 1 && !prFor(wi, key))) continue;
+      const c = await this.k.forge.checks(repo, wi.branch!);
+      runs.push(...c.runs.map((r) => ({ ...r, name: repos.length > 1 ? `${key}: ${r.name}` : r.name })));
+      if (c.status === "failure") status = "failure";
+      else if (c.status === "pending" && status !== "failure") status = "pending";
+    }
+    return { status, runs };
+  }
+
+  private repoByKey(wi: Item, key: string) {
+    return this.resolved(wi).factory.repositories.find((x) => `${x.owner}/${x.name}`.toLowerCase() === key.toLowerCase());
   }
 
   /** The repository a work item works in: the one triage picked, else the factory's first. */
@@ -1126,46 +1210,90 @@ export class Workflow {
    * The pull request description: the implement agent's Why / What / Verification when it wrote
    * one, otherwise the request and its criteria; then the evidence and the tracking reference.
    */
-  private prBody(wi: Item): string {
+  private prBody(wi: Item, repo = wi.pr?.repo ?? `${this.repoOf(wi).owner}/${this.repoOf(wi).name}`): string {
     const tracking = [`Work item: ${this.k.link(`/runs/${wi.id}`)}`, wi.source.url ? `Source: ${wi.source.url}` : "", wi.trackerKey ? `Tracker: ${wi.trackerKey}` : ""].filter(Boolean);
     const written = this.agentPullRequest(wi)?.body;
-    if (written) return [written, ...this.evidenceLines(wi), "", "---", ...tracking].join("\n");
-    return [
-      ...tracking,
-      "",
-      wi.body,
-      ...(wi.spec?.criteria.length ? ["", "## Acceptance criteria", ...wi.spec.criteria.map((c) => `- [ ] ${c}`)] : []),
-      ...this.evidenceLines(wi),
-    ].join("\n");
+    const body = written
+      ? [written, ...this.evidenceLines(wi), "", "---", ...tracking].join("\n")
+      : [
+          ...tracking,
+          "",
+          wi.body,
+          ...(wi.spec?.criteria.length ? ["", "## Acceptance criteria", ...wi.spec.criteria.map((c) => `- [ ] ${c}`)] : []),
+          ...this.evidenceLines(wi),
+        ].join("\n");
+    return (wi.prs ?? []).length > 1 ? withChangeSetSection(body, wi.prs!, repo).trimEnd() : body;
+  }
+
+  /** Rewrite every pull request description of the change set (evidence, siblings). */
+  private async updatePrBodies(wi: Item) {
+    for (const p of wi.prs ?? []) {
+      const repo = this.repoByKey(wi, p.repo);
+      if (repo) await this.k.forge.updatePullRequest(repo, p.number, { body: this.prBody(wi, p.repo) }).catch(() => undefined);
+    }
   }
 
   /** Whether the work item's branch is on the forge: a pull request exists or one of its runs pushed it. */
   private hasBranch(wi: Item): boolean {
-    if (wi.pr) return true;
+    if (wi.pr || wi.prs?.length) return true;
     return this.k.runs.list({ workItemId: wi.id }).some((r) => ((r.result?.pushed as unknown[] | undefined) ?? []).length > 0);
   }
 
+  /** Repositories the work item's runs pushed its branch to. */
+  private pushedRepos(wi: Item): string[] {
+    const seen = new Set<string>();
+    for (const r of this.k.runs.list({ workItemId: wi.id }).reverse()) {
+      for (const p of (r.result?.pushed as { repo: string }[] | undefined) ?? []) seen.add(p.repo);
+    }
+    return [...seen];
+  }
+
+  /**
+   * One pull request per changed repository the branch was pushed to, each listing its siblings
+   * (ADR-020). A repository a run changed outside the set joins it. Returns the first one.
+   */
   private async ensurePullRequest(wi: Item, draft: boolean) {
-    const repo = this.repoOf(wi);
+    if (!this.hasBranch(wi)) return undefined;
+    if (!this.changeSets(wi)) return this.ensureOnePullRequest(wi, this.repoOf(wi), draft);
+    for (const key of this.pushedRepos(wi)) {
+      if (this.repoByKey(wi, key) && joinChangeSet(wi, key) && changedRepos(wi).length > 1) this.say(wi, "foreman", "foreman", `${key} changed too; it joins the change set.`);
+    }
+    const pushed = new Set(this.pushedRepos(wi).map((k) => k.toLowerCase()));
+    const before = (wi.prs ?? []).length;
+    let first: Awaited<ReturnType<Workflow["ensureOnePullRequest"]>>;
+    for (const key of changedRepos(wi)) {
+      const repo = this.repoByKey(wi, key);
+      if (!repo || (!prFor(wi, key) && !pushed.has(key.toLowerCase()))) continue;
+      const pr = await this.ensureOnePullRequest(wi, repo, draft);
+      first ??= pr;
+    }
+    // A pull request joined: every one lists it (the first ones were opened before it existed).
+    if ((wi.prs ?? []).length > before && (wi.prs ?? []).length > 1) await this.updatePrBodies(wi);
+    this.save(wi);
+    return first;
+  }
+
+  private async ensureOnePullRequest(wi: Item, repo: ReturnType<Workflow["repoOf"]>, draft: boolean) {
+    const key = `${repo.owner}/${repo.name}`;
     const alias = this.resolved(wi).factory.alias ?? wi.factory;
-    const body = this.prBody(wi);
+    const body = this.prBody(wi, key);
     const title = this.agentPullRequest(wi)?.title;
     const branch = this.branch(wi);
-    if (!this.hasBranch(wi)) return undefined;
-    if (wi.pr) {
-      const pr = await this.k.forge.updatePullRequest(repo, wi.pr.number, { ...(title ? { title } : {}), body, draft });
+    const existing = prFor(wi, key);
+    if (existing) {
+      const pr = await this.k.forge.updatePullRequest(repo, existing.number, { ...(title ? { title } : {}), body, draft });
       return pr;
     }
     try {
       const pr = await this.k.forge.openPullRequest({ repo, head: branch, title: title ?? wi.title, body, labels: [`factory:${alias}`], draft });
-      const d = wi.pendingDiff;
-      wi.pr = { repo: pr.repo, number: pr.number, url: pr.url, openedAt: this.k.clock.now().toISOString(), ...(d ? { additions: d.additions, deletions: d.deletions, changedFiles: d.files, commits: 1 } : {}) };
-      delete wi.pendingDiff;
+      const d = (wi.prs ?? []).length ? undefined : wi.pendingDiff;
+      upsertPr(wi, { repo: pr.repo, number: pr.number, url: pr.url, openedAt: this.k.clock.now().toISOString(), ...(d ? { additions: d.additions, deletions: d.deletions, changedFiles: d.files, commits: 1 } : {}) });
+      if (d) delete wi.pendingDiff;
       this.save(wi);
       this.k.bus.publish("pull_request.opened", { workItemId: wi.id, repo: pr.repo, number: pr.number, url: pr.url, branch });
       return pr;
     } catch (err) {
-      this.say(wi, "kiln", "system", `Could not open a pull request: ${err instanceof Error ? err.message : String(err)}`);
+      this.say(wi, "kiln", "system", `Could not open a pull request in ${key}: ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     }
   }
@@ -1217,7 +1345,7 @@ export class Workflow {
       fresh.evidence = wi.evidence;
       Object.assign(wi, fresh);
       // What verification recorded goes into the pull request description.
-      if (wi.pr) await this.k.forge.updatePullRequest(repo, wi.pr.number, { body: this.prBody(wi) }).catch(() => undefined);
+      await this.updatePrBodies(wi);
       if (requires.includes("tests_pass") && run.result?.testsPassed !== true) problems.push("tests did not pass");
     }
     if (requires.includes("criteria_videos") && wi.spec?.criteria.length) {
@@ -1226,7 +1354,7 @@ export class Workflow {
       if (!covered.ok) problems.push(`no passing video for ${covered.missing.join(", ")}`);
     }
     if (requires.includes("ci_green") && wi.branch) {
-      const checks = await this.k.forge.checks(repo, wi.branch);
+      const checks = await this.checksOfSet(wi);
       if (checks.status === "pending") {
         wi.blockedReason = "waiting for CI";
         this.save(wi);
@@ -1326,6 +1454,17 @@ export class Workflow {
   async onGateDecided(gate: Gate) {
     const wi = this.get(gate.workItemId);
     if (!wi || !isActive(wi.state)) return;
+    // The person picked the change set's repositories (ADR-020).
+    if (gate.name === "repositories" && gate.answer) {
+      const keys = this.resolved(wi).factory.repositories.map((x) => `${x.owner}/${x.name}`);
+      const picked = keys.filter((k) => gate.answer!.toLowerCase().includes(k.toLowerCase()));
+      if (picked.length) {
+        setRepos(wi, [...picked.map((repo) => ({ repo, role: "changed" as const })), ...(wi.repos ?? []).filter((r) => r.role === "changed" && prFor(wi, r.repo)), ...keys.map((repo) => ({ repo, role: "context" as const }))]);
+        this.say(wi, "foreman", "foreman", `Working in ${changedRepos(wi).join(", ")}.`);
+        this.save(wi);
+      }
+      return;
+    }
     if (this.isAgentMode(wi) && !(gate.kind === "merge" && gate.state === "approved")) {
       const by = gate.decidedBy ?? "a person";
       if (wi.state === "blocked") this.unblock(wi.id, `${gate.title} decided`);
@@ -1369,7 +1508,7 @@ export class Workflow {
     const wi = this.get(id);
     if (!wi || wi.state === "complete") return wi;
     wi.completion = completion;
-    if (completion.by === "merge" && wi.pr) wi.pr.mergedAt = this.k.clock.now().toISOString();
+    if (completion.by === "merge" && wi.pr && !wi.pr.mergedAt) upsertPr(wi, { ...wi.pr, mergedAt: this.k.clock.now().toISOString() });
     let next = wi;
     if (wi.state !== "handed_off") next = this.move({ ...wi }, "handed_off", "completed before hand-off");
     next = this.move({ ...next, completion }, "complete", completion.by === "merge" ? `merged (${completion.ref})` : `confirmed by ${completion.ref}`);
@@ -1393,10 +1532,39 @@ export class Workflow {
     if (this.k.tracker) await this.k.tracker.setState(wi.trackerKey, step === "handoff" ? "in_progress" : "done").catch(() => {});
   }
 
+  /** The work item whose change set holds this pull request. */
+  private byPullRequest(repo: string, number: number) {
+    const same = (p: { repo: string; number: number }) => p.repo.toLowerCase() === repo.toLowerCase() && p.number === number;
+    return this.list().find((w) => (w.prs ?? (w.pr ? [w.pr] : [])).some(same));
+  }
+
+  /** A merged pull request: the work item is done once every pull request of its change set is merged. */
   async onPullRequestMerged(repo: string, number: number, by?: string) {
-    const wi = this.list().find((w) => w.pr?.repo === repo && w.pr.number === number);
+    const wi = this.byPullRequest(repo, number);
     if (!wi) return undefined;
-    return this.complete(wi.id, { by: "merge", ref: `${repo}#${number}${by ? ` by ${by}` : ""}` });
+    const ref = `${repo}#${number}${by ? ` by ${by}` : ""}`;
+    upsertPr(wi, { ...prFor(wi, repo)!, mergedAt: this.k.clock.now().toISOString() });
+    const open = (wi.prs ?? []).filter((p) => !p.mergedAt);
+    if (open.length) {
+      this.say(wi, "kiln", "system", `Merged ${ref}; waiting for ${open.map((p) => `${p.repo}#${p.number}`).join(", ")}.`);
+      this.save(wi);
+      await this.updatePrBodies(wi);
+      return wi;
+    }
+    this.save(wi);
+    return this.complete(wi.id, { by: "merge", ref: (wi.prs ?? []).length > 1 ? (wi.prs ?? []).map((p) => `${p.repo}#${p.number}`).join(", ") : ref });
+  }
+
+  /** A pull request of a change set was closed without merging: the work item is flagged for a person. */
+  async onPullRequestClosed(repo: string, number: number) {
+    const wi = this.byPullRequest(repo, number);
+    if (!wi || wi.state === "complete" || (wi.prs ?? []).length < 2) return wi;
+    upsertPr(wi, { ...prFor(wi, repo)!, closedAt: this.k.clock.now().toISOString() });
+    wi.blockedReason = `${repo}#${number} was closed without merging; the change set cannot ship as a whole`;
+    this.say(wi, "kiln", "system", `${repo}#${number} was closed without merging. Reopen it, or tell me how to continue.`);
+    this.save(wi);
+    await this.k.notify(wi, `${repo}#${number} was closed; "${wi.title}" needs a person.`);
+    return wi;
   }
 
   /** What a spec retry can run on: the spec agent, its harness and configured model, the factory's routers and the model that wrote the spec. */
@@ -1465,7 +1633,7 @@ export class Workflow {
 
   /** New review comments on a handed-off PR send the work back to implementation. */
   async onReviewSubmitted(repo: string, number: number, text: string, by: string, body = text) {
-    const wi = this.list().find((w) => w.pr?.repo === repo && w.pr.number === number);
+    const wi = this.byPullRequest(repo, number);
     if (!wi || !isActive(wi.state)) return;
     const key = `${by}:${body.trim()}`;
     if (wi.handledReviews?.includes(key)) return;
@@ -1495,6 +1663,24 @@ export class Workflow {
 /** Gates a spec retry applies to: a spec review, or the question a failed spec run left. */
 export function isSpecGate(g: Pick<Gate, "kind" | "name">): boolean {
   return g.kind === "spec" || g.name === "spec-failed";
+}
+
+/** The question name for one repository in the `repositories` decision. */
+function repoQuestion(key: string) {
+  return `changes_${key.replace(/[^A-Za-z0-9]+/g, "_").toLowerCase()}`;
+}
+
+/** Which of the factory's repositories a change needs: one yes/no probability per repository (ADR-020). */
+function repositoriesDecision(keys: string[]): Decision {
+  return {
+    description: "Whether the change this work item asks for needs a change in each repository",
+    provider: "llm",
+    state: ["title", "body", "repositories"],
+    questions: Object.fromEntries(keys.map((k) => [repoQuestion(k), { type: "probability" as const }])),
+    policy: {},
+    on_error: "llm",
+    timeout_ms: 15_000,
+  };
 }
 
 /** Which of the factory's repositories a work item belongs to; the options are the repositories themselves. */

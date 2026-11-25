@@ -1343,6 +1343,89 @@ describe("multi-repository factories", () => {
   });
 });
 
+describe("change sets (ADR-020)", () => {
+  const threeRepos = (changeSets = true) => {
+    const tree = sampleTree();
+    tree["factory.yaml"] = tree["factory.yaml"]!.replace(
+      "  - { owner: acme, name: web }\n",
+      "  - { owner: acme, name: web, description: Customer site }\n  - { owner: acme, name: api, description: API for all frontends }\n  - { owner: acme, name: admin, description: Super admin }\n",
+    ) + (changeSets ? "change_sets: true\n" : "");
+    return tree;
+  };
+  const setup = (rule: FakeRule, changeSets = true) => {
+    const forge = new FakeForge();
+    forge.createRepo({ owner: "acme", name: "api" }, { "README.md": "# api\n" });
+    forge.createRepo({ owner: "acme", name: "admin" }, { "README.md": "# admin\n" });
+    const decide = new FakeProvider([rule, heuristicRule]);
+    return { ...createTestKiln({ tree: threeRepos(changeSets), forge, decide: { primary: decide }, preview: false }), decide };
+  };
+  const apiAndWeb: FakeRule = (r) => (r.decision === "repositories" ? { changes_acme_web: 0.9, changes_acme_api: 0.95, changes_acme_admin: 0.1 } : undefined);
+
+  it("opens one linked pull request per changed repository and completes when every one is merged", async () => {
+    const { kiln, forge } = setup(apiAndWeb);
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Featured products", body: "Sellers mark a product featured; customers see a badge.", source: { provider: "api" }, requester: "po@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    const done = await waitFor(kiln, wi.id, ["handed_off"]);
+    expect(done.repos).toEqual([
+      { repo: "acme/web", role: "changed" },
+      { repo: "acme/api", role: "changed" },
+      { repo: "acme/admin", role: "context" },
+    ]);
+    expect(done.prs!.map((p) => p.repo)).toEqual(["acme/web", "acme/api"]);
+    expect(done.pr).toEqual(done.prs![0]);
+    const build = kiln.runs.list({ workItemId: wi.id }).find((r) => r.agent === "implement")!;
+    expect(build.startState.repos.map((r) => r.name)).toEqual(["web", "api", "admin"]);
+    expect(build.startState.prompt).toContain("## Change set");
+    expect(build.startState.prompt).toContain("- admin/ (acme/admin): context");
+    for (const p of done.prs!) {
+      const [owner, name] = p.repo.split("/");
+      const body = (await forge.getPullRequest({ owner: owner!, name: name! }, p.number))!.body;
+      expect(body).toContain("## Change set");
+      expect(body).toContain(`${p.repo}#${p.number} (this pull request)`);
+      const sibling = done.prs!.find((x) => x.repo !== p.repo)!;
+      expect(body).toContain(`[${sibling.repo}#${sibling.number}](${sibling.url})`);
+    }
+
+    await kiln.workflow.onPullRequestMerged("acme/api", done.prs![1]!.number, "lead");
+    expect(kiln.workflow.get(wi.id)!.state).toBe("handed_off");
+    await kiln.workflow.onPullRequestMerged("acme/web", done.prs![0]!.number, "lead");
+    const closed = kiln.workflow.get(wi.id)!;
+    expect(closed.state).toBe("complete");
+    expect(closed.prs!.every((p) => p.mergedAt)).toBe(true);
+  });
+
+  it("flags the work item when a pull request of the set is closed without merging", async () => {
+    const { kiln } = setup(apiAndWeb);
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Featured products", body: "", source: { provider: "api" }, requester: "po@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    const done = await waitFor(kiln, wi.id, ["handed_off"]);
+    await kiln.workflow.onPullRequestClosed("acme/api", done.prs![1]!.number);
+    const flagged = kiln.workflow.get(wi.id)!;
+    expect(flagged.blockedReason).toMatch(/acme\/api#\d+ was closed/);
+    expect(flagged.state).not.toBe("complete");
+  });
+
+  it("asks which repositories when the decision is unclear", async () => {
+    const unsure: FakeRule = (r) => (r.decision === "repositories" ? { changes_acme_web: 0.5, changes_acme_api: 0.9, changes_acme_admin: 0.1 } : undefined);
+    const { kiln } = setup(unsure);
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Featured products", body: "", source: { provider: "api" }, requester: "po@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    await waitFor(kiln, wi.id, ["handed_off"]);
+    const gate = kiln.gates.list({ workItemId: wi.id }).find((g) => g.name === "repositories")!;
+    expect(gate.questions![0]).toMatchObject({ type: "multi_select", options: ["acme/web", "acme/api", "acme/admin"] });
+  });
+
+  it("without change_sets a multi-repository factory still picks one repository", async () => {
+    const pickApi: FakeRule = (r) => (r.decision === "repository" ? { repository: { "acme/web": 0.1, "acme/api": 0.9, "acme/admin": 0.1 } } : undefined);
+    const { kiln, decide } = setup(pickApi, false);
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Fix rounding", body: "", source: { provider: "api" }, requester: "a@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    const done = await waitFor(kiln, wi.id, ["handed_off"]);
+    expect(done.prs!.map((p) => p.repo)).toEqual(["acme/api"]);
+    expect(decide.calls.some((c) => c.decision === "repositories")).toBe(false);
+  });
+});
+
 describe("pipeline triage fast path", () => {
   const confident: FakeRule = (r) => (r.decision === "triage" ? { kind: { bug: 0.95, feature: 0.05 }, size: { s: 0.9, m: 0.1 } } : undefined);
   const withPipeline = (fastPath?: boolean) =>

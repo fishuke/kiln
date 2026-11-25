@@ -1,6 +1,7 @@
 import { webhookIdOf, type ResolvedAutomation, type ResolvedFactory } from "@kiln/definitions";
 import type { IncomingEvent } from "@kiln/integrations";
 import { ALIAS_KEYS, parseCron, type IntegrationSettings, type Trigger } from "@kiln/schema";
+import { hasPullRequest } from "./change-set";
 import { KilnError } from "./errors";
 import type { Kiln } from "./kiln";
 import { evaluateTrigger, STAGE_OF_STATE, type AliasMap, type CheckOutcome } from "./matchers";
@@ -377,6 +378,10 @@ export class AutomationService {
       const wi = await this.k.workflow.onPullRequestMerged(d.repo, d.number, d.mergedBy as string | undefined);
       return wi ? [wi.id] : [];
     }
+    if (event.provider === "github" && event.event === "pull_request_closed" && d.repo && d.number) {
+      const wi = await this.k.workflow.onPullRequestClosed(d.repo, d.number);
+      if (wi) return [wi.id];
+    }
     if (
       ["gitlab", "azure_devops", "bitbucket"].includes(event.provider) &&
       (event.event === "pull_request_merged" || (event.event === "merge_request" && d.action === "merge")) &&
@@ -387,7 +392,7 @@ export class AutomationService {
       return wi ? [wi.id] : [];
     }
     if (event.provider === "github" && event.event === "pull_request_review_submitted" && d.repo && d.number && d.state !== "approved") {
-      const wi = items.find((w) => w.pr !== undefined && w.pr.repo === d.repo && w.pr.number === d.number);
+      const wi = items.find((w) => hasPullRequest(w, String(d.repo), Number(d.number)));
       if (wi) {
         await this.k.workflow.onReviewSubmitted(d.repo, d.number, String(d.text ?? "changes requested"), String(d.author ?? "reviewer"));
         return [wi.id];
@@ -420,7 +425,7 @@ export class AutomationService {
         (d.issueId && (w.source.issueId === d.issueId || w.trackerKey === d.issueId)) ||
         (d.repo &&
           d.number &&
-          ((w.source.repo === d.repo && w.source.number === d.number) || (w.pr !== undefined && w.pr.repo === d.repo && w.pr.number === d.number))),
+          ((w.source.repo === d.repo && w.source.number === d.number) || hasPullRequest(w, String(d.repo), Number(d.number)))),
     );
     if (!match) return [];
     if (["complete", "cancelled", "failed"].includes(match.state)) return [];

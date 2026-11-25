@@ -236,6 +236,8 @@ export const Factory = z
     description: z.string().optional(),
     project: z.string().optional(),
     repositories: z.array(Repository).min(1),
+    /** A work item may change several repositories at once: one linked pull request per repository, reviewed and merged as a set (ADR-020). A stack turns this on too. */
+    change_sets: z.boolean().optional(),
     /** Integrations this factory opts into (connected once per workspace). Bare names are the legacy form. */
     integrations: z.array(FactoryIntegration).default([]).transform(normalizeIntegrations),
     github: z

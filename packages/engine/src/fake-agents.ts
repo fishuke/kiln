@@ -76,7 +76,14 @@ export async function fakeAgentScript(ctx: FakeScriptContext): Promise<{ summary
       await opts.sandbox.writeFile(p(file), [...header, `export function ${name.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase()).replace(/^[0-9]/, "f$&")}() {`, `  return ${JSON.stringify(title)};`, "}", ""].join("\n"));
       await opts.sandbox.writeFile(p(`src/kiln/${name}.test.ts`), `import { test } from "node:test";\ntest(${JSON.stringify(title)}, () => {});\n`);
       if (/Review findings to address/.test(prompt)) await opts.sandbox.writeFile(p(`src/kiln/${name}.review.md`), "Addressed review findings.\n");
-      const r = await sh(`git add -A && (git diff --cached --quiet || git commit -q -m "feat: ${name}")`);
+      // A change set: the same change in every repository marked "change" (each its own git checkout).
+      const folders = [...prompt.matchAll(/^- (\S+)\/ \([^)]+\): change/gm)].map((m) => m[1]!);
+      for (const dir of folders) {
+        await opts.sandbox.writeFile(`${dir}/${file}`, `export const ${name.replace(/[^a-z0-9]/gi, "_")} = ${JSON.stringify(title)};\n`);
+        const c = await opts.sandbox.exec(`git add -A && (git diff --cached --quiet || git commit -q -m "feat: ${name}")`, { cwd: dir });
+        if (c.code !== 0) throw new Error(`commit failed in ${dir}: ${c.stderr}`);
+      }
+      const r = folders.length ? { code: 0, stderr: "" } : await sh(`git add -A && (git diff --cached --quiet || git commit -q -m "feat: ${name}")`);
       if (r.code !== 0) throw new Error(`commit failed: ${r.stderr}`);
       const remember = /remember:\s*(.+)/i.exec(prompt)?.[1];
       const pr = {

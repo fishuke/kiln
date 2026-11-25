@@ -554,11 +554,16 @@ export class RunService {
     const required = [...agent.requiredRepos.map((r) => `${r.owner}/${r.name}`), ...(input.overrides?.requiredRepos ?? [])].map((r) => r.toLowerCase());
     // A work item that triage gave a repository works in that one (plus any required ones); it comes first, so it is the working directory.
     const picked = input.workItem?.repo?.toLowerCase();
+    // A change set (ADR-020) clones every repository in it, changed ones first; the workspace root is the working directory.
+    const set = (input.workItem?.repos ?? []).map((r) => r.repo.toLowerCase());
+    const inSet = (r: RepoRef) => set.indexOf(repoKey(r).toLowerCase());
     const factoryRepos =
       input.repos ??
-      resolved.repositories
-        .filter((r) => required.includes(repoKey(r).toLowerCase()) || (picked ? repoKey(r).toLowerCase() === picked : !r.deferred))
-        .sort((a, b) => Number(repoKey(b).toLowerCase() === picked) - Number(repoKey(a).toLowerCase() === picked));
+      (set.length > 1
+        ? resolved.repositories.filter((r) => inSet(r) >= 0 || required.includes(repoKey(r).toLowerCase())).sort((a, b) => (inSet(a) < 0 ? 1e9 : inSet(a)) - (inSet(b) < 0 ? 1e9 : inSet(b)))
+        : resolved.repositories
+            .filter((r) => required.includes(repoKey(r).toLowerCase()) || (picked ? repoKey(r).toLowerCase() === picked : !r.deferred))
+            .sort((a, b) => Number(repoKey(b).toLowerCase() === picked) - Number(repoKey(a).toLowerCase() === picked)));
     const repos = [
       ...factoryRepos,
       ...(input.repos ? [] : (environment?.repos ?? []).filter((e) => !factoryRepos.some((r) => r.owner === e.owner && r.name === e.name))),
@@ -865,7 +870,7 @@ export class RunService {
     }
     this.sandboxes.set(run.id, sandbox);
     this.specs.set(run.id, runner);
-    const cwd = provided ? provided.cwd : repos[0]?.name;
+    const cwd = provided ? provided.cwd : (input.workItem?.repos?.length ?? 0) > 1 && repos.length > 1 && !input.repos ? "." : repos[0]?.name;
     run.startState.repos = [];
     if (provided) {
       const head = await sandbox.exec("git rev-parse HEAD", { cwd: provided.cwd, trusted: true });

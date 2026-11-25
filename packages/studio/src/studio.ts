@@ -412,10 +412,16 @@ export class Studio {
     });
   }
 
-  /** Deletes a failed App: destroys its sandbox (if this process holds one) and removes its chats, turns, versions and record. */
+  /**
+   * Deletes an App that isn't at work: destroys its sandbox (if this process holds one) and removes its
+   * chats, turns, versions and record. Its repository, if it has one, stays: that is the person's code.
+   */
   async deleteApp(appId: string): Promise<void> {
     await this.locked(appId, async () => {
-      this.failedApp(appId, "deleted");
+      const p = this.app(appId);
+      if (p.status === "creating") throw new StudioError("busy", "the App is still being set up; delete it once that is done");
+      const busy = this.getApp(appId)!.chats.some((c) => this.running.has(c.id) || this.settling.has(c.id) || this.resolving.has(c.id));
+      if (busy) throw new StudioError("busy", "the agent is working in this App; stop it first");
       await this.discardWorkspace(appId);
       const { chats, versions } = this.getApp(appId)!;
       for (const c of chats) {

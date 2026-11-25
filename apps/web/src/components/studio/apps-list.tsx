@@ -1,16 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { GitBranch, LayoutTemplate } from "lucide-react";
+import { Ellipsis, GitBranch, LayoutTemplate, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { GitHubIcon } from "@/components/kiln/brand-icons";
 import { Empty, Page, PageHeader } from "@/components/kiln/ui";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { relativeTime } from "@/lib/run-tree";
 import { shipModeCopy } from "@/lib/studio/model";
 import type { StatusReport, StudioApp } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
+import { DeleteAppDialog } from "./delete-app";
 import { NewAppDialog } from "./new-app";
 import { AppAvatar } from "./top-bar";
 import { useStudioClient } from "./use-client";
@@ -27,6 +30,7 @@ export function AppsList({ startNew }: { startNew: boolean }) {
   const [apps, setApps] = useState<StudioApp[]>();
   const [status, setStatus] = useState<StatusReport>();
   const [error, setError] = useState<string>();
+  const [deleting, setDeleting] = useState<StudioApp>();
 
   useEffect(() => {
     if (!client) return;
@@ -70,6 +74,9 @@ export function AppsList({ startNew }: { startNew: boolean }) {
                   <TableHead className="text-right">Needs you</TableHead>
                   <TableHead>Pull request</TableHead>
                   <TableHead className="text-right">Updated</TableHead>
+                  <TableHead className="w-10">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -120,6 +127,19 @@ export function AppsList({ startNew }: { startNew: boolean }) {
                       <TableCell className="text-right text-muted-foreground" suppressHydrationWarning>
                         {a.status === "creating" ? <span className="shimmer">Setting up</span> : relativeTime(a.updatedAt)}
                       </TableCell>
+                      <TableCell className="w-10 pr-2 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" aria-label={`More for ${a.name}`} />}>
+                            <Ellipsis />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem variant="destructive" disabled={a.status === "creating"} onClick={() => setDeleting(a)}>
+                              <Trash2 />
+                              Delete…
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -128,6 +148,15 @@ export function AppsList({ startNew }: { startNew: boolean }) {
           </div>
         )}
       </Page>
+      {client && deleting && (
+        <DeleteAppDialog
+          client={client}
+          app={deleting}
+          open
+          onOpenChange={(o) => !o && setDeleting(undefined)}
+          onDeleted={() => setApps((list) => list?.filter((x) => x.id !== deleting.id))}
+        />
+      )}
     </>
   );
 }

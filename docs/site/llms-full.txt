@@ -2232,7 +2232,7 @@ Kiln's REST API lives under `/api/v1`. Send `Authorization: Bearer <token>` (a s
 | POST | `/api/v1/studio/apps/{id}/ship` | `send` | Open or update the App's pull request; as its author, mark it ready for review; or cancel it |
 | POST | `/api/v1/studio/apps/{id}/pause` | `send` | Snapshot an App's workspace and free its sandbox; the next use resumes it |
 | POST | `/api/v1/studio/apps/{id}/retry` | `send` | Set a failed App up again on a fresh sandbox; it is creating until setup succeeds or fails |
-| DELETE | `/api/v1/studio/apps/{id}` | `send` | Delete a failed App: its sandbox, chats, turns and versions |
+| DELETE | `/api/v1/studio/apps/{id}` | `send` | Delete an App the agent isn't working in: its sandbox, chats, turns, versions and Context (its repository stays) |
 | POST | `/api/v1/studio/apps/{id}/chats` | `send` | Start a chat (its own worktree and preview), optionally with a first message |
 | GET | `/api/v1/studio/chats/{id}` | `read` | A chat with its turns (oldest first) |
 | DELETE | `/api/v1/studio/chats/{id}` | `send` | Delete a chat that isn't working: its worktree, branch, preview and turns |

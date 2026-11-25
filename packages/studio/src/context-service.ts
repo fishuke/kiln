@@ -294,6 +294,21 @@ export class ContextService {
     }
   }
 
+  /** Forgets a deleted App's Context: its live document and its rows (the saved document blob stays unreadable by id). */
+  async forget(appId: string): Promise<void> {
+    const live = this.live.get(appId);
+    this.live.delete(appId);
+    if (live) {
+      const l = await live.catch(() => undefined);
+      l?.cancelSave?.();
+      l?.cancelSettle?.();
+      l?.awareness.destroy();
+    }
+    this.opts.store.delete(C.context, appId);
+    for (const c of [C.members, C.proposals, C.threads, C.signoffs])
+      for (const r of this.opts.store.list<{ id: string; appId: string }>(c, (x) => x.appId === appId)) this.opts.store.delete(c, r.id);
+  }
+
   async shutdown(): Promise<void> {
     this.offBus();
     await this.flush();

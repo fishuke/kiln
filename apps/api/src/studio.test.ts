@@ -287,8 +287,10 @@ describe("Studio API", () => {
 
     const ready = await client.studioCreateApp({ name: "Fine", source: { kind: "template", template: "test" } });
     await studioFor(kiln)!.ready(ready.id);
-    await expect(client.studioDeleteApp(ready.id)).rejects.toMatchObject({ status: 400, message: "only a failed app can be deleted; this one is ready" });
     await expect(client.studioRetryApp(ready.id)).rejects.toMatchObject({ status: 400 });
+    // A ready App the agent isn't working in can be deleted too, Context and all.
+    await client.studioDeleteApp(ready.id);
+    await expect(client.studioApp(ready.id)).rejects.toMatchObject({ status: 404 });
   });
 
   it("restarts a version's preview through the SDK", async () => {

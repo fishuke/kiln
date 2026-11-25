@@ -1061,9 +1061,16 @@ describe("a failed App", () => {
     await expect(studio.deleteApp(p.id)).rejects.toThrow(`unknown app ${p.id}`);
   });
 
-  it("can't be deleted unless it failed", async () => {
-    const { studio } = make();
+  it("deletes a ready App with its chats, but not while the agent is working in it", async () => {
+    const slow: FakeScript = async ({ nextSteer }) => void (await nextSteer(300));
+    const { studio } = make({}, slow);
     const p = await app(studio);
-    await expect(studio.deleteApp(p.id)).rejects.toThrow("only a failed app can be deleted; this one is ready");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await studio.send(chat.id, { by: "me", via: "web", text: "take your time" });
+    await expect(studio.deleteApp(p.id)).rejects.toThrow("the agent is working in this App; stop it first");
+    await studio.idle(chat.id);
+    await studio.deleteApp(p.id);
+    expect(studio.getApp(p.id)).toBeUndefined();
+    expect(studio.getChat(chat.id)).toBeUndefined();
   });
 });

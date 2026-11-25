@@ -1,9 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, Check, ChevronsUpDown, LayoutGrid, Plus, Settings2 } from "lucide-react";
+import { Bell, Check, ChevronsUpDown, LayoutGrid, Plus, Settings2, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,6 +31,7 @@ import type { StudioClient } from "@/lib/studio/client";
 import { cowboyConfirmation, needsYouCount, SHIP_MODES, shipModeCopy } from "@/lib/studio/model";
 import type { AppSource, ShipMode, StatusReport, StudioApp } from "@/lib/studio/types";
 import { cn } from "@/lib/utils";
+import { DeleteAppDialog } from "./delete-app";
 
 /** A square initial for an app, like a factory's avatar. */
 export function AppAvatar({ name, className }: { name: string; className?: string }) {
@@ -39,35 +50,45 @@ export function AppAvatar({ name, className }: { name: string; className?: strin
 /** The app switcher at the top of the chat rail. */
 export function AppSwitcher({ client, app, href }: { client: StudioClient; app: StudioApp; href: (id: string) => string }) {
   const [apps, setApps] = useState<StudioApp[]>([]);
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
   return (
-    <DropdownMenu onOpenChange={(o) => o && void client.apps().then(setApps, () => undefined)}>
-      <DropdownMenuTrigger render={<Button variant="ghost" className="h-8 min-w-0 gap-2 px-1.5 font-semibold" />}>
-        <AppAvatar name={app.name} />
-        <span className="truncate">{app.name}</span>
-        <ChevronsUpDown className="size-3.5 opacity-50" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Apps</DropdownMenuLabel>
-          {(apps.length ? apps : [app]).map((a) => (
-            <DropdownMenuItem key={a.id} render={<Link href={href(a.id)} />}>
-              <AppAvatar name={a.name} />
-              <span className="truncate">{a.name}</span>
-              {a.id === app.id && <Check className="ml-auto size-4" />}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem render={<Link href="/studio" />}>
-          <LayoutGrid />
-          All apps
-        </DropdownMenuItem>
-        <DropdownMenuItem render={<Link href="/studio?new=1" />}>
-          <Plus />
-          New app
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu onOpenChange={(o) => o && void client.apps().then(setApps, () => undefined)}>
+        <DropdownMenuTrigger render={<Button variant="ghost" className="h-8 min-w-0 gap-2 px-1.5 font-semibold" />}>
+          <AppAvatar name={app.name} />
+          <span className="truncate">{app.name}</span>
+          <ChevronsUpDown className="size-3.5 opacity-50" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-64">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Apps</DropdownMenuLabel>
+            {(apps.length ? apps : [app]).map((a) => (
+              <DropdownMenuItem key={a.id} render={<Link href={href(a.id)} />}>
+                <AppAvatar name={a.name} />
+                <span className="truncate">{a.name}</span>
+                {a.id === app.id && <Check className="ml-auto size-4" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem render={<Link href="/studio" />}>
+            <LayoutGrid />
+            All apps
+          </DropdownMenuItem>
+          <DropdownMenuItem render={<Link href="/studio?new=1" />}>
+            <Plus />
+            New app
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onClick={() => setDeleting(true)}>
+            <Trash2 />
+            Delete {app.name}…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DeleteAppDialog client={client} app={app} open={deleting} onOpenChange={setDeleting} onDeleted={() => router.push("/studio")} />
+    </>
   );
 }
 
@@ -118,7 +139,19 @@ export function NeedsYouMenu({ status, href }: { status?: StatusReport; href: (a
 const RANK: Record<ShipMode, number> = { safe: 0, review: 1, cowboy: 2 };
 
 /** Ship mode: Safe, Review or Cowboy, one line each. Modes above the policy's cap are disabled; Cowboy on an imported repository asks first. */
-export function ShipModePicker({ value, onChange, source, max, disabled }: { value: ShipMode; onChange: (m: ShipMode) => void; source?: AppSource; max?: ShipMode; disabled?: boolean }) {
+export function ShipModePicker({
+  value,
+  onChange,
+  source,
+  max,
+  disabled,
+}: {
+  value: ShipMode;
+  onChange: (m: ShipMode) => void;
+  source?: AppSource;
+  max?: ShipMode;
+  disabled?: boolean;
+}) {
   const [confirming, setConfirming] = useState(false);
   const confirmation = cowboyConfirmation(source);
   return (
@@ -179,7 +212,9 @@ export function ShipModePicker({ value, onChange, source, max, disabled }: { val
 export function AppSettingsLink({ appId }: { appId: string }) {
   return (
     <Tooltip>
-      <TooltipTrigger render={<Button size="icon-sm" variant="ghost" aria-label="App settings" render={<Link href={`/studio/${appId}/settings`} />} nativeButton={false} />}>
+      <TooltipTrigger
+        render={<Button size="icon-sm" variant="ghost" aria-label="App settings" render={<Link href={`/studio/${appId}/settings`} />} nativeButton={false} />}
+      >
         <Settings2 />
       </TooltipTrigger>
       <TooltipContent>App settings</TooltipContent>

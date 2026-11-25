@@ -212,7 +212,9 @@ export class FakeStudioClient implements StudioClient {
   }
 
   async deleteApp(id: string): Promise<void> {
-    this.failed(id, "deleted");
+    const p = this.must(this.appsById.get(id), "App");
+    if (p.status === "creating") throw new StudioClientError("the App is still being set up; delete it once that is done", 409);
+    if ([...this.chats.values()].some((c) => c.appId === id && c.status === "working")) throw new StudioClientError("the agent is working in this App; stop it first", 409);
     for (const c of [...this.chats.values()]) if (c.appId === id) this.chats.delete(c.id);
     for (const v of [...this.versions.values()]) if (v.appId === id) this.versions.delete(v.id);
     this.appsById.delete(id);

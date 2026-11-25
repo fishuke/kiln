@@ -115,7 +115,7 @@ export const routes: Route[] = [
   {
     method: "delete",
     path: "/api/v1/studio/apps/{id}",
-    summary: "Delete a failed App: its sandbox, chats, turns and versions",
+    summary: "Delete an App the agent isn't working in: its sandbox, chats, turns, versions and Context (its repository stays)",
     scope: "send",
     tag: S,
   },
@@ -435,6 +435,7 @@ export function register(ctx: RouteContext) {
     wrap(async (c) => {
       ownApp(c, id(c), "send");
       await studio().deleteApp(id(c));
+      await contextFor(kiln, studio()).forget(id(c));
       return c.body(null, 204);
     }),
   );

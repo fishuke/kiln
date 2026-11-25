@@ -7,6 +7,7 @@ import {
   FunctionalRole,
   type AgentStatus,
   type ContextChange,
+  type ContextTurn,
   type ContextState,
   type Fragment,
   type FragmentType,
@@ -326,4 +327,27 @@ export const DEFAULT_SPLIT = 46;
 export function clampSplit(percent: number): number {
   if (!Number.isFinite(percent)) return DEFAULT_SPLIT;
   return Math.min(72, Math.max(28, Math.round(percent)));
+}
+
+/**
+ * How the Context page is laid out: `document` puts the Context on the left with the composer under
+ * it and the prototype on the right; `chat` puts the conversation on the left and the Context and
+ * the prototype as tabs on the right. Remembered per person.
+ */
+export type ContextLayout = "document" | "chat";
+export const LAYOUT_KEY = "kiln:studio:context-layout";
+export function parseContextLayout(v: string | null | undefined): ContextLayout {
+  return v === "chat" ? "chat" : "document";
+}
+
+/** One line of the chat column: a person's prompt or the agent's reply. */
+export type ChatMessage = { id: string; from: string; text: string; at: string; live?: boolean; failed?: boolean };
+
+/** The App's one thread as a chat, oldest first: each turn's prompt, then the agent's reply once it has one. */
+export function chatMessages(turns: ContextTurn[]): ChatMessage[] {
+  return turns.flatMap((t) => {
+    const out: ChatMessage[] = [{ id: `${t.id}:p`, from: t.by, text: t.prompt, at: t.startedAt, live: t.status === "running" }];
+    if (t.reply?.trim()) out.push({ id: `${t.id}:r`, from: "agent", text: t.reply, at: t.finishedAt ?? t.startedAt, failed: t.status === "failed" });
+    return out;
+  });
 }

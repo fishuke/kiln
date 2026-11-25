@@ -74,6 +74,7 @@ Keep: the preview pane and its failure states (`preview-pane.tsx`, `setup-panel.
 ```
 
 - The split is draggable (default 46 / 54), remembered per person, with a keyboard toggle to give either pane the full width. Below `lg` the panes are tabs, as today.
+- **Chat layout** (the **Chat** button in the top bar, remembered per person): the alternative for people who prefer to talk first. The conversation (each prompt and the agent's reply), the activity line and the composer sit on the left; the Context and the prototype are tabs on the right (`⌥1`, `⌥2`). The Context is the same live, shared document; only where it sits changes. Below `lg` the tabs are Chat, Context and Prototype.
 - The document is the only scrolling surface on the left. The composer is docked under it and never covers text.
 - Tools sit at the edges and in the block's own gutter (Fitts): the block handle on the left, comment and status on the right.
 

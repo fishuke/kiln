@@ -8,6 +8,8 @@ import {
   canEdit,
   catchUp,
   clampSplit,
+  parseContextLayout,
+  chatMessages,
   decide,
   delegatedAnswer,
   fragmentsFrom,
@@ -329,5 +331,42 @@ describe("activity line and split", () => {
     expect(clampSplit(5)).toBe(28);
     expect(clampSplit(95)).toBe(72);
     expect(clampSplit(Number.NaN)).toBe(46);
+  });
+});
+
+describe("parseContextLayout", () => {
+  it("reads a stored layout and falls back to the Context on the left", () => {
+    expect(parseContextLayout("chat")).toBe("chat");
+    expect(parseContextLayout("document")).toBe("document");
+    expect(parseContextLayout(null)).toBe("document");
+    expect(parseContextLayout("junk")).toBe("document");
+  });
+});
+
+describe("chatMessages", () => {
+  const t = (o: Partial<import("./types").ContextTurn>): import("./types").ContextTurn => ({
+    id: "t1",
+    appId: "a",
+    by: "ada",
+    kind: "prompt",
+    prompt: "Make it blue",
+    status: "succeeded",
+    activity: [],
+    costUsd: 0,
+    startedAt: "2026-11-25T10:00:00Z",
+    ...o,
+  });
+  it("turns each turn into the person's message and the agent's reply, oldest first", () => {
+    const m = chatMessages([t({ id: "t1", reply: "Done." }), t({ id: "t2", prompt: "And bigger", status: "running" })]);
+    expect(m.map((x) => [x.from, x.text])).toEqual([
+      ["ada", "Make it blue"],
+      ["agent", "Done."],
+      ["ada", "And bigger"],
+    ]);
+    expect(m[2]?.live).toBe(true);
+  });
+  it("marks a failed reply and leaves out empty replies", () => {
+    const m = chatMessages([t({ status: "failed", reply: "No sandbox" }), t({ id: "t2", reply: "" })]);
+    expect(m.filter((x) => x.from === "agent")).toEqual([expect.objectContaining({ text: "No sandbox", failed: true })]);
   });
 });

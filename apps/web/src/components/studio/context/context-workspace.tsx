@@ -1,6 +1,6 @@
 "use client";
 
-import { AppWindow, Check, ChevronsUpDown, ClipboardCheck, Columns2, Eye, FileText, LoaderCircle, MessagesSquare, MousePointerClick, PanelLeft, PanelRight, ScrollText } from "lucide-react";
+import { AppWindow, Check, ChevronsUpDown, ClipboardCheck, Columns2, MessageSquareText, Eye, FileText, LoaderCircle, MessagesSquare, MousePointerClick, PanelLeft, PanelRight, ScrollText } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { StudioClient, StudioContextClient } from "@/lib/studio/client";
 import type { DocBlock } from "@/lib/studio/context-doc";
-import { canDecide, canEdit as mayEdit, catchUp, clampSplit, DEFAULT_SPLIT, fragmentsFrom, freshness, needsYou, questionsFrom, sinceLastVisit, VIEWER_NOTE } from "@/lib/studio/context-model";
+import { canDecide, canEdit as mayEdit, catchUp, clampSplit, DEFAULT_SPLIT, LAYOUT_KEY, parseContextLayout, type ContextLayout, fragmentsFrom, freshness, needsYou, questionsFrom, sinceLastVisit, VIEWER_NOTE } from "@/lib/studio/context-model";
 import { altTypes } from "@/lib/studio/shortcuts";
 import type { AgentStatus, FunctionalRole, Member, Proposal } from "@/lib/studio/types";
 import { toast } from "@/lib/toast";
@@ -23,6 +23,7 @@ import { AppSettingsLink, AppSwitcher } from "../top-bar";
 import { useStudioApp } from "../use-studio";
 import { focusNextQuestion } from "./blocks/question-block";
 import { Brief } from "./brief";
+import { ChatColumn } from "./chat-column";
 import { DockStatus } from "./dock";
 import { ContextDocument, type DocumentHandle } from "./document";
 import { ROLE_LABEL } from "./fragment-meta";
@@ -37,6 +38,8 @@ import { usePreviewBridge } from "./use-preview-bridge";
 const EXAMPLES = ["A recipe box I can search by ingredient", "Daily habits I can tick off, with a streak for each", "A shared packing list for a weekend trip"];
 const SPLIT_KEY = "kiln:studio:context-split";
 type Full = "context" | "prototype" | undefined;
+/** Below `lg` the panes are tabs; the chat layout adds a Chat tab. */
+type Pane = "chat" | "context" | "prototype";
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -95,7 +98,8 @@ function Waiting({ building, busy, progress, openQuestions, hasContext, canEdit,
 
 /**
  * The Context page (docs/specs/studio-context.md): the Context on the left, the prototype on the
- * right, no chat rail and no mode. The conversation happens in the document: the agent asks with
+ * right, no chat rail and no mode. The chat layout is the alternative: the conversation on the left,
+ * the Context and the prototype as tabs on the right; the Context is the same live document. The conversation happens in the document: the agent asks with
  * question blocks, answers become decisions, and the prototype follows the Context.
  */
 export function ContextWorkspace({ client, context: ctx, appId }: { client: StudioClient; context: StudioContextClient; appId: string }) {
@@ -109,7 +113,11 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
   const [ready, setReady] = useState(false);
   const [away, setAway] = useState(false);
   const [route, setRoute] = useState("/");
-  const [pane, setPane] = useState<"context" | "prototype">("context");
+  const [pane, setPane] = useState<Pane>("context");
+  const [layout, setLayoutState] = useState<ContextLayout>("document");
+  const chatLayout = layout === "chat";
+  /** The chat layout's right pane. */
+  const [tab, setTab] = useState<"context" | "prototype">("context");
   const [panel, setPanel] = useState<"activity" | "threads" | "review">();
   const [threadFocus, setThreadFocus] = useState<string>();
   const activityOpen = panel === "activity";
@@ -201,6 +209,27 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
     },
     [splitKey],
   );
+  const layoutKey = me ? `${LAYOUT_KEY}:${me.user}` : undefined;
+  useEffect(() => {
+    if (!layoutKey) return;
+    try {
+      const l = parseContextLayout(localStorage.getItem(layoutKey));
+      setLayoutState(l);
+      setPane(l === "chat" ? "chat" : "context");
+    } catch {
+      /* storage blocked */
+    }
+  }, [layoutKey]);
+  const setLayout = (l: ContextLayout) => {
+    setLayoutState(l);
+    setPane(l === "chat" ? "chat" : "context");
+    setFull(undefined);
+    try {
+      if (layoutKey) localStorage.setItem(layoutKey, l);
+    } catch {
+      /* storage blocked */
+    }
+  };
   const startDrag = (e: React.PointerEvent) => {
     const el = panes.current;
     if (!el) return;
@@ -221,12 +250,21 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
     window.addEventListener("pointerup", up, { once: true });
   };
 
-  // Keyboard: ⌥1 gives the Context the full width, ⌥2 the prototype, ⌥A opens Activity.
+  const chatRef = useRef(chatLayout);
+  useEffect(() => {
+    chatRef.current = chatLayout;
+  }, [chatLayout]);
+  // Keyboard: ⌥1 gives the Context the full width, ⌥2 the prototype (in the chat layout: picks the tab), ⌥A opens Activity.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey || e.metaKey || e.ctrlKey || altTypes(e)) return;
-      if (e.code === "Digit1") setFull((f) => (f === "context" ? undefined : "context"));
-      else if (e.code === "Digit2") setFull((f) => (f === "prototype" ? undefined : "prototype"));
+      if (e.code === "Digit1") {
+        if (chatRef.current) setTab("context");
+        else setFull((f) => (f === "context" ? undefined : "context"));
+      } else if (e.code === "Digit2") {
+        if (chatRef.current) setTab("prototype");
+        else setFull((f) => (f === "prototype" ? undefined : "prototype"));
+      }
       else if (e.code === "KeyA") setActivityOpen((o) => !o);
       else return;
       e.preventDefault();
@@ -303,6 +341,7 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
   const setRole = useCallback((role: FunctionalRole) => void act(() => ctx.setRole(appId, role)), [act, ctx, appId]);
   const go = useCallback((fragmentId: string) => {
     setPane("context");
+    setTab("context");
     setFull((f) => (f === "prototype" ? undefined : f));
     setBriefOpen(false);
     requestAnimationFrame(() => docRef.current?.scrollTo(fragmentId));
@@ -323,6 +362,7 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
     (r: string, fragmentId?: string) => {
       setRoute(r);
       setPane("prototype");
+      setTab("prototype");
       setFull((f) => (f === "context" ? undefined : f));
       if (fragmentId) highlightInPrototype(fragmentId, r);
     },
@@ -381,6 +421,182 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
     </div>
   ) : undefined;
 
+
+  const documentEl = (
+    <ContextDocument
+      key={`${appId}:${me.user}`}
+      ctx={ctx}
+      appId={appId}
+      me={me}
+      proposals={proposals}
+      versions={versions}
+      agent={agent}
+      nameOf={nameOf}
+      onBlocks={setBlocks}
+      onAway={setAway}
+      onShowInPrototype={showInPrototype}
+      threadCounts={threadCounts}
+      onOpenThreads={openThreads}
+      onActed={acted}
+      handle={docRef}
+      empty={chatLayout ? undefined : hero}
+      header={
+        ready && fragments.length > 0 && snap.state.version > 0 && landing ? (
+          <Brief
+            brief={brief}
+            open={briefOpen}
+            onOpenChange={setBriefOpen}
+            reason={briefOpen ? landing.reason : "current"}
+            since={since}
+            needs={needs}
+            proposalsToDecide={proposals.filter((p) => canDecide(me, p))}
+            nameOf={nameOf}
+            onGo={go}
+            onProposals={() => setProposalsOpen(true)}
+          />
+        ) : undefined
+      }
+    />
+  );
+  const dockEl = (
+    <div className="@container shrink-0 border-t bg-background/80 backdrop-blur-sm">
+      <div className="mx-auto flex w-full max-w-[816px] flex-col gap-2 pt-2 pr-3 pb-3 pl-10 @lg:pr-8 @lg:pl-16">
+        <DockStatus
+          agent={agent}
+          turn={turn}
+          openQuestions={openQuestions.length}
+          fresh={fresh}
+          canEdit={canEdit}
+          hasContext={fragments.some((f) => f.type !== "section")}
+          away={away}
+          failure={failure}
+          onRetry={() => lastTurn && void send(lastTurn.prompt)}
+          onJump={() => docRef.current?.jumpToAgent()}
+          onStop={() => void act(() => ctx.stop(appId))}
+          onQuestions={() => {
+            setPane("context");
+            setTab("context");
+            requestAnimationFrame(() => focusNextQuestion());
+          }}
+          onContinue={() => void act(() => ctx.continueQuestions(appId), "Going on with what is answered")}
+          onBuild={build}
+        />
+        {ready ? composer : <Skeleton className="h-24 rounded-xl" />}
+      </div>
+    </div>
+  );
+  const panelsEl = (
+    <AnimatePresence>
+      {panel === "activity" && <ActivityPanel key="activity" turns={snap.turns} nameOf={nameOf} onClose={() => setPanel(undefined)} />}
+      {panel === "review" && (
+        <ReviewPanel
+          key="review"
+          fragments={fragments}
+          sections={sections}
+          signoffs={signoffs}
+          me={me}
+          nameOf={nameOf}
+          onRole={setRole}
+          onSignOff={(fragmentId, state) => void act(() => ctx.signOff(appId, fragmentId, state))}
+          onGo={(fragmentId) => docRef.current?.scrollTo(fragmentId)}
+          onDiscuss={openThreads}
+          onClose={() => setPanel(undefined)}
+        />
+      )}
+      {panel === "threads" && (
+        <ThreadsPanel
+          key="threads"
+          threads={threads}
+          fragments={fragments}
+          focus={threadFocus}
+          me={me}
+          nameOf={nameOf}
+          onComment={(input) => act(() => ctx.comment(appId, input))}
+          onResolve={(threadId, resolved) => void act(() => ctx.resolveThread(appId, threadId, resolved))}
+          onRequestReview={(fragmentId, role) =>
+            void act(async () => {
+              await ctx.requestReview(appId, fragmentId, role);
+              toast.success(`Asked ${ROLE_LABEL[role]} to review it`);
+            })
+          }
+          onGo={(fragmentId) => docRef.current?.scrollTo(fragmentId)}
+          onAll={() => setThreadFocus(undefined)}
+          onClose={() => setPanel(undefined)}
+        />
+      )}
+    </AnimatePresence>
+  );
+  const separatorEl = (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the panes"
+      aria-valuenow={split}
+      aria-valuemin={28}
+      aria-valuemax={72}
+      tabIndex={0}
+      onPointerDown={startDrag}
+      onDoubleClick={() => saveSplit(DEFAULT_SPLIT)}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft") saveSplit(clampSplit(split - 2));
+        else if (e.key === "ArrowRight") saveSplit(clampSplit(split + 2));
+        else if (e.key === "Home") saveSplit(clampSplit(0));
+        else if (e.key === "End") saveSplit(clampSplit(100));
+        else if (e.key === "Enter") saveSplit(DEFAULT_SPLIT);
+        else return;
+        e.preventDefault();
+      }}
+      className={cn("ctx-separator hidden lg:block", !chatLayout && full && "lg:hidden", dragging && "ctx-separator-active")}
+    />
+  );
+  const prototypeEl = (
+    <PreviewPane
+      preview={preview}
+      error={previewError}
+      reload={0}
+      routes={routes}
+      view="preview"
+      onViewChange={() => undefined}
+      diffKey=""
+      tabs={false}
+      route={route}
+      onRouteChange={setRoute}
+      onFrame={bridge.onFrame}
+      actions={
+        bridge.ready ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={<Button size="icon-sm" variant={bridge.inspecting ? "secondary" : "ghost"} aria-label="Inspect" aria-pressed={bridge.inspecting} onClick={() => bridge.setInspect(!bridge.inspecting)} />}
+            >
+              <MousePointerClick />
+            </TooltipTrigger>
+            <TooltipContent>{bridge.inspecting ? "Click a part of the prototype to see it in the Context" : "Inspect: find a part of the prototype in the Context"}</TooltipContent>
+          </Tooltip>
+        ) : undefined
+      }
+      footer={<FreshnessBar fresh={fresh} building={agent.state === "building"} canEdit={canEdit} onUpdate={build} onGo={go} />}
+    >
+      {fresh.kind === "never" ? (
+        <Waiting
+          building={agent.state === "building"}
+          busy={busy}
+          progress={agent.total ? `${agent.done ?? 0} of ${agent.total} files` : undefined}
+          openQuestions={openQuestions.length}
+          hasContext={fragments.some((f) => f.type !== "section")}
+          canEdit={canEdit}
+          onBuild={build}
+        />
+      ) : undefined}
+    </PreviewPane>
+  );
+  const show = (p: Pane) => {
+    setPane(p);
+    if (p !== "chat") setTab(p);
+  };
+  const PANES: Pane[] = chatLayout ? ["chat", "context", "prototype"] : ["context", "prototype"];
+  const PANE_ICON = { chat: MessageSquareText, context: FileText, prototype: Eye } as const;
+  const PANE_LABEL = { chat: "Chat", context: "Context", prototype: "Prototype" } as const;
+
   const leftWidth = full === "context" ? 100 : split;
   return (
     <MotionConfig reducedMotion="user">
@@ -427,13 +643,20 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
               <TooltipContent>Every open comment thread</TooltipContent>
             </Tooltip>
             <div className="ml-auto flex items-center gap-1.5">
+              <Tooltip>
+                <TooltipTrigger render={<Button size="sm" variant={chatLayout ? "secondary" : "ghost"} aria-pressed={chatLayout} onClick={() => setLayout(chatLayout ? "document" : "chat")} className="gap-1.5" />}>
+                  <MessageSquareText />
+                  <span className="hidden xl:inline">Chat</span>
+                </TooltipTrigger>
+                <TooltipContent>{chatLayout ? "Back to the Context on the left" : "Chat on the left, the Context and the prototype on the right"}</TooltipContent>
+              </Tooltip>
               <ToggleGroup
                 value={[full ?? "both"]}
                 onValueChange={(v: string[]) => v[0] && setFull(v[0] === "both" ? undefined : (v[0] as Full))}
                 size="sm"
                 spacing={0}
                 variant="outline"
-                className="hidden lg:flex"
+                className={cn("hidden", !chatLayout && "lg:flex")}
                 aria-label="Panes"
               >
                 <Tooltip>
@@ -515,189 +738,82 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
           </header>
 
           <div className="flex shrink-0 border-b p-1.5 lg:hidden" role="tablist" aria-label="Pane">
-            {(["context", "prototype"] as const).map((p) => (
-              <button key={p} type="button" role="tab" aria-selected={pane === p} onClick={() => setPane(p)} className={cn("flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md text-sm text-muted-foreground", pane === p && "bg-muted font-medium text-foreground")}>
-                {p === "context" ? <FileText className="size-4" /> : <Eye className="size-4" />}
-                {p === "context" ? "Context" : "Prototype"}
-                {p === "context" && openQuestions.length > 0 && <span className="size-1.5 rounded-full bg-orange-500" />}
-              </button>
-            ))}
+            {PANES.map((p) => {
+              const Icon = PANE_ICON[p];
+              return (
+                <button key={p} type="button" role="tab" aria-selected={pane === p} onClick={() => show(p)} className={cn("flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md text-sm text-muted-foreground", pane === p && "bg-muted font-medium text-foreground")}>
+                  <Icon className="size-4" />
+                  {PANE_LABEL[p]}
+                  {p === "context" && openQuestions.length > 0 && <span className="size-1.5 rounded-full bg-orange-500" />}
+                </button>
+              );
+            })}
           </div>
 
-          <div ref={panes} className="flex min-h-0 flex-1" style={{ "--ctx-split": `${leftWidth}%` } as React.CSSProperties}>
-            <section
-              aria-label="Context"
-              className={cn(
-                "relative min-h-0 w-full min-w-0 flex-col overflow-hidden lg:w-(--ctx-split) lg:shrink-0",
-                !dragging && "motion-safe:lg:transition-[width] motion-safe:lg:duration-200 motion-safe:lg:ease-out",
-                pane === "context" ? "flex" : "hidden",
-                full === "prototype" ? "lg:hidden" : "lg:flex",
-              )}
-            >
-              <ContextDocument
-                key={`${appId}:${me.user}`}
-                ctx={ctx}
-                appId={appId}
-                me={me}
-                proposals={proposals}
-                versions={versions}
-                agent={agent}
-                nameOf={nameOf}
-                onBlocks={setBlocks}
-                onAway={setAway}
-                onShowInPrototype={showInPrototype}
-                threadCounts={threadCounts}
-                onOpenThreads={openThreads}
-                onActed={acted}
-                handle={docRef}
-                empty={hero}
-                header={
-                  ready && fragments.length > 0 && snap.state.version > 0 && landing ? (
-                    <Brief
-                      brief={brief}
-                      open={briefOpen}
-                      onOpenChange={setBriefOpen}
-                      reason={briefOpen ? landing.reason : "current"}
-                      since={since}
-                      needs={needs}
-                      proposalsToDecide={proposals.filter((p) => canDecide(me, p))}
-                      nameOf={nameOf}
-                      onGo={go}
-                      onProposals={() => setProposalsOpen(true)}
-                    />
-                  ) : undefined
-                }
-              />
-              {!firstRun && (
-                <div className="@container shrink-0 border-t bg-background/80 backdrop-blur-sm">
-                  <div className="mx-auto flex w-full max-w-[816px] flex-col gap-2 pt-2 pr-3 pb-3 pl-10 @lg:pr-8 @lg:pl-16">
-                    <DockStatus
-                      agent={agent}
-                      turn={turn}
-                      openQuestions={openQuestions.length}
-                      fresh={fresh}
-                      canEdit={canEdit}
-                      hasContext={fragments.some((f) => f.type !== "section")}
-                      away={away}
-                      failure={failure}
-                      onRetry={() => lastTurn && void send(lastTurn.prompt)}
-                      onJump={() => docRef.current?.jumpToAgent()}
-                      onStop={() => void act(() => ctx.stop(appId))}
-                      onQuestions={() => {
-                        setPane("context");
-                        requestAnimationFrame(() => focusNextQuestion());
-                      }}
-                      onContinue={() => void act(() => ctx.continueQuestions(appId), "Going on with what is answered")}
-                      onBuild={build}
-                    />
-                    {ready ? composer : <Skeleton className="h-24 rounded-xl" />}
-                  </div>
-                </div>
-              )}
-              <AnimatePresence>
-                {panel === "activity" && <ActivityPanel key="activity" turns={snap.turns} nameOf={nameOf} onClose={() => setPanel(undefined)} />}
-                {panel === "review" && (
-                  <ReviewPanel
-                    key="review"
-                    fragments={fragments}
-                    sections={sections}
-                    signoffs={signoffs}
-                    me={me}
-                    nameOf={nameOf}
-                    onRole={setRole}
-                    onSignOff={(fragmentId, state) => void act(() => ctx.signOff(appId, fragmentId, state))}
-                    onGo={(fragmentId) => docRef.current?.scrollTo(fragmentId)}
-                    onDiscuss={openThreads}
-                    onClose={() => setPanel(undefined)}
-                  />
+          {chatLayout ? (
+            <div ref={panes} className="flex min-h-0 flex-1" style={{ "--ctx-split": `${split}%` } as React.CSSProperties}>
+              <section
+                aria-label="Chat"
+                className={cn(
+                  "relative min-h-0 w-full min-w-0 flex-col overflow-hidden lg:flex lg:w-(--ctx-split) lg:shrink-0",
+                  !dragging && "motion-safe:lg:transition-[width] motion-safe:lg:duration-200 motion-safe:lg:ease-out",
+                  pane === "chat" ? "flex" : "hidden",
                 )}
-                {panel === "threads" && (
-                  <ThreadsPanel
-                    key="threads"
-                    threads={threads}
-                    fragments={fragments}
-                    focus={threadFocus}
-                    me={me}
-                    nameOf={nameOf}
-                    onComment={(input) => act(() => ctx.comment(appId, input))}
-                    onResolve={(threadId, resolved) => void act(() => ctx.resolveThread(appId, threadId, resolved))}
-                    onRequestReview={(fragmentId, role) =>
-                      void act(async () => {
-                        await ctx.requestReview(appId, fragmentId, role);
-                        toast.success(`Asked ${ROLE_LABEL[role]} to review it`);
-                      })
-                    }
-                    onGo={(fragmentId) => docRef.current?.scrollTo(fragmentId)}
-                    onAll={() => setThreadFocus(undefined)}
-                    onClose={() => setPanel(undefined)}
-                  />
-                )}
-              </AnimatePresence>
-            </section>
-
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize the panes"
-              aria-valuenow={split}
-              aria-valuemin={28}
-              aria-valuemax={72}
-              tabIndex={0}
-              onPointerDown={startDrag}
-              onDoubleClick={() => saveSplit(DEFAULT_SPLIT)}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowLeft") saveSplit(clampSplit(split - 2));
-                else if (e.key === "ArrowRight") saveSplit(clampSplit(split + 2));
-                else if (e.key === "Home") saveSplit(clampSplit(0));
-                else if (e.key === "End") saveSplit(clampSplit(100));
-                else if (e.key === "Enter") saveSplit(DEFAULT_SPLIT);
-                else return;
-                e.preventDefault();
-              }}
-              className={cn("ctx-separator hidden lg:block", full && "lg:hidden", dragging && "ctx-separator-active")}
-            />
-
-            <section aria-label="Prototype" className={cn("min-h-0 min-w-0 flex-1", pane === "prototype" ? "block" : "hidden", full === "context" ? "lg:hidden" : "lg:block")}>
-              <PreviewPane
-                preview={preview}
-                error={previewError}
-                reload={0}
-                routes={routes}
-                view="preview"
-                onViewChange={() => undefined}
-                diffKey=""
-                tabs={false}
-                route={route}
-                onRouteChange={setRoute}
-                onFrame={bridge.onFrame}
-                actions={
-                  bridge.ready ? (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={<Button size="icon-sm" variant={bridge.inspecting ? "secondary" : "ghost"} aria-label="Inspect" aria-pressed={bridge.inspecting} onClick={() => bridge.setInspect(!bridge.inspecting)} />}
-                      >
-                        <MousePointerClick />
-                      </TooltipTrigger>
-                      <TooltipContent>{bridge.inspecting ? "Click a part of the prototype to see it in the Context" : "Inspect: find a part of the prototype in the Context"}</TooltipContent>
-                    </Tooltip>
-                  ) : undefined
-                }
-                footer={<FreshnessBar fresh={fresh} building={agent.state === "building"} canEdit={canEdit} onUpdate={build} onGo={go} />}
               >
-                {fresh.kind === "never" ? (
-                  <Waiting
-                    building={agent.state === "building"}
-                    busy={busy}
-                    progress={agent.total ? `${agent.done ?? 0} of ${agent.total} files` : undefined}
-                    openQuestions={openQuestions.length}
-                    hasContext={fragments.some((f) => f.type !== "section")}
-                    canEdit={canEdit}
-                    onBuild={build}
-                  />
-                ) : undefined}
-              </PreviewPane>
-            </section>
-          </div>
+                {firstRun ? (
+                  <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-4">{hero}</div>
+                ) : (
+                  <>
+                    <ChatColumn turns={snap.turns} me={me.user} nameOf={nameOf} />
+                    {dockEl}
+                  </>
+                )}
+              </section>
+              {separatorEl}
+              <div className={cn("min-h-0 min-w-0 flex-1 flex-col", pane === "chat" ? "hidden lg:flex" : "flex")}>
+                <div className="hidden h-12 shrink-0 items-center border-b bg-background px-3 lg:flex">
+                  <ToggleGroup value={[tab]} onValueChange={(v: string[]) => v[0] && show(v[0] as "context" | "prototype")} size="sm" spacing={0} variant="outline" aria-label="Right pane">
+                    <ToggleGroupItem value="context" className="gap-1.5 px-2.5">
+                      <FileText />
+                      Context
+                      {openQuestions.length > 0 && <span className="size-1.5 rounded-full bg-orange-500" />}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="prototype" className="gap-1.5 px-2.5">
+                      <Eye />
+                      Prototype
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+                <section aria-label="Context" className={cn("relative min-h-0 min-w-0 flex-1 flex-col overflow-hidden", pane === "context" ? "flex" : "hidden", tab === "context" ? "lg:flex" : "lg:hidden")}>
+                  {documentEl}
+                  {panelsEl}
+                </section>
+                <section aria-label="Prototype" className={cn("min-h-0 min-w-0 flex-1", pane === "prototype" ? "block" : "hidden", tab === "prototype" ? "lg:block" : "lg:hidden")}>
+                  {prototypeEl}
+                </section>
+              </div>
+            </div>
+          ) : (
+            <div ref={panes} className="flex min-h-0 flex-1" style={{ "--ctx-split": `${leftWidth}%` } as React.CSSProperties}>
+              <section
+                aria-label="Context"
+                className={cn(
+                  "relative min-h-0 w-full min-w-0 flex-col overflow-hidden lg:w-(--ctx-split) lg:shrink-0",
+                  !dragging && "motion-safe:lg:transition-[width] motion-safe:lg:duration-200 motion-safe:lg:ease-out",
+                  pane === "context" ? "flex" : "hidden",
+                  full === "prototype" ? "lg:hidden" : "lg:flex",
+                )}
+              >
+                {documentEl}
+                {!firstRun && dockEl}
+                {panelsEl}
+              </section>
+              {separatorEl}
+              <section aria-label="Prototype" className={cn("min-h-0 min-w-0 flex-1", pane === "prototype" ? "block" : "hidden", full === "context" ? "lg:hidden" : "lg:block")}>
+                {prototypeEl}
+              </section>
+            </div>
+          )}
           {dragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
         </div>
       </LayoutGroup>

@@ -253,6 +253,8 @@ export class Studio {
   private readonly turnWaiters = new Map<string, { resolve: (turn: Turn) => void; reject: (err: Error) => void }>();
   private readonly provisioning = new Map<string, Promise<void>>();
   private readonly locks = new Map<string, Promise<unknown>>();
+  /** Per chat: a resolve turn waiting for the last turn's run to end before it starts. */
+  private readonly resolving = new Map<string, Promise<void>>();
   private readonly templates: Record<string, Template>;
 
   constructor(private readonly opts: StudioOptions) {
@@ -760,7 +762,7 @@ export class Studio {
     const message = [MODE_NOTES[mode], input.note, input.text].filter(Boolean).join("\n\n");
     try {
       const { runId } = chat.runId
-        ? await this.opts.runs.followup(chat.runId, { message, by: input.by })
+        ? await this.continueRun(chat.runId, { message, by: input.by })
         : await this.opts.runs.start({
           appId: p.id,
           chatId,
@@ -780,6 +782,27 @@ export class Studio {
       throw err;
     }
     return { turn: this.opts.store.get<Turn>(C.turns, turn.id)!, steered: false };
+  }
+
+  /**
+   * A new turn on a chat's run. After its last turn the run can still be winding down (saving its
+   * work) for a while; a message then reaches it as a steer that nothing reads, and the turn would
+   * never start. So a new turn that lands as a steer waits for the run to end and continues it.
+   */
+  private async continueRun(runId: string, input: { message: string; by: string }, waitMs = 5 * 60_000): Promise<{ runId: string }> {
+    const { done: ended, off } = this.runEnded(runId);
+    try {
+      const r = await this.opts.runs.followup(runId, input);
+      if (r.delivered !== "steered") return r;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new StudioError("unavailable", `run ${runId} is still finishing its last turn; try again in a moment`)), waitMs);
+      });
+      await Promise.race([ended, late]).finally(() => clearTimeout(timer));
+      return await this.opts.runs.followup(runId, input);
+    } finally {
+      off();
+    }
   }
 
   /** Interrupt the chat's run; it waits for a follow-up. */
@@ -823,7 +846,7 @@ export class Studio {
   /** Resolves when the chat has no running turn and its last one is applied and saved, including a resolve turn Studio started itself. */
   async idle(chatId: string): Promise<void> {
     for (;;) {
-      const waiting = this.running.get(chatId)?.done ?? this.settling.get(chatId);
+      const waiting = this.running.get(chatId)?.done ?? this.settling.get(chatId) ?? this.resolving.get(chatId);
       if (!waiting) return;
       await waiting;
     }
@@ -1121,7 +1144,33 @@ export class Studio {
       return;
     }
     const prompt = `Run \`git merge ${main}\` in this worktree: applying this chat to ${main} conflicts in ${r.conflict.join(", ")}. Resolve every conflict so both sides' changes still work, then commit the merge.`;
-    await this.send(chatId, { by: "studio", via: "api", text: prompt, mode: "build" }, true);
+    // This runs while the turn's run is still saving its work (the run waits for it), so a message now
+    // would be steered into a run that is ending and nobody would read it. The resolve turn starts
+    // once the run has ended; until then the chat counts as busy (idle waits for it).
+    const runId = turn.runId;
+    const ended = runId ? this.runEnded(runId) : { done: Promise.resolve(), off: () => undefined };
+    const start: Promise<void> = ended.done
+      .then(() => this.send(chatId, { by: "studio", via: "api", text: prompt, mode: "build" }, true))
+      .then(
+        () => undefined,
+        () => undefined, // A resolve turn that can't start fails as a turn, and the chat says so.
+      )
+      .finally(() => {
+        ended.off();
+        if (this.resolving.get(chatId) === start) this.resolving.delete(chatId);
+      });
+    this.resolving.set(chatId, start);
+  }
+
+  /** Resolves when the run ends (its run.finished event); `off` stops listening. */
+  private runEnded(runId: string): { done: Promise<void>; off: () => void } {
+    let off: () => void = () => undefined;
+    const done = new Promise<void>((resolve) => {
+      off = this.opts.bus.subscribe("run.finished", (e) => {
+        if (e.payload.runId === runId) resolve();
+      });
+    });
+    return { done, off };
   }
 
   // ---- versions ----

@@ -311,6 +311,26 @@ describe("apps", () => {
     expect(await studio.diff({ chatId: chat.id })).toContain("+hi");
   });
 
+  it("continues a run that was still winding down instead of steering a message nobody reads", async () => {
+    const { studio, bus } = make();
+    const p = await app(studio, "safe");
+    const { chat } = await studio.newChat(p.id, { by: "me", via: "web" });
+    await say(studio, chat.id, "write one.md first");
+    const runs = (studio as unknown as { opts: { runs: { followup: (id: string, i: { message: string; by: string }) => Promise<{ delivered: string; runId: string }> } } }).opts.runs;
+    const real = runs.followup.bind(runs);
+    const calls: string[] = [];
+    runs.followup = async (id, i) => {
+      calls.push(id);
+      if (calls.length > 1) return real(id, i);
+      // The run is still saving its last turn: the engine steers the message into it, and it ends right after.
+      setTimeout(() => bus.publish("run.finished", { runId: id, outcome: "succeeded", costUsd: 0 }), 30);
+      return { delivered: "steered", runId: id };
+    };
+    const second = await say(studio, chat.id, "write two.md second");
+    expect(calls).toHaveLength(2);
+    expect(second).toMatchObject({ prompt: "write two.md second", status: "succeeded" });
+  });
+
   it("takes a model with a chat's first message, and keeps it afterwards", async () => {
     const { studio } = make();
     const p = await app(studio, "safe");

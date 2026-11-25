@@ -743,3 +743,4 @@ export function jsonSchemaFor(kind: FileKind): Record<string, unknown> {
 export * from "./expr";
 export * from "./triggers";
 export * from "./cron";
+export * from "./stack";

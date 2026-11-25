@@ -1040,10 +1040,10 @@ export class Workflow {
     this.say(wi, "foreman", "foreman", pick ? `Working in ${wi.repo}.` : `Could not tell which repository this belongs to; working in ${wi.repo}.`);
   }
 
-  /** Whether a work item may change several repositories (ADR-020): the factory opts in. */
+  /** Whether a work item may change several repositories (ADR-020): the factory has a stack, or opts in. */
   private changeSets(wi: Item): boolean {
-    const f = this.resolved(wi).factory;
-    return f.repositories.length > 1 && f.change_sets === true;
+    const r = this.resolved(wi);
+    return r.factory.repositories.length > 1 && (r.factory.change_sets === true || Boolean(r.parsed.stack));
   }
 
   /**

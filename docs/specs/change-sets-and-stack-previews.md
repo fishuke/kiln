@@ -180,6 +180,18 @@ This is Studio Phase 7 in `docs/ideas/studio.md`.
 6. External services (payments, OneSignal, SMS, email) that must be faked or blocked in previews; these become egress rules.
 7. Is `saba-manager-app-frontend` the "seller frontend"? Atlas calls it Menejer (venue manager).
 
+### Answers (2026-11-25)
+
+The owner chose the default answers. The product-specific values live in the private `kiln-config` stack file, not here. What they mean for Kiln:
+
+- **Datastores are services with their own commands.** A stack may run a GraphQL engine (e.g. Hasura) as a datastore-kind service next to Postgres; the runner image ships Postgres and Redis, and anything else is installed by the service's `install` command.
+- **No shared data.** When a product has no safe dump, the stack builds a schema and a synthetic seed (one user per role, one tenant with data) from a script in the stack's config repository. Previews never read staging or production.
+- **Contracts follow what the API speaks.** A stack declares contract files per service; GraphQL operations are validated against a schema, and REST consumers against an OpenAPI document when the API publishes one. A frontend with no declared contract is skipped, and the check says so.
+- **Localization or other helper servers are ordinary services** with a port, not libraries.
+- **Frontends that share a default port** get their port from their start command (`next dev -p <port>`).
+- **Hard-coded production URLs and external services are blocked** by the service's `egress` list; everything not listed is denied.
+- **Tenants** are picked by the stack's env (a default site or domain header), one tenant per preview.
+
 ## 11. Phases
 
 1. **Change sets in the factory.** `repos[]`/`prs[]`, triage multi-pick, linked PR bodies, CI across the set, completion. No previews yet. This already beats Atlas: one issue, linked PRs, one review.

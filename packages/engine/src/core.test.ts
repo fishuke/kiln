@@ -1415,6 +1415,27 @@ describe("change sets (ADR-020)", () => {
     expect(gate.questions![0]).toMatchObject({ type: "multi_select", options: ["acme/web", "acme/api", "acme/admin"] });
   });
 
+  it("a stack.yaml turns change sets on", async () => {
+    const forge = new FakeForge();
+    forge.createRepo({ owner: "acme", name: "api" }, { "README.md": "# api\n" });
+    forge.createRepo({ owner: "acme", name: "admin" }, { "README.md": "# admin\n" });
+    const tree = threeRepos(false);
+    tree["stack.yaml"] = [
+      "name: shop",
+      "services:",
+      "  api: { repo: acme/api, start: pnpm dev, port: 3000 }",
+      "  web: { repo: acme/web, start: pnpm dev, port: 4000, env: { NEXT_PUBLIC_API_URL: '${services.api.url}' }, env_public: [NEXT_PUBLIC_API_URL] }",
+      "  admin: { repo: acme/admin, start: pnpm dev, port: 4001 }",
+      "",
+    ].join("\n");
+    const { kiln } = createTestKiln({ tree, forge, decide: { primary: new FakeProvider([apiAndWeb, heuristicRule]) }, preview: false });
+    expect(kiln.defs.current("webapp").parsed.stack?.services.api?.port).toBe(3000);
+    const wi = await kiln.workflow.create({ factory: "webapp", title: "Featured products", body: "", source: { provider: "api" }, requester: "po@acme.test" });
+    void kiln.workflow.advance(wi.id);
+    const done = await waitFor(kiln, wi.id, ["handed_off"]);
+    expect(done.prs!.map((p) => p.repo)).toEqual(["acme/web", "acme/api"]);
+  });
+
   it("without change_sets a multi-repository factory still picks one repository", async () => {
     const pickApi: FakeRule = (r) => (r.decision === "repository" ? { repository: { "acme/web": 0.1, "acme/api": 0.9, "acme/admin": 0.1 } } : undefined);
     const { kiln, decide } = setup(pickApi, false);

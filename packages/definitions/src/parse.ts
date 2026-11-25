@@ -7,6 +7,7 @@ import {
   BenchmarkTask,
   Decision,
   Factory,
+  Stack,
   Gate,
   MemoryFrontmatter,
   Pipeline,
@@ -24,6 +25,8 @@ export type DefinitionError = { file: string; line: number; message: string; cod
 export type ParsedFactory = {
   sha: string;
   factory?: Factory;
+  /** How the product runs (stack.yaml, ADR-020); a stack turns change sets on. */
+  stack?: Stack;
   agents: Record<string, { frontmatter: AgentFrontmatter; instructions: string; skills: Record<string, Skill> }>;
   automations: Record<string, { frontmatter: AutomationFrontmatter; prompt: string }>;
   pipelines: Record<string, Pipeline>;
@@ -71,6 +74,7 @@ type Kind = { schema: z.ZodType; frontmatter: boolean };
 
 const KINDS: { pattern: RegExp; kind: string; spec: Kind }[] = [
   { pattern: /^factory\.yaml$/, kind: "factory", spec: { schema: Factory, frontmatter: false } },
+  { pattern: /^stack\.yaml$/, kind: "stack", spec: { schema: Stack, frontmatter: false } },
   { pattern: /^agents\/([^/]+)\/agent\.md$/, kind: "agent", spec: { schema: AgentFrontmatter, frontmatter: true } },
   {
     pattern: /^agents\/([^/]+)\/skills\/([^/]+)\/SKILL\.md$/,
@@ -184,6 +188,9 @@ export function parseTree(tree: DefinitionTree): ParsedFactory {
     switch (k.kind) {
       case "factory":
         out.factory = data;
+        break;
+      case "stack":
+        out.stack = data;
         break;
       case "agent":
         out.agents[a] = { frontmatter: data, instructions: body, skills: {} };

@@ -1,6 +1,6 @@
 # ADR-020: Change sets across repositories, proved on a stack preview
 
-Status: Proposed · Date: 2026-11-25
+Status: Accepted · Date: 2026-11-25
 
 ## Context
 

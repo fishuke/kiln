@@ -172,7 +172,8 @@ export function registerContext(ctx: RouteContext, deps: { studio: () => Studio;
   app.post(
     "/api/v1/studio/apps/:id/context/questions/continue",
     wrap(async (c) => {
-      await service().continueQuestions(id(c), person(c, "send"));
+      const body = (await c.req.json().catch(() => ({}))) as { how?: unknown };
+      await service().continueQuestions(id(c), person(c, "send"), body.how === "recommended" ? "recommended" : "assume");
       return c.json({ ok: true });
     }),
   );

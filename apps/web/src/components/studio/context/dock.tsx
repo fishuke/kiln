@@ -55,7 +55,8 @@ export function DockStatus({
   onJump(): void;
   onStop(): void;
   onQuestions(): void;
-  onContinue(): void;
+  /** Answer every open question at once: the recommended answers, or the agent decides. */
+  onContinue(how: "recommended" | "assume"): void;
   onBuild(): void;
 }) {
   const [open, setOpen] = useState(false);
@@ -134,10 +135,18 @@ export function DockStatus({
               </TooltipContent>
             </Tooltip>
           )}
+          {openQuestions > 1 && !busy && (
+            <Tooltip>
+              <TooltipTrigger render={<Button size="sm" variant="ghost" data-action="accept-recommended" aria-disabled={!canEdit} onClick={canEdit ? () => onContinue("recommended") : undefined} className={cn(!canEdit && "cursor-not-allowed opacity-50")} />}>Accept recommended</TooltipTrigger>
+              <TooltipContent>{canEdit ? "Answer every question with its recommended option. Open questions stay for you" : VIEWER_NOTE}</TooltipContent>
+            </Tooltip>
+          )}
           {openQuestions > 0 && !busy && (
             <Tooltip>
-              <TooltipTrigger render={<Button size="sm" variant="ghost" aria-disabled={!canEdit} onClick={canEdit ? onContinue : undefined} className={cn(!canEdit && "cursor-not-allowed opacity-50")} />}>Continue</TooltipTrigger>
-              <TooltipContent>{canEdit ? "Go on with what is answered. The agent assumes the rest" : VIEWER_NOTE}</TooltipContent>
+              <TooltipTrigger render={<Button size="sm" variant="ghost" data-action="decide-all" aria-disabled={!canEdit} onClick={canEdit ? () => onContinue("assume") : undefined} className={cn(!canEdit && "cursor-not-allowed opacity-50")} />}>
+                {openQuestions === 1 ? "You decide" : "Decide all for me"}
+              </TooltipTrigger>
+              <TooltipContent>{canEdit ? "The agent answers what is still open and marks each answer as an assumption anyone can change" : VIEWER_NOTE}</TooltipContent>
             </Tooltip>
           )}
           {canBuild && (

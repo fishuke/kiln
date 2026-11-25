@@ -8,6 +8,7 @@ import {
   canEdit,
   decide,
   delegatedAnswer,
+  recommendedAnswer,
   fragmentTitle,
   fragmentsFrom,
   freshness,
@@ -545,15 +546,16 @@ export class FakeContext implements StudioContextClient {
 
   private async firstScript(appId: string, run: Run, text: string, topic: Topic) {
     const doc = this.doc(appId);
-    this.log(appId, run.turnId, { kind: "reasoning", text: "Nothing is decided yet. Name it, say what it is for, then ask before assuming." });
+    this.log(appId, run.turnId, { kind: "reasoning", text: "Nothing is decided yet. Name it, say what was asked in their words, then ask why before assuming anything." });
     await this.pause(run, this.host.stepMs);
     const top = doc.read().filter((b) => !b.parent)[0];
     const title = doc.insert({ type: "heading", props: { level: 1 } }, top ? { before: top.id } : "end");
     await this.type(appId, run, title, titleOf(text), "the title");
     const intro = doc.insert({ type: "paragraph" }, { after: title });
-    await this.type(appId, run, intro, topic.problem, "Problem");
-    this.log(appId, run.turnId, { kind: "tool", name: "context_write", text: "Title and problem" });
+    await this.type(appId, run, intro, `You asked for: ${text.trim()}`, "the request");
+    this.log(appId, run.turnId, { kind: "tool", name: "context_write", text: "Title and the request" });
     await this.ask(appId, run, "first", [
+      { key: "why", spec: { kind: "text", title: "Why do you want this?", detail: "What problem does it solve, and for whom? The Why section is written from your answer.", placeholder: "In your own words", multiline: true } },
       {
         key: "audience",
         spec: {
@@ -570,7 +572,7 @@ export class FakeContext implements StudioContextClient {
       { key: "scope", spec: { kind: "multi", title: "What belongs in the first version?", detail: "Pick what you would miss on day one.", options: topic.scope.map((s, i) => ({ id: s.id, label: s.label, recommended: i < 2 })) } },
       { key: "polish", spec: { kind: "scale", title: "How finished should the first prototype look?", min: 1, max: 5, step: 1, minLabel: "Rough sketch", maxLabel: "Demo-ready", default: 3 } },
     ]);
-    return { needsYou: true, reply: "I have three questions before I write the rest." };
+    return { needsYou: true, reply: "I have four questions before I write the rest, starting with why you want it." };
   }
 
   private async moreScript(appId: string, run: Run, text: string) {
@@ -693,13 +695,17 @@ export class FakeContext implements StudioContextClient {
     this.doc(appId).update(q.fragmentId, { props: { status: "open", by: "", at: "" } });
   }
 
-  async continueQuestions(appId: string): Promise<void> {
+  async continueQuestions(appId: string, how: "assume" | "recommended" = "assume"): Promise<void> {
     if (!canEdit(this.me(appId).permission)) throw new StudioClientError(`${VIEWER_NOTE}; an editor continues`, 403);
     const batches = this.get(appId, "batches");
     const open = questionsFrom(appId, this.doc(appId).read()).filter((q) => q.status === "open" && batches[q.batch.id]?.state === "asked");
     const ids = new Set(open.map((q) => q.batch.id));
-    for (const q of open) this.doc(appId).update(q.fragmentId, { props: questionProps({ ...q, status: "delegated", answer: delegatedAnswer(q.spec), answeredBy: this.as, answeredAt: this.iso() }) });
-    for (const id of ids) if (!this.runs.has(appId)) this.continueBatch(appId, id);
+    for (const q of open) {
+      const answer = how === "assume" ? delegatedAnswer(q.spec) : recommendedAnswer(q.spec);
+      if (answer) this.doc(appId).update(q.fragmentId, { props: questionProps({ ...q, status: how === "assume" ? "delegated" : "answered", answer, answeredBy: this.as, answeredAt: this.iso() }) });
+    }
+    const all = questionsFrom(appId, this.doc(appId).read());
+    for (const id of ids) if (!this.runs.has(appId) && batchProgress(all, id).complete) this.continueBatch(appId, id);
   }
 
   private continueBatch(appId: string, batchId: string) {
@@ -978,6 +984,10 @@ function draftsFor(q: Question, topic: Topic): Draft[] {
   const source = q.id;
   const one = (d: Omit<Draft, "source">): Draft[] => [{ ...d, source }];
   switch (key) {
+    case "why":
+      return q.status === "delegated"
+        ? one({ section: "Why", type: "assumption", text: `Not said yet why this is wanted; assumed: ${topic.problem}`, owner: "product" })
+        : one({ section: "Why", type: "paragraph", text: said });
     case "audience": {
       const consequence = "options" in q.spec ? q.spec.options.find((o) => o.id === value)?.consequence : undefined;
       return one({ section: "Requirements", type: "requirement", text: `It is built for ${lower(said)} first.${consequence ? ` ${consequence}` : ""}`, owner: "product", reviewers: ["engineering"] });

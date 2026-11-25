@@ -26,13 +26,16 @@ function setup(seed: "empty" | "demo" = "empty") {
 }
 
 describe("the scripted agent on the Context", () => {
-  it("asks three questions of different kinds after the first prompt and waits", async () => {
+  it("asks why first (open-ended), then three questions of other kinds, and waits", async () => {
     const t = setup();
     await t.ctx.prompt(t.appId, "A recipe box where I can search my recipes by ingredient");
     await t.run();
     const qs = t.questions();
-    expect(qs).toHaveLength(3);
-    expect(new Set(qs.map((q) => q.spec.kind)).size).toBe(3);
+    expect(qs).toHaveLength(4);
+    expect(qs[0]!.spec).toMatchObject({ kind: "text", title: "Why do you want this?" });
+    expect(new Set(qs.map((q) => q.spec.kind)).size).toBe(4);
+    // It never writes a why of its own before the person says it.
+    expect(t.doc.read().some((b) => /lose track|screenshots, bookmarks/.test(b.text ?? ""))).toBe(false);
     expect(qs.every((q) => q.status === "open")).toBe(true);
     const s = await t.snap();
     expect(s.agent.state).toBe("waiting");
@@ -45,17 +48,19 @@ describe("the scripted agent on the Context", () => {
     const t = setup();
     await t.ctx.prompt(t.appId, "A recipe box where I can search my recipes by ingredient");
     await t.run();
-    const [a, b, c] = t.questions();
+    const [why, a, b, c] = t.questions();
+    await t.ctx.answer(t.appId, why!.id, { type: "value", value: "I lose recipes across screenshots and notes." });
     await t.ctx.answer(t.appId, a!.id, { type: "value", value: (a!.spec as { options: { id: string }[] }).options[0]!.id });
     await t.run();
-    expect(t.questions()[0]).toMatchObject({ status: "answered", answeredBy: "you@example.com" });
+    expect(t.questions()[1]).toMatchObject({ status: "answered", answeredBy: "you@example.com" });
     expect((await t.snap()).agent.state).toBe("waiting");
     expect(t.fragments().filter((f) => f.type === "requirement")).toHaveLength(0);
 
     await t.ctx.answer(t.appId, b!.id, { type: "delegated" });
     await t.ctx.answer(t.appId, c!.id, { type: "skipped" });
     await t.run();
-    expect(t.questions().map((q) => q.status)).toEqual(["answered", "delegated", "skipped"]);
+    expect(t.questions().map((q) => q.status)).toEqual(["answered", "answered", "delegated", "skipped"]);
+    expect(t.fragments().some((f) => f.content === "I lose recipes across screenshots and notes.")).toBe(true);
     const types = new Set(t.fragments().map((f) => f.type));
     for (const type of ["decision", "assumption", "requirement", "constraint", "flow", "risk", "metric"] as const) expect(types.has(type)).toBe(true);
     const s = await t.snap();
@@ -69,7 +74,7 @@ describe("the scripted agent on the Context", () => {
     const t = setup();
     await t.ctx.prompt(t.appId, "A recipe box");
     await t.run();
-    await expect(t.ctx.answer(t.appId, t.questions()[0]!.id, { type: "value", value: "nope" })).rejects.toThrow("Pick one of the options");
+    await expect(t.ctx.answer(t.appId, t.questions()[1]!.id, { type: "value", value: "nope" })).rejects.toThrow("Pick one of the options");
   });
 
   it("goes stale after a later edit and clears when the prototype is updated", async () => {
@@ -97,16 +102,39 @@ describe("the scripted agent on the Context", () => {
     await t.run();
     await t.ctx.continueQuestions(t.appId);
     await t.run();
-    const q = t.questions()[0]!;
+    const q = t.questions()[1]!;
     const before = t.fragments().find((f) => f.type === "requirement")!.content;
     await t.ctx.reopen(t.appId, q.id);
-    expect(t.questions()[0]!.status).toBe("open");
+    expect(t.questions()[1]!.status).toBe("open");
     await t.ctx.answer(t.appId, q.id, { type: "other", text: "My cooking club" });
     await t.run();
-    expect(t.questions()[0]).toMatchObject({ status: "answered", answer: { type: "other", text: "My cooking club" } });
+    expect(t.questions()[1]).toMatchObject({ status: "answered", answer: { type: "other", text: "My cooking club" } });
     expect(t.fragments().find((f) => f.type === "requirement")!.content).not.toBe(before);
     const s = await t.snap();
     expect(freshness(s.state, s.changes).kind).toBe("behind");
+  });
+
+  it("accepts every recommended answer at once and leaves the open-ended why for the person", async () => {
+    const t = setup();
+    await t.ctx.prompt(t.appId, "A recipe box");
+    await t.run();
+    await t.ctx.continueQuestions(t.appId, "recommended");
+    await t.run();
+    expect(t.questions().map((q) => q.status)).toEqual(["open", "answered", "answered", "answered"]);
+    expect((await t.snap()).agent.state).toBe("waiting");
+    await t.ctx.answer(t.appId, t.questions()[0]!.id, { type: "value", value: "Recipes get lost." });
+    await t.run();
+    expect(t.fragments().some((f) => f.type === "requirement")).toBe(true);
+  });
+
+  it("decides every open question for the person, marking each as an assumption", async () => {
+    const t = setup();
+    await t.ctx.prompt(t.appId, "A recipe box");
+    await t.run();
+    await t.ctx.continueQuestions(t.appId, "assume");
+    await t.run();
+    expect(t.questions().every((q) => q.status === "delegated")).toBe(true);
+    expect(t.fragments().some((f) => f.type === "assumption" && f.content.startsWith("Not said yet why"))).toBe(true);
   });
 
   it("turns a viewer's prompt and answer into proposals an editor decides", async () => {

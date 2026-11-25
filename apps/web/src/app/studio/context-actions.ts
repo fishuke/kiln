@@ -46,7 +46,7 @@ export const contextPrompt = async (appId: string, text: string) => call(Prompte
 export const contextAnswer = async (appId: string, questionId: string, answer: unknown) =>
   call(Answered, "POST", `${base(appId)}/questions/${Ref.parse(questionId)}/answer`, { answer: QuestionAnswer.parse(answer) });
 export const contextReopen = async (appId: string, questionId: string) => call(Ok, "POST", `${base(appId)}/questions/${Ref.parse(questionId)}/reopen`);
-export const contextContinue = async (appId: string) => call(Ok, "POST", `${base(appId)}/questions/continue`);
+export const contextContinue = async (appId: string, how: "assume" | "recommended" = "assume") => call(Ok, "POST", `${base(appId)}/questions/continue`, { how: z.enum(["assume", "recommended"]).parse(how) });
 export const contextDraft = async (appId: string) => call(z.object({ started: z.boolean() }), "POST", `${base(appId)}/draft`);
 export const contextBuild = async (appId: string) => call(Ok, "POST", `${base(appId)}/build`);
 export const contextStop = async (appId: string) => call(Ok, "POST", `${base(appId)}/stop`);

@@ -86,13 +86,14 @@ describe("the scripted agent writing the real document", () => {
     await fake.context.prompt(appId, "A recipe box where I can search my recipes by ingredient");
     await run();
     const asked = questionsFrom(appId, read(editor));
-    expect(asked.map((q) => q.spec.kind)).toEqual(["single", "multi", "scale"]);
+    expect(asked.map((q) => q.spec.kind)).toEqual(["text", "single", "multi", "scale"]);
     expect(read(editor)[0]).toMatchObject({ type: "heading", text: "Recipe box" });
     expect((await fake.context.snapshot(appId)).agent.state).toBe("waiting");
 
-    await fake.context.answer(appId, asked[0]!.id, { type: "value", value: "me" });
-    await fake.context.answer(appId, asked[1]!.id, { type: "value", value: ["search", "tags"] });
-    await fake.context.answer(appId, asked[2]!.id, { type: "delegated" });
+    await fake.context.answer(appId, asked[0]!.id, { type: "value", value: "My recipes are spread over screenshots and notes." });
+    await fake.context.answer(appId, asked[1]!.id, { type: "value", value: "me" });
+    await fake.context.answer(appId, asked[2]!.id, { type: "value", value: ["search", "tags"] });
+    await fake.context.answer(appId, asked[3]!.id, { type: "delegated" });
     await run();
 
     const fragments = fragmentsFrom(appId, read(editor));

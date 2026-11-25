@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { questionProps, type DocBlock } from "./context-doc";
 import {
+  recommendedAnswer,
   answerText,
   batchProgress,
   canDecide,
@@ -71,6 +72,20 @@ describe("validateAnswer", () => {
       expect(validateAnswer(spec, { type: "delegated" }).ok).toBe(true);
       expect(validateAnswer(spec, { type: "skipped" }).ok).toBe(true);
     }
+  });
+});
+
+describe("recommendedAnswer", () => {
+  const opts = [{ id: "a", label: "A" }, { id: "b", label: "B", recommended: true }];
+  it("takes the recommended option, default or suggestion", () => {
+    expect(recommendedAnswer({ kind: "single", title: "t", options: opts })).toEqual({ type: "value", value: "b" });
+    expect(recommendedAnswer({ kind: "multi", title: "t", options: opts })).toEqual({ type: "value", value: ["b"] });
+    expect(recommendedAnswer({ kind: "scale", title: "t", min: 1, max: 5, default: 4 } as QuestionSpec)).toEqual({ type: "value", value: 4 });
+    expect(recommendedAnswer({ kind: "text", title: "t", suggestion: "s" })).toEqual({ type: "value", value: "s" });
+  });
+  it("leaves a question without a recommendation open", () => {
+    expect(recommendedAnswer({ kind: "single", title: "t", options: opts.map((o) => ({ id: o.id, label: o.label })) })).toBeUndefined();
+    expect(recommendedAnswer({ kind: "text", title: "Why do you want this?" })).toBeUndefined();
   });
 });
 

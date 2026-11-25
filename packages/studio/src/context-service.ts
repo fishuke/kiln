@@ -11,7 +11,7 @@ import { z } from "zod";
 import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { questionProps, QUESTION_BLOCK, TYPED_FRAGMENTS, type DocBlock, type DocProps } from "./context-doc";
-import { answerText, batchProgress, briefLines, canEdit, decide, delegatedAnswer, fragmentTitle, fragmentsFrom, freshness, questionsFrom, statusFor, validateAnswer, VIEWER_NOTE } from "./context-model";
+import { answerText, batchProgress, briefLines, canEdit, decide, delegatedAnswer, recommendedAnswer, fragmentTitle, fragmentsFrom, freshness, questionsFrom, statusFor, validateAnswer, VIEWER_NOTE } from "./context-model";
 import {
   FragmentType,
   FunctionalRole,
@@ -102,8 +102,8 @@ export const CONTEXT_NOTES = [
   "",
   "How to work:",
   "- Call `context_read` first, every turn. Build only from what the Context says.",
-  "- On a new Context, write the title, the opening paragraphs and **Why** from what the person said before you ask anything, so they see their idea taking shape. Then ask.",
-  "- Ask before assuming: `context_ask` with 1 to 5 typed questions, options over open questions, then end your turn. The answers arrive as your next message.",
+  "- On a new Context, write the title and one or two sentences of what the person asked for, in their words, so they see their idea taking shape. Never invent why they want it. Unless they already said why, your first `context_ask` starts with an open `text` question: why they want this, what problem it solves and for whom. Write **Why** only from their answer.",
+  "- Ask before assuming: `context_ask` with 1 to 5 typed questions, then end your turn. The answers arrive as your next message. Use options when the answer is one of a few choices, and mark the one you recommend. Use an open `text` question when only the person can know the answer: why they want it, who it is for, what success looks like.",
   "- After answers, write the rest of the document before you build: who it's for, how it works, requirements, the plan, what is not being done. Then build, tick off the plan's steps, and call `context_mark_built`.",
   "- Keep it true. When direction changes, rewrite the paragraphs that are now wrong (pass the fragment's id) instead of adding a note under them. Short sections beat long ones; cut what no longer matters.",
   "- When a fragment is implemented on a route, put `data-kiln-fragment=\"<fragment id>\"` on the element that implements it and call `context_link_preview`.",
@@ -182,7 +182,7 @@ export function draftPrompt(input: { repository: boolean; conversations: DraftCo
     input.repository ? "- Read the App's code: what it is, who it is for, how it works and what looks unfinished." : "- Read the App's code to see what is already built.",
   ];
   if (input.conversations.length) lines.push("- Read the earlier conversations below: what people asked for and what was decided. Record each decision that still holds, and the plan with what is already done ticked off.");
-  lines.push("- Write the Context in its usual shape from what you found. Only write what the code or the conversations support; don't invent requirements.", "- Then ask about what neither can tell you. Don't change any code in this turn.");
+  lines.push("- Write the Context in its usual shape from what you found. Only write what the code or the conversations support; don't invent requirements, and don't invent why people want it: code shows what an App does, not why.", "- Then ask about what neither can tell you. If nobody said why, start with an open `text` question asking why. Don't change any code in this turn.");
   if (!input.conversations.length) return lines.join("\n");
   // Newest conversations matter most: fill the budget from the end, then put them back in order.
   const quoted: string[] = [];
@@ -720,16 +720,25 @@ export class ContextService {
     l.people.add(who.user);
   }
 
-  /** Go on with what is answered: the agent assumes the rest. */
-  async continueQuestions(appId: string, who: ContextPerson): Promise<void> {
+  /**
+   * Answer every open question at once. `assume` ("Decide all for me"): the agent assumes each answer,
+   * marked as an assumption. `recommended` ("Accept all recommended"): each question that has a
+   * recommended option, a default or a suggestion gets it as the person's answer; open-ended ones
+   * stay open, and their batch goes on once they are answered.
+   */
+  async continueQuestions(appId: string, who: ContextPerson, how: "assume" | "recommended" = "assume"): Promise<void> {
     this.editor(appId, who, "continues");
     const l = await this.open(appId);
     const row = this.row(appId, who.team);
     const open = questionsFrom(appId, l.y.read()).filter((q) => q.status === "open");
     const y = new YContextDoc(l.doc, { user: who.user });
-    for (const q of open) y.update(q.fragmentId, { props: questionProps({ ...q, status: "delegated", answer: delegatedAnswer(q.spec), answeredBy: who.user, answeredAt: this.now() }) });
+    for (const q of open) {
+      const answer = how === "assume" ? delegatedAnswer(q.spec) : recommendedAnswer(q.spec);
+      if (answer) y.update(q.fragmentId, { props: questionProps({ ...q, status: how === "assume" ? "delegated" : "answered", answer, answeredBy: who.user, answeredAt: this.now() }) });
+    }
     l.people.add(who.user);
-    for (const id of new Set(open.map((q) => q.batch.id))) if (row.batches[id]?.state !== "sent") await this.sendBatch(appId, who, id);
+    const all = questionsFrom(appId, l.y.read());
+    for (const id of new Set(open.map((q) => q.batch.id))) if (row.batches[id]?.state !== "sent" && batchProgress(all, id).complete) await this.sendBatch(appId, who, id);
   }
 
   /** The batch is answered: its answers start the agent's next turn. Nothing waits in memory, so a restart loses nothing. */

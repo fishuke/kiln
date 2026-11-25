@@ -117,6 +117,29 @@ export function delegatedAnswer(spec: QuestionSpec): QuestionAnswer {
   }
 }
 
+/** "Accept all recommended": the answer a question recommends, or undefined when it recommends none (an open question). */
+export function recommendedAnswer(spec: QuestionSpec): QuestionAnswer | undefined {
+  switch (spec.kind) {
+    case "single":
+    case "sketch": {
+      const r = spec.options.find((o) => o.recommended);
+      return r ? { type: "value", value: r.id } : undefined;
+    }
+    case "multi": {
+      const r = spec.options.filter((o) => o.recommended).map((o) => o.id);
+      return r.length ? { type: "value", value: r } : undefined;
+    }
+    case "boolean":
+      return spec.recommended === undefined ? undefined : { type: "value", value: spec.recommended };
+    case "scale":
+      return spec.default === undefined ? undefined : { type: "value", value: spec.default };
+    case "rank":
+      return undefined;
+    case "text":
+      return spec.suggestion ? { type: "value", value: spec.suggestion } : undefined;
+  }
+}
+
 /** At most this many questions of one `ask` are open on screen; a larger batch becomes a stepper. */
 export const MAX_QUESTIONS_ON_SCREEN = 3;
 

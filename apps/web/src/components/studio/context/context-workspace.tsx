@@ -478,7 +478,7 @@ export function ContextWorkspace({ client, context: ctx, appId }: { client: Stud
             setTab("context");
             requestAnimationFrame(() => focusNextQuestion());
           }}
-          onContinue={() => void act(() => ctx.continueQuestions(appId), "Going on with what is answered")}
+          onContinue={(how) => void act(() => ctx.continueQuestions(appId, how), how === "recommended" ? "Accepting the recommended answers" : "The agent decides the rest")}
           onBuild={build}
         />
         {ready ? composer : <Skeleton className="h-24 rounded-xl" />}

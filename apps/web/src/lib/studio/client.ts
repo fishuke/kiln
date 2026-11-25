@@ -101,8 +101,8 @@ export interface StudioContextClient {
   answer(appId: string, questionId: string, answer: QuestionAnswer): Promise<{ proposal?: Proposal }>;
   /** "Change answer": opens an answered question again. */
   reopen(appId: string, questionId: string): Promise<void>;
-  /** `POST /questions/continue`: go on with what is answered; the agent assumes the rest. */
-  continueQuestions(appId: string): Promise<void>;
+  /** `POST /questions/continue`: answer every open question at once. `assume` ("Decide all for me"): the agent assumes the rest. `recommended` ("Accept all recommended"): each recommended option becomes the answer; open-ended questions stay open. */
+  continueQuestions(appId: string, how?: "assume" | "recommended"): Promise<void>;
   /** `POST /context/draft`: an empty Context with a past (code, earlier chats) gets drafted by the agent. Once per App. */
   draft(appId: string): Promise<{ started: boolean }>;
   /** Build prototype / Update prototype: build from the Context as it is now. */

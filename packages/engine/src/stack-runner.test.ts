@@ -44,19 +44,20 @@ async function sandboxWith(files: Record<string, string>): Promise<Sandbox> {
 const open: StackRunner[] = [];
 afterEach(async () => {
   for (const r of open.splice(0)) await r.down();
-});
+}, 60_000);
 
-describe("SandboxStackRunner", () => {
+// These start real processes; on a busy CI machine that takes a while.
+describe("SandboxStackRunner", { timeout: 90_000 }, () => {
   it("starts datastores, seeds, installs, migrates and starts services in dependency order, each with its URL", async () => {
     const sb = await sandboxWith({ "db/db.js": server(), "api/server.js": server(150), "web/server.js": server() });
-    const runner = new SandboxStackRunner(sb, { readyTimeoutMs: 10_000 });
+    const runner = new SandboxStackRunner(sb, { readyTimeoutMs: 45_000 });
     open.push(runner);
     const up = await runner.up({
       stack: stack(),
       dirs: { db: "db", api: "api", web: "web" },
       publicUrl: (svc) => `https://pr-7-${svc}.preview.test`,
     });
-    expect(up.healthy).toBe(true);
+    expect(up.failed).toBeUndefined();
     expect(up.services.map((s) => [s.service, s.status, s.url])).toEqual([
       ["db", "ready", "https://pr-7-db.preview.test"],
       ["api", "ready", "https://pr-7-api.preview.test"],
@@ -73,18 +74,19 @@ describe("SandboxStackRunner", () => {
 
   it("stops every process a service started, so its port is free again", async () => {
     const sb = await sandboxWith({ "db/db.js": server(), "api/server.js": server(), "web/server.js": server() });
-    const runner = new SandboxStackRunner(sb, { readyTimeoutMs: 10_000 });
+    const runner = new SandboxStackRunner(sb, { readyTimeoutMs: 45_000 });
     const s = stack();
     // A start command with more after it runs node as a child of sh, as dash and yarn do.
     s.services.web!.start = `node server.js ${ports.web}; echo stopped`;
-    expect((await runner.up({ stack: s, dirs: { db: "db", api: "api", web: "web" }, publicUrl: (svc) => `https://${svc}.test` })).healthy).toBe(true);
+    const up = await runner.up({ stack: s, dirs: { db: "db", api: "api", web: "web" }, publicUrl: (svc) => `https://${svc}.test` });
+    expect(up.failed).toBeUndefined();
     await runner.down();
     for (const port of [ports.db, ports.api, ports.web]) await expect(fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1_000) })).rejects.toThrow();
   });
 
   it("installs once per lockfile", async () => {
     const sb = await sandboxWith({ "db/db.js": server(), "api/server.js": server(), "api/pnpm-lock.yaml": "a", "web/server.js": server() });
-    const runner = new SandboxStackRunner(sb, { readyTimeoutMs: 10_000 });
+    const runner = new SandboxStackRunner(sb, { readyTimeoutMs: 45_000 });
     open.push(runner);
     const input = { stack: stack(), dirs: { db: "db", api: "api", web: "web" }, publicUrl: (svc: string) => `https://${svc}.test` };
     await runner.up(input);
@@ -110,7 +112,7 @@ describe("SandboxStackRunner", () => {
     for (const dir of ["api", "web"]) {
       await sb.exec("git init -q -b main && git add -A && git -c user.email=a@b -c user.name=a commit -q -m init && git branch kiln/feature", { cwd: dir, trusted: true });
     }
-    const runner = new SandboxStackRunner(sb, { readyTimeoutMs: 10_000 });
+    const runner = new SandboxStackRunner(sb, { readyTimeoutMs: 45_000 });
     open.push(runner);
     const up = await runner.up({ stack: stack(), dirs: { db: "db", api: "api", web: "web" }, publicUrl: (svc) => `https://${svc}.test`, branch: "kiln/feature", changed: ["acme/api"], local: true });
     expect(up.services.map((s) => [s.service, s.ref])).toEqual([

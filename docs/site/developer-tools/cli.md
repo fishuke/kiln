@@ -41,6 +41,8 @@ Factory (needs KILN_URL and KILN_TOKEN)
   kiln upload <file...> [--factory <id>]                              Upload attachments; prints their keys
   kiln create-factory --name <n> --repo owner/name [--repo …] [--slack] [--tracker linear|jira] [--preset quality|efficient] [--dry-run]
   kiln files validate [path]                                          Validate a tree with the server's parser (no token needed)
+kiln stack up <factory> [--branch <b>] [--changed owner/name]       Boot the factory's stack: one preview URL per service
+kiln stack ls <factory> | logs <stack> <service> | down <stack>     Stack previews
   kiln inbox [--all]                                                  Decisions waiting on you
   kiln decide <gate> approve|reject|answer [text]                     Decide a gate
   kiln replay <run> [--with <sha>]                                    Replay a run, optionally under another definition

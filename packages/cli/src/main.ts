@@ -51,6 +51,8 @@ Factory (needs KILN_URL and KILN_TOKEN)
   kiln upload <file...> [--factory <id>]                              Upload attachments; prints their keys
   kiln create-factory --name <n> --repo owner/name [--repo …] [--slack] [--tracker linear|jira] [--preset quality|efficient] [--dry-run]
   kiln files validate [path]                                          Validate a tree with the server's parser (no token needed)
+kiln stack up <factory> [--branch <b>] [--changed owner/name]       Boot the factory's stack: one preview URL per service
+kiln stack ls <factory> | logs <stack> <service> | down <stack>     Stack previews
   kiln inbox [--all]                                                  Decisions waiting on you
   kiln decide <gate> approve|reject|answer [text]                     Decide a gate
   kiln replay <run> [--with <sha>]                                    Replay a run, optionally under another definition
@@ -106,6 +108,8 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
       subject: { type: "string" },
       grants: { type: "string" },
       json: { type: "boolean" },
+      branch: { type: "string" },
+      changed: { type: "string", multiple: true },
       state: { type: "string" },
       source: { type: "string" },
       stage: { type: "string" },
@@ -374,6 +378,43 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
         process.once("SIGTERM", stop);
         await worker.start();
         return 0;
+      }
+      case "stack": {
+        type Svc = { service: string; surface?: string; url?: string; status: string; reason?: string; ref?: string };
+        type Preview = { id: string; state: string; healthy: boolean; services: Svc[]; failed?: { service: string; reason: string; log: string[] } };
+        const [sub, arg, svc] = positionals;
+        const api = client(io);
+        const show = (p: Preview) => {
+          io.out(table([["SERVICE", "SURFACE", "STATUS", "BRANCH", "URL"], ...p.services.map((s) => [s.service, s.surface ?? "", s.status, s.ref ?? "", s.url ?? ""])]));
+          if (p.failed) io.err(`${p.failed.service} failed: ${p.failed.reason}${p.failed.log.length ? `\n${p.failed.log.slice(-20).join("\n")}` : ""}`);
+        };
+        if (sub === "up") {
+          if (!arg) throw new Error("usage: kiln stack up <factory> [--branch <branch>] [--changed owner/name ...]");
+          const changed = (values.changed as string[] | undefined) ?? [];
+          const p = await api.request<Preview>("POST", `/api/v1/factories/${encodeURIComponent(arg)}/stacks`, { ...(str("branch") ? { branch: str("branch") } : {}), ...(changed.length ? { changed } : {}) });
+          io.out(`${p.id}: ${p.healthy ? "running" : "failed"}`);
+          show(p);
+          return p.healthy ? 0 : 1;
+        }
+        if (sub === "ls") {
+          if (!arg) throw new Error("usage: kiln stack ls <factory>");
+          const { stacks } = await api.request<{ stacks: Preview[] }>("GET", `/api/v1/factories/${encodeURIComponent(arg)}/stacks`);
+          io.out(table([["STACK", "STATE", "SERVICES"], ...stacks.map((p) => [p.id, p.state, String(p.services.length)])]));
+          return 0;
+        }
+        if (sub === "logs") {
+          if (!arg || !svc) throw new Error("usage: kiln stack logs <stack> <service>");
+          const { lines } = await api.request<{ lines: string[] }>("GET", `/api/v1/stacks/${encodeURIComponent(arg)}/services/${encodeURIComponent(svc)}/logs`);
+          for (const l of lines) io.out(l);
+          return 0;
+        }
+        if (sub === "down") {
+          if (!arg) throw new Error("usage: kiln stack down <stack>");
+          await api.request("DELETE", `/api/v1/stacks/${encodeURIComponent(arg)}`);
+          io.out(`${arg}: destroyed`);
+          return 0;
+        }
+        throw new Error("usage: kiln stack up|ls|logs|down");
       }
       case "inbox": {
         const items = await client(io).inbox({ all: Boolean(values.all) });

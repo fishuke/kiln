@@ -18,6 +18,7 @@ import * as measure from "./measure";
 import * as mergeGate from "./merge-gate";
 import * as reviews from "./reviews";
 import * as runs from "./runs";
+import * as stacks from "./stacks";
 import * as scorers from "./scorers";
 import * as studio from "./studio";
 import { secretRoutes } from "./secrets";
@@ -56,6 +57,7 @@ export const MODULES = [
   studioDefinitions,
   mergeGate,
   voice,
+  stacks,
 ];
 const PLATFORM: ((ctx: RouteContext) => void)[] = [
   authRoutes,

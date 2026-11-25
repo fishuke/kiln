@@ -25,7 +25,7 @@ import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "v
 import { createApp } from "./app";
 import { ROUTES } from "./openapi";
 import { configureStudio, routes as studioRoutes, studioFor } from "./routes/studio";
-import { getPreviewResolver } from "./routes/studio-preview";
+import { previewResolverFor } from "./routes/studio-preview";
 
 const kilns: object[] = [];
 
@@ -115,7 +115,7 @@ describe("Studio API", () => {
     vi.stubEnv("KILN_STUDIO", "");
     const { app, kiln } = setup();
     expect(studioFor(kiln)).toBeUndefined();
-    expect(getPreviewResolver(kiln)).toBeUndefined();
+    expect(previewResolverFor(kiln, "")).toBeUndefined();
     const res = await app.request("/api/v1/studio/apps");
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ error: "Studio is not enabled on this server (KILN_STUDIO=1)" });
@@ -350,7 +350,7 @@ describe("Studio API", () => {
 
   it("registers the preview resolver and lists its routes in the API reference", () => {
     const { kiln } = setup();
-    expect(getPreviewResolver(kiln)).toBe(studioFor(kiln));
+    expect(previewResolverFor(kiln, "")).toBe(studioFor(kiln));
     expect(ROUTES.filter((r) => r.path.startsWith("/api/v1/studio/")).length).toBeGreaterThanOrEqual(18);
   });
 });

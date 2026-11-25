@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { StackPreviews } from "./stack-previews";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -224,6 +225,8 @@ export class Kiln {
   readonly workers: WorkerRegistry;
   readonly inbox: InboxService;
   readonly mergeGate: MergeGateService;
+  /** Stack previews (ADR-020): a factory's whole stack in one sandbox. */
+  readonly stacks: StackPreviews;
   readonly editor: DefinitionEditor;
   readonly definitionChanges: DefinitionChangeService;
   readonly factoryMetrics: FactoryMetricsService;
@@ -282,6 +285,7 @@ export class Kiln {
     this.runs = new RunService(this);
     this.gates = new GateService(this);
     this.workflow = new Workflow(this);
+    this.stacks = new StackPreviews(this);
     this.automations = new AutomationService(this);
     this.scoring = new ScoringService(this);
     this.improvement = new ImprovementService(this);

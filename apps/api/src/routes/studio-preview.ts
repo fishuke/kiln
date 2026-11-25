@@ -28,6 +28,10 @@ export function addPreviewResolver(kiln: object, prefix: string, resolver: Previ
   map.set(prefix, resolver);
   resolvers.set(kiln, map);
 }
+/** The resolver registered for one prefix ("" is Studio's). */
+export function previewResolverFor(kiln: object, prefix: string): PreviewResolver | undefined {
+  return resolvers.get(kiln)?.get(prefix);
+}
 export function getPreviewResolver(kiln: object): PreviewResolver | undefined {
   const map = resolvers.get(kiln);
   if (!map?.size) return undefined;

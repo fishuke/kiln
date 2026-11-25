@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FakePullRequestSource } from "./backtest";
+import { KilnClient } from "@kiln/sdk-ts";
 import { runCli, type CliIO } from "./main";
 
 function io() {
@@ -105,5 +106,20 @@ describe("kiln CLI", () => {
     const t = io();
     expect(await runCli(["nope"], t.io)).toBe(1);
     expect(t.err[0]).toContain("unknown command nope");
+  });
+
+  it("stack up boots a factory's stack and prints one URL per service", async () => {
+    const t = io();
+    const seen: { method: string; url: string; body?: string }[] = [];
+    const fake = (async (url: string, init: RequestInit) => {
+      seen.push({ method: String(init.method), url, body: init.body as string | undefined });
+      return new Response(JSON.stringify({ id: "st_abc", state: "running", healthy: true, services: [{ service: "api", status: "ready", ref: "kiln/x", url: "https://st-abc-api.p.test" }, { service: "web", surface: "Customer site", status: "ready", ref: "main", url: "https://st-abc-web.p.test" }] }), { status: 201, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    t.io.client = new KilnClient({ baseUrl: "http://kiln.test", fetch: fake });
+    expect(await runCli(["stack", "up", "saba", "--branch", "kiln/x", "--changed", "acme/api"], t.io)).toBe(0);
+    expect(seen[0]).toMatchObject({ method: "POST", url: "http://kiln.test/api/v1/factories/saba/stacks" });
+    expect(JSON.parse(seen[0]!.body!)).toEqual({ branch: "kiln/x", changed: ["acme/api"] });
+    expect(t.out.join("\n")).toContain("https://st-abc-web.p.test");
+    expect(t.out.join("\n")).toContain("Customer site");
   });
 });

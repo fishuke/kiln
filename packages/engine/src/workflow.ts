@@ -342,6 +342,7 @@ export class Workflow {
     if (!wi || !isActive(wi.state)) return wi;
     for (const g of this.k.gates.list({ workItemId: id, state: "open" })) this.k.store.put(C.gates, { ...g, state: "expired", decidedBy: by });
     this.k.audit(by, "work_item.cancelled", id);
+    void this.k.stacks.destroyFor(id).catch(() => undefined);
     return this.move(wi, "cancelled", `cancelled by ${by}`);
   }
 
@@ -1515,6 +1516,7 @@ export class Workflow {
     for (const g of this.k.gates.list({ workItemId: id, state: "open" })) {
       this.k.store.put(C.gates, { ...g, state: "approved", decidedBy: completion.by === "merge" ? "forge:merge" : g.decidedBy, decidedAt: this.k.clock.now().toISOString() });
     }
+    void this.k.stacks.destroyFor(id).catch(() => undefined);
     await this.moveTrackerIssue(next, "done");
     await this.k.notify(next, `Done: ${next.pr?.url ?? next.title} is ${completion.by === "merge" ? "merged" : "confirmed complete"}.`);
     return next;

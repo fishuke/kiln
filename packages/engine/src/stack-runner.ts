@@ -46,7 +46,10 @@ export interface StackRunner {
 
 const LOG_LINES = 200;
 
-type Running = { proc: Proc; log: string[]; exited?: number };
+type Running = { proc: Proc; log: string[]; exited?: number; pidFile: string };
+
+/** Stops a process and everything it started (a dev server under `yarn`, `pnpm` or `sh` is a tree). */
+const KILL_TREE = 'kt() { for c in $(pgrep -P "$1" 2>/dev/null); do kt "$c"; done; kill -TERM "$1" 2>/dev/null; }; [ -f "$F" ] && kt "$(cat "$F")"; rm -f "$F"';
 
 export class SandboxStackRunner implements StackRunner {
   private readonly running = new Map<string, Running>();
@@ -62,9 +65,15 @@ export class SandboxStackRunner implements StackRunner {
   }
 
   async down(): Promise<void> {
-    for (const [, r] of this.running) r.proc.kill();
-    await Promise.all([...this.running.values()].map((r) => r.proc.exit.catch(() => undefined)));
+    const all = [...this.running.values()];
     this.running.clear();
+    for (const r of all) await this.stop(r);
+  }
+
+  private async stop(r: Running) {
+    await this.sandbox.exec(KILL_TREE, { trusted: true, env: { F: r.pidFile } }).catch(() => undefined);
+    r.proc.kill();
+    await Promise.race([r.proc.exit.catch(() => undefined), new Promise((res) => setTimeout(res, 5_000))]);
   }
 
   async up(input: StackUpInput): Promise<StackUp> {
@@ -127,9 +136,11 @@ export class SandboxStackRunner implements StackRunner {
       }
       // 4. Start and wait.
       if (s.start) {
-        this.running.get(service)?.proc.kill();
-        const proc = this.sandbox.spawn("sh", ["-c", `exec 2>&1\n${s.start}`], { cwd: dir, env });
-        const r: Running = { proc, log: [] };
+        const before = this.running.get(service);
+        if (before) await this.stop(before);
+        const pidFile = `${this.sandbox.workdir}/.kiln-stack-${service}.pid`;
+        const proc = this.sandbox.spawn("sh", ["-c", `exec 2>&1\necho $$ > ${pidFile}\n${s.start}`], { cwd: dir, env });
+        const r: Running = { proc, log: [], pidFile };
         this.running.set(service, r);
         void (async () => {
           for await (const line of proc.lines) push(r.log, line);

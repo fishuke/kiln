@@ -8,10 +8,16 @@ import { FakeStackRunner, SandboxStackRunner, type StackRunner } from "./stack-r
 const server = (delayMs = 0) =>
   `setTimeout(() => require("node:http").createServer((q, s) => { s.setHeader("content-type", "application/json"); s.end(JSON.stringify({ env: process.env, url: q.url })); }).listen(Number(process.argv[2]), () => console.log("listening on " + process.argv[2])), ${delayMs});\n`;
 
-const base = 42000 + Math.floor(Math.random() * 2000);
-const ports = { db: base, api: base + 1, web: base + 2 };
+// Every stack gets ports of its own, so a test never reaches another test's servers.
+let next = 42000 + Math.floor(Math.random() * 1000) * 3;
+let ports = { db: 0, api: 0, web: 0 };
 
-const stack = () =>
+const stack = () => {
+  ports = { db: next, api: next + 1, web: next + 2 };
+  next += 3;
+  return stackAt();
+};
+const stackAt = () =>
   Stack.parse({
     name: "shop",
     services: {
@@ -63,6 +69,17 @@ describe("SandboxStackRunner", () => {
     expect(res.env.NEXT_PUBLIC_API_URL).toBe("https://pr-7-api.preview.test");
     expect(res.env.API_URL).toBe(`http://localhost:${ports.api}`);
     expect(runner.logs("web").join("\n")).toContain(`listening on ${ports.web}`);
+  });
+
+  it("stops every process a service started, so its port is free again", async () => {
+    const sb = await sandboxWith({ "db/db.js": server(), "api/server.js": server(), "web/server.js": server() });
+    const runner = new SandboxStackRunner(sb, { readyTimeoutMs: 10_000 });
+    const s = stack();
+    // A start command with more after it runs node as a child of sh, as dash and yarn do.
+    s.services.web!.start = `node server.js ${ports.web}; echo stopped`;
+    expect((await runner.up({ stack: s, dirs: { db: "db", api: "api", web: "web" }, publicUrl: (svc) => `https://${svc}.test` })).healthy).toBe(true);
+    await runner.down();
+    for (const port of [ports.db, ports.api, ports.web]) await expect(fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1_000) })).rejects.toThrow();
   });
 
   it("installs once per lockfile", async () => {
